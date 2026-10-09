@@ -1,0 +1,270 @@
+{
+  "ok": true,
+  "authority": "rust",
+  "runId": "4df84f1f-43d2-4af8-98e8-24f80fb4f239",
+  "seed": 1511506142,
+  "configRevision": 1,
+  "configHash": "sha256:bda54a57f3f9c06a9765f628228a03f5a2b89152fced4bcd8796c5a1bd2284b0",
+  "startupCheckpointId": "352456c3f26431bff122ee53c6a4a279c5041d0ce202809062749be4cd2caa18",
+  "calculationWorkers": 6,
+  "lifecycle": "running",
+  "loopState": "ready",
+  "worldEpoch": "0000000000000003",
+  "generation": "0000000000000004",
+  "completedStep": "0000000000002b12",
+  "generationCheckpointPublished": false,
+  "generationPersistenceAcknowledged": false,
+  "pendingExternalDeliveries": "0000000000000000",
+  "schedulerCompletedSteps": "0000000000001d01",
+  "schedulerDroppedWallMicros": "0000000000000000",
+  "schedulerOverloaded": false,
+  "commandServiceBoundaries": "0000000000007a2d",
+  "coordinatorWorkBytes": "000000002ad104a1",
+  "processedCommands": "000000000000889e",
+  "stepTimingSamples": "0000000000001d01",
+  "stepTimingTotalMicros": "0000000003d87077",
+  "stepTimingMaxMicros": "000000000007c958",
+  "stepTimingP95Micros": "0000000000002ee0",
+  "stepTimingP99Micros": "0000000000003e80",
+  "slowStepSamples": "000000000000002a",
+  "slowStepControlMicros": "0000000000071f19",
+  "slowStepControlIndexMicros": "00000000000057bc",
+  "slowStepControlNeuralMicros": "0000000000063099",
+  "slowStepControlSensingMicros": "0000000000015cbf",
+  "slowStepControlInferenceMicros": "000000000004d1ec",
+  "slowStepWorldMicros": "000000000004c001",
+  "slowStepOtherMicros": "0000000000047a68",
+  "nativeBuildIdentifier": "slither_native/0.1.0+14bce5f5f89a.d817a018981e7e22",
+  "telemetry": {
+    "uptimeSeconds": 126.173285707,
+    "authoritativeSteps": 7425,
+    "simulatedSeconds": 123.75,
+    "simulatedWallRatio": 0.9807939874639758,
+    "step": {
+      "samples": 7425,
+      "meanMs": 8.689052525252526,
+      "p95Ms": 12,
+      "p99Ms": 16,
+      "maxMs": 510.296,
+      "percentilesAreUpperBounds": true
+    },
+    "process": {
+      "rssBytes": 220127232,
+      "heapUsedBytes": 17501432,
+      "externalBytes": 8702058,
+      "maxRssBytes": 347062272,
+      "eventLoopDelayMeanMs": 10.130102945238479,
+      "eventLoopDelayP95Ms": 10.829823,
+      "eventLoopDelayP99Ms": 11.182079,
+      "eventLoopDelayMaxMs": 19.283967
+    },
+    "frame": {
+      "latestBytes": 74912,
+      "maximumObservedBytes": 76136
+    },
+    "checkpointBarrier": {
+      "samples": 2,
+      "meanMs": 717.0504355000012,
+      "p95Ms": 1000,
+      "maxMs": 719.0505940000003
+    },
+    "playerAction": {
+      "samples": 2930,
+      "meanMs": 2.5746699068259966,
+      "p95Ms": 16,
+      "maxMs": 41.669814999986556
+    },
+    "trainerAction": {
+      "samples": 13847,
+      "meanMs": 0.5123543651332151,
+      "p95Ms": 0.5,
+      "maxMs": 52.49661800000467
+    },
+    "controllerLifecycle": {
+      "samples": 3,
+      "meanMs": 4.995905000000373,
+      "p95Ms": 8,
+      "maxMs": 7.142959000000246
+    },
+    "controllerActivity": {
+      "player": {
+        "freshAssignments": 1,
+        "successfulReclaims": 0,
+        "appliedActions": 2930,
+        "appliedDisconnects": 0
+      },
+      "trainer": {
+        "freshAssignments": 2,
+        "successfulReclaims": 0,
+        "appliedActions": 13847,
+        "appliedDisconnects": 0
+      }
+    }
+  },
+  "nativeQueues": {
+    "inbound": {
+      "batches": "0000000000000000",
+      "commands": "0000000000000000",
+      "ownedBytes": "0000000000000000",
+      "highWaterBatches": "000000000000003d",
+      "highWaterCommands": "000000000000003d",
+      "highWaterOwnedBytes": "0000000000000397",
+      "maxBatches": "0000000000000040",
+      "maxCommands": "0000000000000040",
+      "maxOwnedBytes": "0000000000400000",
+      "maxBatchCommands": "0000000000000001",
+      "maxBatchOwnedBytes": "0000000000100000",
+      "rejections": "0000000000000000",
+      "faultDiscardedCommands": "0000000000000000"
+    },
+    "output": {
+      "reliable": "0000000000000002",
+      "reliableOwnedBytes": "0000000000000260",
+      "discrete": "0000000000000000",
+      "discreteOwnedBytes": "0000000000000000",
+      "frames": "0000000000000000",
+      "hasStats": false,
+      "ownedBytes": "0000000000000260",
+      "highWaterCount": "0000000000000021",
+      "highWaterOwnedBytes": "0000000000002de8",
+      "maxReliable": "0000000000000020",
+      "highWaterReliable": "0000000000000020",
+      "highWaterReliableOwnedBytes": "0000000000002d80",
+      "highWaterDiscrete": "0000000000000000",
+      "highWaterDiscreteOwnedBytes": "0000000000000000",
+      "highWaterFrames": "0000000000000000",
+      "highWaterFrameOwnedBytes": "0000000000000000",
+      "highWaterStats": "0000000000000001",
+      "highWaterStatsOwnedBytes": "0000000000000068",
+      "maxReliableOwnedBytes": "0000000001000000",
+      "maxDiscrete": "0000000000000004",
+      "maxDiscreteOwnedBytes": "0000000000100000",
+      "maxFrames": "0000000000000004",
+      "maxOwnedBytes": "0000000002000000",
+      "maxEventOwnedBytes": "0000000000100000",
+      "capacityWaits": "0000000000000016",
+      "priorityOverflows": "0000000000000000",
+      "hasReservedFault": false,
+      "statsReplacements": "0000000000000000",
+      "frameReplacements": "0000000000000000",
+      "staleStats": "0000000000000000",
+      "staleFrames": "0000000000000000",
+      "statsRejections": "0000000000000000",
+      "frameRejections": "0000000000000000",
+      "statsEvictions": "0000000000000000",
+      "frameEvictions": "0000000000000000"
+    }
+  },
+  "outbound": {
+    "connections": 3,
+    "reliableQueuedMessages": 0,
+    "reliableQueuedBytes": 0,
+    "pendingFrames": 0,
+    "replacedFrames": 0,
+    "reliableFailures": 0,
+    "highWaterReliableMessagesPerConnection": 34,
+    "highWaterReliableBytesPerConnection": 78827,
+    "maxReliableMessagesPerConnection": 1024,
+    "maxReliableBytesPerConnection": 4194304,
+    "maxConnections": 64
+  },
+  "archiveWork": null,
+  "retention": {
+    "schemaVersion": 1,
+    "activeRunId": "4df84f1f-43d2-4af8-98e8-24f80fb4f239",
+    "automaticByteCap": "0000000100000000",
+    "automaticStoredByteCount": "0000000011eade00",
+    "protectedAutomaticStoredByteCount": "000000000908e600",
+    "pinnedStoredByteCount": "0000000000000000",
+    "retained": {
+      "latest": {
+        "checkpointCount": 1,
+        "storedByteCount": "0000000004715000",
+        "decodedByteCount": "0000000005491492",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 1,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 1
+        }
+      },
+      "recent": {
+        "checkpointCount": 3,
+        "storedByteCount": "000000000d532800",
+        "decodedByteCount": "000000000fdb3dcc",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 3,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 3
+        }
+      },
+      "milestone": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      },
+      "priorRunAnchor": {
+        "checkpointCount": 1,
+        "storedByteCount": "0000000000266600",
+        "decodedByteCount": "00000000002d6e2c",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 1,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 1
+        }
+      },
+      "pinned": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "plannedPrune": {
+      "checkpointCount": 0,
+      "storedByteCount": "0000000000000000",
+      "decodedByteCount": "0000000000000000",
+      "encodings": {
+        "rawWeights": 0,
+        "shuffledZstdWeights": 0,
+        "rawRecurrent": 0,
+        "shuffledZstdRecurrent": 0
+      }
+    }
+  },
+  "retentionCleanup": {
+    "deletedCheckpointCount": 0,
+    "deletedStoredByteCount": "0000000000000000"
+  },
+  "storage": {
+    "schemaVersion": 1,
+    "sqlite": {
+      "databaseBytes": "151552",
+      "walBytes": "0",
+      "shmBytes": "32768",
+      "pageSizeBytes": "4096",
+      "pageCount": "37",
+      "freelistPageCount": "0",
+      "usedPageBytes": "151552"
+    },
+    "managed": {
+      "temporaryBytes": "0",
+      "temporaryQuotaBytes": "9663676416",
+      "freeBytes": "173430337536",
+      "operatingReserveBytes": "1073741824"
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "scope": "Read-only Node inspector memory of main and existing worker isolates; diagnostic run only",
+  "capturedAtUtc": "2026-09-30T17:13:47.419Z",
+  "main": {
+    "threadId": 0,
+    "memory": {
+      "rss": 222363648,
+      "heapTotal": 56684544,
+      "heapUsed": 21484216,
+      "external": 8730157,
+      "arrayBuffers": 4836926
+    },
+    "v8": {
+      "total_heap_size": 56684544,
+      "total_heap_size_executable": 2883584,
+      "total_physical_size": 50491392,
+      "total_available_size": 4474700848,
+      "used_heap_size": 21554920,
+      "heap_size_limit": 4496293888,
+      "malloced_memory": 286792,
+      "peak_malloced_memory": 18513008,
+      "does_zap_garbage": 0,
+      "number_of_native_contexts": 1,
+      "number_of_detached_contexts": 0,
+      "total_global_handles_size": 40960,
+      "used_global_handles_size": 12736,
+      "external_memory": 8750585
+    }
+  },
+  "workers": [
+    {
+      "info": {
+        "workerId": "1",
+        "type": "worker",
+        "title": "[worker 1] WorkerThread",
+        "url": "file:///srv/opt/apps/slither_neuroevo/data/codex-memory-profile-255999c/server/rustEngine/checkpointPersistenceWorker.ts"
+      },
+      "threadId": 1,
+      "memory": {
+        "rss": 222363648,
+        "heapTotal": 15986688,
+        "heapUsed": 14430848,
+        "external": 5797471,
+        "arrayBuffers": 2122383
+      },
+      "v8": {
+        "total_heap_size": 15986688,
+        "total_heap_size_executable": 1310720,
+        "total_physical_size": 15212544,
+        "total_available_size": 4482791008,
+        "used_heap_size": 14505120,
+        "heap_size_limit": 4496293888,
+        "malloced_memory": 286792,
+        "peak_malloced_memory": 9226544,
+        "does_zap_garbage": 0,
+        "number_of_native_contexts": 1,
+        "number_of_detached_contexts": 0,
+        "total_global_handles_size": 147456,
+        "used_global_handles_size": 122464,
+        "external_memory": 5815699
+      }
+    }
+  ]
+}

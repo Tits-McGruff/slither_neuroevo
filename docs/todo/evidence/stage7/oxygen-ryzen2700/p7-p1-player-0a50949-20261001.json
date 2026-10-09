@@ -1,0 +1,359 @@
+{
+  "startedAtUtc": "2026-09-30T18:56:48.845Z",
+  "requestedSeconds": 1830,
+  "clientScope": "Programmatic player; measures received frames and reconnects, not browser rendering.",
+  "connections": 27,
+  "frames": 23096,
+  "frameBytes": 1852385904,
+  "actions": 23462,
+  "assignments": 68,
+  "reclaimed": 26,
+  "reclaimResults": 26,
+  "failedReclaims": 0,
+  "errors": [],
+  "reconnects": [
+    {
+      "wallSeconds": 0.041596518000000006,
+      "reclaimed": false,
+      "snakeId": 1926
+    },
+    {
+      "wallSeconds": 0.6507830790000001,
+      "reclaimed": false,
+      "snakeId": 1927
+    },
+    {
+      "wallSeconds": 5.567855043000001,
+      "reclaimed": false,
+      "snakeId": 1929
+    },
+    {
+      "wallSeconds": 30.168867134,
+      "reclaimed": true,
+      "snakeId": 1929
+    },
+    {
+      "wallSeconds": 54.711007091,
+      "reclaimed": false,
+      "snakeId": 2268
+    },
+    {
+      "wallSeconds": 60.287032053,
+      "reclaimed": true,
+      "snakeId": 2268
+    },
+    {
+      "wallSeconds": 65.638023705,
+      "reclaimed": false,
+      "snakeId": 2274
+    },
+    {
+      "wallSeconds": 88.619799086,
+      "reclaimed": false,
+      "snakeId": 2283
+    },
+    {
+      "wallSeconds": 90.405510926,
+      "reclaimed": true,
+      "snakeId": 2283
+    },
+    {
+      "wallSeconds": 115.151491682,
+      "reclaimed": false,
+      "snakeId": 2611
+    },
+    {
+      "wallSeconds": 120.529750599,
+      "reclaimed": true,
+      "snakeId": 2611
+    },
+    {
+      "wallSeconds": 150.144491469,
+      "reclaimed": true,
+      "snakeId": 2611
+    },
+    {
+      "wallSeconds": 175.655590744,
+      "reclaimed": false,
+      "snakeId": 2943
+    },
+    {
+      "wallSeconds": 176.236537861,
+      "reclaimed": false,
+      "snakeId": 2946
+    },
+    {
+      "wallSeconds": 179.797042147,
+      "reclaimed": false,
+      "snakeId": 2948
+    },
+    {
+      "wallSeconds": 179.964360675,
+      "reclaimed": false,
+      "snakeId": 2950
+    },
+    {
+      "wallSeconds": 180.26614297700002,
+      "reclaimed": true,
+      "snakeId": 2950
+    },
+    {
+      "wallSeconds": 189.895931655,
+      "reclaimed": false,
+      "snakeId": 2953
+    },
+    {
+      "wallSeconds": 193.412958527,
+      "reclaimed": false,
+      "snakeId": 2955
+    },
+    {
+      "wallSeconds": 210.394175273,
+      "reclaimed": true,
+      "snakeId": 2955
+    },
+    {
+      "wallSeconds": 233.727822094,
+      "reclaimed": false,
+      "snakeId": 2975
+    },
+    {
+      "wallSeconds": 236.110151987,
+      "reclaimed": false,
+      "snakeId": 3290
+    },
+    {
+      "wallSeconds": 240.519429388,
+      "reclaimed": true,
+      "snakeId": 3290
+    },
+    {
+      "wallSeconds": 270.13550756300003,
+      "reclaimed": true,
+      "snakeId": 3290
+    },
+    {
+      "wallSeconds": 296.557707023,
+      "reclaimed": false,
+      "snakeId": 3623
+    },
+    {
+      "wallSeconds": 297.02362658699997,
+      "reclaimed": false,
+      "snakeId": 3626
+    },
+    {
+      "wallSeconds": 300.268424689,
+      "reclaimed": true,
+      "snakeId": 3626
+    },
+    {
+      "wallSeconds": 301.002267415,
+      "reclaimed": false,
+      "snakeId": 3627
+    },
+    {
+      "wallSeconds": 301.568390712,
+      "reclaimed": false,
+      "snakeId": 3628
+    },
+    {
+      "wallSeconds": 301.718317346,
+      "reclaimed": false,
+      "snakeId": 3629
+    },
+    {
+      "wallSeconds": 330.397858132,
+      "reclaimed": true,
+      "snakeId": 3629
+    },
+    {
+      "wallSeconds": 357.02310050200003,
+      "reclaimed": false,
+      "snakeId": 3961
+    },
+    {
+      "wallSeconds": 360.516831127,
+      "reclaimed": true,
+      "snakeId": 3961
+    },
+    {
+      "wallSeconds": 390.148311719,
+      "reclaimed": true,
+      "snakeId": 3961
+    },
+    {
+      "wallSeconds": 407.414386535,
+      "reclaimed": false,
+      "snakeId": 3983
+    },
+    {
+      "wallSeconds": 417.496781694,
+      "reclaimed": false,
+      "snakeId": 4297
+    },
+    {
+      "wallSeconds": 418.212093668,
+      "reclaimed": false,
+      "snakeId": 4300
+    },
+    {
+      "wallSeconds": 420.275517331,
+      "reclaimed": true,
+      "snakeId": 4300
+    },
+    {
+      "wallSeconds": 424.62329621,
+      "reclaimed": false,
+      "snakeId": 4302
+    },
+    {
+      "wallSeconds": 450.39119789399996,
+      "reclaimed": true,
+      "snakeId": 4302
+    },
+    {
+      "wallSeconds": 457.621539583,
+      "reclaimed": false,
+      "snakeId": 4316
+    },
+    {
+      "wallSeconds": 477.981046467,
+      "reclaimed": false,
+      "snakeId": 4633
+    },
+    {
+      "wallSeconds": 480.51173191600003,
+      "reclaimed": true,
+      "snakeId": 4633
+    },
+    {
+      "wallSeconds": 509.422022126,
+      "reclaimed": false,
+      "snakeId": 4650
+    },
+    {
+      "wallSeconds": 510.138314184,
+      "reclaimed": true,
+      "snakeId": 4650
+    },
+    {
+      "wallSeconds": 511.173067834,
+      "reclaimed": false,
+      "snakeId": 4652
+    },
+    {
+      "wallSeconds": 538.480649644,
+      "reclaimed": false,
+      "snakeId": 4976
+    },
+    {
+      "wallSeconds": 540.260035798,
+      "reclaimed": true,
+      "snakeId": 4976
+    },
+    {
+      "wallSeconds": 541.109560021,
+      "reclaimed": false,
+      "snakeId": 4980
+    },
+    {
+      "wallSeconds": 544.541825559,
+      "reclaimed": false,
+      "snakeId": 4981
+    },
+    {
+      "wallSeconds": 570.378051296,
+      "reclaimed": true,
+      "snakeId": 4981
+    },
+    {
+      "wallSeconds": 574.5401354039999,
+      "reclaimed": false,
+      "snakeId": 4992
+    },
+    {
+      "wallSeconds": 598.954779078,
+      "reclaimed": false,
+      "snakeId": 5309
+    },
+    {
+      "wallSeconds": 600.5024815070001,
+      "reclaimed": true,
+      "snakeId": 5309
+    },
+    {
+      "wallSeconds": 604.050701388,
+      "reclaimed": false,
+      "snakeId": 5313
+    },
+    {
+      "wallSeconds": 608.6633522129999,
+      "reclaimed": false,
+      "snakeId": 5315
+    },
+    {
+      "wallSeconds": 630.128414161,
+      "reclaimed": true,
+      "snakeId": 5315
+    },
+    {
+      "wallSeconds": 659.467818017,
+      "reclaimed": false,
+      "snakeId": 5652
+    },
+    {
+      "wallSeconds": 660.2551293079999,
+      "reclaimed": true,
+      "snakeId": 5652
+    },
+    {
+      "wallSeconds": 686.114205921,
+      "reclaimed": false,
+      "snakeId": 5667
+    },
+    {
+      "wallSeconds": 690.367949182,
+      "reclaimed": true,
+      "snakeId": 5667
+    },
+    {
+      "wallSeconds": 719.991289324,
+      "reclaimed": false,
+      "snakeId": 5988
+    },
+    {
+      "wallSeconds": 720.091116242,
+      "reclaimed": false,
+      "snakeId": 5991
+    },
+    {
+      "wallSeconds": 720.490111468,
+      "reclaimed": true,
+      "snakeId": 5991
+    },
+    {
+      "wallSeconds": 750.114998866,
+      "reclaimed": true,
+      "snakeId": 5991
+    },
+    {
+      "wallSeconds": 750.699006736,
+      "reclaimed": false,
+      "snakeId": 6004
+    },
+    {
+      "wallSeconds": 757.033056249,
+      "reclaimed": false,
+      "snakeId": 6007
+    },
+    {
+      "wallSeconds": 780.516273201,
+      "reclaimed": true,
+      "snakeId": 6323
+    }
+  ],
+  "wallSeconds": 780.517794489,
+  "passed": false,
+  "failure": "Error: reclaim did not preserve the snake and rotate its token"
+}

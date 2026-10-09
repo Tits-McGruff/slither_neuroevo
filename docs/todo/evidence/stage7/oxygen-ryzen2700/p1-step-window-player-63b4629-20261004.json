@@ -1,0 +1,26 @@
+{
+  "sourceRevision": "63b46297d00cc19be0aaa2fd99ca710b54613258",
+  "scope": "Bounded programmatic frame/action load, no browser rendering or thirty-minute soak claim.",
+  "endpoint": "ws://192.168.0.200:5180",
+  "frames": 20918,
+  "frameBytes": 1674454112,
+  "actions": 19257,
+  "assignments": 32,
+  "generations": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+  ],
+  "errors": [],
+  "completedByExplicitStop": true,
+  "wallSeconds": 680.5518778999999
+}

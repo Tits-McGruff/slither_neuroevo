@@ -1,0 +1,237 @@
+{
+  "schema": "slither-stage4-rust-control-pipeline-benchmark",
+  "version": 1,
+  "evidenceClass": "new measured development-machine combined Rust sensing/inference result",
+  "caveat": "Source-shaped deterministic synthetic combined control-boundary benchmark. It includes complete index construction, corrected delivered sensor observations, differently weighted stateful population inference, and atomic recurrent/delivery commit. It is not an owner save, movement/collision/game step, controller selection, frame, Node bridge, browser, RL client, generation, sustained run, bounded persistent-worker result, or production-cutover result.",
+  "source": {
+    "nativeBuildIdentifier": "slither_native/0.1.0+9c38b487d07c.b1382942e08bf5c6",
+    "nativeSourceSha256": "1ffbbeabeb6d133402b34e99f21615b26c216f184fe43bb2ba453e0d1282a772",
+    "nativeBuildContractSha256": "sha256:c3a4f4596f6912c344aef8e74e8341b56aad986a1c1164f1a893644902f683e7",
+    "targetTriple": "x86_64-pc-windows-msvc",
+    "rustcVersion": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+    "buildProfile": "release",
+    "buildClass": "test-hooks"
+  },
+  "environment": {
+    "capturedAtEpochMs": 1786608745058,
+    "declaration": "development",
+    "operatingSystem": "windows",
+    "architecture": "x86_64",
+    "hostname": "BERYLLIUM",
+    "availableParallelism": 16,
+    "distributionId": null,
+    "cpuModel": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+    "totalMemoryBytes": null,
+    "ownerTargetVmValidated": false,
+    "fixtureRssBytes": null,
+    "processPeakRssBytes": null,
+    "finalRssBytes": null
+  },
+  "workload": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic world and genomes",
+    "scenario": "P1",
+    "description": "300 due differently weighted evolved brains, 10 baseline snakes, five-point bodies, 3,500 pellets, corrected v3/16-bin sensing, 83-64-64 MLP, GRU-16 and Dense-2",
+    "evolvedPopulation": 300,
+    "baselineSnakes": 10,
+    "totalLiveSnakes": 310,
+    "dueNeuralBrains": 300,
+    "bodyPointsPerSnake": 5,
+    "pellets": 3500,
+    "sensorBins": 16,
+    "sensorInputSize": 83,
+    "parametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "worldSha256": "ca86fa3d7ef6506c4d5f88b82859bdcaccc8db56acabe19f67cfc6ce63dd04e6",
+    "weightsSha256": "c1ece367f7325124d15aedbb4a7c3278917e998b968bf2250d75d7f39a7d8abe",
+    "initialRecurrentSha256": "66fb75db79fa96b2cde2be9de6601d3f83eeaac3844c4f9104b5215f3ffe1131",
+    "uniqueWeightBlocks": 300,
+    "uniqueInitialRecurrentBlocks": 300,
+    "warmupPasses": 20,
+    "measuredPasses": 120,
+    "actualFreshOrEvolvedWorld": false,
+    "actualCorrectedSensorObservations": true,
+    "actualDistinctGenomes": true,
+    "actualStatefulRecurrentCommit": true,
+    "actualCompleteWorldStep": false
+  },
+  "path": {
+    "owner": "Rust",
+    "mathBackend": "rust-sse2-v1",
+    "calculationWorkers": 1,
+    "napiCallsPerBoundary": 0,
+    "graphTraversalOwner": "Rust",
+    "distinctWeightsPerBrain": true,
+    "stagedAtomicStateCommit": true,
+    "focusedActivationCaptureEnabled": false
+  },
+  "memory": {
+    "packedWeightBytes": 16149600,
+    "authoritativeRecurrentBytes": 19200,
+    "pipelineStagingBytes": 243404,
+    "bodyIndexEstimatedBytes": 180600,
+    "pelletIndexEstimatedBytes": 389088,
+    "pipelineCapacityAfterWarmup": {
+      "observations": 24900,
+      "outputs": 600,
+      "recurrent": 4800,
+      "captureOutput": 2,
+      "captureRecurrent": 16,
+      "deliveries": 300,
+      "diagnostics": 300,
+      "calculationWorkspaceBytes": 78132
+    },
+    "pipelineCapacityAfterMeasurement": {
+      "observations": 24900,
+      "outputs": 600,
+      "recurrent": 4800,
+      "captureOutput": 2,
+      "captureRecurrent": 16,
+      "deliveries": 300,
+      "diagnostics": 300,
+      "calculationWorkspaceBytes": 78132
+    },
+    "sensorScratchAfterWarmup": {
+      "foodBinCapacity": 16,
+      "hazardBinCapacity": 16,
+      "headBinCapacity": 16,
+      "bodyDuplicateMarkerCapacity": 1240,
+      "bodyCandidateCapacity": 2200,
+      "pelletCandidateCapacity": 900
+    },
+    "sensorScratchAfterMeasurement": {
+      "foodBinCapacity": 16,
+      "hazardBinCapacity": 16,
+      "headBinCapacity": 16,
+      "bodyDuplicateMarkerCapacity": 1240,
+      "bodyCandidateCapacity": 2200,
+      "pelletCandidateCapacity": 900
+    },
+    "capacitiesStableAfterWarmup": true
+  },
+  "result": {
+    "completeControlBoundaryMs": {
+      "count": 120,
+      "min": 12.5563,
+      "p50": 12.9338,
+      "p95": 13.416504999999999,
+      "p99": 15.397340000000005,
+      "max": 15.911600000000002,
+      "mean": 13.032979999999997
+    },
+    "indexBuildMs": {
+      "count": 120,
+      "min": 0.2499,
+      "p50": 0.25680000000000003,
+      "p95": 0.2920149999999999,
+      "p99": 0.340074,
+      "max": 0.4041,
+      "mean": 0.262205
+    },
+    "sensingAndInferenceMs": {
+      "count": 120,
+      "min": 12.2876,
+      "p50": 12.652849999999999,
+      "p95": 13.14332,
+      "p99": 15.030603000000003,
+      "max": 15.641100000000002,
+      "mean": 12.760680833333332
+    },
+    "recurrentAndDeliveryCommitMs": {
+      "count": 120,
+      "min": 0.0063,
+      "p50": 0.0070999999999999995,
+      "p95": 0.009000000000000001,
+      "p99": 0.011586000000000003,
+      "max": 0.013699999999999999,
+      "mean": 0.007390833333333334
+    },
+    "allocatorOperationsPerCompleteBoundary": {
+      "count": 120,
+      "min": 8,
+      "max": 8,
+      "mean": 8.0,
+      "nonzeroPasses": 120
+    },
+    "allocatorOperationsPerIndexBuild": {
+      "count": 120,
+      "min": 8,
+      "max": 8,
+      "mean": 8.0,
+      "nonzeroPasses": 120
+    },
+    "allocatorOperationsPerSensingAndInference": {
+      "count": 120,
+      "min": 0,
+      "max": 0,
+      "mean": 0.0,
+      "nonzeroPasses": 0
+    },
+    "allocatorOperationsPerCommit": {
+      "count": 120,
+      "min": 0,
+      "max": 0,
+      "mean": 0.0,
+      "nonzeroPasses": 0
+    },
+    "cpu": {
+      "source": "Windows GetProcessTimes",
+      "wallSeconds": 1.5640334999999999,
+      "processCpuSeconds": 1.546875,
+      "averageOneCoreUtilizationPercent": 98.9029327057253
+    },
+    "bodyIndex": {
+      "segments": 1240,
+      "entries": 1406,
+      "occupiedCells": 476,
+      "lookupCells": 5625,
+      "estimatedBytes": 180600,
+      "maximumEntries": 100000
+    },
+    "pelletIndex": {
+      "pellets": 3500,
+      "occupiedCells": 2374,
+      "lookupCells": 3136,
+      "estimatedBytes": 389088,
+      "maximumEntries": 25000
+    },
+    "proofSensorWork": {
+      "samples": 300,
+      "pelletCellsVisited": 132300,
+      "pelletEntriesVisited": 183912,
+      "pelletChecks": 135026,
+      "pelletCandidatesRetained": 135026,
+      "pelletCapHits": 0,
+      "bodyCellsVisited": 81926,
+      "bodyEntriesVisited": 23590,
+      "segmentChecks": 13118,
+      "bodyCandidatesRetained": 13118,
+      "segmentCapHits": 0,
+      "conservativeBodySaturations": 0,
+      "headChecks": 92700,
+      "targetsOutsideWorld": 0
+    },
+    "proofObservationsSha256": "3392ef913c65951fc531b279b3d7f37078ab23eaa3cf95f623f68fba91e589ab",
+    "proofOutputsSha256": "954f86812e557d28f752702903d3a925ba537e5641152e1ecb07e3896e9d8bae",
+    "finalRecurrentSha256": "11bbfa12878054ab8769d978e29886d0c5a24f6684bf07b866b5b7b6df8f7a51",
+    "distinctProofOutputPairs": 300,
+    "antiOptimizationOutputAccumulatorIncludingProof": -1258.4469891253393,
+    "proofDeliveryBoundariesChanged": 300,
+    "everyDueDeliveryBoundaryCommitted": true
+  },
+  "command": [
+    "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\native\\target\\release\\stage4-control-benchmark.exe",
+    "--scenario",
+    "P1",
+    "--warmup-passes",
+    "20",
+    "--passes",
+    "120",
+    "--environment",
+    "development",
+    "--output",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-control-9c38b48-windows\\p1.json"
+  ]
+}

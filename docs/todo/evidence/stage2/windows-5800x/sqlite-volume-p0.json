@@ -1,0 +1,126 @@
+{
+  "schema": "slither-stage2-sqlite-byte-volume",
+  "version": 1,
+  "evidenceClass": "new measured result",
+  "caveat": "Disposable byte-volume experiment only. It is not a checkpoint schema, reader, backup, pruning, recovery, export, or competing production persistence implementation.",
+  "source": {
+    "commit": "341c191f06165e1646aeb4c83a5950b01edd9a79",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-28T16:59:55.252Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "node": "v24.12.0",
+    "sqlite": "3.49.2"
+  },
+  "fixture": {
+    "payloadBytes": 2527124,
+    "payloadSha256": "c343bb68f1084ce61232a8d410bc5490f46906dacef085d4570ead8502909fb1",
+    "chunkBytes": 1048576,
+    "expectedChunks": 3,
+    "contentNote": "deterministic high-entropy bytes representing an already-compressed payload volume"
+  },
+  "result": {
+    "baseline": {
+      "databaseBytes": 8192,
+      "walBytes": 0,
+      "shmBytes": 32768,
+      "pageCount": 2,
+      "freelistCount": 0
+    },
+    "insert": {
+      "operationMs": 12.5149,
+      "timerDelayMs": 13.0523,
+      "rows": 3,
+      "afterCommit": {
+        "databaseBytes": 8192,
+        "walBytes": 2550312,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 0
+      },
+      "walToPayloadRatio": 1.00917565,
+      "checkpointMs": 7.5981,
+      "checkpointTimerDelayMs": 8.7301,
+      "afterCheckpoint": {
+        "databaseBytes": 2535424,
+        "walBytes": 0,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 0
+      }
+    },
+    "read": {
+      "operationMs": 3.3346,
+      "timerDelayMs": 3.4779,
+      "bytes": 2527124,
+      "rows": 3,
+      "sha256": "c343bb68f1084ce61232a8d410bc5490f46906dacef085d4570ead8502909fb1",
+      "bitExact": true
+    },
+    "deletion": {
+      "operationMs": 4.0002,
+      "timerDelayMs": 4.0466,
+      "changedRows": 3,
+      "afterCommit": {
+        "databaseBytes": 2535424,
+        "walBytes": 12392,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 617
+      },
+      "checkpointMs": 2.397,
+      "checkpointTimerDelayMs": 2.4542,
+      "afterCheckpoint": {
+        "databaseBytes": 2535424,
+        "walBytes": 0,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 617
+      }
+    },
+    "pageReuse": {
+      "operationMs": 11.7539,
+      "timerDelayMs": 11.7999,
+      "rows": 3,
+      "afterCommit": {
+        "databaseBytes": 2535424,
+        "walBytes": 2550312,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 0
+      },
+      "checkpointMs": 6.334,
+      "checkpointTimerDelayMs": 6.3809,
+      "afterCheckpoint": {
+        "databaseBytes": 2535424,
+        "walBytes": 0,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 0
+      },
+      "addedMainPagesVersusFirstInsert": 0
+    },
+    "vacuum": {
+      "before": {
+        "databaseBytes": 2535424,
+        "walBytes": 0,
+        "shmBytes": 32768,
+        "pageCount": 619,
+        "freelistCount": 617
+      },
+      "operationMs": 4.2303,
+      "timerDelayMs": 4.2719,
+      "after": {
+        "databaseBytes": 8192,
+        "walBytes": 0,
+        "shmBytes": 32768,
+        "pageCount": 2,
+        "freelistCount": 0
+      }
+    }
+  }
+}

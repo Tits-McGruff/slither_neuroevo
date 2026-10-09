@@ -1,0 +1,87 @@
+{
+  "schema": "stage5-typescript-death-fixtures-v1",
+  "evidenceClass": "current-source execution",
+  "sourceRevision": "b2d9648",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "purpose": "formula, RNG, and ordering reference; not performance evidence"
+  },
+  "source": {
+    "death": "src/snake.ts::Snake.die",
+    "configuration": "src/config.ts::CFG_DEFAULT.death",
+    "extractor": "scripts/stage5/generate-death-fixtures.ts",
+    "runner": "node ./node_modules/tsx/dist/cli.mjs scripts/stage5/generate-death-fixtures.ts"
+  },
+  "input": {
+    "rngSeed": 388821,
+    "rngBeforeDeath": {
+      "algorithm": "xorshift32",
+      "version": 1,
+      "stateHex": "0x25e2bbed",
+      "gaussianAlgorithm": "box-muller-polar",
+      "gaussianVersion": 1,
+      "gaussianSpareValid": false,
+      "gaussianSpareHex": null
+    },
+    "snakeId": 7,
+    "body": [
+      [0, 0],
+      [-7.5, 1.25],
+      [-15, 0],
+      [-22.5, 1.25],
+      [-30, 0],
+      [-37.5, 1.25],
+      [-45, 0],
+      [-52.5, 1.25],
+      [-60, 0],
+      [-67.5, 1.25],
+      [-75, 0],
+      [-82.5, 1.25]
+    ]
+  },
+  "output": {
+    "alive": false,
+    "baselineNotifications": 1,
+    "rngAfterDeath": {
+      "algorithm": "xorshift32",
+      "version": 1,
+      "stateHex": "0x78aa3ba5",
+      "gaussianAlgorithm": "box-muller-polar",
+      "gaussianVersion": 1,
+      "gaussianSpareValid": false,
+      "gaussianSpareHex": null
+    },
+    "pellets": [
+      {
+        "position": [3.7043982185423374, 2.57913351804018],
+        "value": 2.6677111503202466,
+        "kind": "corpse_big",
+        "colorId": 7
+      },
+      {
+        "position": [-75.60867307335138, 8.878263261169195],
+        "value": 3.0139878390356896,
+        "kind": "corpse_big",
+        "colorId": 7
+      },
+      {
+        "position": [6.539477038197219, 12.556274109520018],
+        "value": 0.9609815296716988,
+        "kind": "corpse_small",
+        "colorId": 7
+      },
+      {
+        "position": [-42.59541824180633, 0.4477313784882426],
+        "value": 0.9449886957183481,
+        "kind": "corpse_small",
+        "colorId": 7
+      }
+    ]
+  },
+  "interpretation": {
+    "preserve": "mass fraction, pellet counts and placement, value jitter, position jitter, stable per-owner RNG draw order, and one invocation of the optional death callback; this fixture does not assign baseline identity",
+    "correct": "the Rust transaction preflights all effects and applies simultaneous deaths in stable snake-ID order instead of mutating during container traversal; Rust integration tests baseline-only event semantics",
+    "notPerformanceEvidence": true
+  }
+}

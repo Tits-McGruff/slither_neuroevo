@@ -1,0 +1,31 @@
+{
+  "name": "slither-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "x86_64 N-API neural inference kernels for Slither Neuroevolution",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "ISC",
+  "files": [
+    "index.d.ts",
+    "index.js",
+    "slither-native.*.node"
+  ],
+  "napi": {
+    "binaryName": "slither-native",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "x86_64-unknown-linux-gnu"
+    ]
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.2.0"
+  }
+}

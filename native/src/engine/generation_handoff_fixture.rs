@@ -1,0 +1,1456 @@
+//! Test-hook-only retained generation persistence and authority handoff.
+//!
+//! The fixture owns one real terminal [`RunningStepCoordinator`] transition,
+//! its unchanged source authority, and a same-run run-start checkpoint. It is
+//! deliberately absent from production builds and exposes only bounded scalar
+//! records needed by the cross-language integration test.
+
+use super::checkpoint::{
+    publish_checkpoint, CheckpointDescriptor, CheckpointLimits, CheckpointOperationId,
+    HallOfFameWeightsDescriptor,
+};
+use super::contract::{EngineInit, InboundLimits, OutputLimits, ENGINE_CONTRACT_VERSION};
+use super::generation::GenerationCommitRecord;
+use super::graph::{GraphBundle, GraphLimits};
+use super::inference::InferenceMathBackend;
+use super::inference_fixture::{graph_limits, scenario_graph, Stage4InferenceScenarioName};
+use super::rng::labelled_stream;
+use super::running_loop::{
+    RunningAuthorityDeliveryState, RunningAuthorityLoop, RunningAuthorityLoopProgress,
+};
+use super::running_step::{
+    ExternalDeliveryEventKind, ExternalDeliveryResult, ExternalObservationEvent,
+    GenerationReassignmentProgress,
+};
+use super::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
+use super::state::{
+    estimate_state_memory, normalized_config_hash, normalized_settings_schema_hash, AllocatorState,
+    AuthoritativeState, AuthorityPhase, BodyRange, BrainHandle, BrainOwner, BrainRuntimeState,
+    ContractVersions, ControllerKind, ControllerLease, ControllerLeaseStatus,
+    FixedStepContinuationState, GenerationBoundaryKind, GenerationStartPublication,
+    GenerationState, GenomeLineage, LatestControllerAction, NormalizedEngineConfig,
+    NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity, SnakeKind, SnakeState,
+    StateAdmissionPolicy, StateCandidate, WorldPoint, WorldState, ALLOCATOR_VERSION,
+    BASELINE_ENTITY_ID_START, CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
+    GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION,
+    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, SENSOR_VERSION, SERIALIZER_VERSION,
+};
+use super::step_config::{fixture_default_settings, RunningStepWorkLimits};
+use std::path::Path;
+use std::sync::Arc;
+
+/// Stable run identity shared by the run-start and terminal-generation files.
+const FIXTURE_RUN_ID: &str = "55555555-6666-4777-8888-999999999999";
+/// One evolved genome keeps the retained integration session small.
+const FIXTURE_POPULATION_COUNT: usize = 1;
+/// Connected socket epoch used by the required reassignment event.
+const FIXTURE_CONNECTION_ID: u64 = 7;
+/// Stable controller lease identity used by the terminal source world.
+const FIXTURE_LEASE_ID: u64 = 1;
+/// Duration threshold deliberately crossed by the first complete fixed step.
+const FIXTURE_GENERATION_SECONDS: f64 = 8.0;
+/// Deterministic wall boundary used by the direct retained-session fixture.
+const FIXTURE_TERMINAL_WALL_MS: u64 = 500;
+/// Monotonic boundary sampled after the fixture's persistence/assignment wait.
+const FIXTURE_RESUME_WALL_MS: u64 = 1_000;
+
+/// Generation descriptor plus exact Rust-constructed SQLite metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PublishedGenerationHandoff {
+    /// Immutable checkpoint descriptor produced by the retained coordinator.
+    pub descriptor: CheckpointDescriptor,
+    /// Independently retained elite object produced by the same Rust operation.
+    pub hall_of_fame_weights: HallOfFameWeightsDescriptor,
+    /// Exact summary and elite reference derived during Rust admission.
+    pub commit_record: GenerationCommitRecord,
+}
+
+/// One retained reliable controller assignment exposed to the thin bridge.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GenerationHandoffAssignment {
+    /// Exact source operation epoch.
+    pub operation_epoch: u64,
+    /// Monotonic external event sequence.
+    pub event_sequence: u64,
+    /// Connected socket epoch.
+    pub connection_id: u64,
+    /// Controller assignment epoch.
+    pub lease_id: u64,
+    /// Fresh successor snake identity.
+    pub snake_id: u64,
+    /// Fresh opaque resume token generated once by Rust.
+    pub resume_token: String,
+}
+
+/// Bounded read-only state proving when the final authority changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GenerationHandoffSnapshot {
+    /// Current authoritative world epoch.
+    pub world_epoch: u64,
+    /// Current authoritative generation.
+    pub generation: u64,
+    /// Current authoritative completed-step count.
+    pub completed_step: u64,
+    /// Whether one admitted successor remains pending.
+    pub transition_pending: bool,
+    /// Whether its immutable checkpoint descriptor has published.
+    pub checkpoint_published: bool,
+    /// Whether the exact durable descriptor acknowledgement was retained.
+    pub persistence_acknowledged: bool,
+    /// Number of physical immutable-generation publications, excluding retries.
+    pub generation_checkpoint_publications: u32,
+    /// Number of final old-to-new authority swaps.
+    pub authority_publications: u32,
+}
+
+/// Feature-gated owner of one real terminal transition across N-API calls.
+#[derive(Debug)]
+pub struct GenerationHandoffFixtureSession {
+    run_start: GenerationHandoffRunStartFixture,
+    running: RunningAuthorityLoop,
+    pending_assignment: Option<ExternalObservationEvent>,
+    generation_checkpoint_publications: u32,
+    authority_publications: u32,
+}
+
+/// Same-run run-start boundary retained separately from background authority.
+#[derive(Debug)]
+pub struct GenerationHandoffRunStartFixture {
+    run_start: AuthoritativeState,
+    policy: StateAdmissionPolicy,
+    checkpoint_limits: CheckpointLimits,
+    graph_limits: GraphLimits,
+}
+
+impl GenerationHandoffRunStartFixture {
+    /// Publish the generation-one step-zero checkpoint through the real codec.
+    pub fn publish_checkpoint(
+        &self,
+        managed_directory: &Path,
+        operation_id: CheckpointOperationId,
+        transition_epoch: u64,
+    ) -> Result<CheckpointDescriptor, String> {
+        let boundary = self
+            .run_start
+            .checkpoint_boundary()
+            .map_err(|error| format!("generation handoff run-start boundary failed: {error}"))?;
+        publish_checkpoint(
+            managed_directory,
+            operation_id,
+            transition_epoch,
+            boundary,
+            &self.checkpoint_limits,
+            &self.graph_limits,
+            &self.policy,
+        )
+        .map_err(|error| format!("generation handoff run-start publication failed: {error}"))
+    }
+}
+
+/// Unserviced retained loop plus its independent same-run run-start publisher.
+#[derive(Debug)]
+pub struct BackgroundGenerationHandoffFixture {
+    /// Run-start checkpoint source used to establish the worker's current pointer.
+    pub run_start: GenerationHandoffRunStartFixture,
+    /// Ready loop that the real background runtime must own and advance.
+    pub running: RunningAuthorityLoop,
+}
+
+impl GenerationHandoffFixtureSession {
+    /// Construct and execute one real terminal fixed step while retaining old authority.
+    pub fn new() -> Result<Self, String> {
+        let BackgroundGenerationHandoffFixture {
+            run_start,
+            mut running,
+        } = background_generation_handoff_fixture()?;
+        let terminal_wall_ms = FIXTURE_TERMINAL_WALL_MS;
+        match running
+            .service_after_command_drain(0, SchedulerServiceMode::Background, None)
+            .map_err(|error| format!("generation handoff origin service failed: {error}"))?
+        {
+            RunningAuthorityLoopProgress::Idle { .. } => {}
+            other => {
+                return Err(format!(
+                    "generation handoff fixture expected an idle origin, got {other:?}"
+                ));
+            }
+        }
+        match running
+            .service_after_command_drain(terminal_wall_ms, SchedulerServiceMode::Background, None)
+            .map_err(|error| format!("generation handoff terminal step failed: {error}"))?
+        {
+            RunningAuthorityLoopProgress::GenerationTransitionPending { .. } => {}
+            other => {
+                return Err(format!(
+                    "generation handoff fixture expected a terminal transition, got {other:?}"
+                ));
+            }
+        }
+        Ok(Self {
+            run_start,
+            running,
+            pending_assignment: None,
+            generation_checkpoint_publications: 0,
+            authority_publications: 0,
+        })
+    }
+
+    /// Construct the fixed fixture components without servicing the scheduler.
+    fn build_unserviced(
+        customize_source: impl FnOnce(&mut StateCandidate),
+    ) -> Result<BackgroundGenerationHandoffFixture, String> {
+        if env!("SLITHER_NATIVE_BUILD_CLASS") != "test-hooks" {
+            return Err("generation handoff fixture requires a test-hooks native build".to_owned());
+        }
+        let graph_limits = graph_limits();
+        let graph = Arc::new(
+            GraphBundle::compile(
+                scenario_graph(Stage4InferenceScenarioName::P0),
+                &graph_limits,
+            )
+            .map_err(|error| format!("generation handoff graph failed: {error}"))?,
+        );
+        let (run_start_candidate, policy) = fixture_run_start(&graph)?;
+        let mut running_candidate = run_start_candidate.clone();
+        make_terminal_running_candidate(&mut running_candidate, graph.compiled())?;
+        customize_source(&mut running_candidate);
+        let run_start =
+            AuthoritativeState::validate_and_own(run_start_candidate, Arc::clone(&graph), &policy)
+                .map_err(|error| {
+                    format!("generation handoff run start failed admission: {error}")
+                })?;
+        let authority =
+            AuthoritativeState::validate_and_own(running_candidate, Arc::clone(&graph), &policy)
+                .map_err(|error| {
+                    format!("generation handoff running state failed admission: {error}")
+                })?;
+        let checkpoint_limits = fixture_checkpoint_limits();
+        let work_limits = RunningStepWorkLimits::provisional_defaults();
+        let prepared = RunningAuthorityLoop::prepare(
+            &authority,
+            work_limits,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+            0,
+            &checkpoint_limits,
+            &graph_limits,
+        )
+        .map_err(|error| format!("generation handoff retained loop failed: {error}"))?;
+        Ok(BackgroundGenerationHandoffFixture {
+            run_start: GenerationHandoffRunStartFixture {
+                run_start,
+                policy,
+                checkpoint_limits,
+                graph_limits,
+            },
+            running: RunningAuthorityLoop::from_prepared(authority, prepared),
+        })
+    }
+
+    /// Publish the same-run generation-one step-zero checkpoint through the production codec.
+    pub fn publish_run_start_checkpoint(
+        &self,
+        managed_directory: &Path,
+        operation_id: CheckpointOperationId,
+        transition_epoch: u64,
+    ) -> Result<CheckpointDescriptor, String> {
+        self.run_start
+            .publish_checkpoint(managed_directory, operation_id, transition_epoch)
+    }
+
+    /// Publish or exactly retry the retained generation checkpoint and Rust metadata.
+    pub fn publish_generation_checkpoint(
+        &mut self,
+        managed_directory: &Path,
+        operation_id: CheckpointOperationId,
+    ) -> Result<PublishedGenerationHandoff, String> {
+        let was_published = self
+            .running
+            .pending_generation_transition()
+            .and_then(|transition| transition.checkpoint_descriptor())
+            .is_some();
+        let publication = self
+            .running
+            .publish_pending_generation_checkpoint(managed_directory, operation_id)
+            .map_err(|error| {
+                format!("generation handoff checkpoint publication failed: {error}")
+            })?;
+        if !was_published {
+            self.generation_checkpoint_publications = self
+                .generation_checkpoint_publications
+                .checked_add(1)
+                .ok_or_else(|| "generation checkpoint publication count overflowed".to_owned())?;
+        }
+        Ok(PublishedGenerationHandoff {
+            descriptor: publication.descriptor,
+            hall_of_fame_weights: publication.hall_of_fame_weights,
+            commit_record: publication.commit_record,
+        })
+    }
+
+    /// Apply one complete worker-echoed descriptor to the real coordinator barrier.
+    pub fn acknowledge_generation_persistence(
+        &mut self,
+        descriptor: &CheckpointDescriptor,
+    ) -> Result<(), String> {
+        self.running
+            .acknowledge_pending_generation_persistence(descriptor)
+            .map_err(|error| format!("generation handoff acknowledgement failed: {error}"))
+    }
+
+    /// Stage or reborrow the one required connected-controller assignment.
+    pub fn prepare_generation_assignment(&mut self) -> Result<GenerationHandoffAssignment, String> {
+        let batch = match self
+            .running
+            .prepare_acknowledged_generation_reassignments()
+            .map_err(|error| format!("generation handoff assignment preparation failed: {error}"))?
+        {
+            GenerationReassignmentProgress::DeliveryPending(batch) => batch,
+            GenerationReassignmentProgress::Ready(_) => {
+                return Err(
+                    "generation handoff fixture unexpectedly required no delivery".to_owned(),
+                );
+            }
+        };
+        if batch.events().len() != 1 || batch.remaining() != 1 {
+            return Err("generation handoff fixture expected one pending assignment".to_owned());
+        }
+        let event = batch.events()[0];
+        if !matches!(
+            event.delivery_kind,
+            ExternalDeliveryEventKind::ReplacementAssignment { .. }
+        ) || event.controller_kind != ControllerKind::Player
+        {
+            return Err("generation handoff fixture emitted the wrong event kind".to_owned());
+        }
+        let resume_token = batch
+            .resume_token(0)
+            .ok_or_else(|| "generation assignment omitted its resume token".to_owned())?
+            .to_owned();
+        self.pending_assignment = Some(event);
+        Ok(GenerationHandoffAssignment {
+            operation_epoch: event.step_key.operation_epoch(),
+            event_sequence: event.event_sequence,
+            connection_id: event.connection_id,
+            lease_id: event.lease_id,
+            snake_id: event.snake_id,
+            resume_token,
+        })
+    }
+
+    /// Resolve the exact retained assignment using Node's local-send outcome.
+    pub fn submit_generation_assignment(
+        &mut self,
+        operation_epoch: u64,
+        event_sequence: u64,
+        connection_id: u64,
+        lease_id: u64,
+        accepted: bool,
+    ) -> Result<(), String> {
+        let event = self
+            .pending_assignment
+            .ok_or_else(|| "generation assignment has not been prepared".to_owned())?;
+        if operation_epoch != event.step_key.operation_epoch()
+            || event_sequence != event.event_sequence
+            || connection_id != event.connection_id
+            || lease_id != event.lease_id
+        {
+            return Err(
+                "generation assignment result does not match the retained event".to_owned(),
+            );
+        }
+        let resolution = self
+            .running
+            .submit_external_delivery_results(
+                &[ExternalDeliveryResult {
+                    step_key: event.step_key,
+                    event_sequence,
+                    connection_id,
+                    lease_id,
+                    accepted,
+                }],
+                None,
+            )
+            .map_err(|error| format!("generation assignment result failed: {error}"))?;
+        if resolution.matched_acceptances != usize::from(accepted)
+            || resolution.matched_failures != usize::from(!accepted)
+            || resolution.ignored_results != 0
+            || !matches!(
+                resolution.state,
+                RunningAuthorityDeliveryState::GenerationAssignmentsReady { .. }
+            )
+        {
+            return Err("generation assignment result did not resolve exactly once".to_owned());
+        }
+        Ok(())
+    }
+
+    /// Perform the one final authority swap after persistence and delivery barriers.
+    pub fn publish_generation_start(&mut self) -> Result<GenerationStartPublication, String> {
+        let publication = self
+            .running
+            .publish_acknowledged_generation_start(FIXTURE_RESUME_WALL_MS, None)
+            .map_err(|error| format!("generation handoff final publication failed: {error}"))?;
+        self.authority_publications = self
+            .authority_publications
+            .checked_add(1)
+            .ok_or_else(|| "generation authority publication count overflowed".to_owned())?;
+        Ok(publication.publication)
+    }
+
+    /// Inspect only bounded scalar proof of the current authority and barrier.
+    #[must_use]
+    pub fn snapshot(&self) -> GenerationHandoffSnapshot {
+        let transition = self.running.pending_generation_transition();
+        GenerationHandoffSnapshot {
+            world_epoch: self.running.world_epoch(),
+            generation: self.running.generation(),
+            completed_step: self.running.completed_step(),
+            transition_pending: transition.is_some(),
+            checkpoint_published: transition
+                .and_then(|pending| pending.checkpoint_descriptor())
+                .is_some(),
+            persistence_acknowledged: transition
+                .is_some_and(|pending| pending.persistence_acknowledged()),
+            generation_checkpoint_publications: self.generation_checkpoint_publications,
+            authority_publications: self.authority_publications,
+        }
+    }
+}
+
+/// Build the one real generation fixture without servicing its scheduler.
+pub fn background_generation_handoff_fixture() -> Result<BackgroundGenerationHandoffFixture, String>
+{
+    GenerationHandoffFixtureSession::build_unserviced(|_| {})
+}
+
+/// Retain one disconnected old token for final-output capacity regression tests.
+#[cfg(test)]
+pub(crate) fn background_generation_handoff_disconnected_fixture(
+) -> Result<BackgroundGenerationHandoffFixture, String> {
+    GenerationHandoffFixtureSession::build_unserviced(|candidate| {
+        let lease = &mut candidate.world.controller_leases[0];
+        lease.connection_id = None;
+        lease.status = ControllerLeaseStatus::HoldingLastInput;
+        lease.disconnected_at_ms = Some(0);
+        lease.input_hold_expires_at_ms = Some(500);
+        lease.grace_expires_at_ms = Some(30_000);
+        // Exercise a real dynamically sized record beyond the fixed scalar header.
+        lease.resume_token = "old-token-with-large-reserved-output-".repeat(128);
+        let snake = candidate
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == lease.snake_id)
+            .expect("fixture controller must retain its source snake");
+        snake.turn = lease.latest_action.turn;
+        snake.input_boost = lease.latest_action.boost;
+    })
+}
+
+/// Queue ceilings for the worker-backed background handoff integration path.
+#[must_use]
+pub const fn background_generation_handoff_runtime_init() -> EngineInit {
+    EngineInit {
+        contract_version: ENGINE_CONTRACT_VERSION,
+        inbound: InboundLimits {
+            max_batches: 16,
+            max_commands: 16,
+            max_owned_bytes: 2 * 1024 * 1024,
+            max_batch_commands: 1,
+            max_batch_owned_bytes: 1024 * 1024,
+        },
+        output: OutputLimits {
+            max_reliable: 32,
+            max_reliable_owned_bytes: 16 * 1024 * 1024,
+            max_discrete: 4,
+            max_discrete_owned_bytes: 1024 * 1024,
+            max_total_owned_bytes: 32 * 1024 * 1024,
+            max_event_owned_bytes: 1024 * 1024,
+            max_frame_connections: 4,
+        },
+    }
+}
+
+/// Construct the same-run run-start state and its exact source/build policy.
+pub(super) fn fixture_run_start(
+    graph: &Arc<GraphBundle>,
+) -> Result<(StateCandidate, StateAdmissionPolicy), String> {
+    let mut settings = fixture_default_settings(FIXTURE_POPULATION_COUNT, 0);
+    replace_setting(
+        &mut settings,
+        "generationSeconds",
+        NormalizedSettingValue::Float(FIXTURE_GENERATION_SECONDS),
+    )?;
+    replace_setting(
+        &mut settings,
+        "observer.earlyEndMinSeconds",
+        NormalizedSettingValue::Float(50.0),
+    )?;
+    replace_setting(
+        &mut settings,
+        "pelletCountTarget",
+        NormalizedSettingValue::Integer(100),
+    )?;
+    replace_setting(
+        &mut settings,
+        "pelletSpawnPerSecond",
+        NormalizedSettingValue::Float(5.0),
+    )?;
+    let settings_schema_sha256 = normalized_settings_schema_hash(&settings)
+        .map_err(|error| format!("generation handoff settings schema failed: {error}"))?;
+    let config = NormalizedEngineConfig {
+        version: NORMALIZED_CONFIG_VERSION,
+        settings,
+        settings_schema_sha256: settings_schema_sha256.clone(),
+        graph_architecture_key: graph.architecture_key.clone(),
+        fixed_step_seconds: 1.0 / 60.0,
+        requested_sim_speed: 1.0,
+        world_radius: 3_500.0,
+        population_count: FIXTURE_POPULATION_COUNT,
+        baseline_count: 0,
+        max_world_snakes: 16,
+        max_non_population_brains: 8,
+        max_body_points: 10_000,
+        max_pellets: 1_000,
+        spatial_index_bytes: 16 * 1024 * 1024,
+        worker_scratch_bytes: 64 * 1024 * 1024,
+        checkpoint_scratch_bytes: 64 * 1024 * 1024,
+        controller_input_hold_ms: 500,
+        controller_disconnect_grace_ms: 30_000,
+    };
+    let config_hash = normalized_config_hash(&config)
+        .map_err(|error| format!("generation handoff config hash failed: {error}"))?;
+    let build_identifier = crate::native_addon_build_identifier();
+    let source_sha256 = crate::native_addon_source_sha256();
+    let target_triple = crate::native_addon_build_target();
+    let build_profile = crate::native_addon_build_profile();
+    let build_class = crate::native_addon_build_class();
+    let rustc_version = crate::native_addon_rustc_version();
+    let build_contract_sha256 = crate::native_addon_build_contract_sha256();
+    let brain = BrainHandle { id: 1, epoch: 1 };
+    let weights = (0..graph.total_parameters)
+        .map(|index| ((index % 257) as f32 - 128.0) / 512.0)
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let candidate = StateCandidate {
+        versions: ContractVersions {
+            state: ENGINE_STATE_VERSION,
+            engine: ENGINE_CONTRACT_VERSION,
+            protocol: PROTOCOL_VERSION,
+            serializer: SERIALIZER_VERSION,
+            sensor: SENSOR_VERSION,
+            rng_bundle: RNG_BUNDLE_VERSION,
+            checkpoint: CHECKPOINT_VERSION,
+            graph_layout: graph.layout_version,
+        },
+        identity: RunIdentity {
+            run_id: FIXTURE_RUN_ID.to_owned(),
+            seed: 42,
+            config_revision: 1,
+            config_hash,
+            source_revision: build_identifier.clone(),
+            engine_build_id: build_identifier.clone(),
+            source_sha256: source_sha256.clone(),
+            target_triple: target_triple.clone(),
+            build_profile: build_profile.clone(),
+            build_class: build_class.clone(),
+            rustc_version: rustc_version.clone(),
+            build_contract_sha256: build_contract_sha256.clone(),
+            math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+            legacy_conversion: None,
+        },
+        config,
+        phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),
+        generation: GenerationState {
+            boundary_version: GENERATION_BOUNDARY_VERSION,
+            generation: 1,
+            completed_step: 0,
+            population_epoch: 1,
+            elapsed_seconds: 0.0,
+            wall_accumulator_seconds: 0.0,
+            best_fitness_ever: 0.0,
+        },
+        fixed_step: FixedStepContinuationState::generation_boundary(),
+        rng: RngStateBundle {
+            version: RNG_BUNDLE_VERSION,
+            world: labelled_stream(42.0, "world").export_state(),
+            evolution: labelled_stream(42.0, "evolution").export_state(),
+            external_controller: labelled_stream(42.0, "external-controller").export_state(),
+            baselines: Vec::new(),
+        },
+        allocators: AllocatorState {
+            version: ALLOCATOR_VERSION,
+            next_entity_id: 1,
+            next_brain_id: 2,
+            next_genome_id: 2,
+            next_controller_lease_id: 1,
+            next_frame_v1_id: 1,
+            next_external_id: EXTERNAL_ENTITY_ID_START,
+            next_baseline_id: BASELINE_ENTITY_ID_START,
+            next_resurrected_id: RESURRECTED_ENTITY_ID_START,
+        },
+        population: vec![PopulationGenome {
+            slot: 0,
+            brain,
+            lineage: GenomeLineage {
+                genome_id: 1,
+                birth_generation: 1,
+                parent_a: None,
+                parent_b: None,
+            },
+            fitness: 0.0,
+            weights,
+        }],
+        brains: vec![BrainRuntimeState {
+            handle: brain,
+            owner: BrainOwner::PopulationSlot(0),
+            non_population_weights: None,
+            recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
+        }],
+        world: WorldState::default(),
+    };
+    let estimate = estimate_state_memory(&candidate, graph)
+        .map_err(|error| format!("generation handoff memory estimate failed: {error}"))?;
+    let memory_ceiling_bytes = estimate
+        .total_bytes
+        .checked_add(512 * 1024 * 1024)
+        .ok_or_else(|| "generation handoff memory ceiling overflowed".to_owned())?;
+    let policy = StateAdmissionPolicy {
+        memory_ceiling_bytes,
+        require_exact_build_identity: true,
+        expected_source_revision: build_identifier.clone(),
+        expected_engine_build_id: build_identifier,
+        expected_source_sha256: source_sha256,
+        expected_target_triple: target_triple,
+        expected_build_profile: build_profile,
+        expected_build_class: build_class,
+        expected_rustc_version: rustc_version,
+        expected_build_contract_sha256: build_contract_sha256,
+        expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+        expected_settings_schema_sha256: settings_schema_sha256,
+    };
+    Ok((candidate, policy))
+}
+
+/// Turn the admitted run-start shape into one terminal source with a live owner.
+fn make_terminal_running_candidate(
+    candidate: &mut StateCandidate,
+    graph: &super::graph::CompiledGraph,
+) -> Result<(), String> {
+    candidate.phase = AuthorityPhase::Running;
+    candidate.generation.elapsed_seconds =
+        FIXTURE_GENERATION_SECONDS - (candidate.config.fixed_step_seconds / 2.0);
+    let evolved_position = WorldPoint { x: 0.0, y: 0.0 };
+    push_body_snake(
+        candidate,
+        SnakeState {
+            id: 1,
+            frame_v1_id: 1,
+            kind: SnakeKind::Evolved,
+            alive: true,
+            population_slot: Some(0),
+            brain: Some(candidate.population[0].brain),
+            baseline_slot: None,
+            baseline_strategy: None,
+            position: evolved_position,
+            previous_position: evolved_position,
+            direction: 0.0,
+            radius: 9.0,
+            speed: 165.0,
+            boost: false,
+            age_seconds: 7.0,
+            food: 2.0,
+            points: 12.5,
+            kills: 1,
+            target_length: 5.0,
+            fitness: 0.0,
+            turn: 0.0,
+            previous_turn: 0.0,
+            input_boost: false,
+            previous_input_boost: false,
+            control_accumulator_seconds: 0.0,
+            delivered_observation_points: 4.0,
+            body: BodyRange { start: 0, len: 0 },
+            skin: 0,
+        },
+    )?;
+    let external_id = EXTERNAL_ENTITY_ID_START;
+    let external_brain = BrainHandle {
+        id: candidate.allocators.next_brain_id,
+        epoch: candidate.generation.population_epoch,
+    };
+    candidate.allocators.next_brain_id = candidate
+        .allocators
+        .next_brain_id
+        .checked_add(1)
+        .ok_or_else(|| "generation handoff brain identity overflowed".to_owned())?;
+    candidate.brains.push(BrainRuntimeState {
+        handle: external_brain,
+        owner: BrainOwner::Entity(external_id),
+        non_population_weights: Some(vec![0.0; graph.total_parameters].into_boxed_slice()),
+        recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
+    });
+    let external_position = WorldPoint {
+        x: 1_200.0,
+        y: -1_200.0,
+    };
+    push_body_snake(
+        candidate,
+        SnakeState {
+            id: external_id,
+            frame_v1_id: 2,
+            kind: SnakeKind::External,
+            alive: true,
+            population_slot: None,
+            brain: Some(external_brain),
+            baseline_slot: None,
+            baseline_strategy: None,
+            position: external_position,
+            previous_position: external_position,
+            direction: 0.0,
+            radius: 9.0,
+            speed: 165.0,
+            boost: false,
+            age_seconds: 1.0,
+            food: 0.0,
+            points: 10.0,
+            kills: 0,
+            target_length: 5.0,
+            fitness: 0.0,
+            turn: 0.0,
+            previous_turn: 0.0,
+            input_boost: false,
+            previous_input_boost: false,
+            control_accumulator_seconds: 0.0,
+            delivered_observation_points: 2.0,
+            body: BodyRange { start: 0, len: 0 },
+            skin: 1,
+        },
+    )?;
+    candidate.world.controller_leases.push(ControllerLease {
+        identity_key: "player:background-fixture".into(),
+        id: FIXTURE_LEASE_ID,
+        snake_id: external_id,
+        kind: ControllerKind::Player,
+        connection_id: Some(FIXTURE_CONNECTION_ID),
+        scope: FIXTURE_RUN_ID.to_owned(),
+        resume_token: "generation-handoff-old-token".to_owned(),
+        status: ControllerLeaseStatus::Connected,
+        latest_action: LatestControllerAction {
+            turn: 0.25,
+            boost: false,
+            client_tick: 1,
+            arrival_sequence: 1,
+            accepted_at_ms: 0,
+        },
+        last_observed_at_ms: 0,
+        disconnected_at_ms: None,
+        input_hold_expires_at_ms: None,
+        grace_expires_at_ms: None,
+        takeover_committed_at_ms: None,
+    });
+    candidate.allocators.next_entity_id = 2;
+    candidate.allocators.next_external_id = external_id + 1;
+    candidate.allocators.next_controller_lease_id = FIXTURE_LEASE_ID + 1;
+    candidate.allocators.next_frame_v1_id = 3;
+    candidate
+        .fixed_step
+        .sensor_generation
+        .update_after_step(&candidate.world)
+        .map_err(|error| format!("generation handoff sensor state failed: {error}"))?;
+    Ok(())
+}
+
+/// Append one canonical five-point body and fix its pooled range.
+fn push_body_snake(candidate: &mut StateCandidate, mut snake: SnakeState) -> Result<(), String> {
+    let start = candidate.world.body_points.len();
+    candidate
+        .world
+        .body_points
+        .try_reserve_exact(5)
+        .map_err(|_| "generation handoff body allocation failed".to_owned())?;
+    candidate
+        .world
+        .body_points
+        .extend((0..5).map(|offset| WorldPoint {
+            x: snake.position.x - (f64::from(offset) * 7.5),
+            y: snake.position.y,
+        }));
+    snake.body = BodyRange { start, len: 5 };
+    candidate.world.snakes.push(snake);
+    Ok(())
+}
+
+/// Replace one complete fixture setting while preserving its canonical path order.
+fn replace_setting(
+    settings: &mut [super::state::NormalizedSetting],
+    path: &str,
+    value: NormalizedSettingValue,
+) -> Result<(), String> {
+    let setting = settings
+        .iter_mut()
+        .find(|setting| setting.path == path)
+        .ok_or_else(|| format!("generation handoff setting {path} is missing"))?;
+    setting.value = value;
+    Ok(())
+}
+
+/// Reviewed bounds for the small real generation handoff fixture.
+pub(super) fn fixture_checkpoint_limits() -> CheckpointLimits {
+    CheckpointLimits {
+        max_archive_bytes: 64 * 1024 * 1024,
+        max_manifest_bytes: 1024 * 1024,
+        max_state_bytes: 4 * 1024 * 1024,
+        max_graph_bytes: 4 * 1024 * 1024,
+        max_population_index_bytes: 4 * 1024 * 1024,
+        max_population_count: 300,
+        max_setting_count: 512,
+        max_baseline_rng_count: 128,
+        max_string_bytes: 256 * 1024,
+        max_total_string_bytes: 4 * 1024 * 1024,
+        max_weight_floats: 8_000_000,
+        max_recurrent_floats: 1_000_000,
+        max_numeric_stored_bytes: 64 * 1024 * 1024,
+        max_numeric_candidate_bytes: 64 * 1024 * 1024,
+        max_total_decoded_bytes: 128 * 1024 * 1024,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::contract::{
+        CommandBatch, EngineCommand, ExternalDeliveryReceipt, ReliableEvent,
+        RunningAuthorityCommand, RunningAuthorityEvent, SequencedCommand,
+    };
+    use super::super::queues::NoopWakeSink;
+    use super::super::running_loop::{RunningAuthorityLoopError, RunningAuthorityLoopState};
+    use super::super::runtime::EngineRuntime;
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
+
+    /// Process-unique managed root removed after each fixture test.
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn create() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "slither-generation-loop-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("test clock must follow Unix epoch")
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&path).expect("test managed root must be creatable");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ignored = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn submit_control(runtime: &EngineRuntime, sequence: u64, command: RunningAuthorityCommand) {
+        runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence,
+                    command: EngineCommand::RunningAuthority(command),
+                }]
+                .into_boxed_slice(),
+            })
+            .expect("background generation control must enter the bounded queue");
+    }
+
+    fn wait_for_running_event(
+        runtime: &EngineRuntime,
+        predicate: impl Fn(&RunningAuthorityEvent) -> bool,
+    ) -> RunningAuthorityEvent {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            let drained = runtime
+                .drain_outputs(usize::MAX, usize::MAX)
+                .expect("background fixture output drain must succeed");
+            for completed in drained.events {
+                if let super::super::contract::CompletedEvent::Reliable(
+                    ReliableEvent::RunningAuthority(event),
+                ) = completed
+                {
+                    if predicate(&event) {
+                        return *event;
+                    }
+                }
+            }
+            std::thread::yield_now();
+        }
+        panic!(
+            "background authority event did not arrive: {:?}",
+            runtime.health()
+        );
+    }
+
+    fn wait_for_health(runtime: &EngineRuntime, predicate: impl Fn() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if predicate() {
+                return;
+            }
+            std::thread::yield_now();
+        }
+        panic!(
+            "background authority health did not advance: {:?}",
+            runtime.health()
+        );
+    }
+
+    #[test]
+    fn retained_fixture_starts_with_one_real_unpublished_terminal_transition() {
+        let fixture = GenerationHandoffFixtureSession::new().expect("fixture must construct");
+        let snapshot = fixture.snapshot();
+        assert!(snapshot.world_epoch > 0);
+        assert_eq!(snapshot.generation, 1);
+        assert_eq!(snapshot.completed_step, 0);
+        assert!(snapshot.transition_pending);
+        assert!(!snapshot.checkpoint_published);
+        assert!(!snapshot.persistence_acknowledged);
+        assert_eq!(snapshot.generation_checkpoint_publications, 0);
+        assert_eq!(snapshot.authority_publications, 0);
+    }
+
+    #[test]
+    fn background_runtime_routes_one_exact_generation_barrier_without_duplicate_publication() {
+        let managed = TestDirectory::create();
+        let BackgroundGenerationHandoffFixture { run_start, running } =
+            background_generation_handoff_fixture().expect("background fixture must construct");
+        let run_start_descriptor = run_start
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("31313131313131313131313131313131")
+                    .expect("run-start operation must parse"),
+                1,
+            )
+            .expect("run-start checkpoint must publish");
+        let runtime = EngineRuntime::new_running_authority(
+            background_generation_handoff_runtime_init(),
+            running,
+            Arc::new(NoopWakeSink),
+        )
+        .expect("background fixture must enter the real runtime");
+        let source_health = runtime
+            .health()
+            .running_authority
+            .expect("running health must exist before start");
+        runtime
+            .start()
+            .expect("background fixture runtime must start");
+
+        let transition = wait_for_running_event(&runtime, |event| {
+            matches!(
+                event,
+                RunningAuthorityEvent::GenerationTransitionPending { .. }
+            )
+        });
+        assert!(matches!(
+            transition,
+            RunningAuthorityEvent::GenerationTransitionPending {
+                successor_generation: 2,
+                successor_completed_step: 1,
+                ..
+            }
+        ));
+        let blocked = runtime
+            .health()
+            .running_authority
+            .expect("running health must remain present");
+        assert_eq!(
+            blocked.loop_state,
+            RunningAuthorityLoopState::GenerationTransitionPending
+        );
+        assert_eq!(blocked.world_epoch, source_health.world_epoch);
+        assert_eq!(blocked.generation, 1);
+        assert!(!blocked.generation_checkpoint_published);
+
+        submit_control(
+            &runtime,
+            1,
+            RunningAuthorityCommand::AcknowledgeGenerationPersistence {
+                descriptor: Box::new(run_start_descriptor),
+            },
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(event, RunningAuthorityEvent::CommandRejected { command_sequence: 1, .. })),
+            RunningAuthorityEvent::CommandRejected { detail, .. }
+                if detail.contains("checkpoint") && detail.contains("publication")
+        ));
+        assert_eq!(
+            runtime
+                .health()
+                .running_authority
+                .expect("rejected acknowledgement retains health")
+                .world_epoch,
+            source_health.world_epoch
+        );
+
+        let generation_operation = CheckpointOperationId::parse("41414141414141414141414141414141")
+            .expect("generation operation must parse");
+        submit_control(
+            &runtime,
+            2,
+            RunningAuthorityCommand::PublishGenerationCheckpoint {
+                managed_directory: managed.path().to_string_lossy().into_owned(),
+                operation_id: generation_operation.clone(),
+            },
+        );
+        let (descriptor, commit_record) = match wait_for_running_event(&runtime, |event| {
+            matches!(
+                event,
+                RunningAuthorityEvent::GenerationCheckpointPublished {
+                    command_sequence: 2,
+                    ..
+                }
+            )
+        }) {
+            RunningAuthorityEvent::GenerationCheckpointPublished {
+                descriptor,
+                commit_record,
+                ..
+            } => (*descriptor, commit_record),
+            other => panic!("unexpected checkpoint event: {other:?}"),
+        };
+        assert_eq!(descriptor.operation_id, generation_operation);
+        assert_eq!(commit_record.summary.completed_generation, 1);
+        assert_eq!(commit_record.hall_of_fame.completed_generation, 1);
+        assert_ne!(commit_record.hall_of_fame.successor_genome_id, 0);
+
+        submit_control(
+            &runtime,
+            3,
+            RunningAuthorityCommand::PublishGenerationCheckpoint {
+                managed_directory: managed.path().to_string_lossy().into_owned(),
+                operation_id: generation_operation,
+            },
+        );
+        let retry_descriptor = match wait_for_running_event(&runtime, |event| {
+            matches!(
+                event,
+                RunningAuthorityEvent::GenerationCheckpointPublished {
+                    command_sequence: 3,
+                    ..
+                }
+            )
+        }) {
+            RunningAuthorityEvent::GenerationCheckpointPublished {
+                descriptor,
+                commit_record: retry_record,
+                ..
+            } => {
+                assert_eq!(retry_record, commit_record);
+                *descriptor
+            }
+            other => panic!("unexpected retry event: {other:?}"),
+        };
+        assert_eq!(retry_descriptor, descriptor);
+
+        let mut mismatch = descriptor.clone();
+        mismatch.logical_root_sha256 = "f".repeat(64);
+        mismatch.relative_filename = format!("{}.checkpoint-v3", mismatch.logical_root_sha256);
+        submit_control(
+            &runtime,
+            4,
+            RunningAuthorityCommand::AcknowledgeGenerationPersistence {
+                descriptor: Box::new(mismatch),
+            },
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(event, RunningAuthorityEvent::CommandRejected { command_sequence: 4, .. })),
+            RunningAuthorityEvent::CommandRejected { detail, .. } if detail.contains("logical root")
+        ));
+        let mismatched = runtime
+            .health()
+            .running_authority
+            .expect("mismatch retains running health");
+        assert_eq!(mismatched.world_epoch, source_health.world_epoch);
+        assert!(!mismatched.generation_persistence_acknowledged);
+
+        submit_control(
+            &runtime,
+            5,
+            RunningAuthorityCommand::AcknowledgeGenerationPersistence {
+                descriptor: Box::new(descriptor.clone()),
+            },
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(event, RunningAuthorityEvent::GenerationPersistenceAcknowledged { command_sequence: 5, .. })),
+            RunningAuthorityEvent::GenerationPersistenceAcknowledged { operation_id, .. }
+                if operation_id == descriptor.operation_id
+        ));
+        assert!(
+            runtime
+                .health()
+                .running_authority
+                .expect("exact acknowledgement updates bounded health")
+                .generation_persistence_acknowledged
+        );
+
+        submit_control(
+            &runtime,
+            6,
+            RunningAuthorityCommand::PublishAcknowledgedGenerationStart,
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(
+                event,
+                RunningAuthorityEvent::CommandRejected {
+                    command_sequence: 6,
+                    ..
+                }
+            )),
+            RunningAuthorityEvent::CommandRejected { .. }
+        ));
+        assert_eq!(
+            runtime
+                .health()
+                .running_authority
+                .expect("premature finalization retains old authority")
+                .world_epoch,
+            source_health.world_epoch
+        );
+
+        submit_control(
+            &runtime,
+            7,
+            RunningAuthorityCommand::PrepareGenerationReassignments,
+        );
+        let assignment = match wait_for_running_event(&runtime, |event| {
+            matches!(
+                event,
+                RunningAuthorityEvent::GenerationReassignmentsPrepared {
+                    command_sequence: 7,
+                    ..
+                }
+            )
+        }) {
+            RunningAuthorityEvent::GenerationReassignmentsPrepared {
+                ready: false,
+                assignments,
+                ..
+            } if assignments.len() == 1 => assignments[0].clone(),
+            other => panic!("unexpected generation assignment event: {other:?}"),
+        };
+        assert_eq!(assignment.controller_kind, ControllerKind::Player);
+        assert!(!assignment.resume_token.is_empty());
+
+        submit_control(
+            &runtime,
+            8,
+            RunningAuthorityCommand::SubmitGenerationAssignmentReceipts {
+                receipts: vec![ExternalDeliveryReceipt {
+                    operation_epoch: assignment.operation_epoch,
+                    event_sequence: assignment.event_sequence,
+                    connection_id: assignment.connection_id,
+                    lease_id: assignment.lease_id.saturating_add(1),
+                    accepted: true,
+                }]
+                .into_boxed_slice(),
+            },
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(
+                event,
+                RunningAuthorityEvent::GenerationAssignmentReceiptsApplied {
+                    command_sequence: 8,
+                    ..
+                }
+            )),
+            RunningAuthorityEvent::GenerationAssignmentReceiptsApplied {
+                matched_acceptances: 0,
+                ignored_receipts: 1,
+                state: super::super::contract::GenerationAssignmentReceiptState::Pending {
+                    remaining: 1
+                },
+                ..
+            }
+        ));
+        assert_eq!(
+            runtime
+                .health()
+                .running_authority
+                .expect("mismatched receipt retains old authority")
+                .world_epoch,
+            source_health.world_epoch
+        );
+
+        submit_control(
+            &runtime,
+            9,
+            RunningAuthorityCommand::SubmitGenerationAssignmentReceipts {
+                receipts: vec![ExternalDeliveryReceipt {
+                    operation_epoch: assignment.operation_epoch,
+                    event_sequence: assignment.event_sequence,
+                    connection_id: assignment.connection_id,
+                    lease_id: assignment.lease_id,
+                    accepted: true,
+                }]
+                .into_boxed_slice(),
+            },
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(
+                event,
+                RunningAuthorityEvent::GenerationAssignmentReceiptsApplied {
+                    command_sequence: 9,
+                    ..
+                }
+            )),
+            RunningAuthorityEvent::GenerationAssignmentReceiptsApplied {
+                matched_acceptances: 1,
+                ignored_receipts: 0,
+                state: super::super::contract::GenerationAssignmentReceiptState::Ready {
+                    successor_generation: 2,
+                    successor_completed_step: 1,
+                    ..
+                },
+                ..
+            }
+        ));
+
+        submit_control(
+            &runtime,
+            10,
+            RunningAuthorityCommand::PublishAcknowledgedGenerationStart,
+        );
+        let final_resolution = match wait_for_running_event(&runtime, |event| {
+            matches!(
+                event,
+                RunningAuthorityEvent::GenerationStartPublished {
+                    command_sequence: 10,
+                    ..
+                }
+            )
+        }) {
+            RunningAuthorityEvent::GenerationStartPublished { resolution, .. } => resolution,
+            other => panic!("unexpected final publication event: {other:?}"),
+        };
+        assert_eq!(final_resolution.publication.generation, 2);
+        assert_eq!(final_resolution.publication.completed_step, 1);
+        assert_eq!(final_resolution.publication.external_assignments, 1);
+        assert_ne!(
+            final_resolution.publication.world_epoch,
+            source_health.world_epoch
+        );
+        wait_for_health(&runtime, || {
+            runtime.health().running_authority.is_some_and(|health| {
+                health.generation == 2
+                    && health.completed_step == 1
+                    && health.world_epoch == final_resolution.publication.world_epoch
+            })
+        });
+
+        submit_control(
+            &runtime,
+            11,
+            RunningAuthorityCommand::PublishGenerationCheckpoint {
+                managed_directory: managed.path().to_string_lossy().into_owned(),
+                operation_id: CheckpointOperationId::parse("51515151515151515151515151515151")
+                    .expect("duplicate operation must parse"),
+            },
+        );
+        assert!(matches!(
+            wait_for_running_event(&runtime, |event| matches!(
+                event,
+                RunningAuthorityEvent::CommandRejected {
+                    command_sequence: 11,
+                    ..
+                }
+            )),
+            RunningAuthorityEvent::CommandRejected { .. }
+        ));
+        assert_eq!(
+            std::fs::read_dir(managed.path())
+                .expect("managed directory must remain readable")
+                .count(),
+            3
+        );
+
+        runtime.request_stop();
+        runtime.join().expect("background fixture must join");
+        let final_health = runtime.health();
+        assert!(final_health.fault.is_none());
+        assert_eq!(final_health.processed_commands, 11);
+    }
+
+    #[test]
+    fn retained_fixture_finishes_one_connected_generation_barrier_and_rebinds() {
+        let managed = TestDirectory::create();
+        let mut fixture = GenerationHandoffFixtureSession::new().expect("fixture must construct");
+        let source = fixture.snapshot();
+        let terminal_diagnostics = fixture.running.scheduler_diagnostics();
+        assert!(terminal_diagnostics.step_pending);
+        assert_eq!(terminal_diagnostics.completed_steps, 0);
+
+        assert!(matches!(
+            fixture.publish_generation_start(),
+            Err(detail) if detail.contains("requires a successful persistence acknowledgement")
+        ));
+        assert_eq!(fixture.snapshot(), source);
+
+        let operation = CheckpointOperationId::parse("71717171717171717171717171717171")
+            .expect("fixture operation ID must be canonical");
+        let publication = fixture
+            .publish_generation_checkpoint(managed.path(), operation.clone())
+            .expect("fixture generation checkpoint must publish");
+        let retry = fixture
+            .publish_generation_checkpoint(managed.path(), operation)
+            .expect("fixture checkpoint retry must be exact");
+        assert_eq!(retry, publication);
+        assert_eq!(fixture.snapshot().generation_checkpoint_publications, 1);
+
+        let mut mismatch = publication.descriptor.clone();
+        mismatch.logical_root_sha256 = "f".repeat(64);
+        mismatch.relative_filename = format!("{}.checkpoint-v3", mismatch.logical_root_sha256);
+        assert!(matches!(
+            fixture.acknowledge_generation_persistence(&mismatch),
+            Err(detail) if detail.contains("logical root")
+        ));
+        assert!(!fixture.snapshot().persistence_acknowledged);
+        fixture
+            .acknowledge_generation_persistence(&publication.descriptor)
+            .expect("exact descriptor must acknowledge");
+        assert!(fixture.snapshot().persistence_acknowledged);
+        assert_eq!(fixture.snapshot().world_epoch, source.world_epoch);
+
+        let assignment = fixture
+            .prepare_generation_assignment()
+            .expect("connected controller must receive one retained assignment");
+        assert!(matches!(
+            fixture.publish_generation_start(),
+            Err(detail) if detail.contains("still require matching Node delivery results")
+        ));
+        assert_eq!(fixture.snapshot().world_epoch, source.world_epoch);
+        fixture
+            .submit_generation_assignment(
+                assignment.operation_epoch,
+                assignment.event_sequence,
+                assignment.connection_id,
+                assignment.lease_id,
+                true,
+            )
+            .expect("exact connected assignment result must resolve");
+        let published = fixture
+            .publish_generation_start()
+            .expect("durable assignment-ready generation must publish once");
+        assert_eq!(published.generation, 2);
+        assert_eq!(published.completed_step, 1);
+        assert_eq!(published.external_assignments, 1);
+        let final_snapshot = fixture.snapshot();
+        assert_ne!(final_snapshot.world_epoch, source.world_epoch);
+        assert_eq!(final_snapshot.generation, 2);
+        assert_eq!(final_snapshot.completed_step, 1);
+        assert!(!final_snapshot.transition_pending);
+        assert_eq!(final_snapshot.generation_checkpoint_publications, 1);
+        assert_eq!(final_snapshot.authority_publications, 1);
+        assert_eq!(fixture.running.state(), RunningAuthorityLoopState::Ready);
+        let rebound = fixture.running.scheduler_diagnostics();
+        assert_eq!(rebound.completed_steps, 1);
+        assert!(!rebound.step_pending);
+        assert!(matches!(
+            fixture
+                .running
+                .publish_acknowledged_generation_start(FIXTURE_RESUME_WALL_MS, None),
+            Err(RunningAuthorityLoopError::InvalidActionState { .. })
+        ));
+        assert_eq!(fixture.snapshot(), final_snapshot);
+        let old_assignment = fixture
+            .pending_assignment
+            .expect("fixture must retain the already-resolved test envelope");
+        let stale = fixture
+            .running
+            .submit_external_delivery_results(
+                &[ExternalDeliveryResult {
+                    step_key: old_assignment.step_key,
+                    event_sequence: old_assignment.event_sequence,
+                    connection_id: old_assignment.connection_id,
+                    lease_id: old_assignment.lease_id,
+                    accepted: true,
+                }],
+                None,
+            )
+            .expect("late resolved assignment must be ignored without changing authority");
+        assert_eq!(stale.matched_acceptances, 0);
+        assert_eq!(stale.matched_failures, 0);
+        assert_eq!(stale.ignored_results, 1);
+        assert_eq!(stale.state, RunningAuthorityDeliveryState::Idle);
+        assert_eq!(fixture.snapshot(), final_snapshot);
+
+        let mut wall_now_ms = FIXTURE_RESUME_WALL_MS;
+        let pending_event = (0..=60)
+            .find_map(|_| {
+                let progress = fixture
+                    .running
+                    .service_after_command_drain(
+                        wall_now_ms,
+                        SchedulerServiceMode::Background,
+                        None,
+                    )
+                    .expect("rebound loop must continue through generation two");
+                match progress {
+                    RunningAuthorityLoopProgress::Idle { .. } => {
+                        wall_now_ms = wall_now_ms.saturating_add(17);
+                        None
+                    }
+                    RunningAuthorityLoopProgress::Published { .. } => None,
+                    RunningAuthorityLoopProgress::ExternalDeliveryPending { .. } => Some(
+                        fixture
+                            .running
+                            .pending_external_delivery()
+                            .expect("external blocker must retain one batch")
+                            .events()[0],
+                    ),
+                    RunningAuthorityLoopProgress::ControllerReclaimPending
+                    | RunningAuthorityLoopProgress::ControllerJoinPending
+                    | RunningAuthorityLoopProgress::ImportPending => {
+                        panic!("no lifecycle command was requested in this fixture")
+                    }
+                    RunningAuthorityLoopProgress::GenerationTransitionPending { .. } => {
+                        panic!("generation two must not terminate during delivery-resume proof")
+                    }
+                }
+            })
+            .expect("connected successor must eventually request one external observation");
+        let completed_before_delivery = fixture.running.completed_step();
+        let resolution = fixture
+            .running
+            .submit_external_delivery_results(
+                &[ExternalDeliveryResult {
+                    step_key: pending_event.step_key,
+                    event_sequence: pending_event.event_sequence,
+                    connection_id: pending_event.connection_id,
+                    lease_id: pending_event.lease_id,
+                    accepted: true,
+                }],
+                None,
+            )
+            .expect("exact generation-two observation result must resume publication");
+        assert_eq!(resolution.matched_acceptances, 1);
+        assert_eq!(resolution.matched_failures, 0);
+        assert_eq!(resolution.ignored_results, 0);
+        assert!(matches!(
+            resolution.state,
+            RunningAuthorityDeliveryState::RunningStepPublished { publication, .. }
+                if publication.completed_step == completed_before_delivery + 1
+        ));
+        assert_eq!(fixture.running.state(), RunningAuthorityLoopState::Ready);
+        assert_eq!(
+            fixture.running.scheduler_diagnostics().completed_steps,
+            fixture.running.completed_step()
+        );
+    }
+}

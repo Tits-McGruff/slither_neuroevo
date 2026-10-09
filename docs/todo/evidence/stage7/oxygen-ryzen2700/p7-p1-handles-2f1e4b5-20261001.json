@@ -1,0 +1,317 @@
+{
+  "scope": "Linux production server /proc file-descriptor and thread counts, sampled every thirty seconds",
+  "startedAtUtc": "2026-10-01T03:18:15.107Z",
+  "pid": 624697,
+  "samples": [
+    {
+      "wallSeconds": 0.0003791130000000038,
+      "fileDescriptors": 33,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 30.030352901,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 60.054220201999996,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 90.083719004,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 120.1142887,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 150.126328404,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 180.156814927,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 210.17665760600002,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 240.206369311,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 270.23695399300004,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 300.266445283,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 330.294294934,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 360.295911573,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 390.313680363,
+      "fileDescriptors": 34,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 420.342287663,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 450.370275353,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 480.398615269,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 510.426259086,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 540.4542660789999,
+      "fileDescriptors": 34,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 570.4847559209999,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 600.486988947,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 630.5018359540001,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 660.530273645,
+      "fileDescriptors": 34,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 690.542303495,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 720.5702806149999,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 750.600761886,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 780.6302762079999,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 810.6583056709999,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 840.6884169419999,
+      "fileDescriptors": 34,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 870.718903803,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 900.7483416749999,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 930.778281432,
+      "fileDescriptors": 34,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 960.789382903,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 990.818494955,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1020.8314621659999,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1050.8619197219998,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1080.8913739769998,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1110.918387303,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1140.94891641,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1170.978337394,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1201.0087621839998,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1231.030707836,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1261.06114164,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1291.090564789,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1321.100285164,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1351.130727884,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1381.139866386,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1411.163163112,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1441.179530913,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1471.206262792,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1501.236725111,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1531.266285231,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1561.296752176,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1591.326278644,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1621.3567216640001,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1651.387223788,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1681.393263062,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1711.423729936,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1741.4542011489998,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1771.483696601,
+      "fileDescriptors": 35,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1801.495198076,
+      "fileDescriptors": 34,
+      "threads": 19
+    },
+    {
+      "wallSeconds": 1830.330767017,
+      "fileDescriptors": 33,
+      "threads": 19
+    }
+  ]
+}

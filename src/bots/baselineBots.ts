@@ -1,6 +1,14 @@
 import { CFG } from '../config.ts';
 import { clamp, TAU, angNorm } from '../utils.ts';
-import { createRng, hashSeed, type RandomSource, toUint32 } from '../rng.ts';
+import {
+  StatefulRng,
+  deriveSeed,
+  hashSeed,
+  type RandomGenerator,
+  type RandomSource,
+  type SerializedRngState,
+  toUint32
+} from '../rng.ts';
 import { getSensorLayout, type SensorLayout, type SensorLayoutVersion } from '../protocol/sensors.ts';
 import { Snake } from '../snake.ts';
 import type { World } from '../world.ts';
@@ -13,7 +21,7 @@ const STRATEGY_THRESHOLD_LARGE = 80;
 /** Bin evaluation penalty for directions with dangerous clearance (hazards/walls). */
 const VETO_PENALTY = 1000;
 /** Clearance threshold below which a direction is considered for veto. */
-const VETO_THRESHOLD = -0.5;
+const VETO_THRESHOLD = -0.4;
 /** Angle wander scale in radians for roaming. */
 const WANDER_ANGLE_SCALE = 0.6;
 /** Roam-to-Seek food activation threshold. */
@@ -57,6 +65,16 @@ export interface BotAction {
   boost: number;
 }
 
+/** Persistable continuation state for one durable baseline-bot RNG stream. */
+export interface BaselineBotRngState {
+  /** Durable baseline-bot slot. */
+  slot: number;
+  /** Derived seed used to initialize the stream. */
+  seed: number;
+  /** Versioned stream continuation state. */
+  rng: SerializedRngState;
+}
+
 /**
  * Normalize settings to safe numeric ranges and apply defaults.
  */
@@ -83,12 +101,9 @@ function normalizeSettings(settings: BaselineBotSettings): BaselineBotSettings {
  * @param layoutVersion - Sensor layout version that produced the bins.
  * @returns Relative angle in radians within [-pi, pi].
  */
-function binIndexToAngle(index: number, bins: number, layoutVersion: SensorLayoutVersion): number {
-  if (layoutVersion === 'v2') {
-    return -Math.PI + (index / bins) * TAU;
-  }
-  const ang = (index / bins) * TAU;
-  return ang > Math.PI ? ang - TAU : ang;
+function binIndexToAngle(index: number, bins: number, _layoutVersion: SensorLayoutVersion): number {
+  // Both v2 and v3 use centered bins.
+  return -Math.PI + (index / bins) * TAU;
 }
 
 /**
@@ -98,19 +113,22 @@ function binIndexToAngle(index: number, bins: number, layoutVersion: SensorLayou
  * @param generation - Current generation index.
  * @param baselineBotIndex - Stable bot index within the baseline bot group.
  * @param randomizeSeedPerGen - Whether generation should influence the base seed.
+ * @param runSeed - Root seed for the simulation lineage.
  * @returns Unsigned 32-bit seed.
  */
 export function deriveBotSeed(
   baseSeed: number,
   generation: number,
   baselineBotIndex: number,
-  randomizeSeedPerGen: boolean
+  randomizeSeedPerGen: boolean,
+  runSeed = 0
 ): number {
   const safeBase = toUint32(baseSeed);
   const safeGen = toUint32(generation);
   const safeIndex = toUint32(baselineBotIndex);
   const genSeed = randomizeSeedPerGen ? hashSeed(safeBase, safeGen) : safeBase;
-  return hashSeed(genSeed, safeIndex);
+  const slotSeed = deriveSeed(runSeed, `baseline:${safeIndex}`);
+  return hashSeed(slotSeed, genSeed);
 }
 
 /**
@@ -119,10 +137,12 @@ export function deriveBotSeed(
 export class BaselineBotManager {
   /** Normalized baseline bot settings. */
   private settings: BaselineBotSettings;
+  /** Root simulation seed used for labeled per-bot derivation. */
+  private runSeed: number;
   /** Per-bot deterministic seeds. */
   private botSeeds: number[];
   /** Per-bot RNG streams. */
-  private botRngs: RandomSource[];
+  private botRngs: StatefulRng[];
   /** Per-bot current state. */
   private botStates: BotState[];
   /** Per-bot state timers in seconds. */
@@ -152,9 +172,11 @@ export class BaselineBotManager {
    * Create a baseline bot manager.
    *
    * @param settings - Baseline bot settings payload.
+   * @param runSeed - Root seed for the simulation lineage.
    */
-  constructor(settings: BaselineBotSettings) {
+  constructor(settings: BaselineBotSettings, runSeed = 0) {
     this.settings = normalizeSettings(settings);
+    this.runSeed = toUint32(runSeed);
     this.botSeeds = [];
     this.botRngs = [];
     this.botStates = [];
@@ -166,7 +188,7 @@ export class BaselineBotManager {
     this.snakeIdToIndex = new Map();
     this.respawnTimers = [];
     this.controllerDisabled = false;
-    this.sensorLayoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+    this.sensorLayoutVersion = (CFG.sense?.layoutVersion ?? 'v3') as SensorLayoutVersion;
     this.sensorLayout = getSensorLayout(CFG.sense?.bubbleBins ?? 16, this.sensorLayoutVersion);
     this.sensorLayoutBins = this.sensorLayout.bins;
 
@@ -199,10 +221,11 @@ export class BaselineBotManager {
         this.settings.seed,
         generation,
         i,
-        this.settings.randomizeSeedPerGen
+        this.settings.randomizeSeedPerGen,
+        this.runSeed
       );
       this.botSeeds[i] = seed;
-      this.botRngs[i] = createRng(seed);
+      this.botRngs[i] = new StatefulRng(seed);
       this.botStates[i] = 'roam';
       this.botStateTimers[i] = 0;
       this.botWanderAngles[i] = 0;
@@ -218,7 +241,7 @@ export class BaselineBotManager {
    */
   private refreshSensorLayout(): void {
     const bins = Math.max(8, Math.floor(CFG.sense?.bubbleBins ?? 16));
-    const layoutVersion = (CFG.sense?.layoutVersion ?? 'v2') as SensorLayoutVersion;
+    const layoutVersion = (CFG.sense?.layoutVersion ?? 'v3') as SensorLayoutVersion;
     if (bins === this.sensorLayoutBins && layoutVersion === this.sensorLayoutVersion) return;
     this.sensorLayoutVersion = layoutVersion;
     this.sensorLayout = getSensorLayout(bins, layoutVersion);
@@ -233,20 +256,73 @@ export class BaselineBotManager {
   }
 
   /**
-   * Reset a bot RNG and state machine, returning the RNG for spawning.
+   * Reset a bot state machine and return its continuing RNG for spawning.
    *
    * @param index - Baseline bot index.
    * @returns RNG for spawn usage.
    */
   prepareBotSpawn(index: number): RandomSource {
-    const seed = this.botSeeds[index] ?? 0;
-    const rng = createRng(seed);
-    this.botRngs[index] = rng;
+    const rng = this.botRngs[index];
+    if (!rng) throw new RangeError(`Invalid baseline bot slot ${index}`);
     this.botStates[index] = 'roam';
     this.botStateTimers[index] = 0;
     this.botWanderAngles[index] = 0;
     this.botWanderTimers[index] = 0;
-    return rng;
+    return rng.asSource();
+  }
+
+  /**
+   * Apply an authoritative live respawn delay without rebuilding bot identity.
+   * Active timers are capped to the new delay so lowering the value takes
+   * effect immediately while increasing it does not restart elapsed waits.
+   * @param seconds - Requested finite delay in seconds.
+   * @returns Normalized delay stored by the manager.
+   */
+  updateRespawnDelay(seconds: number): number {
+    const normalized = clamp(seconds, 0.1, 60);
+    this.settings.respawnDelay = normalized;
+    for (let index = 0; index < this.respawnTimers.length; index++) {
+      const remaining = this.respawnTimers[index];
+      if (remaining !== undefined && remaining >= 0) {
+        this.respawnTimers[index] = Math.min(remaining, normalized);
+      }
+    }
+    return normalized;
+  }
+
+  /**
+   * Export every durable baseline-bot RNG stream in slot order.
+   * @returns Lossless per-slot RNG continuation states.
+   */
+  exportRngStates(): BaselineBotRngState[] {
+    return this.botRngs.map((rng, slot) => ({
+      slot,
+      seed: this.botSeeds[slot] ?? 0,
+      rng: rng.exportState()
+    }));
+  }
+
+  /**
+   * Restore every baseline-bot RNG continuation without changing bot behavior state.
+   * @param states - Per-slot states previously returned by `exportRngStates`.
+   */
+  restoreRngStates(states: readonly BaselineBotRngState[]): void {
+    if (states.length !== this.botRngs.length) {
+      throw new RangeError(
+        `Baseline RNG state count ${states.length} does not match ${this.botRngs.length}`
+      );
+    }
+    const restored: StatefulRng[] = new Array(this.botRngs.length);
+    for (let slot = 0; slot < states.length; slot++) {
+      const state = states[slot];
+      if (!state || state.slot !== slot || state.seed !== this.botSeeds[slot]) {
+        throw new TypeError(`Baseline RNG state does not match durable slot ${slot}`);
+      }
+      restored[slot] = StatefulRng.fromState(state.rng);
+    }
+    for (let slot = 0; slot < restored.length; slot++) {
+      this.botRngs[slot]!.restoreState(restored[slot]!.exportState());
+    }
   }
 
   /**
@@ -431,6 +507,8 @@ export class BaselineBotManager {
       clearWeight = 2.5;
     }
 
+    const headOffset = layout.offsets.head;
+
     const FOOD_CLAMP_SMALL = 0.4;
     const { targetIdx } = this.evaluateBins(
       sensors,
@@ -438,6 +516,7 @@ export class BaselineBotManager {
       foodOffset,
       hazardOffset,
       wallOffset,
+      headOffset,
       foodWeight,
       clearWeight,
       FOOD_CLAMP_SMALL,
@@ -546,6 +625,8 @@ export class BaselineBotManager {
       }
     }
 
+    const headOffset = layout.offsets.head;
+
     const FOOD_CLAMP_MEDIUM = 0.6;
     const { targetIdx } = this.evaluateBins(
       sensors,
@@ -553,11 +634,12 @@ export class BaselineBotManager {
       foodOffset,
       hazardOffset,
       wallOffset,
+      headOffset,
       foodWeight,
       clearWeight,
       FOOD_CLAMP_MEDIUM,
       layoutVersion,
-      (binAngle) => {
+      (binAngle: number) => {
         if (huntStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - huntBiasAngle));
         // Falloff the hunt bias as the bin angle diverges from the target angle.
@@ -650,6 +732,8 @@ export class BaselineBotManager {
       }
     }
 
+    const headOffset = layout.offsets.head;
+
     const FOOD_CLAMP_LARGE = 0.4;
     const { targetIdx } = this.evaluateBins(
       sensors,
@@ -657,11 +741,12 @@ export class BaselineBotManager {
       foodOffset,
       hazardOffset,
       wallOffset,
+      headOffset,
       foodWeight,
       clearWeight,
       FOOD_CLAMP_LARGE,
       layoutVersion,
-      (binAngle) => {
+      (binAngle: number) => {
         if (crowdStrength <= 0) return 0;
         const diff = Math.abs(angNorm(binAngle - crowdBiasAngle));
         // Large snakes use a regional bias to slowly "herd" others.
@@ -702,7 +787,7 @@ export class BaselineBotManager {
   private updateState(
     index: number,
     dt: number,
-    rng: RandomSource | undefined,
+    rng: RandomGenerator | undefined,
     sensors: Float32Array,
     bins: number,
     foodOffset: number,
@@ -726,22 +811,26 @@ export class BaselineBotManager {
     let worstClear = Infinity;
     let bestFood = -Infinity;
 
+    const layout = this.sensorLayout;
     for (let i = 0; i < bins; i++) {
-      const h = sensors[hazardOffset + i] ?? -1;
-      const w = sensors[wallOffset + i] ?? -1;
-      const cl = (h + w) * 0.5;
+      const h = sensors[hazardOffset + i] ?? 1;
+      const w = sensors[wallOffset + i] ?? 1;
+      // In V3, headOffset is always present. In V2 it was optional.
+      const head = (layout.offsets.head != null) ? (sensors[layout.offsets.head + i] ?? 1) : 1;
+      // Use minimum perceived safety rather than average to avoid "averaging out" a fatal collision.
+      const cl = Math.min(h, w, head);
       if (cl < worstClear) worstClear = cl;
 
       const f = sensors[foodOffset + i] ?? -1;
       if (f > bestFood) bestFood = f;
     }
 
-    const hazardTrigger = -0.25;
+    const hazardTrigger = -0.15;
 
     // Enter avoid immediately when boxed-in risk is detected.
     if (state !== 'avoid' && worstClear < hazardTrigger) {
       state = 'avoid';
-      stateTimer = AVOID_DURATION_BASE + (rng ? rng() : 0) * AVOID_DURATION_BASE;
+      stateTimer = AVOID_DURATION_BASE + (rng ? rng.next() : 0) * AVOID_DURATION_BASE;
     } else if (state !== 'avoid' && state !== 'boost') {
       // Seek food when present, otherwise roam.
       state = bestFood > FOOD_TRIGGER_THRESHOLD ? 'seek' : 'roam';
@@ -752,10 +841,10 @@ export class BaselineBotManager {
       const boostOk = snake.pointsScore > CFG.boost.minPointsToBoost * BOOST_SCORE_MARGIN;
       const environmentSafe = worstClear > ENV_SAFE_THRESHOLD;
 
-      if (boostOk && environmentSafe && rng && rng() < BOOST_CHANCE_PER_FRAME) {
+      if (boostOk && environmentSafe && rng && rng.next() < BOOST_CHANCE_PER_FRAME) {
         state = 'boost';
         const BOOST_DURATION_BASE = 0.2;
-        stateTimer = BOOST_DURATION_BASE + rng() * BOOST_DURATION_BASE;
+        stateTimer = BOOST_DURATION_BASE + rng.next() * BOOST_DURATION_BASE;
       }
     }
 
@@ -788,6 +877,7 @@ export class BaselineBotManager {
     foodOffset: number,
     hazardOffset: number,
     wallOffset: number,
+    headOffset: number | null,
     foodWeight: number,
     clearWeight: number,
     foodClamp: number,
@@ -809,9 +899,10 @@ export class BaselineBotManager {
       const angle = binIndexToAngle(i, bins, layoutVersion);
       const rawFood = sensors[foodOffset + i] ?? -1;
       const food = Math.min(rawFood, foodClamp);
-      const hazard = sensors[hazardOffset + i] ?? -1;
-      const wall = sensors[wallOffset + i] ?? -1;
-      const clearance = (hazard + wall) * 0.5;
+      const hazard = sensors[hazardOffset + i] ?? 1;
+      const wall = sensors[wallOffset + i] ?? 1;
+      const head = (headOffset != null) ? (sensors[headOffset + i] ?? 1) : 1;
+      const clearance = Math.min(hazard, wall, head);
 
       if (clearance > bestClearVal + 1e-6) {
         bestClearVal = clearance;
@@ -895,7 +986,7 @@ export class BaselineBotManager {
     bins: number,
     layoutVersion: SensorLayoutVersion,
     dt: number,
-    rng: RandomSource | undefined,
+    rng: RandomGenerator | undefined,
     state: BotState,
     sensors: Float32Array,
     hazardOffset: number,
@@ -908,10 +999,10 @@ export class BaselineBotManager {
       let wanderTimer = this.botWanderTimers[index] ?? 0;
       wanderTimer -= dt;
       if (wanderTimer <= 0) {
-        this.botWanderAngles[index] = (rng() - 0.5) * WANDER_ANGLE_SCALE;
+        this.botWanderAngles[index] = (rng.next() - 0.5) * WANDER_ANGLE_SCALE;
         const WANDER_DURATION_BASE = 0.6;
         const WANDER_DURATION_VAR = 1.4;
-        wanderTimer = WANDER_DURATION_BASE + rng() * WANDER_DURATION_VAR;
+        wanderTimer = WANDER_DURATION_BASE + rng.next() * WANDER_DURATION_VAR;
       }
       this.botWanderTimers[index] = wanderTimer;
     }

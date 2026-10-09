@@ -1,0 +1,661 @@
+{
+  "sourceCommit": "5bcc7e605b4cd7afc0994c865a8b400370a6dda3",
+  "date": "2026-10-07",
+  "nativeBuildIdentifier": "slither_native/0.1.0+7f2ee36b5f29.62e68d86759551d3",
+  "scope": "Desktop Codex in-app browser, real production built HTML/JavaScript and Rust server, task-owned files. A2/A3 precise heap/export coverage and retained-after-collection completion. App browser bundle remained index-e1juod3O.js. No renderer, kernels, physics, sensing or evolution change. Laptop performance is deferred by the owner.",
+  "testOnlyIsolationHeaders": {
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "effect": "Only the disposable server adds these stricter response headers. Normal production routing/content is unchanged. Each case uses the same isolated origin/process behavior."
+  },
+  "collectionMethod": {
+    "api": "performance.measureUserAgentSpecificMemory",
+    "primaryDocumentation": "https://web.dev/articles/monitor-total-page-memory-usage",
+    "method": "Wait for the supported Chromium memory API to resolve at garbage collection, then read precise Runtime.getHeapUsage. The API total/breakdown are implementation-specific estimates, retained separately; the heap-after-collection gate compares precise CDP usedSize, not the API estimate or coarse performance.memory.",
+    "forcedHeapProfilerCommandUsed": false
+  },
+  "cases": [
+    {
+      "scenario": "P0",
+      "kind": "import",
+      "startedAt": "2026-10-07T05:23:42.755Z",
+      "finishedAt": "2026-10-07T05:24:00.167Z",
+      "file": {
+        "bytes": 2521088,
+        "sha256": "0a35449c5f75762735126f121210868304517606acce510ed1d86a0e0e255d5e",
+        "originalFileBytesMatchConsumedBody": true
+      },
+      "upload": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5182/api/import/archive",
+        "bodyIsFile": true,
+        "fileName": "P0.slither-save",
+        "fileBytes": 2521088,
+        "fileType": "",
+        "progressEvents": 1,
+        "progressBytes": 2521088,
+        "status": 200,
+        "responseCharacters": 315
+      },
+      "fileReadCalls": [],
+      "preciseHeap": {
+        "sampleCount": 151,
+        "observedPeakUsedBytes": 12428160,
+        "observedPeakBackingBytes": 6484787,
+        "maxSampleGapMs": 3214,
+        "afterCollection": {
+          "backingStorageSize": 425512,
+          "embedderHeapUsedSize": 3917568,
+          "totalSize": 9568256,
+          "usedSize": 6257588
+        }
+      },
+      "collectionTimeMeasurement": {
+        "startedAt": 243224.67500001192,
+        "finishedAt": 244470.44999998808,
+        "pending": false,
+        "result": {
+          "breakdown": [
+            {
+              "attribution": [],
+              "bytes": 0,
+              "types": []
+            },
+            {
+              "attribution": [],
+              "bytes": 345936,
+              "types": [
+                "DOM"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 747562,
+              "types": [
+                "Shared"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 6665744,
+              "types": [
+                "Canvas"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 1830635,
+              "types": [
+                "JavaScript"
+              ]
+            }
+          ],
+          "bytes": 9589877
+        }
+      },
+      "recordedUiTimingSupplement": {
+        "animation": {
+          "samples": 192,
+          "p95Ms": 83.39500000001863,
+          "maxMs": 3002.4100000000035,
+          "fractionAtMost40Ms": 0.005208333333333333
+        },
+        "longTasks": [
+          {
+            "start": 227691.86500000954,
+            "duration": 3032
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "P0",
+      "kind": "export",
+      "startedAt": "2026-10-07T05:24:25.526Z",
+      "finishedAt": "2026-10-07T05:24:43.035Z",
+      "file": {
+        "bytes": 2521088,
+        "sha256": "0a35449c5f75762735126f121210868304517606acce510ed1d86a0e0e255d5e",
+        "independentDecodedRoleHashesAndRootVerified": true,
+        "saveRoot": "efb1b7cd126d212a667f7c081deb10cad3e32b836fe9166029ebc2c967aff9b3",
+        "checkpointId": "d96e6ec5cf8231d3429b8f64a480d6cc2c1765d8c016f463fed9f34151d1182a",
+        "bodyHashMatchesSavedFile": true,
+        "fullResponseWithinPreciseHeapSampling": true,
+        "decodedPopulationBytes": 2960760
+      },
+      "upload": null,
+      "fileReadCalls": [],
+      "preciseHeap": {
+        "sampleCount": 193,
+        "observedPeakUsedBytes": 7828052,
+        "observedPeakBackingBytes": 4068199,
+        "maxSampleGapMs": 511,
+        "afterCollection": {
+          "backingStorageSize": 425327,
+          "embedderHeapUsedSize": 4167296,
+          "totalSize": 11141120,
+          "usedSize": 6257392
+        }
+      },
+      "collectionTimeMeasurement": {
+        "startedAt": 285985.6549999714,
+        "finishedAt": 287344.3550000191,
+        "pending": false,
+        "result": {
+          "breakdown": [
+            {
+              "attribution": [],
+              "bytes": 345936,
+              "types": [
+                "DOM"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 6665744,
+              "types": [
+                "Canvas"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 1211700,
+              "types": [
+                "Shared"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 1333165,
+              "types": [
+                "JavaScript"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 0,
+              "types": []
+            }
+          ],
+          "bytes": 9556545
+        }
+      },
+      "recordedUiTimingSupplement": {
+        "animation": {
+          "samples": 333,
+          "p95Ms": 66.73499999998603,
+          "maxMs": 100.09000000002561,
+          "fractionAtMost40Ms": 0.37537537537537535
+        },
+        "longTasks": []
+      }
+    },
+    {
+      "scenario": "P2",
+      "kind": "import",
+      "startedAt": "2026-10-07T05:25:12.584Z",
+      "finishedAt": "2026-10-07T05:25:28.820Z",
+      "file": {
+        "bytes": 74514432,
+        "sha256": "5580acf8e15b95ee890ba6171b518fa3f0f2be87706f90ed7ca23e86a55f6a7c",
+        "originalFileBytesMatchConsumedBody": true
+      },
+      "upload": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5182/api/import/archive",
+        "bodyIsFile": true,
+        "fileName": "P2.slither-save",
+        "fileBytes": 74514432,
+        "fileType": "",
+        "progressEvents": 3,
+        "progressBytes": 74514432,
+        "status": 200,
+        "responseCharacters": 315
+      },
+      "fileReadCalls": [],
+      "preciseHeap": {
+        "sampleCount": 187,
+        "observedPeakUsedBytes": 7860332,
+        "observedPeakBackingBytes": 4171306,
+        "maxSampleGapMs": 407,
+        "afterCollection": {
+          "backingStorageSize": 502114,
+          "embedderHeapUsedSize": 4700328,
+          "totalSize": 9568256,
+          "usedSize": 6341268
+        }
+      },
+      "collectionTimeMeasurement": {
+        "startedAt": 333017.9549999833,
+        "finishedAt": 333060.45999997854,
+        "pending": false,
+        "result": {
+          "breakdown": [
+            {
+              "attribution": [],
+              "bytes": 0,
+              "types": []
+            },
+            {
+              "attribution": [],
+              "bytes": 408096,
+              "types": [
+                "DOM"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 6665744,
+              "types": [
+                "Canvas"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 1238463,
+              "types": [
+                "Shared"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 1351040,
+              "types": [
+                "JavaScript"
+              ]
+            }
+          ],
+          "bytes": 9663343
+        }
+      },
+      "recordedUiTimingSupplement": {
+        "animation": {
+          "samples": 218,
+          "p95Ms": 83.42000000004191,
+          "maxMs": 150.22999999998137,
+          "fractionAtMost40Ms": 0.009174311926605505
+        },
+        "longTasks": [
+          {
+            "start": 318341.5600000024,
+            "duration": 188
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "P2",
+      "kind": "export",
+      "startedAt": "2026-10-07T05:25:57.007Z",
+      "finishedAt": "2026-10-07T05:26:15.725Z",
+      "file": {
+        "bytes": 74514432,
+        "sha256": "5580acf8e15b95ee890ba6171b518fa3f0f2be87706f90ed7ca23e86a55f6a7c",
+        "independentDecodedRoleHashesAndRootVerified": true,
+        "saveRoot": "448e747185ff6788dba39e76a6fc986bf3bcec3480b83ba76cb8f41e1736bf96",
+        "checkpointId": "135fea6acb9774d728a61983d19a6b223e8ec4e89b5c5d2d925b5161559f27a8",
+        "bodyHashMatchesSavedFile": true,
+        "fullResponseWithinPreciseHeapSampling": true,
+        "decodedPopulationBytes": 88641080
+      },
+      "upload": null,
+      "fileReadCalls": [],
+      "preciseHeap": {
+        "sampleCount": 192,
+        "observedPeakUsedBytes": 7882624,
+        "observedPeakBackingBytes": 4047340,
+        "maxSampleGapMs": 601,
+        "afterCollection": {
+          "backingStorageSize": 501380,
+          "embedderHeapUsedSize": 4723464,
+          "totalSize": 11403264,
+          "usedSize": 6313956
+        }
+      },
+      "collectionTimeMeasurement": {
+        "startedAt": 377441.9649999738,
+        "finishedAt": 380018.344999969,
+        "pending": false,
+        "result": {
+          "breakdown": [
+            {
+              "attribution": [],
+              "bytes": 408096,
+              "types": [
+                "DOM"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 707587,
+              "types": [
+                "Shared"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 6665744,
+              "types": [
+                "Canvas"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 1902014,
+              "types": [
+                "JavaScript"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 0,
+              "types": []
+            }
+          ],
+          "bytes": 9683441
+        }
+      },
+      "recordedUiTimingSupplement": {
+        "animation": {
+          "samples": 262,
+          "p95Ms": 66.7599999999511,
+          "maxMs": 100.125,
+          "fractionAtMost40Ms": 0.022900763358778626
+        },
+        "longTasks": []
+      }
+    },
+    {
+      "scenario": "P3",
+      "kind": "import",
+      "startedAt": "2026-10-07T05:28:14.470Z",
+      "finishedAt": "2026-10-07T05:28:30.995Z",
+      "file": {
+        "bytes": 406314496,
+        "sha256": "f85a4688055a8dfccfd6aef0419a4728cc14d94d715f28a556a47d2e7e7373b2",
+        "originalFileBytesMatchConsumedBody": true
+      },
+      "upload": {
+        "method": "POST",
+        "url": "http://127.0.0.1:5182/api/import/archive?mode=branch",
+        "bodyIsFile": true,
+        "fileName": "P3.slither-save",
+        "fileBytes": 406314496,
+        "fileType": "",
+        "progressEvents": 19,
+        "progressBytes": 406314496,
+        "status": 200,
+        "responseCharacters": 367
+      },
+      "fileReadCalls": [],
+      "preciseHeap": {
+        "sampleCount": 175,
+        "observedPeakUsedBytes": 8016180,
+        "observedPeakBackingBytes": 4924295,
+        "maxSampleGapMs": 374,
+        "afterCollection": {
+          "backingStorageSize": 527778,
+          "embedderHeapUsedSize": 5498832,
+          "totalSize": 11141120,
+          "usedSize": 6645292
+        }
+      },
+      "collectionTimeMeasurement": {
+        "startedAt": 514924.22500002384,
+        "finishedAt": 515293.10000002384,
+        "pending": false,
+        "result": {
+          "breakdown": [
+            {
+              "attribution": [],
+              "bytes": 408096,
+              "types": [
+                "DOM"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 6665744,
+              "types": [
+                "Canvas"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 2090140,
+              "types": [
+                "JavaScript"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 0,
+              "types": []
+            },
+            {
+              "attribution": [],
+              "bytes": 631437,
+              "types": [
+                "Shared"
+              ]
+            }
+          ],
+          "bytes": 9795417
+        }
+      },
+      "recordedUiTimingSupplement": {
+        "animation": {
+          "samples": 160,
+          "p95Ms": 166.83499999996275,
+          "maxMs": 233.5349999999744,
+          "fractionAtMost40Ms": 0
+        },
+        "longTasks": [
+          {
+            "start": 503333.97500002384,
+            "duration": 77
+          }
+        ]
+      }
+    },
+    {
+      "scenario": "P3",
+      "kind": "export",
+      "startedAt": "2026-10-07T05:32:56.039Z",
+      "finishedAt": "2026-10-07T05:33:20.086Z",
+      "file": {
+        "bytes": 411900928,
+        "sha256": "195cf9af939f927cc6e027f0ea889c0e888686a9f7d8fb58f88754698df566d1",
+        "independentDecodedRoleHashesAndRootVerified": true,
+        "saveRoot": "42aab1e45a103ac8d6937fb47dc725160dbf1a7019b7842ce2f4cb8b7292f6e8",
+        "checkpointId": "cae78d2fd53146f10dce0e4a9bd4d0aeb8011927a56f0d3edcd793c6818a48b1",
+        "bodyHashMatchesSavedFile": true,
+        "fullResponseWithinPreciseHeapSampling": true,
+        "decodedPopulationBytes": 483496800
+      },
+      "upload": null,
+      "fileReadCalls": [],
+      "preciseHeap": {
+        "sampleCount": 148,
+        "observedPeakUsedBytes": 13018036,
+        "observedPeakBackingBytes": 8969934,
+        "maxSampleGapMs": 414,
+        "afterCollection": {
+          "backingStorageSize": 588039,
+          "embedderHeapUsedSize": 6423872,
+          "totalSize": 22151168,
+          "usedSize": 6680964
+        }
+      },
+      "collectionTimeMeasurement": {
+        "startedAt": 804274.1850000024,
+        "finishedAt": 804331.094999969,
+        "pending": false,
+        "result": {
+          "breakdown": [
+            {
+              "attribution": [],
+              "bytes": 0,
+              "types": []
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 6665744,
+              "types": [
+                "Canvas"
+              ]
+            },
+            {
+              "attribution": [
+                {
+                  "scope": "Window",
+                  "url": "http://127.0.0.1:5182/?server=ws://127.0.0.1:5182"
+                }
+              ],
+              "bytes": 1853345,
+              "types": [
+                "JavaScript"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 711696,
+              "types": [
+                "Shared"
+              ]
+            },
+            {
+              "attribution": [],
+              "bytes": 408096,
+              "types": [
+                "DOM"
+              ]
+            }
+          ],
+          "bytes": 9638881
+        }
+      },
+      "recordedUiTimingSupplement": {
+        "animation": {
+          "samples": 112,
+          "p95Ms": 217.0800000000745,
+          "maxMs": 233.69499999994878,
+          "fractionAtMost40Ms": 0
+        },
+        "longTasks": []
+      }
+    }
+  ],
+  "limits": {
+    "import": {
+      "largeMinusSmallObservedHeapPeakBytes": 0,
+      "largeMinusSmallHeapAfterCollectionBytes": 387704
+    },
+    "export": {
+      "largeMinusSmallObservedHeapPeakBytes": 5189984,
+      "largeMinusSmallHeapAfterCollectionBytes": 423572
+    }
+  },
+  "privateMemory": {
+    "scope": "Entire Codex browser root, all ChatGPT renderers and NetworkService; excludes GPU/other utility processes. Includes unrelated Codex activity, so this is a conservative aggregate rather than isolated tab attribution. Dynamic PIDs are enumerated throughout both bounded windows.",
+    "samples": 1136,
+    "smallWindowMinimumBytes": 1809379328.0,
+    "allWindowsMaximumBytes": 1967255552.0,
+    "largeMinusSmallObservedIncreaseBytes": 157876224.0,
+    "limitBytes": 268435456,
+    "firstAt": "2026-10-07T05:22:38.5812160Z",
+    "lastAt": "2026-10-07T05:33:55.8305230Z"
+  },
+  "qualification": [
+    "Heap peaks are sampled observations, not nanosecond upper bounds; all completed download response bodies lie within precise sampling.",
+    "The instrumentation captures were not new formal foreground display/control acceptance windows. Raw UI timing supplements include modal acknowledgement waits and are not classified as population-file-processing or new drawing passes. Existing passing foreground desktop browser/control evidence is reused because application and calculation code are unchanged.",
+    "P3 remains a capacity fixture, not a new real-time promise. Its original checkpoint had been pruned by the existing byte cap; ordinary branch confirmation preserved the original future.",
+    "An initial Windows EPERM on spool rename did not recur after the verified-close retry; no file-close ordering defect or security workaround was established.",
+    "A real import-retention defect was reproduced: republishing a pruned checkpoint left its classification pruned, so immediate export returned 500. The fix revives that classification within the import transaction while retaining pins and rollback guarantees. This metadata-only correction does not invalidate captured browser memory evidence."
+  ],
+  "fixedCodeBranchBaseRegression": {
+    "importStatus": 200,
+    "importReceipt": {
+      "ok": true,
+      "runId": "eefbcc04-1d36-4e12-a25f-711017c24fca",
+      "generation": "0000000000000001",
+      "completedStep": "0000000000000000",
+      "checkpointId": "5f47f136a15143aab65c5b6f9d876b3a3bf5c7b84d2d21f1c25cbec7781fa95d",
+      "saveLogicalRootSha256": "655fd56a41e2816b33cf4f89e9cefc9cd8db79bfc497a8201926941a3ba699a4",
+      "branched": true,
+      "sourceRunId": "28db8839-3ca5-42d2-98d4-38a280b5d034"
+    },
+    "exportStatus": 200,
+    "exportHeaders": {
+      "access-control-allow-headers": "Content-Type",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-origin": "*",
+      "connection": "keep-alive",
+      "content-disposition": "attachment; filename=\"slither-neuroevo-5f47f136a151-gen-1-v1.slither-save\"",
+      "content-length": "406314496",
+      "content-type": "application/vnd.slither-neuroevo.save",
+      "date": "Wed, 07 Oct 2026 05:41:39 GMT",
+      "keep-alive": "timeout=5",
+      "x-slither-checkpoint-id": "5f47f136a15143aab65c5b6f9d876b3a3bf5c7b84d2d21f1c25cbec7781fa95d",
+      "x-slither-save-root": "655fd56a41e2816b33cf4f89e9cefc9cd8db79bfc497a8201926941a3ba699a4"
+    },
+    "exportBytes": 406314496,
+    "exportSha256": "f85a4688055a8dfccfd6aef0419a4728cc14d94d715f28a556a47d2e7e7373b2"
+  },
+  "status": "A2/A3 heap-peak, collection-time retained heap, complete ordinary downloads/raw original uploads and aggregate private-memory limits pass for small/P2/larger. Earlier desktop usability/source-callgraph evidence remains applicable; laptop performance is deferred."
+}

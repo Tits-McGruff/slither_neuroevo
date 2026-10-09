@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+import type { InferenceBackend } from '../src/brains/types.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+/** Startup population-selection policy. */
+export type ResumeSelection = 'auto' | 'latest' | 'fresh' | number | `sha256:${string}`;
 
 /** Server runtime configuration values derived from defaults, config, env, and CLI. */
 export interface ServerConfig {
@@ -13,20 +16,31 @@ export interface ServerConfig {
   uiHost: string;
   /** Port for the UI dev server bind. */
   uiPort: number;
-  /** Optional default WebSocket URL for the UI when no override is provided. */
+  /** Optional default WebSocket URL for UI clients on a different host. */
   publicWsUrl: string;
   tickRateHz: number;
   uiFrameRateHz: number;
-  actionTimeoutTicks: number;
   maxActionsPerTick: number;
   maxActionsPerSecond: number;
+  /** Wall milliseconds to hold the newest accepted external action. */
+  controllerInputHoldMs: number;
+  /** Wall milliseconds to reserve disconnected controller ownership. */
+  controllerDisconnectGraceMs: number;
   dbPath: string;
   checkpointEveryGenerations: number;
+  /** Managed-store physical budget in MiB, excluding owner-pinned checkpoints. */
+  checkpointBudgetMiB: number;
   logLevel: LogLevel;
   /** Enable server-side MT inference. */
   mtEnabled: boolean;
   /** Requested worker count (0 for auto). */
   mtWorkers: number;
+  /** Rust calculation threads; independent of the old TypeScript MT pool. */
+  rustCalculationWorkers: number;
+  /** Immutable neural math backend selected before brain construction. */
+  inferenceBackend: InferenceBackend;
+  /** Automatic first startup, explicit fresh/latest startup, or one snapshot id. */
+  resume: ResumeSelection;
   seed?: number;
 }
 
@@ -38,15 +52,20 @@ export const DEFAULT_CONFIG: ServerConfig = {
   uiPort: 5173,
   publicWsUrl: '',
   tickRateHz: 60,
-  uiFrameRateHz: 30,
-  actionTimeoutTicks: 10,
+  uiFrameRateHz: 36,
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
+  controllerInputHoldMs: 500,
+  controllerDisconnectGraceMs: 30_000,
   dbPath: './data/slither.db',
-  checkpointEveryGenerations: 0,
+  checkpointEveryGenerations: 1,
+  checkpointBudgetMiB: 4096,
   logLevel: 'info',
   mtEnabled: false,
-  mtWorkers: 0
+  mtWorkers: 0,
+  rustCalculationWorkers: 5,
+  inferenceBackend: 'native',
+  resume: 'auto'
 };
 
 /** Shape of a process environment map. */
@@ -56,6 +75,8 @@ type RawConfigInput = Partial<Record<keyof ServerConfig, unknown>>;
 
 /** Supported log levels for validation. */
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+/** Supported immutable neural math backends. */
+const INFERENCE_BACKENDS: InferenceBackend[] = ['native', 'js'];
 /** Default TOML config file path relative to the repo root. */
 const DEFAULT_CONFIG_PATH = 'server/config.toml';
 
@@ -97,6 +118,26 @@ function parseBoolValue(raw: string | undefined): boolean | undefined {
 }
 
 /**
+ * Normalize a startup resume selector from TOML, environment, or CLI text.
+ * @param value - Raw selector value.
+ * @param warn - Optional warning callback for invalid non-CLI input.
+ * @returns Automatic, fresh, latest, or one positive snapshot id.
+ */
+function normalizeResumeSelection(
+  value: unknown,
+  warn?: (msg: string) => void
+): ResumeSelection {
+  if (value === undefined || value === null || value === '') return DEFAULT_CONFIG.resume;
+  if (value === 'auto' || value === 'latest' || value === 'fresh') return value;
+  const text = String(value).trim();
+  if (/^(?:sha256:)?[0-9a-f]{64}$/u.test(text)) return `sha256:${text.replace(/^sha256:/u, '')}`;
+  const parsed = typeof value === 'number' ? value : Number.parseInt(text, 10);
+  if (Number.isSafeInteger(parsed) && parsed > 0 && text === String(parsed)) return parsed;
+  warn?.(`resume selector "${String(value)}" is invalid; using ${DEFAULT_CONFIG.resume}.`);
+  return DEFAULT_CONFIG.resume;
+}
+
+/**
  * Resolve a CLI argument value for a flag, supporting `--flag value` and `--flag=value`.
  * @param argv - Argument vector to scan.
  * @param flag - Flag name to match (e.g. `--port`).
@@ -108,7 +149,8 @@ function getArgValue(argv: string[], flag: string): string | undefined {
     const arg = argv[i];
     if (!arg) continue;
     if (arg === flag) {
-      return argv[i + 1];
+      const next = argv[i + 1];
+      return next && !next.startsWith('--') ? next : undefined;
     }
     if (arg.startsWith(prefix)) {
       return arg.slice(prefix.length);
@@ -167,6 +209,18 @@ function coerceInt(
   return clamped;
 }
 
+/** Require an exact configured storage budget rather than silently clamping it. */
+function checkpointBudgetMiB(value: unknown): number {
+  if (value === undefined) return DEFAULT_CONFIG.checkpointBudgetMiB;
+  const parsed = typeof value === 'number' ? value :
+    typeof value === 'string' && /^(?:0|[1-9][0-9]*)$/u.test(value)
+      ? Number(value) : Number.NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 1_280 || parsed > 65_536) {
+    throw new RangeError('checkpointBudgetMiB must be an integer from 1280 to 65536');
+  }
+  return parsed;
+}
+
 /**
  * Normalize raw config input into a validated server config object.
  * @param input - Raw config data to normalize.
@@ -215,14 +269,6 @@ export function normalizeConfig(
     warn?.('uiFrameRateHz exceeded tickRateHz; clamping to tickRateHz.');
     uiFrameRateHz = tickRateHz;
   }
-  const actionTimeoutTicks = coerceInt(
-    'actionTimeoutTicks',
-    input.actionTimeoutTicks,
-    DEFAULT_CONFIG.actionTimeoutTicks,
-    1,
-    600,
-    warn
-  );
   const maxActionsPerTick = coerceInt(
     'maxActionsPerTick',
     input.maxActionsPerTick,
@@ -239,6 +285,22 @@ export function normalizeConfig(
     10000,
     warn
   );
+  const controllerInputHoldMs = coerceInt(
+    'controllerInputHoldMs',
+    input.controllerInputHoldMs,
+    DEFAULT_CONFIG.controllerInputHoldMs,
+    0,
+    60_000,
+    warn
+  );
+  const controllerDisconnectGraceMs = coerceInt(
+    'controllerDisconnectGraceMs',
+    input.controllerDisconnectGraceMs,
+    DEFAULT_CONFIG.controllerDisconnectGraceMs,
+    0,
+    10 * 60_000,
+    warn
+  );
   const checkpointEveryGenerations = coerceInt(
     'checkpointEveryGenerations',
     input.checkpointEveryGenerations,
@@ -247,6 +309,7 @@ export function normalizeConfig(
     100000,
     warn
   );
+  const selectedCheckpointBudgetMiB = checkpointBudgetMiB(input.checkpointBudgetMiB);
   const rawDbPath = typeof input.dbPath === 'string' ? input.dbPath : '';
   const dbPath = rawDbPath.trim() ? rawDbPath : DEFAULT_CONFIG.dbPath;
   if (input.dbPath !== undefined && !rawDbPath.trim()) {
@@ -286,6 +349,19 @@ export function normalizeConfig(
     }
   }
   const mtWorkers = coerceInt('mtWorkers', input.mtWorkers, DEFAULT_CONFIG.mtWorkers, 0, 128, warn);
+  const rustCalculationWorkers = coerceInt('rustCalculationWorkers', input.rustCalculationWorkers,
+    DEFAULT_CONFIG.rustCalculationWorkers, 1, 7, warn);
+  let inferenceBackend = DEFAULT_CONFIG.inferenceBackend;
+  const rawInferenceBackend =
+    typeof input.inferenceBackend === 'string' ? input.inferenceBackend.trim().toLowerCase() : '';
+  if (INFERENCE_BACKENDS.includes(rawInferenceBackend as InferenceBackend)) {
+    inferenceBackend = rawInferenceBackend as InferenceBackend;
+  } else if (input.inferenceBackend !== undefined) {
+    warn?.(
+      `inferenceBackend "${String(input.inferenceBackend)}" is invalid; using ${inferenceBackend}.`
+    );
+  }
+  const resume = normalizeResumeSelection(input.resume, warn);
 
   const output: ServerConfig = {
     host,
@@ -295,14 +371,19 @@ export function normalizeConfig(
     publicWsUrl,
     tickRateHz,
     uiFrameRateHz,
-    actionTimeoutTicks,
     maxActionsPerTick,
     maxActionsPerSecond,
+    controllerInputHoldMs,
+    controllerDisconnectGraceMs,
     dbPath,
     checkpointEveryGenerations,
+    checkpointBudgetMiB: selectedCheckpointBudgetMiB,
     logLevel,
     mtEnabled,
-    mtWorkers
+    mtWorkers,
+    rustCalculationWorkers,
+    inferenceBackend,
+    resume
   };
   if (seed !== undefined) output.seed = seed;
   return output;
@@ -316,8 +397,8 @@ function defaultConfigToml(): string {
   const base = stringifyToml(DEFAULT_CONFIG).trim();
   const seedHint = '# seed = 12345 # optional: fixed world seed\n';
   const publicWsHint =
-    '# publicWsUrl overrides the UI default when no ?server= override is used.\n' +
-    '# Leave it blank to use the UI hostname + server port.\n';
+    '# publicWsUrl tells browsers where to find the simulation server when it differs from the UI host.\n' +
+    '# Leave it blank to use the UI hostname plus the configured server port.\n';
   const uiHint = '# uiHost/uiPort control the Vite dev server bind.\n';
   return `# Slither Neuroevo server configuration (TOML)\n${seedHint}${publicWsHint}${uiHint}${base}\n`;
 }
@@ -365,15 +446,20 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     publicWsUrl: data['publicWsUrl'],
     tickRateHz: data['tickRateHz'],
     uiFrameRateHz: data['uiFrameRateHz'],
-    actionTimeoutTicks: data['actionTimeoutTicks'],
     maxActionsPerTick: data['maxActionsPerTick'],
     maxActionsPerSecond: data['maxActionsPerSecond'],
+    controllerInputHoldMs: data['controllerInputHoldMs'],
+    controllerDisconnectGraceMs: data['controllerDisconnectGraceMs'],
     dbPath: data['dbPath'],
     checkpointEveryGenerations: data['checkpointEveryGenerations'],
+    checkpointBudgetMiB: data['checkpointBudgetMiB'],
     logLevel: data['logLevel'],
     seed: data['seed'],
     mtEnabled: data['mtEnabled'],
-    mtWorkers: data['mtWorkers']
+    mtWorkers: data['mtWorkers'],
+    rustCalculationWorkers: data['rustCalculationWorkers'],
+    inferenceBackend: data['inferenceBackend'],
+    resume: data['resume']
   };
 }
 
@@ -425,10 +511,6 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const uiRate =
     parseIntValue(getArgValue(argv, '--ui-rate')) ?? parseIntValue(env['UI_RATE']);
   if (uiRate !== undefined) input.uiFrameRateHz = uiRate;
-  const actionTimeout =
-    parseIntValue(getArgValue(argv, '--action-timeout')) ??
-    parseIntValue(env['ACTION_TIMEOUT_TICKS']);
-  if (actionTimeout !== undefined) input.actionTimeoutTicks = actionTimeout;
   const maxActionsPerTick =
     parseIntValue(getArgValue(argv, '--actions-per-tick')) ??
     parseIntValue(env['ACTIONS_PER_TICK']);
@@ -437,12 +519,27 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
     parseIntValue(getArgValue(argv, '--actions-per-second')) ??
     parseIntValue(env['ACTIONS_PER_SECOND']);
   if (maxActionsPerSecond !== undefined) input.maxActionsPerSecond = maxActionsPerSecond;
+  const controllerInputHoldMs =
+    parseIntValue(getArgValue(argv, '--input-hold-ms')) ??
+    parseIntValue(env['CONTROLLER_INPUT_HOLD_MS']);
+  if (controllerInputHoldMs !== undefined) input.controllerInputHoldMs = controllerInputHoldMs;
+  const controllerDisconnectGraceMs =
+    parseIntValue(getArgValue(argv, '--disconnect-grace-ms')) ??
+    parseIntValue(env['CONTROLLER_DISCONNECT_GRACE_MS']);
+  if (controllerDisconnectGraceMs !== undefined) {
+    input.controllerDisconnectGraceMs = controllerDisconnectGraceMs;
+  }
   const dbPath = getArgValue(argv, '--db-path') ?? env['DB_PATH'];
   if (dbPath) input.dbPath = dbPath;
   const checkpointEvery =
     parseIntValue(getArgValue(argv, '--checkpoint-every')) ??
     parseIntValue(env['CHECKPOINT_EVERY']);
   if (checkpointEvery !== undefined) input.checkpointEveryGenerations = checkpointEvery;
+  const cliCheckpointBudget = getArgValue(argv, '--checkpoint-budget-mib');
+  if (argv.some(arg => arg === '--checkpoint-budget-mib' || arg.startsWith('--checkpoint-budget-mib=')) &&
+      cliCheckpointBudget === undefined) throw new Error('--checkpoint-budget-mib requires a value');
+  const checkpointBudget = cliCheckpointBudget ?? env['CHECKPOINT_BUDGET_MIB'];
+  if (checkpointBudget !== undefined) input.checkpointBudgetMiB = checkpointBudget;
   const logLevel = (getArgValue(argv, '--log') ?? env['LOG_LEVEL']) as
     | LogLevel
     | undefined;
@@ -457,5 +554,29 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   const mtWorkers =
     parseIntValue(getArgValue(argv, '--mt-workers')) ?? parseIntValue(env['MT_WORKERS']);
   if (mtWorkers !== undefined) input.mtWorkers = mtWorkers;
+  const rustWorkers = parseIntValue(getArgValue(argv, '--rust-workers')) ?? parseIntValue(env['RUST_WORKERS']);
+  if (rustWorkers !== undefined) input.rustCalculationWorkers = rustWorkers;
+  const inferenceBackend = getArgValue(argv, '--backend') ?? env['INFERENCE_BACKEND'];
+  if (inferenceBackend !== undefined) input.inferenceBackend = inferenceBackend;
+  const hasFresh = hasArgFlag(argv, '--fresh');
+  const hasResumeFlag = argv.some((arg) => arg === '--resume' || arg.startsWith('--resume='));
+  if (hasFresh && hasResumeFlag) {
+    throw new Error('--fresh and --resume are mutually exclusive');
+  }
+  const resumeRaw = getArgValue(argv, '--resume') ?? env['SERVER_RESUME'];
+  if (hasFresh) {
+    input.resume = 'fresh';
+  } else if (hasResumeFlag) {
+    if (!resumeRaw || resumeRaw.startsWith('--')) {
+      throw new Error('--resume requires "latest", a positive reference snapshot id, or a managed SHA-256 checkpoint id');
+    }
+    const selection = normalizeResumeSelection(resumeRaw);
+    if (selection === DEFAULT_CONFIG.resume && resumeRaw !== 'latest') {
+      throw new Error(`invalid --resume selection: ${resumeRaw}`);
+    }
+    input.resume = selection;
+  } else if (resumeRaw !== undefined) {
+    input.resume = resumeRaw;
+  }
   return normalizeConfig(input, warn);
 }

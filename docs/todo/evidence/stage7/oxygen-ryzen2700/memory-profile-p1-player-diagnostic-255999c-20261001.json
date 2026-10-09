@@ -1,0 +1,394 @@
+{
+  "startedAtUtc": "2026-09-30T17:05:47.328Z",
+  "requestedSeconds": 1800,
+  "clientScope": "Programmatic player; measures received frames and reconnects, not browser rendering.",
+  "connections": 33,
+  "frames": 28754,
+  "frameBytes": 2294984800,
+  "actions": 29683,
+  "assignments": 75,
+  "reclaimed": 32,
+  "reclaimResults": 32,
+  "failedReclaims": 0,
+  "errors": [],
+  "reconnects": [
+    {
+      "wallSeconds": 0.020126175999999985,
+      "reclaimed": false,
+      "snakeId": 4249
+    },
+    {
+      "wallSeconds": 18.643271757999997,
+      "reclaimed": false,
+      "snakeId": 4568
+    },
+    {
+      "wallSeconds": 30.139246466,
+      "reclaimed": true,
+      "snakeId": 4568
+    },
+    {
+      "wallSeconds": 60.259860894,
+      "reclaimed": true,
+      "snakeId": 4568
+    },
+    {
+      "wallSeconds": 79.12227135799999,
+      "reclaimed": false,
+      "snakeId": 4906
+    },
+    {
+      "wallSeconds": 82.05325918,
+      "reclaimed": false,
+      "snakeId": 4910
+    },
+    {
+      "wallSeconds": 82.30040781999999,
+      "reclaimed": false,
+      "snakeId": 4911
+    },
+    {
+      "wallSeconds": 90.388914081,
+      "reclaimed": true,
+      "snakeId": 4911
+    },
+    {
+      "wallSeconds": 120.530200959,
+      "reclaimed": true,
+      "snakeId": 4911
+    },
+    {
+      "wallSeconds": 139.598779787,
+      "reclaimed": false,
+      "snakeId": 5247
+    },
+    {
+      "wallSeconds": 146.17607604900002,
+      "reclaimed": false,
+      "snakeId": 5251
+    },
+    {
+      "wallSeconds": 150.14764843,
+      "reclaimed": true,
+      "snakeId": 5251
+    },
+    {
+      "wallSeconds": 180.27379459600002,
+      "reclaimed": true,
+      "snakeId": 5251
+    },
+    {
+      "wallSeconds": 189.00753594300002,
+      "reclaimed": false,
+      "snakeId": 5270
+    },
+    {
+      "wallSeconds": 200.123067692,
+      "reclaimed": false,
+      "snakeId": 5586
+    },
+    {
+      "wallSeconds": 210.39753866400002,
+      "reclaimed": true,
+      "snakeId": 5586
+    },
+    {
+      "wallSeconds": 240.52025660500001,
+      "reclaimed": true,
+      "snakeId": 5586
+    },
+    {
+      "wallSeconds": 260.646010256,
+      "reclaimed": false,
+      "snakeId": 5919
+    },
+    {
+      "wallSeconds": 262.74167044099994,
+      "reclaimed": false,
+      "snakeId": 5924
+    },
+    {
+      "wallSeconds": 266.28836345,
+      "reclaimed": false,
+      "snakeId": 5927
+    },
+    {
+      "wallSeconds": 270.154140327,
+      "reclaimed": true,
+      "snakeId": 5927
+    },
+    {
+      "wallSeconds": 300.275199592,
+      "reclaimed": true,
+      "snakeId": 5927
+    },
+    {
+      "wallSeconds": 317.03791199799997,
+      "reclaimed": false,
+      "snakeId": 5950
+    },
+    {
+      "wallSeconds": 321.18680764199996,
+      "reclaimed": false,
+      "snakeId": 6263
+    },
+    {
+      "wallSeconds": 322.26850312,
+      "reclaimed": false,
+      "snakeId": 6264
+    },
+    {
+      "wallSeconds": 322.352336948,
+      "reclaimed": false,
+      "snakeId": 6265
+    },
+    {
+      "wallSeconds": 330.397259464,
+      "reclaimed": true,
+      "snakeId": 6265
+    },
+    {
+      "wallSeconds": 360.520797151,
+      "reclaimed": true,
+      "snakeId": 6265
+    },
+    {
+      "wallSeconds": 381.75512232899996,
+      "reclaimed": false,
+      "snakeId": 6602
+    },
+    {
+      "wallSeconds": 390.149263355,
+      "reclaimed": true,
+      "snakeId": 6602
+    },
+    {
+      "wallSeconds": 420.26957121699996,
+      "reclaimed": true,
+      "snakeId": 6602
+    },
+    {
+      "wallSeconds": 442.303641439,
+      "reclaimed": false,
+      "snakeId": 6935
+    },
+    {
+      "wallSeconds": 450.39805210500003,
+      "reclaimed": true,
+      "snakeId": 6935
+    },
+    {
+      "wallSeconds": 480.51972785799995,
+      "reclaimed": true,
+      "snakeId": 6935
+    },
+    {
+      "wallSeconds": 502.86421227700004,
+      "reclaimed": false,
+      "snakeId": 7275
+    },
+    {
+      "wallSeconds": 510.14390719,
+      "reclaimed": true,
+      "snakeId": 7275
+    },
+    {
+      "wallSeconds": 527.1221908800001,
+      "reclaimed": false,
+      "snakeId": 7286
+    },
+    {
+      "wallSeconds": 540.271381016,
+      "reclaimed": true,
+      "snakeId": 7286
+    },
+    {
+      "wallSeconds": 563.43694708,
+      "reclaimed": false,
+      "snakeId": 7609
+    },
+    {
+      "wallSeconds": 565.251170724,
+      "reclaimed": false,
+      "snakeId": 7611
+    },
+    {
+      "wallSeconds": 566.7171026139999,
+      "reclaimed": false,
+      "snakeId": 7613
+    },
+    {
+      "wallSeconds": 567.872215845,
+      "reclaimed": false,
+      "snakeId": 7614
+    },
+    {
+      "wallSeconds": 570.396391453,
+      "reclaimed": true,
+      "snakeId": 7614
+    },
+    {
+      "wallSeconds": 572.7637142130001,
+      "reclaimed": false,
+      "snakeId": 7616
+    },
+    {
+      "wallSeconds": 600.516724725,
+      "reclaimed": true,
+      "snakeId": 7616
+    },
+    {
+      "wallSeconds": 623.998662531,
+      "reclaimed": false,
+      "snakeId": 7944
+    },
+    {
+      "wallSeconds": 626.394589623,
+      "reclaimed": false,
+      "snakeId": 7947
+    },
+    {
+      "wallSeconds": 630.142014772,
+      "reclaimed": true,
+      "snakeId": 7947
+    },
+    {
+      "wallSeconds": 633.891067254,
+      "reclaimed": false,
+      "snakeId": 7951
+    },
+    {
+      "wallSeconds": 634.2572245490001,
+      "reclaimed": false,
+      "snakeId": 7952
+    },
+    {
+      "wallSeconds": 660.260543072,
+      "reclaimed": true,
+      "snakeId": 7952
+    },
+    {
+      "wallSeconds": 684.5531377240001,
+      "reclaimed": false,
+      "snakeId": 8280
+    },
+    {
+      "wallSeconds": 688.6481574109999,
+      "reclaimed": false,
+      "snakeId": 8285
+    },
+    {
+      "wallSeconds": 690.396497798,
+      "reclaimed": true,
+      "snakeId": 8285
+    },
+    {
+      "wallSeconds": 710.578182103,
+      "reclaimed": false,
+      "snakeId": 8297
+    },
+    {
+      "wallSeconds": 720.514058922,
+      "reclaimed": true,
+      "snakeId": 8297
+    },
+    {
+      "wallSeconds": 745.1478263609999,
+      "reclaimed": false,
+      "snakeId": 8616
+    },
+    {
+      "wallSeconds": 750.142894332,
+      "reclaimed": true,
+      "snakeId": 8616
+    },
+    {
+      "wallSeconds": 760.540449534,
+      "reclaimed": false,
+      "snakeId": 8626
+    },
+    {
+      "wallSeconds": 761.207537681,
+      "reclaimed": false,
+      "snakeId": 8627
+    },
+    {
+      "wallSeconds": 780.2627268589999,
+      "reclaimed": true,
+      "snakeId": 8627
+    },
+    {
+      "wallSeconds": 805.7509154909999,
+      "reclaimed": false,
+      "snakeId": 8956
+    },
+    {
+      "wallSeconds": 809.379694497,
+      "reclaimed": false,
+      "snakeId": 8960
+    },
+    {
+      "wallSeconds": 810.3973040340001,
+      "reclaimed": true,
+      "snakeId": 8960
+    },
+    {
+      "wallSeconds": 840.52596418,
+      "reclaimed": true,
+      "snakeId": 8960
+    },
+    {
+      "wallSeconds": 866.314881864,
+      "reclaimed": false,
+      "snakeId": 9296
+    },
+    {
+      "wallSeconds": 869.186492086,
+      "reclaimed": false,
+      "snakeId": 9300
+    },
+    {
+      "wallSeconds": 870.161506642,
+      "reclaimed": true,
+      "snakeId": 9300
+    },
+    {
+      "wallSeconds": 900.29720118,
+      "reclaimed": true,
+      "snakeId": 9300
+    },
+    {
+      "wallSeconds": 926.9434533179999,
+      "reclaimed": false,
+      "snakeId": 9630
+    },
+    {
+      "wallSeconds": 929.7259733230001,
+      "reclaimed": false,
+      "snakeId": 9633
+    },
+    {
+      "wallSeconds": 930.426569925,
+      "reclaimed": true,
+      "snakeId": 9633
+    },
+    {
+      "wallSeconds": 931.071631055,
+      "reclaimed": false,
+      "snakeId": 9634
+    },
+    {
+      "wallSeconds": 960.553992445,
+      "reclaimed": true,
+      "snakeId": 9634
+    },
+    {
+      "wallSeconds": 987.5383911389999,
+      "reclaimed": false,
+      "snakeId": 9963
+    }
+  ],
+  "wallSeconds": 989.085622985,
+  "passed": false,
+  "failure": "Error: unexpected player disconnect"
+}

@@ -1,0 +1,158 @@
+{
+  "schema": "stage5-typescript-ambient-fixtures-v1",
+  "evidenceClass": "current-source execution",
+  "sourceRevision": "c76cdc2",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "purpose": "ambient formula, accumulator and RNG ordering reference, not performance evidence"
+  },
+  "source": {
+    "accumulator": "src/world.ts::World._spawnAmbientForFixedStep",
+    "sampler": "src/world.ts::World._spawnAmbientPellet",
+    "rng": "src/rng.ts::StatefulRng",
+    "configuration": "src/config.ts::CFG_DEFAULT",
+    "extractor": "scripts/stage5/generate-ambient-fixtures.ts",
+    "runner": "node ./node_modules/tsx/dist/cli.mjs scripts/stage5/generate-ambient-fixtures.ts"
+  },
+  "settings": {
+    "worldRadius": 3500,
+    "pelletCountTarget": 3500,
+    "pelletSpawnPerSecond": 170,
+    "foodValue": 1,
+    "foodSpawn": {
+      "edgeFalloffEnabled": true,
+      "edgeFadeStart": 0.35,
+      "edgeFadePower": 2.6,
+      "filamentPower": 4.2,
+      "warpFreq": 0.0013,
+      "warpScale": 0.08,
+      "freqLarge": 0.0026,
+      "freqMedium": 0.0042,
+      "freqSmall": 0.0068,
+      "dustStrength": 0.35
+    }
+  },
+  "fixtures": {
+    "earlyAcceptance": {
+      "seed": 659918,
+      "generationTime": 0.016666666666666666,
+      "drawOrder": [
+        "polarAngle",
+        "sqrtAreaRadius",
+        "acceptance"
+      ],
+      "draws": 18,
+      "attempts": 6,
+      "pellet": {
+        "position": [
+          -83.24772872016591,
+          -383.3541168374529
+        ],
+        "value": 1,
+        "kind": "ambient",
+        "colorId": 0
+      },
+      "rngAfter": {
+        "algorithm": "xorshift32",
+        "version": 1,
+        "stateHex": "0xa262ccb1",
+        "gaussianAlgorithm": "box-muller-polar",
+        "gaussianVersion": 1,
+        "gaussianSpareValid": false,
+        "gaussianSpareHex": null
+      }
+    },
+    "fallbackTie": {
+      "generationTime": 0,
+      "constantDensitySettings": {
+        "edgeFalloffEnabled": false,
+        "warpFreq": 0,
+        "warpScale": 0,
+        "freqLarge": 0,
+        "freqMedium": 0,
+        "freqSmall": 0,
+        "dustStrength": 0
+      },
+      "suppliedDraws": [
+        0,
+        0.1111111111111111,
+        0.999999,
+        0.125,
+        0.2222222222222222,
+        0.999999,
+        0.25,
+        0.3333333333333333,
+        0.999999,
+        0.375,
+        0.4444444444444444,
+        0.999999,
+        0.5,
+        0.5555555555555556,
+        0.999999,
+        0.625,
+        0.6666666666666666,
+        0.999999,
+        0.75,
+        0.7777777777777778,
+        0.999999,
+        0.875,
+        0.8888888888888888,
+        0.999999
+      ],
+      "consumedDraws": 24,
+      "attempts": 8,
+      "expectedTieWinner": "first candidate",
+      "firstCandidate": [
+        1166.6666666666665,
+        0
+      ],
+      "pellet": {
+        "position": [
+          1166.6666666666665,
+          0
+        ],
+        "value": 1,
+        "kind": "ambient",
+        "colorId": 0
+      }
+    },
+    "accumulator": {
+      "initial": {
+        "pelletCount": 2,
+        "accumulator": 0.25
+      },
+      "whileFull": {
+        "pelletCount": 2,
+        "accumulator": 0.75,
+        "draws": 0
+      },
+      "afterOneRemoval": {
+        "pelletCount": 2,
+        "accumulator": 0,
+        "draws": 6,
+        "rngAfter": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x052ebe9a",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        },
+        "appendedPellet": {
+          "position": [
+            1628.749282901049,
+            1613.7086144186408
+          ],
+          "kind": "ambient"
+        }
+      }
+    }
+  },
+  "interpretation": {
+    "preserve": "fractional credit including while full, post-generation-time density, angle/radius/acceptance draw order, eight attempts, strict-first best fallback and pellet fields",
+    "correct": "Rust stages IDs, capacity, accumulator, RNG and all generated pellets atomically instead of mutating credit/array/grid incrementally",
+    "notPerformanceEvidence": true
+  }
+}

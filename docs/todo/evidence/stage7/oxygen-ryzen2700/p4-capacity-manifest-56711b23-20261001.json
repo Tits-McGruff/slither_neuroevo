@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-10-01",
+  "platform": "Oxygen Ryzen 7 2700 / Debian x86_64 GNU",
+  "baseCommit": "0d859b4ec67bac4291584bc4cf27c3d2b22ffaeb",
+  "sourceCheckpoint": "8d38fb9e7441bd1675566dbf60f3e4be6d54817c",
+  "sourceState": "The production addon was built from the base commit with the three native source changes subsequently committed unchanged in sourceCheckpoint. Its build identifier honestly retains the base prefix.",
+  "nativeBuildIdentifier": "slither_native/0.1.0+0d859b4ec67b.56711b23552ac290",
+  "changedNativeFileSha256": {
+    "native/src/engine/fresh_run.rs": "4fdb0cd2ab8e3f970a915ae0b6e77aa2d01e49a88c26b501d505c6fe58e058d9",
+    "native/src/engine/display.rs": "6a07d80360a9941bfc07eee7433a33d53a7590c4bd985558aa20abd68cbbc78e",
+    "native/src/engine/queues.rs": "ae9806de66c4a2a84e57fc734f1afb15659185980d0977c097c6d9bc7d44a66a"
+  },
+  "runner": "scripts/stage7/dense-world-capacity.ts",
+  "executedRunnerSha256": "0b3ed72d60a02a5a59ead40991ed6c6e37f28b50333f6846577c194d6c16c21e",
+  "report": "p4-capacity-56711b23-20261001.json",
+  "reportSha256": "5d056ed7e588150dd4c1b96e9180958958727ed33eb880d5b880556a61e552ac",
+  "command": "node ./node_modules/tsx/dist/cli.mjs scripts/stage7/dense-world-capacity.ts --db-path probe.sqlite --seconds 600 --output report.json",
+  "termination": "Five seconds of continuing actual frames above 200,000 adjacent-point segments; the ten-minute bound was not reached.",
+  "peakBodyPoints": 203544,
+  "peakBodySegments": 203536,
+  "peakAliveSnakes": 8,
+  "collisionSkipSegments": 30,
+  "conservativeIndexedCollisionSegmentLowerBound": 203304,
+  "collisionLowerBoundDerivation": "sum(max(0, bodyLength - 30)) >= bodyPoints - aliveSnakes * 30; this exceeds 200,000 even after the configured skipped head segments.",
+  "scope": "Production capacity and continued complete frame transport only. Ordinary legacy startup, growth, physics, deaths and sensors; no body injection, hooks addon, disabled collisions or substitute observations. The deliberately dense high-growth workload reports overload and does not qualify real-time performance, LAN or browser follow/overview acceptance.",
+  "cleanup": "Compact report and source hashes retained before deleting the task-owned remote checkout, addon and copied databases. The owner service remains stopped."
+}

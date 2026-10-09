@@ -1,0 +1,79 @@
+{
+  "sourceRevision": "d0c70a62437bb52cc5293d475bc2e34784b9db4b",
+  "held": {
+    "truncated": false,
+    "snakeId": 906,
+    "lastAction": {
+      "sequence": 17761,
+      "message": {
+        "type": "action",
+        "tick": 38079,
+        "snakeId": 906,
+        "turn": 0.1666797302712159,
+        "boost": 1
+      }
+    },
+    "nativeFrames": [
+      {
+        "sequence": 17753,
+        "snakeId": 906,
+        "boost": 1,
+        "direction": 0.31155768036842346
+      },
+      {
+        "sequence": 17758,
+        "snakeId": 906,
+        "boost": 1,
+        "direction": 0.3301700949668884
+      },
+      {
+        "sequence": 17763,
+        "snakeId": 906,
+        "boost": 1,
+        "direction": 0.34844279289245605
+      }
+    ]
+  },
+  "released": {
+    "truncated": false,
+    "snakeId": 1009,
+    "firstReleaseAction": {
+      "sequence": 28371,
+      "timestamp": 279804.764607,
+      "message": {
+        "type": "action",
+        "tick": 41905,
+        "snakeId": 1009,
+        "turn": 1,
+        "boost": 0
+      }
+    },
+    "firstNativeRelease": {
+      "sequence": 28388,
+      "timestamp": 279804.815733,
+      "snakeId": 1009,
+      "boost": 0,
+      "direction": 1.060059905052185
+    },
+    "observedActionToFrameMs": 51.12600000575185,
+    "priorHeldAction": {
+      "sequence": 28368,
+      "timestamp": 279804.698846,
+      "message": {
+        "type": "action",
+        "tick": 41903,
+        "snakeId": 1009,
+        "turn": 1,
+        "boost": 1
+      }
+    },
+    "priorBoostFrame": {
+      "sequence": 28382,
+      "timestamp": 279804.78256,
+      "snakeId": 1009,
+      "boost": 1,
+      "direction": 0.9534381031990051
+    }
+  },
+  "scope": "One real browser pointer/boost release trace with incoming sensors and display frames suppressed; this is not a latency percentile or an exact per-step trace."
+}

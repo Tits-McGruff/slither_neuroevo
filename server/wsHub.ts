@@ -1,17 +1,24 @@
+import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
 import type { Server } from 'node:http';
-import { parseClientMessage } from './protocol.ts';
+import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
+import { createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
+import { DEFAULT_CONFIG } from './config.ts';
 import type {
   ActionMsg,
   ClientType,
+  GodModeMsg,
   JoinMode,
   JoinMsg,
+  LiveSettingsMsg,
+  NewRunMsg,
   ResetMsg,
   ViewMsg,
   VizMsg,
   SensorSpec,
   ServerMessage,
+  StateReplacedMsg,
   StatsMsg,
   WelcomeMsg
 } from './protocol.ts';
@@ -20,6 +27,12 @@ import type {
 const DEFAULT_MAX_MESSAGE_BYTES = 64 * 1024;
 /** Default max buffered bytes before we stop sending to a client. */
 const DEFAULT_MAX_BUFFERED_BYTES = 512 * 1024;
+/** Hard bound on queued reliable JSON messages per connection. */
+const MAX_RELIABLE_QUEUE_MESSAGES = 1024;
+/** Hard bound on queued reliable JSON bytes per connection. */
+const MAX_RELIABLE_QUEUE_BYTES = 4 * 1024 * 1024;
+/** Fixed wall deadline to complete hello and the first join. */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5000;
 
 /** Per-connection state tracked by the websocket hub. */
 export interface ConnectionState {
@@ -27,14 +40,69 @@ export interface ConnectionState {
   socket: WebSocket;
   clientType: 'unknown' | ClientType;
   joined: boolean;
+  /** Whether the original hello/first-join admission completed at least once. */
+  hasJoined: boolean;
+  /** Old-run messages are discarded until the client joins the replacement run. */
+  awaitingRejoin: boolean;
+  /** Latest replacement acknowledgement required to admit a fresh join. */
+  rejoinToken?: string;
   mode?: JoinMode;
-  lastMessageTime: number;
+  /** Initial admission or replacement rejoin deadline; cleared by join, closure, or shutdown. */
+  handshakeTimer?: NodeJS.Timeout;
+  /** Priority JSON payloads waiting behind the current WebSocket send. */
+  reliableQueue: string[];
+  /** UTF-8 byte total represented by `reliableQueue`. */
+  reliableQueueBytes: number;
+  /** Latest replaceable stats payload. */
+  pendingStats: string | null;
+  /** Latest replaceable binary display frame. */
+  pendingFrame: ArrayBuffer | ArrayBufferView | null;
+  /** Release a borrowed frame only after replacement, cancellation, or send completion. */
+  pendingFrameRelease: (() => void) | null;
+  /** Whether one payload is currently being written by `ws`. */
+  sending: boolean;
+  /** Display frames superseded before reaching the socket. */
+  replacedFrames: number;
+  /** Reliable enqueue or write failures observed for this connection. */
+  reliableFailures: number;
+}
+
+/** Aggregate outbound-queue measurements for health and correction tests. */
+export interface WsOutboundDiagnostics {
+  /** Current connection count. */
+  connections: number;
+  /** Priority JSON messages currently queued. */
+  reliableQueuedMessages: number;
+  /** Priority JSON bytes currently queued. */
+  reliableQueuedBytes: number;
+  /** Connections holding one replaceable pending display frame. */
+  pendingFrames: number;
+  /** Hub-lifetime frames superseded, including connections that have closed. */
+  replacedFrames: number;
+  /** Hub-lifetime reliable enqueue or write failures, including closed connections. */
+  reliableFailures: number;
+  /** Largest queued reliable message count on any connection over the hub lifetime. */
+  highWaterReliableMessagesPerConnection: number;
+  /** Largest queued reliable byte count on any connection over the hub lifetime. */
+  highWaterReliableBytesPerConnection: number;
+  /** Reliable message admission cap per connection; excludes the one in-flight write. */
+  maxReliableMessagesPerConnection: number;
+  /** Reliable payload byte admission cap per connection; excludes the one in-flight write. */
+  maxReliableBytesPerConnection: number;
+  /** Configured live connection capacity, or null for the uncapped reference hub. */
+  maxConnections: number | null;
 }
 
 /** Optional hub configuration overrides. */
 export interface WsHubOptions {
+  /** Optional connection cap for a bounded experimental transport. */
+  maxConnections?: number;
   maxMessageBytes?: number;
   maxBufferedAmount?: number;
+  /** Shared HTTP/WebSocket origin policy for this startup configuration. */
+  browserOrigins?: BrowserOriginPolicy;
+  /** Fixed hello/join deadline; hello or heartbeat traffic cannot extend it. */
+  handshakeTimeoutMs?: number;
 }
 
 /** Event handlers invoked by the websocket hub. */
@@ -44,7 +112,13 @@ export interface WsHubHandlers {
   onView?: (connId: number, msg: ViewMsg) => void;
   onViz?: (connId: number, msg: VizMsg) => void;
   /** Optional handler for reset requests from UI clients. */
-  onReset?: (connId: number, msg: ResetMsg) => void;
+  onReset?: (connId: number, msg: ResetMsg) => void | Promise<void>;
+  /** Optional handler for authoritative live-settings requests. */
+  onSettings?: (connId: number, msg: LiveSettingsMsg) => void;
+  /** Optional handler for authoritative God Mode requests. */
+  onGodMode?: (connId: number, msg: GodModeMsg) => void;
+  /** Optional handler for explicit New Run requests. */
+  onNewRun?: (connId: number, msg: NewRunMsg) => void;
   onDisconnect?: (connId: number) => void;
 }
 
@@ -54,6 +128,14 @@ export class WsHub {
   private wss: WebSocketServer;
   /** Active connection state keyed by id. */
   private connections = new Map<number, ConnectionState>();
+  /** Lifetime frame replacements, retained without keeping closed connection objects. */
+  private replacedFrames = 0;
+  /** Lifetime reliable failures, including callbacks that finish after disconnect. */
+  private reliableFailures = 0;
+  /** Maximum reliable queue length observed at admission, including closed peers. */
+  private highWaterReliableMessagesPerConnection = 0;
+  /** Maximum reliable queue bytes observed at admission, including closed peers. */
+  private highWaterReliableBytesPerConnection = 0;
   /** Next connection id to assign. */
   private nextId = 1;
   /** Cached JSON payload for welcome messages. */
@@ -64,6 +146,10 @@ export class WsHub {
   private maxMessageBytes: number;
   /** Maximum buffered outbound bytes per socket. */
   private maxBufferedAmount: number;
+  /** Maximum live sockets admitted by this hub. */
+  private readonly maxConnections: number;
+  /** Wall deadline for completing hello and the first join. */
+  private readonly handshakeTimeoutMs: number;
   /** Registered event handlers for hub callbacks. */
   private handlers: WsHubHandlers | null;
 
@@ -82,14 +168,23 @@ export class WsHub {
   ) {
     this.maxMessageBytes = options.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES;
     this.maxBufferedAmount = options.maxBufferedAmount ?? DEFAULT_MAX_BUFFERED_BYTES;
+    this.maxConnections = options.maxConnections ?? Infinity;
+    this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS;
+    const browserOrigins = options.browserOrigins ?? createBrowserOriginPolicy(DEFAULT_CONFIG);
     this.wss = new WebSocketServer({
       server: httpServer,
-      maxPayload: this.maxMessageBytes
+      maxPayload: this.maxMessageBytes,
+      verifyClient: (info, done) => {
+        done(browserOrigins.allows(info.req.headers.origin, info.req.socket.localPort), 403, 'Forbidden');
+      }
     });
     this.welcome = welcome;
     this.welcomeJson = JSON.stringify(welcome);
     this.handlers = handlers ?? null;
-    this.wss.on('connection', (socket) => this.handleConnection(socket));
+    this.wss.on('connection', (socket) => {
+      if (this.connections.size >= this.maxConnections) { socket.close(1013, 'connection capacity reached'); return; }
+      this.handleConnection(socket);
+    });
   }
 
   /**
@@ -110,11 +205,78 @@ export class WsHub {
   }
 
   /**
+   * Update dynamic authoritative fields cached for future handshakes.
+   * @param patch - Partial welcome state produced by SimServer.
+   */
+  updateWelcome(patch: Partial<WelcomeMsg>): void {
+    this.welcome = { ...this.welcome, ...patch, type: 'welcome' };
+    this.welcomeJson = JSON.stringify(this.welcome);
+  }
+
+  /** Replace all cached handshake state after an authoritative run swap. */
+  replaceWelcome(welcome: WelcomeMsg): void {
+    this.welcome = { ...welcome, type: 'welcome' };
+    this.welcomeJson = JSON.stringify(this.welcome);
+  }
+
+  /**
+   * Invalidate every old join while retaining each transport connection.
+   * @param message - Reliable replacement notice containing the new handshake.
+   */
+  enterAwaitingRejoin(message: Omit<StateReplacedMsg, 'rejoinToken'>): void {
+    const rejoinToken = randomBytes(16).toString('hex');
+    const payload = JSON.stringify({ ...message, rejoinToken } satisfies StateReplacedMsg);
+    for (const state of this.connections.values()) {
+      state.reliableQueue.length = 0;
+      state.reliableQueueBytes = 0;
+      state.pendingStats = null;
+      this.discardPendingFrame(state);
+      state.joined = false;
+      state.awaitingRejoin = state.clientType !== 'unknown';
+      if (state.awaitingRejoin) state.rejoinToken = rejoinToken;
+      delete state.mode;
+      if (state.clientType !== 'unknown') {
+        // A replacement cannot extend a peer's still-incomplete original admission.
+        if (state.hasJoined) this.armJoinDeadline(state);
+        this.enqueueReliable(state, payload);
+      }
+    }
+  }
+
+  /**
    * Return the current connected client count.
    * @returns Active connection count.
    */
   getClientCount(): number {
     return this.connections.size;
+  }
+
+  /**
+   * Return observable priority-queue and frame-replacement measurements.
+   * @returns Aggregate outbound queue diagnostics.
+   */
+  getOutboundDiagnostics(): WsOutboundDiagnostics {
+    let reliableQueuedMessages = 0;
+    let reliableQueuedBytes = 0;
+    let pendingFrames = 0;
+    for (const state of this.connections.values()) {
+      reliableQueuedMessages += state.reliableQueue.length;
+      reliableQueuedBytes += state.reliableQueueBytes;
+      if (state.pendingFrame !== null) pendingFrames++;
+    }
+    return {
+      connections: this.connections.size,
+      reliableQueuedMessages,
+      reliableQueuedBytes,
+      pendingFrames,
+      replacedFrames: this.replacedFrames,
+      reliableFailures: this.reliableFailures,
+      highWaterReliableMessagesPerConnection: this.highWaterReliableMessagesPerConnection,
+      highWaterReliableBytesPerConnection: this.highWaterReliableBytesPerConnection,
+      maxReliableMessagesPerConnection: MAX_RELIABLE_QUEUE_MESSAGES,
+      maxReliableBytesPerConnection: MAX_RELIABLE_QUEUE_BYTES,
+      maxConnections: Number.isFinite(this.maxConnections) ? this.maxConnections : null
+    };
   }
 
   /**
@@ -125,7 +287,6 @@ export class WsHub {
     for (const state of this.connections.values()) {
       if (state.clientType !== 'ui' || !state.joined) continue;
       if (state.socket.readyState !== WebSocket.OPEN) continue;
-      if (state.socket.bufferedAmount > this.maxBufferedAmount) continue;
       return true;
     }
     return false;
@@ -136,7 +297,10 @@ export class WsHub {
    */
   closeAll(): void {
     for (const state of this.connections.values()) {
-      state.socket.close();
+      clearTimeout(state.handshakeTimer);
+      this.discardPendingFrame(state);
+      if (state.clientType === 'unknown') state.socket.terminate();
+      else state.socket.close();
     }
     this.connections.clear();
     this.wss.close();
@@ -145,14 +309,39 @@ export class WsHub {
   /**
    * Broadcast a binary frame buffer to UI clients.
    * @param buffer - Serialized world frame buffer.
+   * @param release - Optional buffer lease returned after every recipient finishes.
    */
-  broadcastFrame(buffer: ArrayBuffer | ArrayBufferView): void {
+  broadcastFrame(buffer: ArrayBuffer | ArrayBufferView, release?: () => void): void {
+    let references = 1;
     for (const state of this.connections.values()) {
       if (state.clientType !== 'ui' || !state.joined) continue;
       if (state.socket.readyState !== WebSocket.OPEN) continue;
-      if (state.socket.bufferedAmount > this.maxBufferedAmount) continue;
-      state.socket.send(buffer, { binary: true });
+      if (state.pendingFrame !== null) {
+        state.replacedFrames++;
+        this.replacedFrames++;
+      }
+      this.discardPendingFrame(state);
+      state.pendingFrame = buffer;
+      if (release) {
+        references++;
+        let released = false;
+        state.pendingFrameRelease = () => {
+          if (released) return;
+          released = true;
+          if (--references === 0) release();
+        };
+      }
+      this.pumpOutbound(state);
     }
+    if (--references === 0) release?.();
+  }
+
+  /** Drop only unsent bytes; in-flight leases belong to their send callback. */
+  private discardPendingFrame(state: ConnectionState): void {
+    const release = state.pendingFrameRelease;
+    state.pendingFrame = null;
+    state.pendingFrameRelease = null;
+    release?.();
   }
 
   /**
@@ -164,8 +353,32 @@ export class WsHub {
     for (const state of this.connections.values()) {
       if (!state.joined) continue;
       if (state.socket.readyState !== WebSocket.OPEN) continue;
-      if (state.socket.bufferedAmount > this.maxBufferedAmount) continue;
-      state.socket.send(payload);
+      state.pendingStats = payload;
+      this.pumpOutbound(state);
+    }
+  }
+
+  /**
+   * Broadcast a structured runtime failure to every joined client.
+   * @param message - Human-readable authoritative failure reason.
+   */
+  broadcastError(message: string): void {
+    const payload = JSON.stringify({ type: 'error', message });
+    for (const state of this.connections.values()) {
+      if (!state.joined) continue;
+      this.enqueueReliable(state, payload);
+    }
+  }
+
+  /**
+   * Broadcast one JSON result to every joined UI client in connection order.
+   * @param message - Authoritative server message.
+   */
+  broadcastJsonToUi(message: ServerMessage): void {
+    const payload = JSON.stringify(message);
+    for (const state of this.connections.values()) {
+      if (state.clientType !== 'ui' || !state.joined) continue;
+      this.enqueueReliable(state, payload);
     }
   }
 
@@ -174,12 +387,142 @@ export class WsHub {
    * @param connId - Connection id to target.
    * @param payload - Server message to send.
    */
-  sendJsonTo(connId: number, payload: ServerMessage): void {
+  sendJsonTo(connId: number, payload: ServerMessage): boolean {
     const state = this.connections.get(connId);
-    if (!state || !state.joined) return;
-    if (state.socket.readyState !== WebSocket.OPEN) return;
-    if (state.socket.bufferedAmount > this.maxBufferedAmount) return;
-    state.socket.send(JSON.stringify(payload));
+    if (!state || !state.joined) return false;
+    return this.enqueueReliable(state, JSON.stringify(payload));
+  }
+
+  /**
+   * Queue a lifecycle result to a known connection after it entered awaiting-rejoin.
+   * @param connId - Existing connection id.
+   * @param payload - Reliable lifecycle result.
+   * @returns True when the message entered the reliable queue.
+   */
+  sendJsonToAwaitingConnection(connId: number, payload: ServerMessage): boolean {
+    const state = this.connections.get(connId);
+    if (!state) return false;
+    return this.enqueueReliable(state, JSON.stringify(payload));
+  }
+
+  /**
+   * Queue one priority JSON payload or report/close on bounded-queue failure.
+   * @param state - Target connection.
+   * @param payload - Pre-serialized JSON text.
+   * @returns True when the payload entered the reliable path.
+   */
+  private enqueueReliable(state: ConnectionState, payload: string): boolean {
+    if (state.socket.readyState !== WebSocket.OPEN) {
+      state.reliableFailures++;
+      this.reliableFailures++;
+      console.error('[ws.reliable_send_failed]', {
+        connId: state.id,
+        reason: 'socket is not open'
+      });
+      return false;
+    }
+    const bytes = Buffer.byteLength(payload);
+    if (
+      state.reliableQueue.length >= MAX_RELIABLE_QUEUE_MESSAGES ||
+      state.reliableQueueBytes + bytes > MAX_RELIABLE_QUEUE_BYTES
+    ) {
+      state.reliableFailures++;
+      this.reliableFailures++;
+      console.error('[ws.reliable_queue_overflow]', {
+        connId: state.id,
+        queuedMessages: state.reliableQueue.length,
+        queuedBytes: state.reliableQueueBytes,
+        attemptedBytes: bytes
+      });
+      this.discardPendingFrame(state);
+      state.pendingStats = null;
+      state.socket.close(1011, 'reliable outbound queue overflow');
+      return false;
+    }
+    state.reliableQueue.push(payload);
+    state.reliableQueueBytes += bytes;
+    this.highWaterReliableMessagesPerConnection = Math.max(this.highWaterReliableMessagesPerConnection, state.reliableQueue.length);
+    this.highWaterReliableBytesPerConnection = Math.max(this.highWaterReliableBytesPerConnection, state.reliableQueueBytes);
+    this.pumpOutbound(state);
+    return true;
+  }
+
+  /**
+   * Send the next priority JSON, replaceable stats, or newest frame.
+   * Exactly one application-level payload is in flight per connection.
+   * @param state - Connection whose outbound path should advance.
+   */
+  private pumpOutbound(state: ConnectionState): void {
+    if (state.sending || state.socket.readyState !== WebSocket.OPEN) return;
+    let payload: string | ArrayBuffer | ArrayBufferView | null = null;
+    let binary = false;
+    let reliable = false;
+    let releaseFrame: (() => void) | null = null;
+    const queuedReliable = state.reliableQueue.shift();
+    if (queuedReliable !== undefined) {
+      payload = queuedReliable;
+      state.reliableQueueBytes -= Buffer.byteLength(queuedReliable);
+      reliable = true;
+    } else if (state.pendingStats !== null) {
+      payload = state.pendingStats;
+      state.pendingStats = null;
+    } else if (
+      state.pendingFrame !== null &&
+      state.socket.bufferedAmount <= this.maxBufferedAmount
+    ) {
+      payload = state.pendingFrame;
+      state.pendingFrame = null;
+      releaseFrame = state.pendingFrameRelease;
+      state.pendingFrameRelease = null;
+      binary = true;
+    }
+    if (payload === null) return;
+
+    state.sending = true;
+    try {
+      state.socket.send(payload, { binary }, (error?: Error) => {
+        releaseFrame?.();
+        state.sending = false;
+        if (error) {
+          if (reliable) {
+            state.reliableFailures++;
+            this.reliableFailures++;
+          }
+          console.error(reliable ? '[ws.reliable_send_failed]' : '[ws.send_failed]', {
+            connId: state.id,
+            reason: error.message
+          });
+          state.socket.close(1011, 'outbound send failed');
+          return;
+        }
+        this.pumpOutbound(state);
+      });
+    } catch (error) {
+      releaseFrame?.();
+      state.sending = false;
+      if (reliable) {
+        state.reliableFailures++;
+        this.reliableFailures++;
+      }
+      console.error(reliable ? '[ws.reliable_send_failed]' : '[ws.send_failed]', {
+        connId: state.id,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+      state.socket.close(1011, 'outbound send failed');
+    }
+  }
+
+  /** Bound initial admission and each subsequent replacement rejoin independently of peer traffic. */
+  private armJoinDeadline(state: ConnectionState): void {
+    clearTimeout(state.handshakeTimer);
+    state.handshakeTimer = setTimeout(() => {
+      // Termination also frees capacity when the peer will not complete a close handshake.
+      if (!state.joined) {
+        this.connections.delete(state.id);
+        state.socket.terminate();
+      }
+    }, this.handshakeTimeoutMs);
+    state.handshakeTimer.unref();
   }
 
   /**
@@ -192,11 +535,26 @@ export class WsHub {
       socket,
       clientType: 'unknown',
       joined: false,
-      lastMessageTime: Date.now()
+      hasJoined: false,
+      awaitingRejoin: false,
+      reliableQueue: [],
+      reliableQueueBytes: 0,
+      pendingStats: null,
+      pendingFrame: null,
+      pendingFrameRelease: null,
+      sending: false,
+      replacedFrames: 0,
+      reliableFailures: 0
     };
     this.connections.set(state.id, state);
+    this.armJoinDeadline(state);
     socket.on('message', (data, isBinary) => this.handleMessage(state, data, isBinary));
     socket.on('close', () => {
+      clearTimeout(state.handshakeTimer);
+      state.reliableQueue.length = 0;
+      state.reliableQueueBytes = 0;
+      state.pendingStats = null;
+      this.discardPendingFrame(state);
       this.connections.delete(state.id);
       this.handlers?.onDisconnect?.(state.id);
     });
@@ -226,12 +584,19 @@ export class WsHub {
       this.protocolError(state, 'invalid JSON');
       return;
     }
+    const versionError = getProtocolVersionError(parsed);
+    if (versionError) {
+      this.protocolError(state, versionError);
+      return;
+    }
     const msg = parseClientMessage(parsed);
     if (!msg) {
       this.protocolError(state, 'invalid message');
       return;
     }
-    state.lastMessageTime = Date.now();
+    // The replacement notice may still be queued behind an in-flight frame.
+    // Valid old-run controls cannot apply to the new run or close its transport.
+    if (state.awaitingRejoin && msg.type !== 'join' && msg.type !== 'hello' && msg.type !== 'ping') return;
     switch (msg.type) {
       case 'hello':
         if (state.clientType !== 'unknown') {
@@ -239,14 +604,20 @@ export class WsHub {
           return;
         }
         state.clientType = msg.clientType;
-        state.socket.send(this.welcomeJson);
+        this.enqueueReliable(state, this.welcomeJson);
         return;
       case 'join':
+        // Old joins can arrive after a replacement even while its notice is still queued.
+        if (state.awaitingRejoin && msg.rejoinToken !== state.rejoinToken) return;
         if (state.clientType === 'unknown') {
           this.protocolError(state, 'hello required before join');
           return;
         }
+        clearTimeout(state.handshakeTimer);
+        delete state.handshakeTimer;
         state.joined = true;
+        state.hasJoined = true;
+        state.awaitingRejoin = false;
         state.mode = msg.mode;
         this.handlers?.onJoin?.(state.id, msg, state.clientType);
         return;
@@ -284,7 +655,31 @@ export class WsHub {
           this.protocolError(state, 'reset requires ui client');
           return;
         }
-        this.handlers?.onReset?.(state.id, msg);
+        void Promise.resolve(this.handlers?.onReset?.(state.id, msg)).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.sendJsonTo(state.id, { type: 'error', message: `reset failed: ${reason}` });
+        });
+        return;
+      case 'settings':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'settings requires a joined ui client');
+          return;
+        }
+        this.handlers?.onSettings?.(state.id, msg);
+        return;
+      case 'godMode':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'God Mode requires a joined ui client');
+          return;
+        }
+        this.handlers?.onGodMode?.(state.id, msg);
+        return;
+      case 'newRun':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'New Run requires a joined ui client');
+          return;
+        }
+        this.handlers?.onNewRun?.(state.id, msg);
         return;
       case 'ping':
         return;
@@ -300,7 +695,14 @@ export class WsHub {
    */
   private protocolError(state: ConnectionState, message: string): void {
     if (state.socket.readyState === WebSocket.OPEN) {
-      state.socket.send(JSON.stringify({ type: 'error', message }));
+      try {
+        state.socket.send(JSON.stringify({ type: 'error', message }), () => {
+          state.socket.close(1008, message);
+        });
+        return;
+      } catch {
+        // Fall through to ensure the socket is still closed.
+      }
     }
     state.socket.close(1008, message);
   }

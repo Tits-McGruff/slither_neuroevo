@@ -1,0 +1,34 @@
+{
+  "sourceRevision": "d84db47b337a13893bd0e8c85beb4225a0c7d38f",
+  "scope": "Stopped task-owned fixture after ten exact retained-boundary restores and exports. Metadata/file lengths and absence of unmanaged or temporary artifacts, not an independent archive decoder.",
+  "current": {
+    "generation_hex": "0000000000000025",
+    "checkpoint_id": "fab9a92298918f3e2aa3c76de7a28cec141de333660e897eb75b6da3b6e49e7f"
+  },
+  "retainedCheckpoints": 10,
+  "hallOfFameWeightFiles": 35,
+  "retention": [
+    {
+      "retention_kind": "automatic",
+      "count": 10
+    },
+    {
+      "retention_kind": "pruned",
+      "count": 28
+    }
+  ],
+  "managedFiles": 45,
+  "checkpointBytes": "121905152",
+  "weightBytes": "1740644",
+  "unreferenced": [],
+  "temporaryArtifacts": 0,
+  "anchorVerificationScratchAbsent": true,
+  "sqliteQuickCheck": "ok",
+  "sqliteBytes": {
+    "database": "266240",
+    "-wal": "0",
+    "-shm": "32768"
+  },
+  "freeBytes": "172522590208",
+  "passed": true
+}

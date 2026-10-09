@@ -1,0 +1,1301 @@
+//! Versioned, N-API-independent contracts for the Rust engine spine.
+
+use super::checkpoint::{CheckpointDescriptor, CheckpointOperationId, HallOfFameWeightsDescriptor};
+use super::display::RunningDisplayStatus;
+use super::error::{truncate_utf8, MAX_ERROR_DETAIL_BYTES};
+use super::error::{EngineError, EngineErrorCode};
+use super::external_replacement::UnavailableControllerReservation;
+use super::generation::GenerationCommitRecord;
+use super::live_settings::LiveSettingUpdate;
+use super::physics::PhysicsStepKey;
+use super::run_start::PendingRunStartTransition;
+use super::running_loop::RunningGenerationStartResolution;
+use super::running_step::ExternalObservationEvent;
+use super::running_step::GenerationTransitionReason;
+use super::state::ControllerKind;
+use std::mem::size_of;
+use std::sync::{Arc, Mutex};
+
+/// First supported engine-spine contract version.
+pub const ENGINE_CONTRACT_VERSION: u32 = 1;
+
+/// Caller-supplied inbound queue limits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InboundLimits {
+    /// Maximum queued command batches.
+    pub max_batches: usize,
+    /// Maximum queued commands across all batches.
+    pub max_commands: usize,
+    /// Maximum owned command payload bytes across all batches.
+    pub max_owned_bytes: usize,
+    /// Maximum commands accepted in one atomic batch.
+    pub max_batch_commands: usize,
+    /// Maximum owned payload bytes accepted in one atomic batch.
+    pub max_batch_owned_bytes: usize,
+}
+
+/// Caller-supplied outbound queue limits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OutputLimits {
+    /// Maximum normally queued reliable events.
+    pub max_reliable: usize,
+    /// Maximum owned bytes in normally queued reliable events.
+    pub max_reliable_owned_bytes: usize,
+    /// Maximum normally queued discrete events.
+    pub max_discrete: usize,
+    /// Maximum owned bytes in normally queued discrete events.
+    pub max_discrete_owned_bytes: usize,
+    /// Maximum total bytes owned by all normal output classes.
+    pub max_total_owned_bytes: usize,
+    /// Maximum owned payload bytes in one output event.
+    pub max_event_owned_bytes: usize,
+    /// Maximum number of connections retaining a replaceable frame.
+    pub max_frame_connections: usize,
+}
+
+/// Versioned initialization contract for the minimum engine spine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EngineInit {
+    /// Must equal [`ENGINE_CONTRACT_VERSION`].
+    pub contract_version: u32,
+    /// Inbound limits.
+    pub inbound: InboundLimits,
+    /// Outbound limits.
+    pub output: OutputLimits,
+}
+
+impl EngineInit {
+    /// Validate every caller-supplied limit before allocating runtime state.
+    pub fn validate(&self) -> Result<(), EngineError> {
+        if self.contract_version != ENGINE_CONTRACT_VERSION {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidConfiguration,
+                format!(
+                    "unsupported engine contract version {}; expected {}",
+                    self.contract_version, ENGINE_CONTRACT_VERSION
+                ),
+            ));
+        }
+        let positive = [
+            self.inbound.max_batches,
+            self.inbound.max_commands,
+            self.inbound.max_owned_bytes,
+            self.inbound.max_batch_commands,
+            self.inbound.max_batch_owned_bytes,
+            self.output.max_reliable,
+            self.output.max_reliable_owned_bytes,
+            self.output.max_discrete,
+            self.output.max_discrete_owned_bytes,
+            self.output.max_total_owned_bytes,
+            self.output.max_event_owned_bytes,
+            self.output.max_frame_connections,
+        ];
+        if positive.contains(&0) {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidConfiguration,
+                "engine queue, count, and byte limits must all be positive",
+            ));
+        }
+        if self.inbound.max_batch_commands > self.inbound.max_commands
+            || self.inbound.max_batch_owned_bytes > self.inbound.max_owned_bytes
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidConfiguration,
+                "one-batch inbound limits cannot exceed total inbound limits",
+            ));
+        }
+        if self.inbound.max_batch_commands >= self.output.max_reliable
+            || self.inbound.max_batch_owned_bytes > self.output.max_reliable_owned_bytes
+            || self.inbound.max_batch_owned_bytes > self.output.max_total_owned_bytes
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidConfiguration,
+                "one inbound batch must fit beside a lifecycle event in an empty reliable output queue",
+            ));
+        }
+        if self.output.max_event_owned_bytes > self.output.max_total_owned_bytes
+            || self.output.max_event_owned_bytes > self.output.max_reliable_owned_bytes
+            || self.output.max_event_owned_bytes > self.output.max_discrete_owned_bytes
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidConfiguration,
+                "one-event byte limit cannot exceed its output byte limits",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// One command with its exact internal 64-bit arrival sequence.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SequencedCommand {
+    /// Strictly increasing sequence assigned at the bridge boundary.
+    pub sequence: u64,
+    /// Supported or explicitly unsupported command body.
+    pub command: EngineCommand,
+}
+
+/// Commands understood by the minimum Stage 3 coordinator.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EngineCommand {
+    /// Bounded correlated payload used to exercise the coarse bridge.
+    Probe {
+        /// Correlates the response without narrowing the value through JavaScript.
+        correlation_id: u64,
+        /// Payload retained and echoed by the background coordinator.
+        payload: Vec<u8>,
+    },
+    /// One typed control operation for the retained Rust-owned authority loop.
+    RunningAuthority(RunningAuthorityCommand),
+    /// Explicit representation for a command kind that this contract cannot execute.
+    Unsupported {
+        /// Numeric kind retained for a clear rejection at a future parser boundary.
+        kind: u32,
+        /// Declared owned size used only for bounded preflight accounting.
+        declared_owned_bytes: usize,
+    },
+    /// Test-only coordinator panic injection; never compiled into production.
+    #[cfg(any(test, feature = "engine-test-hooks"))]
+    PanicForTest,
+}
+
+impl EngineCommand {
+    /// Return owned payload bytes used for queue accounting.
+    pub fn owned_bytes(&self) -> Result<usize, EngineError> {
+        match self {
+            Self::Probe { payload, .. } => Ok(payload.capacity()),
+            Self::RunningAuthority(command) => command.owned_bytes(),
+            Self::Unsupported {
+                declared_owned_bytes,
+                ..
+            } => Ok(*declared_owned_bytes),
+            #[cfg(any(test, feature = "engine-test-hooks"))]
+            Self::PanicForTest => Ok(0),
+        }
+    }
+
+    /// Reject command kinds absent from the current version.
+    pub fn validate_supported(&self) -> Result<(), EngineError> {
+        match self {
+            Self::Probe { .. } => Ok(()),
+            Self::RunningAuthority(command) => command.validate(),
+            Self::Unsupported { kind, .. } => Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                format!("unsupported engine command kind {kind}"),
+            )),
+            #[cfg(any(test, feature = "engine-test-hooks"))]
+            Self::PanicForTest => Ok(()),
+        }
+    }
+
+    /// Whether this command may execute only while the background thread owns
+    /// a retained authoritative loop.
+    #[must_use]
+    pub const fn is_running_authority_control(&self) -> bool {
+        matches!(self, Self::RunningAuthority(_))
+    }
+
+    /// Actions cannot alter the source of an already prepared ordinary step.
+    pub(crate) fn requires_ready_boundary(&self) -> bool {
+        matches!(
+            self,
+            Self::RunningAuthority(
+                RunningAuthorityCommand::SubmitControllerAction(_)
+                    | RunningAuthorityCommand::DisconnectController(_)
+                    | RunningAuthorityCommand::ReclaimController(_)
+                    | RunningAuthorityCommand::JoinController(_)
+                    | RunningAuthorityCommand::ApplyLiveSettings { .. }
+                    | RunningAuthorityCommand::GodModeMove { .. }
+                    | RunningAuthorityCommand::GodModeKill { .. }
+                    | RunningAuthorityCommand::StagePreparedImport { .. }
+            )
+        )
+    }
+
+    /// Conservative reliable-output bytes reserved before this command may
+    /// mutate retained authority state.
+    fn response_reserved_owned_bytes(&self, limits: &OutputLimits) -> usize {
+        match self {
+            Self::Probe { payload, .. } => payload.capacity(),
+            Self::RunningAuthority(_) => limits.max_event_owned_bytes,
+            Self::Unsupported { .. } => 0,
+            #[cfg(any(test, feature = "engine-test-hooks"))]
+            Self::PanicForTest => 0,
+        }
+    }
+}
+
+/// One exact local-send receipt. Rust reconstructs the full retained step key;
+/// JavaScript supplies only correlation fields that it previously received.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExternalDeliveryReceipt {
+    /// Process-local operation epoch emitted by Rust.
+    pub operation_epoch: u64,
+    /// Monotonic reliable-event sequence emitted by Rust.
+    pub event_sequence: u64,
+    /// Exact live socket epoch to which Node attempted delivery.
+    pub connection_id: u64,
+    /// Exact controller lease epoch to which Node attempted delivery.
+    pub lease_id: u64,
+    /// Whether the local socket send path accepted the event.
+    pub accepted: bool,
+}
+
+/// Validated steering received by Rust, with no JavaScript-controlled clock.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ControllerActionRequest {
+    pub lease_id: u64,
+    pub connection_id: u64,
+    pub turn: f32,
+    pub boost: bool,
+    pub client_tick: u64,
+    pub received_at: std::time::Instant,
+}
+
+/// A socket close correlated to one assignment and stamped on receipt by Rust.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerDisconnectRequest {
+    pub lease_id: u64,
+    pub connection_id: u64,
+    pub received_at: std::time::Instant,
+}
+
+/// Bounded fresh join; the current run scope is supplied by Rust.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerJoinRequest {
+    pub connection_id: u64,
+    pub kind: super::state::ControllerKind,
+    pub identity_key: String,
+    pub received_at: std::time::Instant,
+}
+
+/// Bounded token or legacy reconnect within the Rust-owned run scope.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerReclaimRequest {
+    pub connection_id: u64,
+    pub kind: super::state::ControllerKind,
+    pub resume_token: String,
+    pub identity_key: String,
+    pub received_at: std::time::Instant,
+}
+
+/// Exact local-send completion for one retained reconnect assignment.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ControllerReclaimReceipt {
+    pub request_sequence: u64,
+    pub connection_id: u64,
+    pub lease_id: u64,
+    pub accepted: bool,
+}
+
+/// Process-local private import storage shared only by the native preparation
+/// task and the running authority command that consumes it.
+#[derive(Clone, Debug)]
+pub struct PreparedImportSlot(Arc<Mutex<Option<PendingRunStartTransition>>>);
+
+impl PreparedImportSlot {
+    /// Create one empty single-candidate slot.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+
+    /// Whether a complete private candidate is awaiting its durable decision.
+    #[must_use]
+    pub fn is_some(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
+    }
+
+    /// Store one candidate only after validation and managed publication finish.
+    pub fn put(
+        &self,
+        candidate: PendingRunStartTransition,
+    ) -> Result<(), Box<PendingRunStartTransition>> {
+        let mut retained = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if retained.is_some() {
+            return Err(Box::new(candidate));
+        }
+        *retained = Some(candidate);
+        Ok(())
+    }
+
+    /// Remove and return the retained candidate.
+    pub fn take(&self) -> Option<PendingRunStartTransition> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+}
+
+impl Default for PreparedImportSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialEq for PreparedImportSlot {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for PreparedImportSlot {}
+
+/// Typed controls and retained generation-transition commands.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RunningAuthorityCommand {
+    JoinController(Box<ControllerJoinRequest>),
+    SubmitControllerJoinReceipt(ControllerReclaimReceipt),
+    ReclaimController(Box<ControllerReclaimRequest>),
+    SubmitControllerReclaimReceipt(ControllerReclaimReceipt),
+    /// Apply only at a fresh pre-step boundary, after any retained step resolves.
+    SubmitControllerAction(ControllerActionRequest),
+    /// Close ownership at a fresh boundary without extending wall-time grace.
+    DisconnectController(ControllerDisconnectRequest),
+    /// Replace one bounded settings batch and all config-derived Rust caches atomically.
+    ApplyLiveSettings {
+        updates: Box<[LiveSettingUpdate]>,
+    },
+    /// Translate one browser-addressed live snake before the next step.
+    GodModeMove {
+        frame_v1_id: u32,
+        x: f64,
+        y: f64,
+    },
+    /// Kill one browser-addressed live snake through ordinary death effects.
+    GodModeKill {
+        frame_v1_id: u32,
+    },
+    /// Enable or disable replaceable focused activation capture.
+    SetVisualization {
+        enabled: bool,
+    },
+    /// Restore one verified retained winner directly from its managed object.
+    ResurrectHallOfFame {
+        managed_directory: String,
+        weights: Box<HallOfFameWeightsDescriptor>,
+    },
+    /// Publish or exactly retry the Rust-admitted immutable generation file.
+    PublishGenerationCheckpoint {
+        /// Server-controlled managed directory encoded as one bounded UTF-8 path.
+        managed_directory: String,
+        /// Exact bounded file-publication correlation token.
+        operation_id: CheckpointOperationId,
+    },
+    /// Retain only the complete descriptor returned by the SQLite worker.
+    AcknowledgeGenerationPersistence {
+        /// Exact worker-committed descriptor; Rust compares every field.
+        descriptor: Box<CheckpointDescriptor>,
+    },
+    /// Construct or reborrow deterministic connected-controller assignments.
+    PrepareGenerationReassignments,
+    /// Apply local delivery receipts without accepting a JavaScript-made step key.
+    SubmitGenerationAssignmentReceipts {
+        /// Bounded receipts correlated to the retained Rust events.
+        receipts: Box<[ExternalDeliveryReceipt]>,
+    },
+    /// Resolve only the ordinary-step observation/replacement barrier.
+    SubmitControllerDeliveryReceipts {
+        receipts: Box<[ExternalDeliveryReceipt]>,
+    },
+    /// Perform the final swap only after persistence and delivery barriers pass.
+    PublishAcknowledgedGenerationStart,
+    /// Pause stepping before the imported metadata/current-pointer transaction.
+    StagePreparedImport {
+        slot: PreparedImportSlot,
+    },
+    /// Swap one already validated candidate only after its exact SQLite commit.
+    PublishPreparedImport {
+        slot: PreparedImportSlot,
+        descriptor: Box<CheckpointDescriptor>,
+        branch_run_id: Option<String>,
+    },
+    /// Drop a private candidate and resume unchanged authority before commit.
+    CancelPreparedImport {
+        slot: PreparedImportSlot,
+    },
+}
+
+impl RunningAuthorityCommand {
+    fn validate(&self) -> Result<(), EngineError> {
+        match self {
+            Self::JoinController(request) if request.connection_id == 0
+                || request.identity_key.is_empty() || request.identity_key.len() > 128
+                || request.identity_key.contains('\0') => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid bounded controller join"))
+            }
+            Self::ReclaimController(request) if request.connection_id == 0
+                || (request.resume_token.is_empty() && request.identity_key.is_empty())
+                || request.resume_token.len() > 256 || request.resume_token.contains('\0')
+                || request.identity_key.len() > 128 || request.identity_key.contains('\0') => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid bounded controller reclaim"))
+            }
+            Self::SubmitControllerReclaimReceipt(receipt) | Self::SubmitControllerJoinReceipt(receipt) if receipt.request_sequence == 0
+                || receipt.connection_id == 0 || receipt.lease_id == 0 => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller reclaim receipt"))
+            }
+            Self::DisconnectController(close) if close.lease_id == 0 || close.connection_id == 0 => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller disconnect identity"))
+            }
+            Self::SubmitControllerAction(action) if action.lease_id == 0 || action.connection_id == 0
+                || !action.turn.is_finite() || !(-1.0..=1.0).contains(&action.turn) => {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller action identity or steering"))
+            }
+            Self::ApplyLiveSettings { updates }
+                if updates.is_empty()
+                    || updates.len()
+                        > super::live_settings::MAXIMUM_LIVE_SETTING_UPDATES =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "live settings require 1 to 64 updates",
+                ))
+            }
+            Self::GodModeMove { frame_v1_id, x, y }
+                if *frame_v1_id == 0 || !x.is_finite() || !y.is_finite() =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "God Mode move requires an exact snake ID and finite coordinates",
+                ))
+            }
+            Self::GodModeKill { frame_v1_id } if *frame_v1_id == 0 => Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                "God Mode kill requires an exact snake ID",
+            )),
+            Self::ResurrectHallOfFame {
+                managed_directory, ..
+            } if managed_directory.is_empty()
+                || managed_directory.len() > 32_768
+                || managed_directory.contains('\0') =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "Hall-of-Fame directory must be a bounded nonempty path",
+                ))
+            }
+            Self::PublishGenerationCheckpoint {
+                managed_directory, ..
+            } if managed_directory.is_empty()
+                || managed_directory.len() > 32_768
+                || managed_directory.contains('\0') =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "managed checkpoint directory must be nonempty, NUL-free, and at most 32768 UTF-8 bytes",
+                ))
+            }
+            Self::SubmitGenerationAssignmentReceipts { receipts }
+            | Self::SubmitControllerDeliveryReceipts { receipts } if receipts.is_empty() => {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "controller delivery receipt batch must not be empty",
+                ))
+            }
+            Self::StagePreparedImport { slot }
+            | Self::PublishPreparedImport { slot, .. }
+            | Self::CancelPreparedImport { slot }
+                if !slot.is_some() =>
+            {
+                Err(EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "prepared import slot is empty",
+                ))
+            }
+            Self::PublishPreparedImport {
+                branch_run_id: Some(run_id),
+                ..
+            } if run_id.is_empty() || run_id.len() > 256 || run_id.contains('\0') => Err(
+                EngineError::new(
+                    EngineErrorCode::InvalidCommand,
+                    "import branch identity must be nonempty, NUL-free, and at most 256 UTF-8 bytes",
+                ),
+            ),
+            _ => Ok(()),
+        }
+    }
+
+    fn owned_bytes(&self) -> Result<usize, EngineError> {
+        match self {
+            Self::JoinController(request) => request
+                .identity_key
+                .capacity()
+                .checked_add(size_of::<ControllerJoinRequest>())
+                .ok_or_else(|| {
+                    EngineError::new(EngineErrorCode::QueueByteLimit, "join storage overflow")
+                }),
+            Self::ReclaimController(request) => request
+                .resume_token
+                .capacity()
+                .checked_add(request.identity_key.capacity())
+                .and_then(|bytes| {
+                    bytes.checked_add(std::mem::size_of::<ControllerReclaimRequest>())
+                })
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "reclaim identity storage overflow",
+                    )
+                }),
+            Self::SubmitControllerReclaimReceipt(_) | Self::SubmitControllerJoinReceipt(_) => Ok(0),
+            Self::SubmitControllerAction(_) | Self::DisconnectController(_) => Ok(0),
+            Self::ApplyLiveSettings { updates } => updates
+                .iter()
+                .try_fold(0usize, |bytes, update| {
+                    bytes
+                        .checked_add(size_of::<LiveSettingUpdate>())
+                        .and_then(|value| value.checked_add(update.path.capacity()))
+                })
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "live settings byte accounting overflowed",
+                    )
+                }),
+            Self::GodModeMove { .. } => Ok(0),
+            Self::GodModeKill { .. } => Ok(0),
+            Self::SetVisualization { .. } => Ok(0),
+            Self::ResurrectHallOfFame {
+                managed_directory,
+                weights,
+            } => Ok(managed_directory
+                .capacity()
+                .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
+                .saturating_add(weights.owned_bytes())),
+            Self::PublishGenerationCheckpoint {
+                managed_directory,
+                operation_id,
+            } => managed_directory
+                .capacity()
+                .checked_add(operation_id.owned_bytes())
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "generation checkpoint command byte accounting overflowed",
+                    )
+                }),
+            Self::AcknowledgeGenerationPersistence { descriptor } => {
+                Ok(size_of::<CheckpointDescriptor>().saturating_add(descriptor.owned_bytes()))
+            }
+            Self::PrepareGenerationReassignments | Self::PublishAcknowledgedGenerationStart => {
+                Ok(0)
+            }
+            Self::StagePreparedImport { .. } | Self::CancelPreparedImport { .. } => Ok(0),
+            Self::PublishPreparedImport {
+                descriptor,
+                branch_run_id,
+                ..
+            } => Ok(size_of::<CheckpointDescriptor>()
+                .saturating_add(descriptor.owned_bytes())
+                .saturating_add(branch_run_id.as_ref().map_or(0, String::len))),
+            Self::SubmitGenerationAssignmentReceipts { receipts }
+            | Self::SubmitControllerDeliveryReceipts { receipts } => receipts
+                .len()
+                .checked_mul(size_of::<ExternalDeliveryReceipt>())
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "generation assignment receipt byte accounting overflowed",
+                    )
+                }),
+        }
+    }
+}
+
+/// Owned reliable projection of a retained Rust observation or death assignment.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RunningControllerMessage {
+    pub event: ExternalObservationEvent,
+    /// Browser/Protocol 2 identity, distinct from the internal snake ID.
+    pub frame_v1_id: u32,
+    pub sensors: Box<[f32]>,
+    pub resume_token: Option<Box<str>>,
+}
+
+impl RunningControllerMessage {
+    /// Heap payload owned in addition to the fixed message record.
+    pub fn payload_owned_bytes(&self) -> usize {
+        self.sensors
+            .len()
+            .saturating_mul(size_of::<f32>())
+            .saturating_add(self.resume_token.as_ref().map_or(0, |token| token.len()))
+    }
+}
+
+/// One Rust-owned controller reassignment envelope. No population or archive
+/// bytes are copied into this bridge record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunningGenerationAssignment {
+    /// Exact source operation epoch.
+    pub operation_epoch: u64,
+    /// Monotonic external event identity.
+    pub event_sequence: u64,
+    /// Exact live socket epoch.
+    pub connection_id: u64,
+    /// Exact controller lease epoch.
+    pub lease_id: u64,
+    /// Browser player or separate Protocol 2 client.
+    pub controller_kind: ControllerKind,
+    /// Fresh successor snake identity.
+    pub snake_id: u64,
+    /// Fresh browser/frame-v1 exact identity.
+    pub frame_v1_id: u32,
+    /// Fresh Rust-generated opaque reclaim token.
+    pub resume_token: Box<str>,
+}
+
+/// Exact result state after applying one batch of generation assignment receipts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GenerationAssignmentReceiptState {
+    /// At least one retained assignment still needs a local result.
+    Pending {
+        /// Exact unresolved assignment count.
+        remaining: usize,
+    },
+    /// Every required assignment resolved while the old authority remains current.
+    Ready {
+        /// Exact terminal source step identity.
+        source_key: PhysicsStepKey,
+        /// Fully admitted successor generation.
+        successor_generation: u64,
+        /// Fully admitted successor completed-step chronology.
+        successor_completed_step: u64,
+    },
+}
+
+/// Reliable events emitted by the background Rust authority path.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RunningAuthorityEvent {
+    /// One detached fresh snake; no gameplay state changes before delivery.
+    ControllerJoinAssignment {
+        request_sequence: u64,
+        controller_kind: super::state::ControllerKind,
+        connection_id: u64,
+        lease_id: u64,
+        frame_v1_id: u32,
+        completed_step: u64,
+        resume_token: Box<str>,
+    },
+    /// Mismatched and duplicate receipts leave every other barrier intact.
+    ControllerJoinResolved {
+        command_sequence: u64,
+        request_sequence: u64,
+        matched: bool,
+        accepted: bool,
+    },
+    /// One retained same-snake assignment; controls remain unchanged until delivery.
+    ControllerReclaimAssignment {
+        request_sequence: u64,
+        controller_kind: super::state::ControllerKind,
+        connection_id: u64,
+        lease_id: u64,
+        frame_v1_id: u32,
+        completed_step: u64,
+        resume_token: Box<str>,
+    },
+    /// Mismatched and duplicate receipts leave every other barrier intact.
+    ControllerReclaimResolved {
+        command_sequence: u64,
+        request_sequence: u64,
+        matched: bool,
+        accepted: bool,
+    },
+    /// Stale or already-resolved closes are ignored without changing a newer lease.
+    ControllerDisconnected {
+        command_sequence: u64,
+        lease_id: u64,
+        completed_step: u64,
+        applied: bool,
+    },
+    /// Latest steering admitted at a fresh source boundary, before its next step.
+    ControllerActionApplied {
+        command_sequence: u64,
+        lease_id: u64,
+        completed_step: u64,
+    },
+    /// One complete config batch and all derived caches became authoritative.
+    LiveSettingsApplied {
+        command_sequence: u64,
+        config_revision: u64,
+        config_hash: String,
+        effective_step: u64,
+    },
+    /// One live snake and its complete body were translated in bounds.
+    GodModeMoved {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        x: f64,
+        y: f64,
+        effective_step: u64,
+    },
+    /// One live snake was killed through normal corpse side effects.
+    GodModeKilled {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        pellets_dropped: usize,
+        effective_step: u64,
+    },
+    /// One retained winner became a live independently owned Rust snake.
+    HallOfFameResurrected {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        effective_step: u64,
+    },
+    /// Focused capture work changed without mutating authoritative game state.
+    VisualizationChanged {
+        command_sequence: u64,
+        enabled: bool,
+    },
+    /// The entire ordinary-step delivery batch, admitted before step preparation.
+    ControllerMessages {
+        ticket_sequence: u64,
+        messages: Box<[RunningControllerMessage]>,
+    },
+    /// Ordinary receipts cannot resolve or retire a generation transition.
+    ControllerDeliveryReceiptsApplied {
+        command_sequence: u64,
+        matched_acceptances: usize,
+        matched_failures: usize,
+        ignored_receipts: usize,
+        remaining: usize,
+        published_completed_step: Option<u64>,
+    },
+    /// The retained terminal step is waiting for its generation handoff.
+    GenerationTransitionPending {
+        /// Retained scheduler ticket identity.
+        ticket_sequence: u64,
+        /// Exact terminal source step identity.
+        source_key: PhysicsStepKey,
+        /// Rule that ended the generation.
+        reason: GenerationTransitionReason,
+        /// Fully admitted successor generation.
+        successor_generation: u64,
+        /// Fully admitted successor completed-step chronology.
+        successor_completed_step: u64,
+    },
+    /// Rust published the immutable file and its authoritative compact metadata.
+    GenerationCheckpointPublished {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Exact immutable descriptor and Rust-constructed commit record.
+        descriptor: Box<CheckpointDescriptor>,
+        /// Deduplicated elite object needed after population checkpoint pruning.
+        hall_of_fame_weights: Box<HallOfFameWeightsDescriptor>,
+        /// Exact compact history and Hall-of-Fame reference.
+        commit_record: GenerationCommitRecord,
+    },
+    /// Rust retained the worker's complete matching descriptor.
+    GenerationPersistenceAcknowledged {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Exact acknowledged operation token.
+        operation_id: CheckpointOperationId,
+    },
+    /// Rust staged or reborrowed every required fresh-snake assignment.
+    GenerationReassignmentsPrepared {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Whether no local delivery remains before final publication.
+        ready: bool,
+        /// Canonically ordered Rust-owned assignments.
+        assignments: Box<[RunningGenerationAssignment]>,
+    },
+    /// Rust applied one bounded receipt batch without swapping authority.
+    GenerationAssignmentReceiptsApplied {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Newly accepted exact assignments.
+        matched_acceptances: usize,
+        /// Newly failed exact assignments.
+        matched_failures: usize,
+        /// Stale, duplicate, or mismatched receipts ignored.
+        ignored_receipts: usize,
+        /// Retained barrier state after applying the receipts.
+        state: GenerationAssignmentReceiptState,
+    },
+    /// The one final old-to-new authority swap and scheduler rebind succeeded.
+    GenerationStartPublished {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Complete Rust publication and retired scheduler ticket.
+        resolution: RunningGenerationStartResolution,
+    },
+    /// The durably selected imported candidate became the sole authority.
+    ImportPublished {
+        command_sequence: u64,
+        world_epoch: u64,
+        generation: u64,
+        completed_step: u64,
+        population_epoch: u64,
+    },
+    /// Stepping is paused while the metadata transaction runs.
+    ImportStaged { command_sequence: u64 },
+    /// A pre-commit failure discarded the candidate and resumed the old game.
+    ImportCancelled { command_sequence: u64 },
+    /// A recoverable premature, stale, or mismatched control changed no authority.
+    CommandRejected {
+        /// Inbound command sequence.
+        command_sequence: u64,
+        /// Stable boundary error category.
+        code: EngineErrorCode,
+        /// Bounded human diagnostic.
+        detail: String,
+    },
+}
+
+impl RunningAuthorityEvent {
+    /// Heap bytes retained by this reliable bridge event.
+    #[must_use]
+    pub fn owned_bytes(&self) -> usize {
+        match self {
+            Self::ControllerReclaimAssignment { resume_token, .. }
+            | Self::ControllerJoinAssignment { resume_token, .. } => resume_token.len(),
+            Self::ControllerReclaimResolved { .. } | Self::ControllerJoinResolved { .. } => 0,
+            Self::ControllerMessages { messages, .. } => messages
+                .len()
+                .saturating_mul(size_of::<RunningControllerMessage>())
+                .saturating_add(messages.iter().fold(0usize, |bytes, message| {
+                    bytes.saturating_add(message.payload_owned_bytes())
+                })),
+            Self::ControllerDeliveryReceiptsApplied { .. }
+            | Self::ControllerActionApplied { .. }
+            | Self::ControllerDisconnected { .. } => 0,
+            Self::LiveSettingsApplied { config_hash, .. } => config_hash.capacity(),
+            Self::GodModeMoved { .. } => 0,
+            Self::GodModeKilled { .. } => 0,
+            Self::HallOfFameResurrected { .. } => 0,
+            Self::VisualizationChanged { .. } => 0,
+            Self::GenerationTransitionPending { .. }
+            | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
+            Self::GenerationCheckpointPublished {
+                descriptor,
+                hall_of_fame_weights,
+                ..
+            } => size_of::<CheckpointDescriptor>()
+                .saturating_add(descriptor.owned_bytes())
+                .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
+                .saturating_add(hall_of_fame_weights.owned_bytes()),
+            Self::GenerationPersistenceAcknowledged { operation_id, .. } => {
+                operation_id.owned_bytes()
+            }
+            Self::GenerationReassignmentsPrepared { assignments, .. } => assignments
+                .len()
+                .saturating_mul(size_of::<RunningGenerationAssignment>())
+                .saturating_add(assignments.iter().fold(0usize, |bytes, assignment| {
+                    bytes.saturating_add(assignment.resume_token.len())
+                })),
+            Self::GenerationStartPublished { resolution, .. } => {
+                let reservations = &resolution.publication.unavailable_controller_reservations;
+                generation_start_owned_bytes(reservations, reservations.capacity())
+            }
+            Self::ImportPublished { .. }
+            | Self::ImportStaged { .. }
+            | Self::ImportCancelled { .. } => 0,
+            Self::CommandRejected { detail, .. } => detail.capacity(),
+        }
+    }
+}
+
+fn generation_start_owned_bytes(
+    reservations: &[UnavailableControllerReservation],
+    capacity: usize,
+) -> usize {
+    capacity
+        .saturating_mul(size_of::<UnavailableControllerReservation>())
+        .saturating_add(reservations.iter().fold(0usize, |bytes, reservation| {
+            bytes
+                .saturating_add(reservation.scope.capacity())
+                .saturating_add(reservation.resume_token.capacity())
+        }))
+}
+
+/// One all-or-nothing inbound command batch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CommandBatch {
+    /// Must equal [`ENGINE_CONTRACT_VERSION`].
+    pub contract_version: u32,
+    /// Commands accepted or rejected as one queue operation.
+    pub commands: Box<[SequencedCommand]>,
+}
+
+impl CommandBatch {
+    /// Validate version, non-emptiness, supported commands, and internal ordering.
+    pub fn validate(&self) -> Result<BatchShape, EngineError> {
+        if self.contract_version != ENGINE_CONTRACT_VERSION {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                format!(
+                    "unsupported command-batch version {}; expected {}",
+                    self.contract_version, ENGINE_CONTRACT_VERSION
+                ),
+            ));
+        }
+        let Some(first) = self.commands.first() else {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                "command batch must not be empty",
+            ));
+        };
+        if first.sequence == 0 {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidCommand,
+                "command sequences start at one",
+            ));
+        }
+        let mut prior = None;
+        let mut owned_bytes = 0usize;
+        for command in &self.commands {
+            command.command.validate_supported()?;
+            if let Some(previous) = prior {
+                if command.sequence <= previous {
+                    return Err(EngineError::new(
+                        EngineErrorCode::SequenceRegression,
+                        "command sequences must increase strictly within a batch",
+                    ));
+                }
+            }
+            prior = Some(command.sequence);
+            owned_bytes = owned_bytes
+                .checked_add(command.command.owned_bytes()?)
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "command-batch owned-byte accounting overflowed",
+                    )
+                })?;
+        }
+        Ok(BatchShape {
+            command_count: self.commands.len(),
+            owned_bytes,
+            first_sequence: first.sequence,
+            last_sequence: prior.unwrap_or(first.sequence),
+        })
+    }
+
+    /// Verify that this currently supported batch can publish its complete
+    /// response atomically when the normal output queue is otherwise empty.
+    pub fn validate_output_shape(&self, limits: &OutputLimits) -> Result<BatchShape, EngineError> {
+        let shape = self.validate()?;
+        if shape.command_count >= limits.max_reliable {
+            return Err(EngineError::new(
+                EngineErrorCode::QueueCountLimit,
+                "command batch leaves no reliable lifecycle-event capacity",
+            ));
+        }
+        let response_owned_bytes = self.commands.iter().try_fold(0usize, |bytes, command| {
+            bytes
+                .checked_add(command.command.response_reserved_owned_bytes(limits))
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "command-batch response byte accounting overflowed",
+                    )
+                })
+        })?;
+        if response_owned_bytes > limits.max_reliable_owned_bytes
+            || response_owned_bytes > limits.max_total_owned_bytes
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::QueueByteLimit,
+                "command-batch responses exceed reliable output byte limits",
+            ));
+        }
+        for command in &self.commands {
+            if command.command.response_reserved_owned_bytes(limits) > limits.max_event_owned_bytes
+            {
+                return Err(EngineError::new(
+                    EngineErrorCode::QueueByteLimit,
+                    "one command response exceeds the output event byte limit",
+                ));
+            }
+        }
+        Ok(shape)
+    }
+}
+
+/// Validated dimensions of one batch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BatchShape {
+    /// Number of commands.
+    pub command_count: usize,
+    /// Owned payload bytes.
+    pub owned_bytes: usize,
+    /// First sequence in the batch.
+    pub first_sequence: u64,
+    /// Last sequence in the batch.
+    pub last_sequence: u64,
+}
+
+/// Reliable coordinator output.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReliableEvent {
+    /// Coordinator accepted its one-shot start.
+    Started,
+    /// Correlated probe result.
+    ProbeResult {
+        /// Original command sequence.
+        sequence: u64,
+        /// Original correlation identifier.
+        correlation_id: u64,
+        /// Echoed bounded payload.
+        payload: Vec<u8>,
+    },
+    /// Typed retained-authority control or lifecycle output.
+    RunningAuthority(Box<RunningAuthorityEvent>),
+    /// Coordinator stopped without a caught fault.
+    Stopped,
+}
+
+impl ReliableEvent {
+    /// Return heap bytes retained by this reliable event.
+    #[must_use]
+    pub fn owned_bytes(&self) -> usize {
+        match self {
+            Self::ProbeResult { payload, .. } => payload.capacity(),
+            Self::RunningAuthority(event) => {
+                size_of::<RunningAuthorityEvent>().saturating_add(event.owned_bytes())
+            }
+            Self::Started | Self::Stopped => 0,
+        }
+    }
+}
+
+/// Non-replaceable discrete event placeholder for later generation/Hall-of-Fame work.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiscreteEvent {
+    /// Exact event sequence.
+    pub sequence: u64,
+    /// Opaque bounded payload for the future typed bridge adapter.
+    pub payload: Vec<u8>,
+}
+
+/// Replaceable status payload.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StatsEvent {
+    /// Exact publication sequence.
+    pub sequence: u64,
+    /// Prepared bounded payload.
+    pub payload: Vec<u8>,
+}
+
+/// Replaceable display payload for one connection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FrameEvent {
+    /// Exact transport connection identifier.
+    pub connection_id: u64,
+    /// Exact publication sequence.
+    pub sequence: u64,
+    /// Prepared frame bytes.
+    pub payload: Vec<u8>,
+}
+
+/// Bounded fault record stored outside normal output capacity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EngineFault {
+    /// Stable fault category.
+    code: EngineErrorCode,
+    /// Bounded diagnostic detail.
+    detail: Box<str>,
+}
+
+impl EngineFault {
+    /// Construct a fault whose retained diagnostic cannot exceed the reserve.
+    pub fn new(code: EngineErrorCode, detail: impl AsRef<str>) -> Self {
+        Self {
+            code,
+            detail: truncate_utf8(detail.as_ref(), MAX_ERROR_DETAIL_BYTES).into_boxed_str(),
+        }
+    }
+
+    /// Read the stable fault category.
+    #[must_use]
+    pub fn code(&self) -> EngineErrorCode {
+        self.code
+    }
+
+    /// Read the bounded human diagnostic.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl From<EngineError> for EngineFault {
+    fn from(value: EngineError) -> Self {
+        Self::new(value.code, value.detail)
+    }
+}
+
+/// Drained output in priority order.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompletedEvent {
+    /// Reserved fault publication, always ahead of normal traffic.
+    Fault(EngineFault),
+    /// Reliable lifecycle/control output.
+    Reliable(ReliableEvent),
+    /// Non-replaceable discrete output.
+    Discrete(DiscreteEvent),
+    /// Latest status output.
+    Stats(StatsEvent),
+    /// Latest committed frame metadata and basic authoritative stats.
+    RunningDisplay(RunningDisplayStatus),
+    /// Latest display frame for a connection.
+    Frame(FrameEvent),
+}
+
+impl CompletedEvent {
+    /// Return bytes owned by payload/detail data.
+    pub fn owned_bytes(&self) -> usize {
+        match self {
+            Self::Fault(fault) => fault.detail.len(),
+            Self::Reliable(event) => event.owned_bytes(),
+            Self::Discrete(event) => event.payload.capacity(),
+            Self::Stats(event) => event.payload.capacity(),
+            Self::RunningDisplay(_) => size_of::<RunningDisplayStatus>(),
+            Self::Frame(event) => event.payload.capacity(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_command_is_rejected_not_ignored() {
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 1,
+                command: EngineCommand::Unsupported {
+                    kind: 91,
+                    declared_owned_bytes: 4,
+                },
+            }]
+            .into_boxed_slice(),
+        };
+        assert_eq!(
+            batch.validate().err().map(|error| error.code),
+            Some(EngineErrorCode::InvalidCommand)
+        );
+    }
+
+    #[test]
+    fn exact_u64_sequences_are_not_narrowed() {
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: u64::MAX,
+                command: EngineCommand::Probe {
+                    correlation_id: u64::MAX - 1,
+                    payload: vec![1],
+                },
+            }]
+            .into_boxed_slice(),
+        };
+        let shape = batch
+            .validate()
+            .expect("maximum u64 sequence remains valid");
+        assert_eq!(shape.first_sequence, u64::MAX);
+        assert_eq!(shape.last_sequence, u64::MAX);
+    }
+
+    #[test]
+    fn command_storage_has_no_hidden_spare_capacity() {
+        let mut commands = Vec::with_capacity(8);
+        commands.push(SequencedCommand {
+            sequence: 1,
+            command: EngineCommand::Probe {
+                correlation_id: 1,
+                payload: Vec::with_capacity(16),
+            },
+        });
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: commands.into_boxed_slice(),
+        };
+        assert_eq!(batch.commands.len(), 1);
+        assert!(batch.validate().is_ok());
+    }
+
+    #[test]
+    fn response_shape_rejects_per_event_and_batch_overflow_before_queueing() {
+        let limits = OutputLimits {
+            max_reliable: 3,
+            max_reliable_owned_bytes: 8,
+            max_discrete: 1,
+            max_discrete_owned_bytes: 8,
+            max_total_owned_bytes: 12,
+            max_event_owned_bytes: 4,
+            max_frame_connections: 1,
+        };
+        let oversized_event = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 1,
+                command: EngineCommand::Probe {
+                    correlation_id: 1,
+                    payload: vec![0; 5],
+                },
+            }]
+            .into_boxed_slice(),
+        };
+        assert_eq!(
+            oversized_event
+                .validate_output_shape(&limits)
+                .expect_err("event does not fit")
+                .code,
+            EngineErrorCode::QueueByteLimit
+        );
+
+        let too_many = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![
+                SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::Probe {
+                        correlation_id: 1,
+                        payload: vec![1],
+                    },
+                },
+                SequencedCommand {
+                    sequence: 2,
+                    command: EngineCommand::Probe {
+                        correlation_id: 2,
+                        payload: vec![2],
+                    },
+                },
+                SequencedCommand {
+                    sequence: 3,
+                    command: EngineCommand::Probe {
+                        correlation_id: 3,
+                        payload: vec![3],
+                    },
+                },
+            ]
+            .into_boxed_slice(),
+        };
+        assert_eq!(
+            too_many
+                .validate_output_shape(&limits)
+                .expect_err("lifecycle reserve is preserved")
+                .code,
+            EngineErrorCode::QueueCountLimit
+        );
+    }
+
+    #[test]
+    fn fault_diagnostics_are_utf8_bounded_at_construction() {
+        let fault = EngineFault::new(EngineErrorCode::Faulted, "é".repeat(400));
+        assert_eq!(fault.code(), EngineErrorCode::Faulted);
+        assert!(fault.detail().len() <= MAX_ERROR_DETAIL_BYTES);
+        assert!(fault.detail().is_char_boundary(fault.detail().len()));
+    }
+}

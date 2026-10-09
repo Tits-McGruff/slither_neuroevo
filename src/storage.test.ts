@@ -1,12 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   Storage,
-  savePopulation,
-  loadPopulation,
   loadBaselineBotSettings,
   saveBaselineBotSettings
 } from './storage.ts';
-import { Genome, buildArch } from './mlp.ts';
 
 /** Test suite label for storage helpers. */
 const SUITE = 'storage.ts';
@@ -46,32 +43,6 @@ describe(SUITE, () => {
     expect(Storage.load('key')).toEqual(payload);
     Storage.remove('key');
     expect(Storage.load('key')).toBeNull();
-  });
-
-  it('savePopulation and loadPopulation round-trip genomes', async () => {
-    const settings = {
-      hiddenLayers: 1,
-      neurons1: 4,
-      neurons2: 4,
-      neurons3: 4,
-      neurons4: 4,
-      neurons5: 4
-    };
-    const arch = buildArch(settings);
-    const genome = Genome.random(arch);
-    genome.fitness = 42;
-
-    await savePopulation(7, [genome]);
-    const loaded = await loadPopulation(arch);
-
-    expect(loaded).not.toBeNull();
-    if (!loaded) return;
-    expect(loaded.generation).toBe(7);
-    expect(loaded.genomes.length).toBe(1);
-    const first = loaded.genomes[0];
-    expect(first).toBeDefined();
-    if (!first) return;
-    expect(first.weights.length).toBe(genome.weights.length);
   });
 
   it('saveBaselineBotSettings and loadBaselineBotSettings round-trip values', () => {

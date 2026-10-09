@@ -18,7 +18,7 @@ describe('BaselineBotManager AI', () => {
 
   beforeEach(() => {
     CFG.sense.bubbleBins = 12;
-    CFG.sense.layoutVersion = 'v2';
+    CFG.sense.layoutVersion = 'v3';
     manager = new BaselineBotManager({ count: 1, seed: 123, randomizeSeedPerGen: false });
 
     mockWorld = {
@@ -48,13 +48,19 @@ describe('BaselineBotManager AI', () => {
     CFG.sense.layoutVersion = originalLayoutVersion;
   });
 
+  it('updates cached respawn delay live with safe normalization', () => {
+    expect(manager.updateRespawnDelay(100)).toBe(60);
+    expect(manager.updateRespawnDelay(0)).toBe(0.1);
+    expect(manager.updateRespawnDelay(2.5)).toBe(2.5);
+  });
+
   /**
    * Create a sensor array with the expected layout:
    * - 5 global values
    * - food[bins], hazard[bins], wall[bins]
    */
   function makeSensors(bins = 12): Float32Array {
-    const layout = getSensorLayout(bins, 'v2');
+    const layout = getSensorLayout(bins, 'v3');
     return new Float32Array(layout.inputSize);
   }
 
@@ -76,7 +82,7 @@ describe('BaselineBotManager AI', () => {
     hazard: number,
     wall: number
   ) {
-    const layout = getSensorLayout(bins, 'v2');
+    const layout = getSensorLayout(bins, 'v3');
     sensors[layout.offsets.food + binIdx] = food;
     sensors[layout.offsets.hazard + binIdx] = hazard;
     sensors[layout.offsets.wall + binIdx] = wall;

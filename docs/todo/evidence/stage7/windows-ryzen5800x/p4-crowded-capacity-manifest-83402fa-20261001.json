@@ -1,0 +1,12 @@
+{
+  "baseCommit": "83402fa253fe1a4dbf64de08d2d7d1d71e3472f0",
+  "executedRunnerSha256": "459ee71c5bd23ea59dcaa81986e71db9c7b1fdaae920829461174fc7e4218d9a",
+  "nativeSourceSha256": "58d85e7e1070d0824221462887a04257580bc945f007a1d599470b998ba6dec5",
+  "nativeBuildIdentifier": "slither_native/0.1.0+d1d1defd06f7.e55a6c17df710abc",
+  "buildClass": "production",
+  "targetTriple": "x86_64-pc-windows-msvc",
+  "cpu": "AMD Ryzen 7 5800X, 8 cores / 16 logical processors",
+  "report": "p4-crowded-capacity-83402fa-20261001.json",
+  "reportSha256": "280e57f3b9ce899fabf78ba456a63453244073d737e948fd13e2d38985a8def4",
+  "scope": "Local fixture qualification only: 206388 in-arena collision segments at peak, 372/213000 points outside the arena, 5.0688391-second uninterrupted hold. Normal production movement, food, collisions and deaths. Windows source-identified addon was built before the source-equivalent 83402fa commit; no native edits followed that build. Overloaded at requested 1x; not a target-VM timing, sustained P4, LAN or browser acceptance pass. Scratch database and managed files removed after report checksum verification."
+}

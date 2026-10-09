@@ -41,7 +41,8 @@ export function buildSettingsUpdatesSnapshot(): SettingsUpdate[] {
  */
 function mapSettingsSnapshotValue(path: SettingsUpdate['path'], raw: unknown): number {
   if (path === 'sense.layoutVersion') {
-    return raw === 'v2' ? 1 : 0;
+    // Numeric wire compatibility is retained, but v3 is now the only runtime layout.
+    return 3;
   }
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     return raw;

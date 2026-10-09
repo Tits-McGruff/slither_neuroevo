@@ -1,0 +1,803 @@
+# Stage 2 evidence index
+
+This directory holds evidence for the approved Rust-authoritative migration.
+Development-machine JSON is retained under `windows-5800x/`; target-VM JSON
+and its detailed provenance index are under `oxygen-ryzen2700/`. Each result
+retains its own scope and must not be generalized to a boundary it did not run.
+
+## Evidence classes
+
+- Current-source facts are proved by the named source and tests.
+- Git-history findings remain in
+  `docs/todo/evidence/2026-07-29-stage1-git-history.md`.
+- Prior planning measurements remain provisional until a retained fixture
+  reproduces them.
+- Derived arithmetic is labelled as calculation rather than measurement.
+- Raw JSON produced by the Stage 2 runners is a new measured result and records
+  its source commit, dirty flag, machine and runtime.
+
+The source- and Git-history-backed compatibility matrix is retained in
+`persistence-format-inventory.md`. It inventories current format-2 SQLite,
+historical combined-gzip and all-parent JSON rows, current/older standalone
+JSON files, browser-local legacy state and the planned archive-v1 boundary.
+It also records the limited local owner-file search. The owner-specified
+`/opt/apps/slither_neuroevo/` scope on Oxygen is now inventoried, while client
+download folders, unrelated backup locations, other disks, and browser
+profiles remain unexamined.
+
+## Reproducible commands
+
+Run from the repository root with the direct `tsx` entry point:
+
+```powershell
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\database-baseline.ts --db C:\temporary\slither-inspection-copy.db --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\codec-baseline.ts --scenario P0 --fixture fresh --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\codec-baseline.ts --scenario P2 --fixture evolved --evolution-generations 25 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\runtime-baseline.ts --scenario P2 --backend native --workers 4 --warmup-steps 20 --steps 180 --frame-every 1 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\behavior-baseline.ts --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --db data\slither.db --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --fixture scripts\stage2\graph-fixtures\current-snapshot-graphs.v1.json --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\graph-baseline.ts --fixture scripts\stage2\graph-fixtures\legacy-locale-concat-order.v1.json --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\create-current-db-fixture.ts --scenario P1 --output C:\temporary\stage2-p1.db
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\browser-baseline-host.ts --db C:\temporary\stage2-p1.db --server-port 55194 --ui-port 55193 --ui-rate 30 --duration-ms 1800000
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --scenario P1 --player-hz 60 --warmup-ms 2000 --duration-ms 15000 --workers 0 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\external-control-baseline.ts --profile p7 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\retention-baseline.ts --generations 480 --scenario P0 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P0 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture evolved --evolution-generations 25 --trials 7 --output result.json
+node .\node_modules\tsx\dist\cli.mjs scripts\stage2\managed-checkpoint-validation.ts --scenario P2 --fixture fresh --trials 3 --environment owner-target-vm --output result.json
+```
+
+Always run `database-baseline.ts` against a stable inspection copy made after
+the service is stopped, or through SQLite's supported backup operation. When a
+source uses WAL, capture its main database plus any existing `-wal` and `-shm`
+files as one source set before preparing the inspection copy. SQLite can create
+new shared-state sidecars even when `better-sqlite3` uses a read-only,
+query-only connection. The inventory does not migrate rows or change logical
+database contents, but opening the owner's only copy directly would not satisfy
+strict filesystem preservation.
+
+The runtime runner uses the real `SimCore`, `World`, heterogeneous population,
+sensors, recurrent brains, physics and frame-v1 serializer. A positive worker
+count uses the canonical Node `BrainPool`. It deliberately labels itself as a
+direct-engine measurement: it is not a substitute for the later real server,
+LAN browser, RL client or Debian VM runs.
+
+## Newly reproduced database result
+
+The read-only artifact
+`windows-5800x/database-slither-db.json` identifies the inspected database by
+SHA-256
+`9b8774387cff7aa82e64dbf75f4807d06ada9072814d24b71b8c76c4fe4bd8a4`.
+It reproduces the prior 5,921,520/6,041,600-byte observation:
+
+- database file: 6,041,600 bytes;
+- two format-v2 generation-one `run-start` snapshots;
+- 110 genome rows and 5,921,520 weight bytes in total;
+- 2,960,760 weight bytes per 55-genome snapshot;
+- 13,458 Float32 weights per genome;
+- WAL: 0 bytes at capture; shared-memory file: 32,768 bytes;
+- page size 4,096, page count 1,475, free-list count zero;
+- Hall of Fame, graph presets and players are empty.
+
+This file proves the raw default-population arithmetic. It does not reproduce
+overnight accumulation, Hall-of-Fame growth, evolved compression, WAL growth or
+vacuum behavior because the inspected database contains only two run-start
+checkpoints.
+
+## Reproduced unbounded P1 checkpoint growth
+
+An intended browser test launch accidentally remained attached to its shell
+while the disposable simulation server continued running. The UI process
+failed before serving a page, so this is not browser evidence. It is, however,
+a real current-server P1 checkpoint-growth run. The retained database inventory
+and raw process logs identify the source and preserve that distinction.
+
+From the generation-one checkpoint to generation 128:
+
+- 127 additional automatic generation checkpoints accumulated over 8.906
+  hours;
+- the disposable database grew from 16,338,944 bytes to 2,155,540,480 bytes
+  (2.008 GiB);
+- 38,400 genome rows held 2,067,148,800 raw weight bytes (1.925 GiB);
+- the mean observed file growth was about 16.84 MB per additional checkpoint,
+  or 229.1 MiB per wall-clock hour;
+- SQLite reported 526,321 pages and zero free-list pages because no snapshot
+  was pruned; and
+- scheduler logs repeatedly reported dropped wall-clock debt, so this is not a
+  claim that P1 met real-time performance.
+
+This was an accidental, uncontrolled development-machine soak, not the
+approved P8 target-VM acceptance run. It directly reproduces the current
+unbounded full-population accumulation mechanism and its practical disk
+effect. It does not replace the selected managed-file retention, compaction,
+recovery, or overnight-equivalent tests.
+
+## Newly reproduced codec results
+
+All sizes below are exact weight payloads; future container, state, history and
+small metadata are reported separately.
+
+| Fixture | Raw | Decimal JSON bytes per Float32 | Decimal JSON/raw | Plain Zstd reduction | Shuffled Zstd reduction | Archive-v1 choice | Archive-v1 stored |
+|---|---:|---:|---:|---:|---:|---|---:|
+| P0 fresh | 2.82 MiB | 20.11998 | 5.030x | 7.678% | 14.646% | shuffled Zstd | 2.41 MiB |
+| P0 evolved-like, 25 operator generations | 2.82 MiB | 20.04202 | 5.011x | 28.55% | 23.12% | shuffled Zstd | 2.17 MiB |
+| P1 fresh | 15.40 MiB | 20.11916 | 5.030x | 7.676% | 14.675% | shuffled Zstd | 13.14 MiB |
+| P1 evolved-like, 25 operator generations | 15.40 MiB | 20.04165 | 5.010x | 22.42% | 23.91% | shuffled Zstd | 11.72 MiB |
+| P2 fresh | 84.53 MiB | 20.11 | 5.03x | 7.86% | 14.75% | shuffled Zstd | 72.06 MiB |
+| P2 evolved-like, 25 operator generations | 84.53 MiB | 20.03 | 5.01x | 12.20% | 16.99% | shuffled Zstd | 70.17 MiB |
+| P3 fresh | 461.10 MiB | 20.11236 | 5.028x | 7.86% | 14.75% | shuffled Zstd | 393.09 MiB |
+| P3 evolved-like, 25 operator generations | 461.10 MiB | 20.03389 | 5.008x | 11.15% | 16.82% | shuffled Zstd | 383.55 MiB |
+
+The P0 fresh fixture reproduced the prior planning percentages to rounding:
+7.68% plain and 14.65% shuffled. Its exact plain result was 2,733,420 bytes,
+not the prior unretained 2,733,479-byte claim. The exact JSON observation was
+20.11998 bytes per Float32 for fresh P0 and about 20.03–20.04 for the evolved
+fixtures; the plan must use the retained values rather than preserve the old
+approximately-20.03 claim indiscriminately.
+
+Plain Zstandard remains comparison evidence, but it is not an archive-v1
+numeric encoding selected by Draft 4. The first version of the Stage 2 runner
+incorrectly let that comparison win evolved P0's `selectedAdaptive` field.
+Version 2 corrects the label and selection: archive v1 chooses only
+`raw-f32le-v1` or `f32le-shuffle4-zstd-v1`. Evolved P0 therefore stores the
+2,276,354-byte shuffled result rather than the smaller 2,115,432-byte plain
+comparison. This correction was made before any production archive format was
+implemented or any retention fixture consumed the value.
+
+Each decoded result was bit-exact. Adding a Zstandard frame checksum added four
+bytes to each whole-population frame. Single-run timing is retained in raw JSON
+but is not yet a stable latency conclusion; repeated Windows and target-VM
+trials are still required.
+
+Derived from the approved archive-v1 choices, 22 automatic P0 weight payloads
+would use about 47.8–53.0 MiB. Twenty-two P2 payloads would use about
+1.51–1.55 GiB.
+Twenty-two P3 payloads would use about 8.24–8.45 GiB, so the 4 GiB byte cap,
+not the count limit, necessarily controls that capacity case. The protected
+four-checkpoint P3 minimum calculates to about 1.50–1.54 GiB. These are
+calculations from measured codec sizes, not complete-checkpoint disk
+measurements. They support the selected retention rules, subject to real full-
+checkpoint, Hall-of-Fame and VM free-disk measurement.
+
+## Accelerated 480-generation retention fixture
+
+The retained
+`windows-5800x/retention-p8-p0-480.json` artifact has SHA-256
+`72fd0d7fbdb28a105305970210e93d01c78a7869952556e049e26cf4e40347c5`.
+It was produced from clean source commit
+`e489b3cc9689dccb7feef21b7d522656cbb5dde4`.
+
+The fixture represents 480 60-second generations, or eight hours by generation
+count and checkpoint volume. It physically creates size-matched managed files
+and real SQLite checkpoint metadata, current-pointer, compact-history and
+Hall-of-Fame rows. The files are not checkpoint-v3 USTAR archives, are not
+importable, are not fsynced, and do not prove restore, publication durability
+or target-VM throughput.
+
+The materialized P0 run modeled 1,097,202,628 checkpoint-payload bytes,
+23,809,737 Hall-of-Fame payload bytes and 26,880 compact-history bytes. After
+automatic pruning:
+
+- 22 checkpoints used 50,079,788 bytes: one latest, seven other recent,
+  twelve milestones and two distinct prior-run anchors;
+- 460 superseded checkpoint files totaling 1,047,122,840 bytes were deleted;
+- 50 unique Hall-of-Fame genome files used 2,480,183 bytes, while all 480
+  compact Hall-of-Fame metadata rows remained;
+- 430 superseded Hall-of-Fame weight files totaling 21,329,554 bytes were
+  deleted;
+- all file-to-metadata, Hall-of-Fame, fixed-width-history and current-pointer
+  accounting assertions passed; and
+- the final SQLite database contained 480 compact 56-byte history records,
+  22 checkpoint references, 50 Hall-of-Fame genome references, 480
+  Hall-of-Fame entries and two immutable definition records.
+
+The metadata transaction p95 was 2.746 ms, p99 was 12.924 ms and maximum was
+118.624 ms on the development machine. Those are non-durable metadata timings,
+not complete checkpoint-publication latency. The final passive WAL checkpoint
+took 4.503 ms; peak WAL was not sampled. The fixture's short wall time benefits
+from copying one size-matched template repeatedly and is not archive encoding
+or storage-device throughput evidence.
+
+Derived from the retained evolved-codec artifacts, the approved automatic
+retention policy projects the following weight-payload state:
+
+| Workload | Unpruned 480-generation payload | Retained checkpoints | Retained weight payload |
+|---|---:|---:|---:|
+| P0 | 1.02 GiB | 22 | 47.76 MiB |
+| P1 | 5.49 GiB | 22 | 257.83 MiB |
+| P2 | 32.89 GiB | 22 | 1.51 GiB |
+| P3 | 179.79 GiB | 10 | 3.75 GiB |
+
+P1 through P3 are derived arithmetic rather than materialized retention runs.
+The figures cover genome-weight payloads, not complete checkpoint containers,
+recurrent/configuration state, SQLite metadata, filesystem allocation or
+pinned data. Pinned checkpoints and downloaded exports remain outside the
+automatic cap. The Hall-of-Fame fixture intentionally models every generation
+as a new qualifying unique genome; duplicate, non-qualifying, pinned and
+multi-run cases remain for later persistence tests.
+
+## Narrow compact-history SQLite overhead
+
+The isolated compact-history artifact
+`windows-5800x/history-sqlite-overhead-p8-480.json`, SHA-256
+`963cbd053c61cc4bcf9ff0264d421493bc15682487e6ac622ab4eeaf3da5b2cb`,
+was reproduced from clean source commit
+`d60cd578c2bc92cef8b0dda3d446a1c673fe7bb6` on Windows with
+SQLite 3.49.2. It inserted 480 approved eight-field generation summaries as
+56-byte little-endian records, one `synchronous=FULL` transaction per row.
+
+The 480 records contain 26,880 logical bytes. The final main database was
+77,824 bytes across 19 pages with no freelist pages, while the peak WAL file
+was 4,120,032 bytes. Per-append transaction p50/p95/p99/max was
+1.971/2.176/2.903/6.132 ms. A passive checkpoint copied all 36 frames in
+2.559 ms but did not truncate the reusable WAL file.
+
+This is a disposable fixed-record SQLite measurement, not the production
+schema, a checkpoint, archive, managed-file store, restore, durability,
+retention, overnight, or target-VM test. It shows that full per-generation
+summary history remains logically small, while separate `synchronous=FULL`
+SQLite transactions can create much larger reusable WAL allocation.
+
+## Managed-checkpoint write-validation comparison
+
+The retained artifacts are:
+
+- `windows-5800x/checkpoint-validation-p0-evolved25.json`, SHA-256
+  `efa57db87552c61452ebb48240d49c562c50b33ecb254a4d4a5a2cfd40bb7e96`;
+- `windows-5800x/checkpoint-validation-p2-evolved25.json`, SHA-256
+  `59bbd3013ea85bb65b0894b24633305f2293b115ede99f9047ad1d3f2055caed`.
+
+Both were produced from clean source commit
+`ac905db49bbb912bf49cf3a91b36934c72932229`. They use a disposable Node
+prototype of the selected bounded shuffled-Zstandard entries inside a strict
+USTAR container. This is Stage 2 measurement code, not the production Rust
+checkpoint contract, a restore implementation, a SQLite payload schema, an
+HTTP path or proof of durability on the target VM.
+
+The evolved-25 fixtures exactly match the retained codec artifacts' population
+architecture, raw byte counts and logical SHA-256 values. Each of four
+write-validation variants completed seven accepted trials:
+
+| Fixture | Raw weights | 1 MiB blocks | Stored candidate | Archive bytes | Reduction from raw weights |
+|---|---:|---:|---:|---:|---:|
+| P0 | 2,960,760 | 3 | 2,416,675 | 2,426,368 | 18.143% including container |
+| P2 | 88,641,080 | 85 | 75,641,920 | 75,652,096 | 14.657% including container |
+
+The bounded blocks cost 140,321 bytes more than P0's retained whole-frame
+selected encoding and 2,058,911 bytes more than P2's. That is a measured
+bounded-memory/compression-ratio trade-off rather than evidence that the
+previous whole-population frame is a safe production decoder.
+
+| Fixture/variant | Hash + compression p95 | File fsync p95 | Validation p95 | Publication barrier p95 |
+|---|---:|---:|---:|---:|
+| P0 single pass | 24.870 ms | 3.556 ms | — | 33.613 ms |
+| P0 lightweight scan | — | — | 2.079 ms | 34.541 ms |
+| P0 full decode | — | — | 20.285 ms | 50.803 ms |
+| P2 single pass | 520.061 ms | 28.610 ms | — | 587.623 ms |
+| P2 lightweight scan | — | — | 9.581 ms | 594.904 ms |
+| P2 full decode | — | — | 408.597 ms | 965.716 ms |
+
+The lightweight scan read only 6,296 P0 bytes or 6,322 P2 bytes; full
+validation read the complete 2,426,368-byte or 75,652,096-byte archive. The
+frame-checksum variants added exactly four bytes per compressed block: 12
+bytes for P0 and 340 bytes for P2. Timing differences between checksum-off and
+checksum-on trials are too small and noisy to claim a speed effect.
+
+The retained fault matrix distinguishes the mechanisms:
+
+- truncating the terminal blocks fails the strict scan with `USTAR_TRAILER`;
+- corrupting a header fails with `USTAR_HEADER_CHECKSUM`;
+- corrupting an unchecked compressed payload passes the structural scan but
+  fails full decode with `LOGICAL_ROLE_MISMATCH`;
+- corrupting the root text fails with `LOGICAL_ROOT_MISMATCH`; and
+- corrupting a checksummed compressed payload still requires a decode before
+  it fails, then reports `SHUFFLED_BLOCK_DECODE`.
+
+The selected provisional Stage 3 policy is therefore:
+
+- ordinary automatic generation checkpoints use one pass that calculates
+  logical hashes and counts while encoding, completes the codec and container,
+  flushes and fsyncs the file, checks its final length, atomically renames it,
+  and fsyncs the parent directory on Debian;
+- Zstandard frame checksums remain off because they add no creation-time
+  detection without a decode and the logical role hash already verifies
+  decoded content;
+- an automatic checkpoint does not require a second lightweight scan because
+  that scan does not verify payloads; strict scanning remains mandatory when
+  startup, import or restore consumes an archive;
+- manual exports and pinned checkpoints receive full post-write decode once
+  those paths exist; whether periodic milestones should also receive it remains
+  measurement-gated on the production Rust codec and target VM; and
+- recovery to a previous retained valid checkpoint is the protection against a
+  latent codec or storage fault discovered on restore.
+
+This is the simplest policy supported by the development-machine evidence. It
+does not prove the target checkpoint-latency gate: P2's single-pass p95 was
+587.623 ms on a Ryzen 7 5800X, so performance on the Ryzen 7 2700 remains
+unknown. Windows regular-file fsync succeeded, but Windows parent-directory
+fsync returned `EPERM`; the required Debian directory-fsync behavior remains
+open. The observed peak process RSS, 185.65 MiB for P0 and 715.69 MiB for P2,
+also includes the TypeScript `World`, evolved population and packed source
+buffer, so it is not a prediction of Rust engine memory.
+
+All temporary benchmark files were removed and every artifact assertion
+passed. Free-space sampling after cleanup differed from the initial reading by
+4,096 bytes for P0 and 565,248 bytes for P2; filesystem free-space readings
+are not a byte-exact leak or reclamation test. No owner database or save file
+was written.
+
+## Narrow SQLite byte-volume comparison
+
+The approved disposable experiment wrote representative already-compressed P0
+and P2 byte volumes to one-megabyte SQLite BLOB rows with WAL, `synchronous =
+FULL`, and automatic checkpointing disabled. It built no checkpoint schema,
+reader, backup, pruning, recovery or export implementation.
+
+| Payload | Synchronous insert | Main-loop timer delay | WAL after commit | WAL/payload | WAL checkpoint | Read-back | Delete |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| P0, 2,527,124 bytes | 12.51 ms | 13.05 ms | 2.43 MiB | 1.009x | 7.60 ms | 3.33 ms | 4.00 ms |
+| P2, 75,563,269 bytes | 273.60 ms | 274.15 ms | 72.59 MiB | 1.007x | 201.04 ms | 104.35 ms | 55.44 ms |
+
+After deletion and checkpoint, the P2 database still occupied its prior file
+size with 18,472 free pages. Re-inserting the same volume added zero main-file
+pages, proving normal free-page reuse; only explicit `VACUUM` returned the file
+to its two-page baseline. The same synchronous work delayed a scheduled
+main-loop timer for essentially the operation duration.
+
+This is development-SSD evidence, not VM latency evidence. It confirms the
+written architectural comparison: population-sized SQLite transactions create
+population-sized WAL work and event-loop stalls if run on the main thread,
+while deletion does not return filesystem space without compaction. No
+correctness requirement has appeared that justifies replacing the selected
+immutable managed files with this more complicated payload-in-SQLite path.
+
+### Legacy SQLite BLOB/TEXT slicing probe
+
+The clean-source disposable probe in
+`windows-5800x/sqlite-legacy-slice-p0.json` tested the proposed compatibility
+access pattern separately from the byte-volume comparison. On
+`better-sqlite3` 11.10.0 and SQLite 3.49.2 it reconstructed one 2,527,124-byte
+high-entropy BLOB and one 2,527,124-byte valid multibyte UTF-8 JSON TEXT value
+through 39 `substr(CAST(... AS BLOB), offset, length)` queries apiece. Every
+JavaScript-visible result was at most 65,536 bytes, and the reconstructed
+SHA-256 values matched the generated sources exactly. The BLOB and TEXT loops
+took 102.5732 ms and 87.7258 ms, respectively, on the Windows development
+machine.
+
+This result does **not** prove bounded native allocation. Memory was observable
+only before and after each complete role, not while SQLite evaluated each
+`substr`; sampled RSS rose from 74,018,816 to 79,872,000 bytes. Consequently,
+the artifact records both `boundedNativeAllocationProved: false` and
+`productionQueryPathAuthorized: false`. Production legacy conversion must use
+a separately reviewed native incremental-BLOB path or an explicitly reviewed
+strict compatibility ceiling. The probe created and removed only a disposable
+temporary database and did not read owner data.
+
+The artifact SHA-256 is
+`a55a71d808d4371ad5d69347d79692d34bf65358ec78dccb024dd08e7c80d7cc`.
+
+## Current browser import/export reproduction
+
+The current browser path was exercised through the built UI against a
+disposable real server and P1 database at the normal 30 Hz display publication
+rate. The production source was commit
+`ec1cc708423c4337f1d5f0ed73ac7a1f7b9ecdf8`; the tested built JavaScript asset
+had SHA-256
+`032ffa5518ca21938e02d79acbfb10d5df35638540ea71c944cd34db7988182c`.
+Browser automation used the Codex in-app Browser plugin version
+`26.721.41059` on the Windows environment recorded by the retained source and
+runtime artifacts.
+The delay while the browser tool awaited owner approval to monitor loopback was
+excluded from every timing below.
+
+The fixture contained 300 differently weighted evolved snakes with 16,149,600
+packed weight bytes. Its exact current server JSON export was 81,293,145 bytes
+(77.53 MiB), SHA-256
+`011b7b3b2ec30ea9d6b4f72fd4a15ade9d3a9cbe9eb75fd1159428ec1fb3cecf`.
+The large payload was temporary rather than committed.
+
+For browser export:
+
+- combined JavaScript heap plus backing storage began at 5,964,125 bytes;
+- it peaked at 256,485,515 bytes 6.222 seconds after the Export click:
+  168,733,600 used-heap bytes plus 87,751,915 backing-store bytes;
+- that is about 244.6 MiB in the two reported browser memory categories for a
+  population with only 15.4 MiB of packed weights;
+- the browser materialized the response, parsed it, rebuilt a population
+  object, stringified it again and created a Blob exactly as the current source
+  audit predicted; and
+- the in-app browser did not expose a download event within the bounded
+  50-second listener despite no page error or alert. This event observation is
+  not treated as proof that Chromium itself failed to write a file; the
+  population-sized memory peak proves the defect independently.
+
+For browser import, the exact 77.53 MiB JSON file was selected through the
+normal file picker:
+
+- the file-selection operation remained busy for 151.337 seconds before the
+  first heap sample could execute;
+- because the browser action itself blocked that interval, the trace does not
+  claim to contain the parse-time peak;
+- after the action released, combined reported heap and backing storage rose
+  from a 6,002,453-byte baseline to at least 48,878,389 bytes before failure;
+- the UI logged `TypeError: Failed to fetch` and displayed its failure alert;
+  and
+- a direct replay of the same body proved the server limit: it stopped after
+  53,018,624 uploaded bytes and returned HTTP 400 with
+  `{"ok":false,"message":"payload too large"}`.
+
+The retained raw traces are
+`windows-5800x/browser-current-export-p1.jsonl` and
+`windows-5800x/browser-current-import-p1.jsonl`. Their SHA-256 digests are
+`4be16b5eecd7246d8d868d7ef25e7c7310f119e46e7bb90448713a78893a472b`
+and
+`b4c02d6790dd1d33b9787b68c972acaf7db13b1c6545c73d18127a9e9aef1556`.
+The HTTP reproduction is retained separately beside them. These are Windows
+development-machine defect measurements, not acceptance results for the future
+direct compressed archive path.
+
+## Current real-server external-control measurements
+
+The real current server was run with three simultaneous Protocol 2 loopback
+clients: a periodic latest-value UI controller, an observation-driven
+wire-compatible bot, and a spectator receiving complete frame-v1 buffers.
+Each measurement used a disposable database, the native serial backend, two
+seconds of warm-up and fifteen seconds of runner-monotonic measured wall time.
+The source was clean commit
+`24dca58a4fa36fcfc183ca8e21d0df2bc007bfc6`.
+
+| Workload/cadence | Sim seconds per wall second | Player actions | Player-send p95 | Bot sensor p95 | Display frames | Frame-interval p95 | Event-loop p95 | Peak RSS | Dropped sim debt |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| P0, requested 30 Hz | 1.0035x | 347 | 54.33 ms | 30.98 ms | 260 | 70.67 ms | 31.64 ms | 162.5 MiB | 0 s |
+| P0, requested 60 Hz | 1.0024x | 521 | 33.59 ms | 31.38 ms | 262 | 72.75 ms | 32.26 ms | 163.1 MiB | 0 s |
+| P1, requested 30 Hz | 0.6365x | 349 | 61.45 ms | 41.03 ms | 5 | 3,870.71 ms | 41.55 ms | 280.3 MiB | 6.900 s |
+| P1, requested 60 Hz | 0.6261x | 542 | 44.20 ms | 44.35 ms | 5 | 3,895.29 ms | 43.71 ms | 282.5 MiB | 7.033 s |
+
+The periodic client did not sustain either requested cadence even on P0:
+347/521 actions over fifteen seconds are about 23.1/34.7 sends per second.
+P1 reproduced the owner-visible failure more severely. It advanced only
+0.63–0.64 simulated seconds per wall second, discarded about seven simulated
+seconds of scheduler debt, and delivered just five display frames during each
+fifteen-second measurement. Requesting 60 Hz produced fresher timer callbacks
+than requesting 30 Hz but did not repair the overloaded server and slightly
+reduced simulated throughput in these single runs. These results do not select
+the final browser cadence.
+
+The retained `actionToNextSensorMs` field is only a latest-action-to-next-
+sensor receipt upper bound. In overloaded P1, several player actions can occur
+between sensor deliveries, so its near-zero percentile records the action
+nearest a delayed sensor rather than end-to-end command-to-step latency. It is
+not used as proof of acceptable control latency. The Rust vertical slice must
+add authoritative accepted-action and applied-step correlation.
+
+The raw artifacts are
+`windows-5800x/external-p5-p0-30hz.json`,
+`windows-5800x/external-p5-p0-60hz.json`,
+`windows-5800x/external-p5-p1-30hz.json`, and
+`windows-5800x/external-p5-p1-60hz.json`. Their SHA-256 digests are,
+respectively,
+`cd3036ba73ce7aa76ece95fe5775918a46353262ad2835a9823fb6d680ae7621`,
+`d56f675b73456d8f3385363b35c7c1652419dbb3b2a7b14d74680176e77da925`,
+`22c46fae875ba9a61d7b4f54509a212e8b5e0fbd74c2fdf0169026739b2e4367`,
+and
+`942bebdcdae6e2c7cee1e8e06518fa2f18a154656647ec86467ff502cf37e786`.
+
+This is a real-server compatibility baseline, not the full P5 gate. The
+clients run in the same Node process on loopback: they are not the actual
+browser renderer, the owner's separate RL trainer, another LAN device, or the
+target Debian VM. The earlier wait for owner approval to let the browser tool
+observe a loopback address/port is outside the runner and outside every timing
+reported here.
+
+## Actual local-browser control cadence
+
+The built browser from clean source commit
+`5b9b4930664f9e004b24dc0c896c5d103f0a78b9` was exercised through Chrome 150
+in the in-app browser at 1280×720 and device-pixel ratio 1. It connected to a
+disposable current P0 server on loopback, rendered the world, joined a player,
+and reclaimed that player after a reload. A bounded developer-network trace
+measured the browser's actual WebSocket action and display messages.
+
+| Browser candidate/window | Observed rate | Interval p50 | p95 | p99 | Max |
+|---|---:|---:|---:|---:|---:|
+| 60 Hz player actions, 409 messages | 58.50/s | 16.96 ms | 19.65 ms | 21.26 ms | 23.07 ms |
+| 30 Hz player actions, 237 messages | 29.56/s | 33.53 ms | 35.76 ms | 37.80 ms | 42.69 ms |
+| Display frames during the 60 Hz session, 48 frames | 23.28/s | 44.09 ms | 51.90 ms | 53.82 ms | 64.76 ms |
+| Display frames during the 30 Hz session, 35 frames | 16.79/s | 61.27 ms | 65.45 ms | 75.65 ms | 90.49 ms |
+
+A controlled 60 Hz drag emitted steering plus boost-on and then boost-off
+17.189 ms later. A longer controlled 30 Hz drag emitted boost-on and then
+boost-off 33.786 ms later. In both cases later periodic sends retained the
+newest boost-off and recomputed steering values. A synthetic 30 Hz press and
+release shorter than one cadence interval was coalesced to boost-off, so the
+server did not observe boost-on. That is a measured candidate limitation to
+review alongside the real LAN workload, not a silently finalized rule.
+
+Near the final 30 Hz window the current server reported 0.999969x scheduler
+progress, zero dropped simulated-time debt and empty sampled outbound queues.
+Only twelve snakes were then alive, so that point is not a full-population
+capacity result. A single browser heap sample reported 8,952,336 used bytes;
+it is not a peak, slope, process-RSS or leak result.
+
+The two short display windows occurred at different world states and are not
+a causal comparison between player cadences. Both were below the final 25-fps
+equivalent target and had p95 intervals above 40 ms, so this current-reference
+browser run does not pass the future Rust display gate. CDP reported encoded
+binary-payload character counts rather than decoded or wire bytes; no frame-
+byte claim is made. Action messages prove browser sends, not authoritative
+acceptance or next-step application. Deliberate finite-host shutdowns produced
+expected reconnect warnings after the bounded windows.
+
+The summarized artifact is
+`windows-5800x/browser-live-p0-30-60hz.json`, SHA-256
+`c6d33fc7c0d1f9ce8d72d435e76d6f5d6bf96d17e88e6b57420d81b555000187`.
+It retains the exact event-window results and limitations, but not the raw CDP
+stream or screenshot. This is actual browser evidence on same-machine
+loopback, not trusted-LAN laptop/desktop, owner-trainer, Debian VM or Ryzen 7
+2700 evidence. Tool and permission waits are outside the CDP monotonic event
+windows.
+
+## Current real-server P6 accelerated-control matrix
+
+The retained P6 matrix used clean source commit
+`d60cd578c2bc92cef8b0dda3d446a1c673fe7bb6`, the current real server,
+the native serial backend, and a Protocol 2 wire-compatible loopback bot. It
+covered P0 and P2 at requested 1x, 2x, 4x, 8x, and 12x, first without a display
+client and then with one complete-frame-v1 spectator. There was no browser
+player. Each independently launched run waited until at least tick 300 and
+then measured at least 1,800 committed steps, or 30 simulated seconds.
+Observed starts were ticks 300–307 and observed spans were 1,800–1,808 steps.
+Automatic generation checkpoints were configured every generation.
+
+The cells below show committed simulated seconds per runner-monotonic wall
+second followed by discarded simulated-time debt. Off/on values are separate
+trials in that order; they are not a causal measurement of spectator cost.
+
+| Requested speed | P0 off/on achieved | P0 off/on debt | P2 off/on achieved | P2 off/on debt |
+|---|---:|---:|---:|---:|
+| 1x | 1.000x / 1.000x | 0 / 0 s | 1.021x / 1.016x | 0 / 0 s |
+| 2x | 2.096x / 2.088x | 0.850 / 1.050 s | 1.834x / 1.665x | 5.517 / 9.383 s |
+| 4x | 2.254x / 2.378x | 23.850 / 21.800 s | 1.745x / 1.744x | 39.550 / 39.617 s |
+| 8x | 2.508x / 2.343x | 71.100 / 76.850 s | 1.568x / 1.956x | 128.800 / 98.783 s |
+| 12x | 2.353x / 2.508x | 125.433 / 116.983 s | 1.648x / 1.766x | 192.867 / 180.317 s |
+
+Only the 1x P0 and P2 windows completed with zero reported dropped debt. Those
+short fixed-step windows are not a headroom or sustained-capacity result. The
+apparent greater-than-2x P0 results began with 1.269–1.683 seconds of pending
+debt and also discarded 0.850–1.050 seconds, so they do not prove clean or
+sustained 2x capacity. Requested 4x and above missed the requested rate
+substantially in every trial. P0 began with 50–55 live snakes and ended with
+27–34; P2 began with 46–57 and ended with 18–24. Those load differences,
+connection-driven RNG contamination, action/event-loop timing, and polling
+overshoot prohibit a causal viewer comparison or an exact scaling curve.
+
+The spectator runs nevertheless reproduce current frame-publication
+starvation. P0 and P2 delivered about 16.7–16.9 frames per wall second at 1x.
+At requested 4x and above, P0 delivered about 1.17–1.25 and P2 about
+0.87–0.97 complete frames per wall second. This is a same-process Node
+spectator that counts messages and bytes, not browser parsing/rendering, LAN
+latency, or player-input responsiveness.
+
+The separate P0 12x boundary run measured 18,004 steps, 300.067 simulated
+seconds, and 81.664 runner-monotonic wall seconds. It achieved 3.674x while
+discarding 683.133 simulated seconds of scheduler debt. Generation, current
+SQLite durable generation, and current SQLite snapshot id all advanced from
+1 to 2 and the server reported the durable generation caught up. This proves
+only that one current interval-one SQLite generation checkpoint completed in
+that run. It does not isolate checkpoint latency, test restore or crash
+recovery, exercise checkpoint-v3 or managed files, or prove fsync/power-loss
+durability.
+
+All artifacts report no simulation fault and retain actual start/end ticks,
+poll overshoot, world-load counts, collision load, event-loop delay, process
+memory, frames, and bot observations/actions. Bot action counts are sends, not
+proof that the server accepted or applied each action; the current health API
+has no accepted/applied counters. The measurement build also performs an
+O(snakes) scalar diagnostic scan at each committed step and after each pump;
+that cost is included, not assumed free.
+
+These are single Windows 11/Ryzen 7 5800X/Node 24 loopback trials. They are not
+the real browser, owner trainer, trusted LAN, Debian VM, or Ryzen 7 2700
+acceptance results. The earlier owner-approval wait for loopback monitoring is
+outside the runner and every timing above.
+
+The 21 raw JSON artifacts are retained under
+`windows-5800x/p6/`. Their individual hashes are in
+`windows-5800x/p6/SHA256SUMS.txt`, whose SHA-256 is
+`92b07e08727019e2832433c11c84d4d005f435c49ca769f527432af4ed3358dc`.
+The extended boundary JSON has SHA-256
+`549f0b0f43d61483615364a6b3bef6e2b7e106ca622b3855bdff5a784c11ee54`.
+
+## Current real-server P7 30-minute soak
+
+The retained
+`windows-5800x/p7-current-server-p0-30hz-30min.json` artifact has SHA-256
+`6d6482e02fd94dd62b1c80b739065a2dfa394648a585a84555d28dc4e612ef06`.
+It ran the current TypeScript server and native serial kernels with a P0 world,
+one periodic 30 Hz UI-style controller, one observation-driven Protocol 2 bot,
+one complete-frame-v1 spectator, automatic generation checkpoints, five
+scheduled current-reference saves, and nine controller disconnect/reclaim
+cycles. The harness used only a disposable database and temporary directory.
+
+The run completed 1,800,011.251 ms of runner-monotonic measured wall time and
+set its full-P7 eligibility flag. Timing began only after the loopback server
+and all three clients were ready, so the earlier Codex/browser permission wait
+for observing a loopback address and port is not part of the result. The 359
+bounded five-second samples show:
+
+- the final sample reported 107,755 completed fixed steps, 1,795.917 simulated
+  seconds over 1,795.923 scheduler wall seconds, 0.999997x achieved speed and
+  zero dropped simulated-time debt;
+- the world advanced from generation 1 to generation 9 without a reported
+  simulation fault;
+- all nine reconnects received both reclaim confirmations, retained the
+  currently assigned snake, and rotated the resume token;
+- all five explicit saves returned HTTP 200 plus positive snapshot IDs, with
+  16.266–57.409 ms observed request duration and 37.635 ms mean;
+- the final disposable database held fourteen snapshots and 770 genome rows:
+  one run-start checkpoint, eight generation checkpoints and five explicit
+  current-reference saves, each with 55 genome rows;
+- the client sent 54,000 player actions (29.9998/s), while the bot received and
+  answered 107,924 observations (59.9574/s). The spectator received 29,038
+  frames (16.1321/s) and 1,781 stats messages (0.9894/s);
+- sampled process RSS peaked at 286,683,136 bytes. After the ten-minute warm-up,
+  its linear slope was 349,724 bytes/minute and final RSS was 17,338,368 bytes
+  below the warm-window median, within the provisional one-MiB/minute and
+  64-MiB plateau thresholds for this current-reference process;
+- the largest sampled event-loop p95/p99/max windows were
+  34.570/47.251/122.094 ms; sampled collision entries peaked at 1,227 and body
+  points at 1,241 with no grid fault;
+- the database grew from 3,043,328 bytes at the first sample to 46,325,760
+  bytes after close, peak sampled WAL was 6,917,512 bytes, and the final
+  database had no free-list pages; and
+- every sampled active connection reported zero queued reliable messages,
+  reliable bytes and pending frames. The warm and final active-resource samples
+  were stable at eight TCP sockets, and after cleanup only the runner's two
+  pipe and three timeout resources remained.
+
+This artifact was captured from parent commit
+`074cab3562c4842db5b8376aa4863e0803cc3868` with `source.dirty = true`, so it
+is not labelled clean-source evidence. The exact measured runner and focused
+test bytes have SHA-256
+`3ec3e957695c293857d5c48b4d6fb6c26e475c665e3ab0bc5552a3f20ec3b461`
+and
+`1756fe7b43b639449b99682bc4a0ee7efde46a7d6080eec274ca116e6886ace3`.
+The dirty state contained the reviewed P7 harness, focused legacy fixture and
+pending factual-log edits; the artifact itself records the native addon build
+identifier and complete environment. A later clean-source target-VM run is
+still required.
+
+The result does not prove browser rendering, trusted-LAN latency, the owner's
+trainer, Debian/Ryzen 7 2700 performance, Rust-authoritative behavior, managed
+checkpoint retention, accepted-action/application timing, fixed-step
+percentiles or subsystem timing. The bounded P7 result records frame counts but
+not frame-byte or frame-interval distributions; the shorter P5/P6 artifacts
+retain those distributions, and the later target/browser runs must record them
+again. Five-second queue samples can miss shorter spikes. During intentional
+socket replacement and final teardown, the current reference emitted
+`ws.reliable_send_failed` messages for already closed sockets. The focused
+test verifies that only this known close-race form is suppressed; because
+health aggregates only active connection lifetimes, this artifact does not
+claim zero teardown send failures. It proves successful reclaim outcomes in
+spite of that reference-path race, not that the race is acceptable in the
+future Rust path.
+
+## Initial Windows runtime measurements
+
+The following are single direct-engine runs on a Ryzen 7 5800X, Windows 11,
+Node 24.12.0. They are useful starting evidence, not Debian acceptance results.
+
+| Workload/path | Sim seconds per wall second | Fixed-step p50 | p95 | p99 | Mean sensors | Mean brain |
+|---|---:|---:|---:|---:|---:|---:|
+| P0 JS serial | 1.72x | 9.41 ms | 11.60 ms | 12.44 ms | 6.84 ms | 0.86 ms |
+| P0 native serial | 1.69x | 9.47 ms | 12.08 ms | 13.54 ms | 7.19 ms | 0.54 ms |
+| P0 native, 4 Node workers | 1.79x | 9.10 ms | 11.12 ms | 11.81 ms | 7.04 ms | 0.33 ms |
+| P1 JS serial | 0.36x | 44.81 ms | 66.01 ms | 69.18 ms | 38.97 ms | 4.17 ms |
+| P1 native serial | 0.36x | 44.32 ms | 64.48 ms | 69.70 ms | 39.67 ms | 2.46 ms |
+| P1 native, 4 Node workers | 0.37x | 44.12 ms | 61.70 ms | 68.01 ms | 39.93 ms | 1.07 ms |
+| P2 JS serial | 0.51x | 31.76 ms | 40.88 ms | 42.93 ms | 8.62 ms | 21.71 ms |
+| P2 native serial | 1.00x | 15.99 ms | 19.65 ms | 20.47 ms | 8.28 ms | 5.80 ms |
+| P2 native, 4 Node workers | 1.43x | 11.24 ms | 14.05 ms | 14.95 ms | 6.93 ms | 2.69 ms |
+| P3 native serial, capacity sample | 0.18x | 94.96 ms | 104.29 ms | 106.95 ms | 56.44 ms | 32.91 ms |
+| P4 native dense fixture | 0.37x | 24.44 ms | 120.70 ms | 173.36 ms | 25.79 ms | 0.92 ms |
+| P4 native 600-step collapse timeline | 1.54x | 5.85 ms | 20.83 ms | 31.49 ms | 4.78 ms | 0.21 ms |
+
+The P4 run starts with 217,000 body points and then rapidly loses snakes, so it
+proves the initial collision/frame spike and current full-frame scale, not
+sustained dense-world capacity. Its mean frame was about 2.06 MiB and its p99
+step was 173.36 ms.
+
+The separate 600-step P4 timeline starts with all 310 snakes alive, 217,000
+body points and exactly 216,690 collision-index entries. Its first completed
+step took 266.05 ms and left 52 snakes and 37,329 indexed segments. It ended
+after ten simulated seconds with eight snakes and 9,905 indexed segments.
+The faster 1.54x average and 31.49-ms p99 therefore describe the collapsed
+world, not sustained P4 capacity. The fixture is installed only once; it does
+not reinflate bodies or disable collisions to manufacture a favorable result.
+The retained 62-point timeline includes collision load, body count, alive
+count, frame size, RSS and fixed-step duration. The artifact is
+`windows-5800x/runtime-p4-native-dense-600.json`, SHA-256
+`fb8bdeaed0a8864dde8c084e847f5be081ab48c24fcda5137737f23088b63ba6`.
+
+These results reproduce the product failure on the faster development CPU:
+P1, P3 and the dense initial P4 state cannot sustain 1x. P1 remains about
+0.36–0.37x because sensing dominates; the Node worker/native-kernel stack
+barely helps. P2 benefits from native arithmetic and workers, but the production
+path still performs three native layer calls per differently weighted
+population evaluation. The worker artifacts retain the exact derived crossing
+count from observed batch population counts.
+
+## Oxygen target-VM evidence
+
+The detailed [Oxygen Ryzen 7 2700 index](oxygen-ryzen2700/README.md) covers 29
+root JSON artifacts plus 30 independently indexed P6 artifacts (59 total)
+from Debian 13 with eight logical CPUs and 15.62 GiB RAM. Direct current-
+reference native-serial measurements reached 1.220x for P0, 0.228x for P1,
+0.672x for P2, and 0.126x for P3. Four Node workers brought P2 to 0.906x but
+retained a poor tail. These results reproduce the user's slow-motion failure
+on the actual VM; they are not future Rust results.
+
+The Oxygen bundle also retains real-server synthetic P0/P1/P2 control runs,
+fresh and evolved P0/P2 managed-checkpoint prototypes, paired Debian graph-v2
+outputs, and a read-only inventory of the owner database. The exact retained
+default and adversarial graph fixtures produced identical compiled layouts on
+Windows and Debian for the tested Node/ICU/locale pair; this corrects the prior
+claimed difference without removing the structural `localeCompare` risk. The
+owner database also contains a large Hall-of-Fame architecture whose exact
+graph definition has not yet been retained as a replay fixture.
+
+Prototype checkpoint single-pass p95 was 44.69 ms for evolved P0 and 712.91 ms
+for evolved P2. Fresh generation-one P0/P2 p95 was 37.65/787.63 ms. These
+figures include file and parent-directory fsync on Oxygen but remain disposable
+Node prototypes; production Rust restore and power-loss behavior remain open.
+
+The nested P6 matrix runs P0/P1/P2 at 1x, 2x, 4x, 8x and 12x with a synthetic
+loopback bot and the same workload plus an unrendered spectator. P0 alone held
+1x cleanly. P1 achieved only 0.793x/0.867x at requested 1x, while P2's nominal
+1.033x/1.064x still included discarded debt and 70--79 ms event-loop p95. The
+declining populations make these capacity characterizations, not full-load
+acceptance results.
+
+The clean Oxygen P7 artifact ran the current P0 server for 30 minutes at about
+1x, advanced generation 1 to 10, completed five legacy saves and nine reclaims,
+and ended with 15 current SQLite snapshots. Its sampled post-warm RSS slope was
+about 0.204 MiB/minute. It is synthetic loopback/current-reference evidence,
+not a real browser/trainer/LAN, managed-retention, Rust, accepted-action, or
+complete P7 result.
+
+A manually assembled measurement summary records a real desktop Chromium
+browser connecting to Oxygen over the trusted LAN, reclaiming a P0 snake, and
+sending steering/boost commands near the 60-Hz candidate. It also records an
+accidental nine-hour P0 survival observation. Raw browser/tool transcripts
+were not retained, so the summary is not self-validating runner output. The
+same disposable run's stable 41.4-MB database was dominated by 142 repeated
+decimal-JSON Hall-of-Fame genomes despite having only one population
+checkpoint, independently confirming that growth defect.
+
+The owner-database audit disclosed small filesystem side effects in the
+detailed Oxygen index rather than silently removing them. The main database
+remained unchanged. No standalone save/archive was found under the scoped
+server directory, but that does not prove client downloads or other backups do
+not exist.
+
+## Still open before the Stage 2 exit gate
+
+- accepted/applied-action and next-fixed-step correlation, sensor/display
+  suppression and lifecycle-priority testing through the real LAN path, P1/P2
+  browser load, the laptop, and final 30-Hz-versus-60-Hz selection;
+- the owner trainer path. Its audited current revision speaks Protocol 1 while
+  the server requires Protocol 2, so compatibility needs a coordinated change;
+- sustained P4 (the retained artifacts are honest load-collapse curves), P6
+  full-load/browser/LAN/trainer capacity beyond the synthetic declining-load
+  matrix, and a controlled target-VM/browser/trainer P7 soak beyond the clean
+  synthetic-loopback P0 run;
+- P8 full checkpoint-v3 publication, durability and restore testing beyond the
+  retained size-matched 480-generation retention fixture;
+- repeat the selected checkpoint-v3 publication/restore policy in Rust on the
+  target Debian VM, including parent-directory fsync, state restoration and the
+  target checkpoint-latency barrier;
+- real owner save files outside the searched server directory, if any.
+
+No current-reference number is presented as proof that the future Rust engine
+already meets P0, P1, or P2.

@@ -1,0 +1,466 @@
+{
+  "schema": "slither-stage2-external-control-baseline",
+  "version": 3,
+  "evidenceClass": "new measured result",
+  "caveat": "Real current server and Protocol 2 wire-compatible bot, but loopback Node clients are not the missing owner trainer project, a browser renderer, another LAN device, or the target Debian VM.",
+  "source": {
+    "commit": "d60cd578c2bc92cef8b0dda3d446a1c673fe7bb6",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-29T06:45:53.933Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 11 Pro",
+    "hostname": "Beryllium",
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37",
+    "cpuModel": "AMD Ryzen 7 5800X 8-Core Processor             ",
+    "logicalCpuCount": 16,
+    "totalMemoryBytes": 68627632128
+  },
+  "workload": {
+    "scenario": {
+      "name": "P2",
+      "description": "55 evolved snakes, 10 baseline bots, 32-bin five-layer large GRU graph",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 5,
+        "neurons1": 256,
+        "neurons2": 256,
+        "neurons3": 256,
+        "neurons4": 256,
+        "neurons5": 256
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 32,
+      "baselineBotCount": 10,
+      "graphSpec": {
+        "type": "graph",
+        "nodes": [
+          {
+            "id": "input",
+            "type": "Input",
+            "outputSize": 147
+          },
+          {
+            "id": "features",
+            "type": "MLP",
+            "inputSize": 147,
+            "hiddenSizes": [
+              256,
+              256,
+              256,
+              256
+            ],
+            "outputSize": 256
+          },
+          {
+            "id": "memory",
+            "type": "GRU",
+            "inputSize": 256,
+            "hiddenSize": 96
+          },
+          {
+            "id": "output",
+            "type": "Dense",
+            "inputSize": 96,
+            "outputSize": 2
+          }
+        ],
+        "edges": [
+          {
+            "from": "input",
+            "to": "features"
+          },
+          {
+            "from": "features",
+            "to": "memory"
+          },
+          {
+            "from": "memory",
+            "to": "output"
+          }
+        ],
+        "outputs": [
+          {
+            "nodeId": "output"
+          }
+        ],
+        "outputSize": 2
+      },
+      "denseLongBodies": false
+    },
+    "seed": 1511506142,
+    "profile": "p6",
+    "composition": {
+      "botControllers": 1,
+      "uiPlayers": 0,
+      "uiSpectators": 1,
+      "totalSockets": 2
+    },
+    "playerHz": null,
+    "requestedSimSpeed": 1,
+    "warmupMs": null,
+    "warmupTick": 300,
+    "requestedDurationMs": null,
+    "requestedMeasurementSteps": 1800,
+    "measurementMode": "minimum-polled-authoritative-steps",
+    "requestedWorkers": 0,
+    "displayPublicationHz": 30,
+    "botClient": "Protocol 2 observation-driven synthetic compatibility client",
+    "viewerClient": "one Protocol 2 UI spectator; measurement readiness waits only for its open hello/join, and first frame/stats delivery is not a P6 warm-up condition",
+    "checkpointPersistence": {
+      "included": true,
+      "configuredGenerationInterval": 1,
+      "reason": "Primary P6 matrix keeps ordinary automatic checkpoints enabled every generation. persistenceProgress records whether this measured window actually crossed a generation boundary and published a later durable checkpoint."
+    },
+    "actionAcceptanceObservability": {
+      "configuredActionsPerSecondCap": 120,
+      "caveat": "Observed Protocol 2 observations/actions are client sends, not proof that ControllerRegistry accepted or applied every action once sends approach or exceed the cap; the current health endpoint exposes no accepted/applied action counters."
+    },
+    "diagnosticInstrumentation": {
+      "worldLoadCache": "The measured server performs one O(snakes) scalar world-load scan at each committed step and another after each completed pump. That diagnostic cost is included in these results and is not assumed to be free."
+    },
+    "crossRunComparability": {
+      "alignment": "Runs use one absolute warm-up tick target and require at least the requested number of observed authoritative steps. Actual start/end ticks, poll overshoot, and world load are recorded for every run.",
+      "caveat": "Independent launches can diverge before and during the sampled window because external join and action delivery use wall/event-loop timing, viewer publication changes scheduling, current external joins advance authoritative RNG, and health polls observe only at-or-beyond boundaries. Clearing client telemetry cannot prove that no pre-warm-up sensor or frame was already queued. The minimum-step window normalizes requested simulated progress; it does not make trajectories, loads, or client action timing identical."
+    }
+  },
+  "result": {
+    "measuredWallMs": 29536.7646,
+    "tickWindow": {
+      "mode": "minimum-polled-authoritative-steps",
+      "warmupBoundary": {
+        "targetTick": 300,
+        "observedTick": 306,
+        "overshootSteps": 6,
+        "healthPollCount": 6,
+        "wallMs": 5160.0419,
+        "worldLoad": {
+          "committedTick": 306,
+          "generation": 1,
+          "generationTime": 5.099999999999987,
+          "populationGenomeCount": 55,
+          "totalSnakes": 66,
+          "aliveEvolvedPopulationSnakes": 39,
+          "aliveBaselineBots": 9,
+          "aliveExternallyOwnedSnakes": 1,
+          "aliveNeuralModeNonBaselineUnownedSnakes": 39,
+          "aliveOtherNonBaselineSnakes": 0,
+          "aliveTotalSnakes": 49,
+          "aliveBodyPointCount": 429,
+          "pelletCount": 3501
+        },
+        "collisionGridEntries": 380
+      },
+      "measurementStartTick": 306,
+      "measurementTargetTick": 2106,
+      "measurementEndTick": 2107,
+      "requestedMeasurementSteps": 1800,
+      "observedMeasurementSteps": 1801,
+      "measurementOvershootSteps": 1,
+      "measurementHealthPollCount": 30,
+      "minimumStepTargetReached": true
+    },
+    "monotonicWindow": {
+      "wallSeconds": 29.5367646,
+      "simulatedSecondsPerWallSecond": 1.016248,
+      "achievedToRequestedRatio": 1.016248
+    },
+    "schedulerDelta": {
+      "tick": 1801,
+      "completedSteps": 1801,
+      "wallSeconds": 29.6949479,
+      "simulatedSeconds": 30.016666667,
+      "droppedSimulationSeconds": 0,
+      "achievedMultiplier": 1.010834,
+      "achievedToRequestedRatio": 1.010834,
+      "wallCounterCaveat": null
+    },
+    "persistenceProgress": {
+      "inMemoryGenerationBefore": 1,
+      "inMemoryGenerationAfter": 1,
+      "generationsAdvanced": 0,
+      "durableGenerationBefore": 1,
+      "durableGenerationAfter": 1,
+      "durableSnapshotIdBefore": 1,
+      "durableSnapshotIdAfter": 1,
+      "durableCheckpointAdvanced": false,
+      "durableGenerationCaughtUp": true
+    },
+    "bot": {
+      "assignmentLatencyMs": 231.61,
+      "actionCount": 1800,
+      "sensorCount": 1800,
+      "observationsPerWallSecond": 60.941001,
+      "actionsSentPerWallSecond": 60.941001,
+      "sensorIntervalMs": {
+        "count": 1799,
+        "min": 0.0317,
+        "p50": 10.9676,
+        "p95": 41.8979,
+        "p99": 58.390686,
+        "max": 71.3222,
+        "mean": 16.413052
+      },
+      "actionToNextSensorMs": {
+        "count": 1799,
+        "min": 0.0306,
+        "p50": 10.9666,
+        "p95": 41.89342,
+        "p99": 58.389842,
+        "max": 71.3212,
+        "mean": 16.410358
+      },
+      "sensorToActionDispatchMs": {
+        "count": 1800,
+        "min": 0.0206,
+        "p50": 0.0384,
+        "p95": 0.09231,
+        "p99": 0.124604,
+        "max": 0.3503,
+        "mean": 0.043784
+      }
+    },
+    "viewer": {
+      "enabled": true,
+      "uiSocketConnected": true,
+      "frameCount": 494,
+      "frameIntervalMs": {
+        "count": 493,
+        "min": 22.4415,
+        "p50": 60.4218,
+        "p95": 74.46994,
+        "p99": 189.461024,
+        "max": 387.5465,
+        "mean": 59.447404
+      },
+      "frameBytes": {
+        "count": 494,
+        "min": 75100,
+        "p50": 75896,
+        "p95": 76301.4,
+        "p99": 76360.28,
+        "max": 76424,
+        "mean": 75854.145749
+      },
+      "statsCount": 29,
+      "statsIntervalMs": {
+        "count": 28,
+        "min": 889.4853,
+        "p50": 1013.3605,
+        "p95": 1031.926465,
+        "p99": 1035.604181,
+        "max": 1036.9595,
+        "mean": 1007.260111
+      }
+    },
+    "eventLoopDelayMs": {
+      "p50": 30.916607,
+      "p95": 44.695551,
+      "p99": 67.895295,
+      "max": 124.518399
+    },
+    "cpu": {
+      "userMicros": 17875000,
+      "systemMicros": 453000,
+      "oneCoreEquivalentPercent": 62.051481
+    },
+    "memory": {
+      "before": {
+        "rss": 519233536,
+        "heapTotal": 55402496,
+        "heapUsed": 34736920,
+        "external": 389440357,
+        "arrayBuffers": 385253797
+      },
+      "after": {
+        "rss": 454324224,
+        "heapTotal": 89219072,
+        "heapUsed": 39629576,
+        "external": 297079766,
+        "arrayBuffers": 292894571
+      },
+      "peakRssBytes": 519274496,
+      "peakHeapUsedBytes": 52496856,
+      "peakExternalBytes": 389778940
+    },
+    "healthBefore": {
+      "ok": true,
+      "tick": 306,
+      "clients": 2,
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "inferenceMode": {
+        "requestedBackend": "native",
+        "activeBackend": "native",
+        "requestedMt": false,
+        "activeWorkerCount": 0,
+        "poolEpoch": null,
+        "weightEpoch": null,
+        "graphKey": "graph|out:2|nodes:features:MLP:147x256x256x256x256x256;input:Input:147;memory:GRU:256x96;output:Dense:96x2|edges:features->memory:0:0;input->features:0:0;memory->output:0:0|outs:output:0",
+        "parameterCount": 402914,
+        "seed": 1511506142,
+        "nativeAddonStatus": "ready",
+        "nativeAddonBuildIdentifier": "slither_native/0.1.0+3fe2e0063f8d.250d6b1948e7fc4d"
+      },
+      "scheduler": {
+        "requestedMultiplier": 1,
+        "achievedMultiplier": 0.940188108412314,
+        "completedSteps": 306,
+        "completedStepsThisPump": 8,
+        "wallSeconds": 5.424446400000001,
+        "simulatedSeconds": 5.099999999999987,
+        "droppedSimulationSeconds": 0,
+        "droppedSimulationSecondsThisPump": 0,
+        "pendingSimulationSeconds": 0.32444640000000147,
+        "maxStepsPerPump": 120
+      },
+      "collisionGrid": {
+        "currentEntries": 380,
+        "peakEntries": 384,
+        "capacity": 200000,
+        "maxCapacity": 33554432,
+        "estimatedCapacityBytes": 3200000,
+        "rebuilds": 919,
+        "growths": 0,
+        "outOfBoundsEntries": 0,
+        "admissionReason": "collision-grid rebuild admitted 380 entries",
+        "faultReason": null
+      },
+      "worldLoad": {
+        "committedTick": 306,
+        "generation": 1,
+        "generationTime": 5.099999999999987,
+        "populationGenomeCount": 55,
+        "totalSnakes": 66,
+        "aliveEvolvedPopulationSnakes": 39,
+        "aliveBaselineBots": 9,
+        "aliveExternallyOwnedSnakes": 1,
+        "aliveNeuralModeNonBaselineUnownedSnakes": 39,
+        "aliveOtherNonBaselineSnakes": 0,
+        "aliveTotalSnakes": 49,
+        "aliveBodyPointCount": 429,
+        "pelletCount": 3501
+      },
+      "fault": {
+        "faulted": false,
+        "reason": null,
+        "tick": null
+      },
+      "run": {
+        "seed": 1511506142,
+        "runId": "stage2-p6-p2-1x"
+      },
+      "persistence": {
+        "enabled": true,
+        "checkpointEveryGenerations": 1,
+        "lastDurableSnapshotId": 1,
+        "lastDurableGeneration": 1,
+        "lastDurableRunId": "stage2-p6-p2-1x",
+        "inMemoryGeneration": 1,
+        "inMemoryRunId": "stage2-p6-p2-1x",
+        "exactStartupResume": true
+      },
+      "configRevision": 0,
+      "configHash": "v1-b6d14a55"
+    },
+    "healthAfter": {
+      "ok": true,
+      "tick": 2107,
+      "clients": 2,
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0
+      },
+      "inferenceMode": {
+        "requestedBackend": "native",
+        "activeBackend": "native",
+        "requestedMt": false,
+        "activeWorkerCount": 0,
+        "poolEpoch": null,
+        "weightEpoch": null,
+        "graphKey": "graph|out:2|nodes:features:MLP:147x256x256x256x256x256;input:Input:147;memory:GRU:256x96;output:Dense:96x2|edges:features->memory:0:0;input->features:0:0;memory->output:0:0|outs:output:0",
+        "parameterCount": 402914,
+        "seed": 1511506142,
+        "nativeAddonStatus": "ready",
+        "nativeAddonBuildIdentifier": "slither_native/0.1.0+3fe2e0063f8d.250d6b1948e7fc4d"
+      },
+      "scheduler": {
+        "requestedMultiplier": 1,
+        "achievedMultiplier": 0.9999223325632915,
+        "completedSteps": 2107,
+        "completedStepsThisPump": 2,
+        "wallSeconds": 35.11939429999999,
+        "simulatedSeconds": 35.11666666666596,
+        "droppedSimulationSeconds": 0,
+        "droppedSimulationSecondsThisPump": 0,
+        "pendingSimulationSeconds": 0.00272763333333418,
+        "maxStepsPerPump": 120
+      },
+      "collisionGrid": {
+        "currentEntries": 556,
+        "peakEntries": 647,
+        "capacity": 200000,
+        "maxCapacity": 33554432,
+        "estimatedCapacityBytes": 3200000,
+        "rebuilds": 6322,
+        "growths": 0,
+        "outOfBoundsEntries": 0,
+        "admissionReason": "collision-grid rebuild admitted 556 entries",
+        "faultReason": null
+      },
+      "worldLoad": {
+        "committedTick": 2107,
+        "generation": 1,
+        "generationTime": 35.11666666666596,
+        "populationGenomeCount": 55,
+        "totalSnakes": 66,
+        "aliveEvolvedPopulationSnakes": 14,
+        "aliveBaselineBots": 5,
+        "aliveExternallyOwnedSnakes": 1,
+        "aliveNeuralModeNonBaselineUnownedSnakes": 14,
+        "aliveOtherNonBaselineSnakes": 0,
+        "aliveTotalSnakes": 20,
+        "aliveBodyPointCount": 576,
+        "pelletCount": 3500
+      },
+      "fault": {
+        "faulted": false,
+        "reason": null,
+        "tick": null
+      },
+      "run": {
+        "seed": 1511506142,
+        "runId": "stage2-p6-p2-1x"
+      },
+      "persistence": {
+        "enabled": true,
+        "checkpointEveryGenerations": 1,
+        "lastDurableSnapshotId": 1,
+        "lastDurableGeneration": 1,
+        "lastDurableRunId": "stage2-p6-p2-1x",
+        "inMemoryGeneration": 1,
+        "inMemoryRunId": "stage2-p6-p2-1x",
+        "exactStartupResume": true
+      },
+      "configRevision": 0,
+      "configHash": "v1-b6d14a55"
+    }
+  }
+}

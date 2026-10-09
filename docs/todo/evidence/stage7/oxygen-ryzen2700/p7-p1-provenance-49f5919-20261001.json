@@ -1,0 +1,24 @@
+{
+  "sourceRevision": "49f5919fdde0f69eef0a5ce43443fa7136135679",
+  "nativeBuildIdentifier": "slither_native/0.1.0+49f5919fdde0.9a7c6b662fd02ffb",
+  "nativeSourceSha256": "e872180aa763db57849f26c8490ed081eadcd2dfcd723f9ea49146dc0940d743",
+  "buildClass": "production",
+  "buildProfile": "release",
+  "workload": "P1, six Rust workers, two real owner PyRL actors over trusted LAN, one programmatic loopback player and loopback health sampler",
+  "trainerRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "trainerConfiguration": { "trainDevice": "cpu", "inferDevice": "cpu", "hidden": 256, "layers": 2, "horizon": 256, "batchSize": 1024 },
+  "measurementTools": "Unmodified scripts/stage7/loaded-runtime-window.ts and scripts/stage7/soak-player.ts from the source revision; the retained supervisor adds bounded process ownership and /proc handle sampling",
+  "samplerSourceSha256": "caf418b1fcbe441b0e386e78ff0ffe9ae6c37003aa1bbd35e697cbfc8b473beb",
+  "playerSourceSha256": "84f74e54039ff074def4e3c4a935a3306296683b3ae30bb35f4ba56555fb36ce",
+  "reports": [
+    { "file": "p7-p1-window-49f5919-20261001.json", "sha256": "05b739fe725a83aebf29b36828751b4db4cee0cf1c05b59f5bf85b0a37e1193f" },
+    { "file": "p7-p1-player-49f5919-20261001.json", "sha256": "d27993472a628c966e35fdc241187211f33af40ab129f210c5da645782d27f9e" },
+    { "file": "p7-p1-handles-49f5919-20261001.json", "sha256": "9334de1ba547fb5548bfa664119f6b0940fe42835aa405c22ed0ac9a80f6ac2b" },
+    { "file": "p7-p1-supervisor-49f5919-20261001.sh", "sha256": "f5766898942e9e7761d716106b6dadc0570b409b97d9d5c76ed2c499b5190776" }
+  ],
+  "result": "Queue and timing checks pass; the complete measured gate fails because RSS slope is 1.124004654187442 MiB/minute above the 1 MiB/minute limit. Final RSS is 28.0859375 MiB above the warm median, below the separate 64 MiB limit.",
+  "reliableDeliveryScope": "All sixty programmatic reconnect attempts received a successful same-snake reclaim result and rotated token. Three hub-lifetime send failures remain visible in the measured window; the summary does not equate closing-peer failures with silent loss. Induced frame-backpressure delivery is separately covered by the source revision's real-socket integration test.",
+  "resourceScope": "File descriptors range from 31 to 35 and threads remain 19. Sampled managed temporary bytes are zero, automatic stored bytes peak at 122860544 under the 4294967296-byte cap, and sampled WAL peaks at 2929352 bytes. This is not a browser rendering/heap or LAN input-to-step measurement.",
+  "nextAction": "Investigate memory growth with heap/external-memory time series and native allocation attribution before repeating the unchanged RSS gate.",
+  "cleanup": "The bounded supervisor stopped the disposable server and player. The local trainer was stopped, all task-owned source/build/database/trainer scratch removed after verified report copies, and ports 5174, 5180 and 5181 remained closed."
+}

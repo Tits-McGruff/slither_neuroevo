@@ -1,0 +1,46 @@
+{
+  "sourceRevision": "0a50949c0c99cc238028f191a682e364609e20b3",
+  "nativeBuildIdentifier": "slither_native/0.1.0+0a50949c0c99.978133afba93fce9",
+  "trainerRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "runtimeInstrumentation": "Normal production GNU allocator release only; no preload, inspector, forced GC or external trim",
+  "measuredSeconds": 1800.122899448,
+  "memorySoak": {
+    "warmSamples": 20,
+    "measuredSamples": 41,
+    "warmMedianBytes": 156004352,
+    "finalRssBytes": 186847232,
+    "finalAboveWarmMedianBytes": 30842880,
+    "slopeMiBPerMinute": 0.7124921577694037,
+    "warmSeconds": 600,
+    "measuredSeconds": 1200.122899448,
+    "meetsMemoryGate": true
+  },
+  "serverMeasuredGates": true,
+  "completeP7Acceptance": false,
+  "playerPassed": false,
+  "playerStoppedSeconds": 780.517794489,
+  "playerFailure": "Error: reclaim did not preserve the snake and rotate its token",
+  "scope": "Two real PyRL actors remained active throughout. The reconnecting player stopped after 780.5 seconds; later diagnostic/UI/bot clients altered the client mix. The numeric server RSS/timing/queue result does not establish complete loaded player lifecycle acceptance.",
+  "reconnectScope": "Near-boundary trace succeeds; completed-generation crossing produces an explicit invalid-token result and no assignment until a new join is requested. Neither trace reproduces or resolves the original successful-reclaim mismatch.",
+  "lanScope": "Retained LAN report is from the probe before continuation through isolated observation deadlines. Player 200 trials complete; bot has 188 completed and one unknown at a generation boundary. It is not a joint LAN pass.",
+  "nextActions": [
+    "Capture complete successful-reclaim correlation for the original mismatch",
+    "Run complete LAN P0/P1/P2 with the corrected observer retaining unknown attempts",
+    "Close browser rendering and archive-heap gates after browser choice",
+    "Reproduce complete loaded player/server soak after resolving the lifecycle assertion"
+  ],
+  "sourceReportSha256": {
+    "p7-p1-reclaim-diagnostic-0a50949-20261001.mjs": "cf1b8c4c4e2cbc35a50579a5140297c0b2bf95eecd1fd167267007fbd5ef7fe5",
+    "p7-p1-handles-0a50949-20261001.json": "c15085184e0e5a6a99ed6ab4d790359d9ae931013cb0da010f88c1ab4f3d39a9",
+    "p7-p1-player-0a50949-20261001.json": "84f4becea172d8e9e4c1f670f82f9fbb0142b7b2ec66d8494f2be2215d5d9c09",
+    "p7-p1-reclaim-diagnostic-0a50949-20261001.json": "97015e202a83e1615aa07926518bced8794632b1551d3f92eb1942c62d471559",
+    "p7-p1-reclaim-crossing-0a50949-20261001.json": "03a04691c185fdd92b7ceca290fb8d2aa51bd0b75f6e783122ca0c21dd1f448f",
+    "lan-turn-p1-server-0a50949-20261001.sh": "4066a1423af535ba773d2a9bd8e8c42bb2a8d5cfdf94a4d4deb09c79f7d66a06",
+    "p7-p1-final-health-0a50949-20261001.json": "0e7ebc93a665d4f7fba612ca1967d06ab637b175ff7ed013d28c837a647c6674",
+    "p7-p1-reclaim-crossing-0a50949-20261001.mjs": "6af4aca8deb767fbfedac5c717e7baba0d4be10684a9c128f6e2941ec68ce76f",
+    "p7-p1-window-0a50949-20261001.json": "e00acf8a2153fc119d8dd2a55f98b4a4ac2aa53a67255af5c3c53fec3675bd93",
+    "p7-p1-supervisor-0a50949-20261001.sh": "27b33b71d1d02429e93b90a82cf55f0d6ec53e19cbb79f5d6654597976a6d07b",
+    "lan-turn-p1-rate-limited-0a50949-20261001.json": "5a1f8adf484aad0a99ae0891e4c7396621b2f06b31e56dae84ad806695112b7e"
+  },
+  "cleanup": "Owned measurement and LAN servers, trainer and probes stopped. The disposable checkout/addon/database and both trainer scratch directories were removed. Ports 5174/5180/5181/9229 are closed."
+}

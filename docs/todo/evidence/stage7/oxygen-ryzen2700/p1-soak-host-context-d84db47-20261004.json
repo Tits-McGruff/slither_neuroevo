@@ -1,0 +1,143 @@
+{
+  "sourceRevision": "d84db47b337a13893bd0e8c85beb4225a0c7d38f",
+  "nativeSourceSha256": "61ba97f5b2825aeaa9552c90390e3f0ecbf601e56ab5da92567e106cc4d760ad",
+  "nativeBuildIdentifier": "slither_native/0.1.0+d84db47b337a.4a60b65eeac31fe3",
+  "reports": {
+    "p1-soak-loaded-d84db47-20261004.json": "6068254638ae6380c531303ad7c9fc2354169ed62d4eeb6f23b9ce48c39a1130",
+    "p1-soak-player-d84db47-20261004.json": "be992b32b81b68dce28ba35ff920909de7648fdfc0742d605beb653fb0ef9dc1",
+    "p1-soak-lan-desktop-d84db47-20261004.json": "afcd0da2e15084ad6c7d06b9d85743b6fec32e3cc838163e2956312be206d0d4",
+    "p1-soak-lan-nitrogen-d84db47-20261004.json": "b632e3b38b912efea7ef8cd0f64fcce20f6bde2d1c4192f0a264d744a1ef6ae1",
+    "p1-soak-storage-lan-d84db47-20261004.json": "43c1936ffef83451c56918ffd77e3b56ae2f1cc0c5601786cc4669cb0c2492e7",
+    "p1-soak-anchors-d84db47-20261004.json": "11dcbb9089e609b0771d499b4d80afbe568af7ac103eb4555fec2c65d32e972a",
+    "p1-soak-storage-final-d84db47-20261004.json": "456a6ab88713f9119a5689f5f346b899c327d9612c22239598dc012b4aaf271d"
+  },
+  "workload": {
+    "profile": "P1",
+    "neuralSnakes": 300,
+    "baselineBots": 10,
+    "bubbleBins": 16,
+    "sensorInputs": 83,
+    "parametersPerNeuralSnake": 13458,
+    "pellets": 3500,
+    "rustWorkers": 5,
+    "simSpeed": 1,
+    "generationSeconds": 60,
+    "targetStepsPerSecond": 60,
+    "generationFrom": 4,
+    "generationTo": 34,
+    "ordinaryGenerationCheckpoints": true,
+    "exportStressDuringWindow": false
+  },
+  "trainer": {
+    "sourceRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+    "sourceClean": true,
+    "implementation": "Owner PyRL-trainer actual actor/learner supervisor",
+    "actors": 2,
+    "trainingDevice": "cpu",
+    "inferenceDevice": "cpu",
+    "hidden": 256,
+    "layers": 2,
+    "torchThreads": 1,
+    "ompThreads": 1,
+    "mklThreads": 1,
+    "endpoint": "ws://oxygen:5180",
+    "separateDisposableCheckpoints": true,
+    "supervisorSha256": "a1ac65019cf71bd8703e1a8e55a3038afa8764fe37506dcf7583b8a211af1ffb"
+  },
+  "clients": {
+    "frameAndReconnectClient": "Programmatic player on desktop; no browser rendering proof",
+    "playerEndpoint": "ws://192.168.0.200:5180",
+    "playerActionRate": 30,
+    "reconnectSeconds": 30,
+    "physicalProtocolProbes": [
+      "desktop",
+      "Nitrogen"
+    ],
+    "healthSampler": "Oxygen local loopback",
+    "probeContainment": "Exact source/run/completed-step containment; no cross-host wall-clock synchronization assumed"
+  },
+  "host": {
+    "cpu": "AMD Ryzen 7 2700",
+    "vmLogicalProcessors": 8,
+    "vmTotalMemoryBytes": "16775348224",
+    "fixtureFilesystem": "/srv/tablebases",
+    "filesystemTotalBytes": "399603867648",
+    "beforeAvailableBytes": "173996843008",
+    "minimumSampledAvailableBytes": "172519989248"
+  },
+  "loadSnapshots": [
+    {
+      "stage": "before setup",
+      "localTime": "2026-10-04 10:56 Australia/Sydney",
+      "oxygenLoad": [
+        0.0,
+        0.0,
+        0.09
+      ],
+      "oxygenAvailableMemoryBytes": "16225861632",
+      "carbonLoad": [
+        5.43,
+        6.69,
+        6.48
+      ],
+      "carbonCpuIdlePercent": 68.9,
+      "carbonPlexCpuPercent": 97.3,
+      "carbonQbittorrentCpuPercent": 97.3
+    },
+    {
+      "stage": "during run",
+      "oxygenUtc": "2026-10-04T02:39:39Z",
+      "carbonUtc": "2026-10-04T02:39:43Z",
+      "oxygenLoad": [
+        0.49,
+        0.6,
+        0.51
+      ],
+      "oxygenCpuIdlePercent": 87.8,
+      "oxygenCpuStealPercent": 1.1,
+      "carbonLoad": [
+        8.05,
+        6.97,
+        6.74
+      ],
+      "carbonCpuIdlePercent": 65.2,
+      "carbonPlexCpuPercent": 93.8,
+      "carbonQbittorrentCpuPercent": 101.9
+    },
+    {
+      "stage": "later point snapshots",
+      "localTime": "2026-10-04 13:41:32–35 Australia/Sydney",
+      "oxygenLoad": [
+        0.87,
+        0.68,
+        0.54
+      ],
+      "oxygenCpuIdlePercent": [
+        84.3,
+        86.0
+      ],
+      "oxygenCpuStealPercent": [
+        0.0,
+        2.1
+      ],
+      "carbonLoad": [
+        5.95,
+        6.58,
+        6.62
+      ],
+      "carbonCpuIdlePercent": [
+        67.7,
+        65.3
+      ],
+      "carbonPlexCpuPercent": [
+        96.7,
+        104.6
+      ],
+      "carbonQbittorrentCpuPercent": [
+        96.7,
+        100.7
+      ]
+    }
+  ],
+  "scope": "Thirty-minute real trainer/player P1 window. Conservative rate and generation bounds, memory, observed queue/storage and physical protocol LAN checks pass. Combined measured gate remains false: process-lifetime step p99 bucket is 24 ms, above P1 limit 16.667 ms, and cannot prove an after-warm window percentile. Two visible reliable-send failures are recorded; queue boundedness does not prove complete delivery. Player recorded one rejected reclaim followed by a valid fresh assignment. Ten retained anchors restore/re-export; final metadata/file audit has no temporary/unreferenced artifacts. Point host snapshots do not establish continuous contention or a causal timing explanation. Unraid load inspected read-only; owner production/data untouched. Browser rendering/loss handling, interval-specific p99, other profiles and remaining Stage 7/8 gates stay open."
+}

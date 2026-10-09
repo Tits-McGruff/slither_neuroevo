@@ -1,7 +1,12 @@
 import type { VizData } from '../protocol/messages.ts';
 
+/** Math backend bound to a constructed brain runtime. */
+export type InferenceBackend = 'js' | 'native';
+
 /** Brain runtime interface implemented by all controller types. */
 export interface Brain {
+  /** Math backend captured when this brain was constructed, when observable. */
+  readonly inferenceBackend?: InferenceBackend;
   /** Run a forward pass and return the output buffer. */
   forward(input: Float32Array): Float32Array;
   /**

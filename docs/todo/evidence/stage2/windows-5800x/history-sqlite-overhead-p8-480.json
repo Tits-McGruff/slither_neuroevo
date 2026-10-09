@@ -1,0 +1,256 @@
+{
+  "schema": "slither-stage2-history-sqlite-overhead",
+  "version": 1,
+  "evidenceClass": "new measured result",
+  "caveat": "Disposable compact-history SQLite measurement only. It is not checkpoint-v3, an archive, a segment implementation, restore evidence, durability evidence, or target-VM evidence.",
+  "source": {
+    "commit": "d60cd578c2bc92cef8b0dda3d446a1c673fe7bb6",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-29T06:37:24.119Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "osVersion": "Windows 11 Pro",
+    "hostname": "Beryllium",
+    "node": "v24.12.0",
+    "sqlite": {
+      "version": "3.49.2"
+    }
+  },
+  "measurement": {
+    "fixtureKind": "isolated compact-history SQLite row measurement; not a checkpoint, archive, segment, or production schema",
+    "fixture": {
+      "generations": 480,
+      "recordBytes": 56,
+      "table": "generation_history",
+      "primaryKey": [
+        "run_id",
+        "generation"
+      ],
+      "encoding": "eight-field little-endian binary record"
+    },
+    "growthSamples": [
+      {
+        "records": 0,
+        "logicalBytes": 0,
+        "storage": {
+          "databaseBytes": 12288,
+          "walBytes": 0,
+          "shmBytes": 32768,
+          "pageCount": 3,
+          "freelistCount": 0,
+          "dbstat": {
+            "available": true,
+            "table": {
+              "name": "generation_history",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 0,
+              "unusedBytes": 4088
+            },
+            "primaryKeyIndex": {
+              "name": "sqlite_autoindex_generation_history_1",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 0,
+              "unusedBytes": 4088
+            }
+          }
+        }
+      },
+      {
+        "records": 1,
+        "logicalBytes": 56,
+        "storage": {
+          "databaseBytes": 12288,
+          "walBytes": 8272,
+          "shmBytes": 32768,
+          "pageCount": 3,
+          "freelistCount": 0,
+          "dbstat": {
+            "available": true,
+            "table": {
+              "name": "generation_history",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 84,
+              "unusedBytes": 4000
+            },
+            "primaryKeyIndex": {
+              "name": "sqlite_autoindex_generation_history_1",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 28,
+              "unusedBytes": 4057
+            }
+          }
+        }
+      },
+      {
+        "records": 8,
+        "logicalBytes": 448,
+        "storage": {
+          "databaseBytes": 12288,
+          "walBytes": 65952,
+          "shmBytes": 32768,
+          "pageCount": 3,
+          "freelistCount": 0,
+          "dbstat": {
+            "available": true,
+            "table": {
+              "name": "generation_history",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 679,
+              "unusedBytes": 3377
+            },
+            "primaryKeyIndex": {
+              "name": "sqlite_autoindex_generation_history_1",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 238,
+              "unusedBytes": 3826
+            }
+          }
+        }
+      },
+      {
+        "records": 64,
+        "logicalBytes": 3584,
+        "storage": {
+          "databaseBytes": 12288,
+          "walBytes": 539752,
+          "shmBytes": 32768,
+          "pageCount": 5,
+          "freelistCount": 0,
+          "dbstat": {
+            "available": true,
+            "table": {
+              "name": "generation_history",
+              "pages": 3,
+              "pageBytes": 12288,
+              "payloadBytes": 5439,
+              "unusedBytes": 6558
+            },
+            "primaryKeyIndex": {
+              "name": "sqlite_autoindex_generation_history_1",
+              "pages": 1,
+              "pageBytes": 4096,
+              "payloadBytes": 1918,
+              "unusedBytes": 1978
+            }
+          }
+        }
+      },
+      {
+        "records": 480,
+        "logicalBytes": 26880,
+        "storage": {
+          "databaseBytes": 77824,
+          "walBytes": 4120032,
+          "shmBytes": 32768,
+          "pageCount": 19,
+          "freelistCount": 0,
+          "dbstat": {
+            "available": true,
+            "table": {
+              "name": "generation_history",
+              "pages": 12,
+              "pageBytes": 49152,
+              "payloadBytes": 41152,
+              "unusedBytes": 5549
+            },
+            "primaryKeyIndex": {
+              "name": "sqlite_autoindex_generation_history_1",
+              "pages": 6,
+              "pageBytes": 24576,
+              "payloadBytes": 15104,
+              "unusedBytes": 7964
+            }
+          }
+        }
+      }
+    ],
+    "appendTransactionMs": {
+      "count": 480,
+      "min": 1.8452,
+      "p50": 1.97125,
+      "p95": 2.17619,
+      "p99": 2.9026,
+      "max": 6.1316,
+      "mean": 2.014712
+    },
+    "wal": {
+      "peakObservedBytes": 4120032,
+      "beforePassiveCheckpoint": {
+        "databaseBytes": 77824,
+        "walBytes": 4120032,
+        "shmBytes": 32768,
+        "pageCount": 19,
+        "freelistCount": 0,
+        "dbstat": {
+          "available": true,
+          "table": {
+            "name": "generation_history",
+            "pages": 12,
+            "pageBytes": 49152,
+            "payloadBytes": 41152,
+            "unusedBytes": 5549
+          },
+          "primaryKeyIndex": {
+            "name": "sqlite_autoindex_generation_history_1",
+            "pages": 6,
+            "pageBytes": 24576,
+            "payloadBytes": 15104,
+            "unusedBytes": 7964
+          }
+        }
+      },
+      "passiveCheckpointMs": 2.5589,
+      "passiveCheckpointResult": [
+        {
+          "busy": 0,
+          "log": 36,
+          "checkpointed": 36
+        }
+      ],
+      "afterPassiveCheckpoint": {
+        "databaseBytes": 77824,
+        "walBytes": 4120032,
+        "shmBytes": 32768,
+        "pageCount": 19,
+        "freelistCount": 0,
+        "dbstat": {
+          "available": true,
+          "table": {
+            "name": "generation_history",
+            "pages": 12,
+            "pageBytes": 49152,
+            "payloadBytes": 41152,
+            "unusedBytes": 5549
+          },
+          "primaryKeyIndex": {
+            "name": "sqlite_autoindex_generation_history_1",
+            "pages": 6,
+            "pageBytes": 24576,
+            "payloadBytes": 15104,
+            "unusedBytes": 7964
+          }
+        }
+      }
+    },
+    "accountingAssertions": {
+      "exactRecordCount": true,
+      "exactFixedWidthLogicalBytes": true,
+      "requiredSamplesPresent": true
+    },
+    "limitations": {
+      "scope": "no checkpoint payload, managed file, Hall-of-Fame, deletion, segment, restore, or production persistence path is exercised",
+      "durability": "SQLite FULL transaction timing and passive checkpoint timing are not managed-checkpoint publication or directory-durability evidence",
+      "target": "this disposable local measurement is not target-VM evidence and does not select a production storage layout"
+    }
+  }
+}

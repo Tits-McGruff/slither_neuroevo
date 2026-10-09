@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createWsClient,
+  formatImportBranchRuntimeStatus,
+  formatLegacyConversionRuntimeStatus,
+  formatRecoveryRuntimeStatus,
+  formatServerRuntimeStatus,
+  getDefaultServerUrl,
   resolveServerUrl,
   storeServerUrl,
   DEFAULT_SERVER_URL
@@ -23,6 +28,7 @@ describe('wsClient', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.stubGlobal('document', undefined);
     originalWindow = globalAny.window;
     originalStorage = globalAny.localStorage;
     originalWebSocket = globalAny.WebSocket;
@@ -46,6 +52,7 @@ describe('wsClient', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     globalAny.window = originalWindow as Window & typeof globalThis;
     globalAny.localStorage = originalStorage as Storage;
     globalAny.WebSocket = originalWebSocket as typeof WebSocket;
@@ -71,6 +78,105 @@ describe('wsClient', () => {
     expect(resolveServerUrl()).toBe(DEFAULT_SERVER_URL);
   });
 
+  it('uses configured and same-host LAN defaults before localhost fallback', () => {
+    globalAny.window = {
+      location: {
+        search: '',
+        hostname: '192.168.1.25',
+        protocol: 'http:'
+      }
+    } as unknown as Window & typeof globalThis;
+    expect(getDefaultServerUrl('ws://192.168.1.40:6200')).toBe('ws://192.168.1.40:6200');
+    expect(getDefaultServerUrl('')).toBe('ws://192.168.1.25:5174');
+
+    globalAny.window = undefined as unknown as Window & typeof globalThis;
+    expect(getDefaultServerUrl('')).toBe(DEFAULT_SERVER_URL);
+  });
+
+  it.each([
+    { host: '192.168.1.25:6174', protocol: 'http:', expected: 'ws://192.168.1.25:6174' },
+    { host: '[::1]:6174', protocol: 'http:', expected: 'ws://[::1]:6174' },
+    { host: '[2001:db8::1]', protocol: 'https:', expected: 'wss://[2001:db8::1]' }
+  ])('uses served same-origin runtime routing for $expected', ({ host, protocol, expected }) => {
+    vi.stubGlobal('document', { querySelector: () => ({ content: '' }) });
+    globalAny.window = { location: { host, protocol, search: '' } } as unknown as Window & typeof globalThis;
+    storeServerUrl('ws://cached:5174');
+    expect(getDefaultServerUrl('ws://baked:5174')).toBe(expected);
+    expect(resolveServerUrl()).toBe(expected);
+  });
+
+  it('uses runtime split-host routing before stored or build defaults, preserving the query override', () => {
+    vi.stubGlobal('document', { querySelector: () => ({ content: 'ws://runtime-host:6174' }) });
+    storeServerUrl('ws://cached:5174');
+    expect(getDefaultServerUrl('ws://baked:5174')).toBe('ws://runtime-host:6174');
+    expect(resolveServerUrl()).toBe('ws://runtime-host:6174');
+    globalAny.window.location.search = '?server=ws://explicit-host:7180';
+    expect(resolveServerUrl()).toBe('ws://explicit-host:7180');
+  });
+  it('formats the active seed, backend, and threading mode for the UI', () => {
+    expect(formatServerRuntimeStatus(42, {
+      requestedBackend: 'native',
+      activeBackend: 'native',
+      requestedMt: false,
+      activeWorkerCount: 0
+    })).toBe('Server · seed 42 · native single-thread');
+    expect(formatServerRuntimeStatus(99, {
+      requestedBackend: 'native',
+      activeBackend: 'native',
+      requestedMt: true,
+      activeWorkerCount: 4
+    })).toBe('Server · seed 99 · native MT×4');
+  });
+
+  it('formats exact recovery provenance without narrowing hexadecimal generations', () => {
+    expect(formatRecoveryRuntimeStatus({
+      failedRunId: 'source-run', branchRunId: 'branch-run',
+      failedCheckpointId: 'f'.repeat(64), recoveredCheckpointId: 'a'.repeat(64),
+      recoveredGeneration: '0000000000000019',
+      lostCompletedGenerations: { from: '0000000000000019', through: '000000000000001b' }
+    })).toBe(`Recovered checkpoint ${'a'.repeat(64)} at generation 25 from failed run source-run into branch branch-run; failed checkpoint ${'f'.repeat(64)}; abandoned completed generations 25 through 27.`);
+    expect(formatRecoveryRuntimeStatus({
+      failedRunId: 'old-build', branchRunId: 'new-build',
+      failedCheckpointId: 'b'.repeat(64), recoveredCheckpointId: 'b'.repeat(64),
+      recoveredGeneration: '0000000000000007', lostCompletedGenerations: null,
+      compatibleBuild: true
+    })).toContain('Compatible application-build continuation; exact replay ends at the source checkpoint.');
+  });
+
+  it('plainly labels converted SQLite populations as non-exact starts', () => {
+    expect(formatLegacyConversionRuntimeStatus({
+      sourceSnapshotId: 17,
+      sourceFormat: 'legacy-gzip',
+      completeness: 'population-only',
+      exactContinuation: false
+    })).toBe('Started from legacy gzip snapshot 17. The population was converted, but this is a new run rather than an exact continuation.');
+  });
+
+  it('labels an explicit retained-checkpoint selection without claiming a failed run', () => {
+    expect(formatRecoveryRuntimeStatus({ failedRunId: 'prior-run', branchRunId: 'selected-branch',
+      failedCheckpointId: 'b'.repeat(64), recoveredCheckpointId: 'a'.repeat(64),
+      recoveredGeneration: '0000000000000019',
+      lostCompletedGenerations: { from: '0000000000000019', through: '000000000000001b' }, explicitResume: true
+    })).toBe(`Selected retained checkpoint ${'a'.repeat(64)} at generation 25 from run prior-run into branch selected-branch. Later source history remains preserved.`);
+  });
+
+  it('formats exact archive branch provenance without narrowing its generation', () => {
+    expect(formatImportBranchRuntimeStatus({
+      sourceRunId: 'source-run',
+      branchRunId: 'branch-run',
+      sourceGeneration: '0000000000000019',
+      sourceCheckpointId: 'c'.repeat(64)
+    })).toBe(`Imported checkpoint ${'c'.repeat(64)} at generation 25 from run source-run into branch branch-run.`);
+  });
+
+  it('labels browser population origins with their source generation and seed', () => {
+    expect(formatLegacyConversionRuntimeStatus({ version: 1, sourceFormat: 'browser-json',
+      sourceGeneration: 'ffffffffffffffff', sourceSeed: 1234567,
+      completeness: 'population-only', exactContinuation: false })).toBe(
+      'Started from browser JSON generation 18446744073709551615. The population was converted, but this is a new run rather than an exact continuation. Source seed: 1234567.'
+    );
+  });
+
   it('dispatches welcome and frame messages', () => {
     /** WebSocket stub used to simulate connection events. */
     class StubWebSocket {
@@ -90,14 +196,18 @@ describe('wsClient', () => {
       onclose: (() => void) | null = null;
       /** Binary type preference for messages. */
       binaryType = 'arraybuffer';
+      /** Text payloads sent by the client. */
+      sent: string[] = [];
 
       /** Create a stub socket and register it in the instance list. */
       constructor() {
         StubWebSocket.instances.push(this);
       }
 
-      /** No-op send implementation. */
-      send(): void {}
+      /** Collect one client payload. */
+      send(payload: string): void {
+        this.sent.push(payload);
+      }
       /** Close the socket and emit a close event. */
       close(): void {
         this.readyState = 3;
@@ -122,6 +232,10 @@ describe('wsClient', () => {
 
     let sawWelcome = false;
     let sawFrame = false;
+    let sawSettings = false;
+    let sawGodMode = false;
+    let sawNewRun = false;
+    let sawStateReplaced = false;
     const client = createWsClient({
       onConnected: () => {
         sawWelcome = true;
@@ -130,7 +244,20 @@ describe('wsClient', () => {
       onFrame: () => {
         sawFrame = true;
       },
-      onStats: () => {}
+      onStats: () => {},
+      onSettingsApplied: () => {
+        sawSettings = true;
+      },
+      onGodModeResult: () => {
+        sawGodMode = true;
+      },
+      onNewRunResult: () => {
+        sawNewRun = true;
+      },
+      onStateReplaced: () => {
+        sawStateReplaced = true;
+        client.sendJoin('spectator');
+      }
     });
 
     client.connect('ws://localhost:9999');
@@ -140,10 +267,48 @@ describe('wsClient', () => {
       throw new Error('Expected WebSocket instance');
     }
     instance.open();
-    instance.emit(JSON.stringify({ type: 'welcome', tickRate: 60 }));
+    instance.emit(JSON.stringify({ type: 'welcome', protocolVersion: 2, tickRate: 60 }));
+    client.sendSettings('settings-1', [{ path: 'simSpeed', value: 2 }]);
+    client.sendGodModeKill('god-1', 8);
+    client.sendGodModeMove('god-2', 8, 10, 20);
+    client.sendNewRun('run-1');
+    instance.emit(JSON.stringify({
+      type: 'settingsApplied',
+      requestId: 'settings-1',
+      applied: true,
+      updates: [{ path: 'simSpeed', value: 2 }],
+      configRevision: 1,
+      configHash: 'v1-test'
+    }));
+    instance.emit(JSON.stringify({
+      type: 'godModeResult',
+      requestId: 'god-1',
+      action: 'kill',
+      snakeId: 8,
+      applied: true
+    }));
+    instance.emit(JSON.stringify({
+      type: 'newRunResult',
+      requestId: 'run-1',
+      applied: false,
+      reason: 'unavailable'
+    }));
+    instance.emit(JSON.stringify({
+      type: 'stateReplaced', rejoinToken: 'a'.repeat(32), reason: 'import', checkpointId: 'a'.repeat(64), welcome: {}
+    }));
     instance.emit(new ArrayBuffer(8));
 
     expect(sawWelcome).toBe(true);
     expect(sawFrame).toBe(true);
+    expect(sawSettings).toBe(true);
+    expect(sawGodMode).toBe(true);
+    expect(sawNewRun).toBe(true);
+    expect(sawStateReplaced).toBe(true);
+    expect(instance.sent.map(payload => JSON.parse(payload) as { type: string }).map(msg => msg.type))
+      .toEqual(['hello', 'settings', 'godMode', 'godMode', 'newRun', 'join']);
+    expect(JSON.parse(instance.sent.at(-1)!)).toEqual({ type: 'join', mode: 'spectator', rejoinToken: 'a'.repeat(32) });
+    instance.emit(JSON.stringify({ type: 'welcome', protocolVersion: 2 }));
+    client.sendJoin('spectator');
+    expect(JSON.parse(instance.sent.at(-1)!)).toEqual({ type: 'join', mode: 'spectator' });
   });
 });

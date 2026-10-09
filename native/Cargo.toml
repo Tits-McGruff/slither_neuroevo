@@ -1,0 +1,66 @@
+
+[package]
+authors = ["jlow8697@gmail.com"]
+edition = "2021"
+name = "slither_native"
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "stage3-checkpoint-roundtrip"
+path = "src/bin/stage3_checkpoint_roundtrip.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "stage4-inference-benchmark"
+path = "src/bin/stage4_inference_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "stage4-sensing-benchmark"
+path = "src/bin/stage4_sensing_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "stage4-control-benchmark"
+path = "src/bin/stage4_control_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "stage5-step-benchmark"
+path = "src/bin/stage5_step_benchmark.rs"
+required-features = ["engine-test-hooks"]
+
+[features]
+engine-test-hooks = []
+
+[dependencies]
+getrandom = "0.4"
+flate2 = "1"
+napi = { version = "3.0.0", features = ["napi6", "compat-mode"] }
+napi-derive = "3.0.0"
+rayon = "1"
+rustix = { version = "1", features = ["fs"] }
+rusqlite = { version = "0.40.2", features = ["blob", "bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tar = "0.4"
+zstd = { version = "0.13", features = ["experimental"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[build-dependencies]
+napi-build = "2"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3         # Maximum optimizations (Default for release)
+lto = "fat"           # Aggressive Link-Time Optimization for speed
+codegen-units = 1     # Slower compile, but better optimization
+panic = "unwind"      # Required so caught Rust panics fault the engine instead of aborting Node
+debug = true          # KEPT: Needed for samply/flamegraph reports
+strip = false         # KEPT: Ensures symbols aren't deleted so you can read function names

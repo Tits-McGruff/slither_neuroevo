@@ -1,0 +1,2529 @@
+//! Production-addon handle for one Rust-owned background authority.
+
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::path::PathBuf;
+#[cfg(feature = "engine-test-hooks")]
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+use napi::bindgen_prelude::{Array, AsyncTask, JsObjectValue, Object, Task};
+use napi::{Env, Error, JsString, JsValue, Result, Status};
+use napi_derive::napi;
+use serde::Deserialize;
+
+use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
+use crate::engine::contract::{
+    CommandBatch, EngineCommand, ExternalDeliveryReceipt, PreparedImportSlot,
+    RunningAuthorityCommand, SequencedCommand, ENGINE_CONTRACT_VERSION,
+};
+use crate::engine::display::{FrameCopyResult, RunningDisplayStatus, RunningVisualizationStatus};
+use crate::engine::error::{EngineError, EngineErrorCode};
+use crate::engine::export_archive::{
+    compose_export_archive, estimate_import_disk_bytes, prepare_import_archive,
+    validate_import_archive, ExportArchiveDescriptor, ExportInventoryDescriptor,
+    ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
+};
+use crate::engine::fresh_run::{
+    prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
+    FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
+};
+use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
+use crate::engine::run_start::PendingRunStartTransition;
+use crate::engine::runtime::EngineRuntime;
+use crate::engine::work_progress::{ArchivePhaseTrace, ProgressScope};
+use crate::napi_engine::{
+    background_generation_event_to_napi, background_generation_health_to_napi, bounded_js_string,
+    bounded_object_string, checkpoint_descriptor_from_napi_object, checkpoint_descriptor_to_napi,
+    engine_error_to_napi, hall_of_fame_weights_descriptor_from_napi, parse_background_sequence,
+    parse_checkpoint_operation_id, parse_managed_checkpoint_publication_options,
+    parse_managed_path, parse_u64_hex, positive_usize, u64_hex, JoinEngineTask,
+    ManagedHallOfFameWeightsDescriptor, Stage6BackgroundGenerationDrain,
+    Stage6BackgroundGenerationHealth,
+};
+
+/// Cached frame chronology and basic stats; no population or world objects.
+#[napi(object)]
+pub struct BackgroundDisplayStatus {
+    pub sequence: String,
+    pub world_epoch: String,
+    pub completed_step: String,
+    pub generation: String,
+    pub generation_time: f64,
+    pub alive_population: u32,
+    pub baseline_bots_alive: u32,
+    pub baseline_bots_total: u32,
+    pub total_snakes: u32,
+    pub alive_snakes: u32,
+    pub pellets: u32,
+    pub frame_byte_length: f64,
+}
+
+pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> BackgroundDisplayStatus {
+    BackgroundDisplayStatus {
+        sequence: u64_hex(status.sequence),
+        world_epoch: u64_hex(status.world_epoch),
+        completed_step: u64_hex(status.completed_step),
+        generation: u64_hex(status.frame.generation),
+        generation_time: status.generation_time,
+        alive_population: status.alive_population as u32,
+        baseline_bots_alive: status.baseline_bots_alive as u32,
+        baseline_bots_total: status.baseline_bots_total as u32,
+        total_snakes: status.frame.total_snakes as u32,
+        alive_snakes: status.frame.alive_snakes as u32,
+        pellets: status.frame.pellets as u32,
+        frame_byte_length: status.frame.byte_length as f64,
+    }
+}
+
+/// A caller can retry busy/too-small copies without consuming the retained frame.
+#[napi(object)]
+pub struct BackgroundFrameCopy {
+    pub status: String,
+    pub display: Option<BackgroundDisplayStatus>,
+}
+
+/// One ordered layer returned only for the selected Rust brain.
+#[napi(object)]
+pub struct BackgroundVisualizationLayer {
+    pub count: u32,
+    pub has_activations: bool,
+    pub activations: Vec<f64>,
+    pub is_recurrent: Option<bool>,
+}
+
+/// Replaceable complete focused neural snapshot.
+#[napi(object)]
+pub struct BackgroundVisualization {
+    pub sequence: String,
+    pub world_epoch: String,
+    pub completed_step: String,
+    pub snake_id: u32,
+    pub kind: String,
+    pub layers: Vec<BackgroundVisualizationLayer>,
+}
+
+fn visualization_to_napi(status: RunningVisualizationStatus) -> Result<BackgroundVisualization> {
+    let mut values = status.values.iter().copied();
+    let mut layers = Vec::new();
+    layers.try_reserve_exact(status.layers.len()).map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            "cannot allocate visualization layers",
+        )
+    })?;
+    for layer in status.layers {
+        let count = u32::try_from(layer.count).map_err(|_| {
+            Error::new(Status::GenericFailure, "visualization layer exceeds Uint32")
+        })?;
+        let activations = if layer.has_activations {
+            let mut output = Vec::new();
+            output.try_reserve_exact(layer.count).map_err(|_| {
+                Error::new(
+                    Status::GenericFailure,
+                    "cannot allocate visualization values",
+                )
+            })?;
+            for _ in 0..layer.count {
+                let value = values.next().ok_or_else(|| {
+                    Error::new(Status::GenericFailure, "visualization values ended early")
+                })?;
+                if !value.is_finite() {
+                    return Err(Error::new(
+                        Status::GenericFailure,
+                        "visualization contains a non-finite activation",
+                    ));
+                }
+                output.push(f64::from(value));
+            }
+            output
+        } else {
+            Vec::new()
+        };
+        layers.push(BackgroundVisualizationLayer {
+            count,
+            has_activations: layer.has_activations,
+            activations,
+            is_recurrent: layer.recurrent.then_some(true),
+        });
+    }
+    if values.next().is_some() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "visualization contains extra activation values",
+        ));
+    }
+    Ok(BackgroundVisualization {
+        sequence: u64_hex(status.sequence),
+        world_epoch: u64_hex(status.world_epoch),
+        completed_step: u64_hex(status.completed_step),
+        snake_id: status.frame_v1_id,
+        kind: "graph".to_owned(),
+        layers,
+    })
+}
+
+/// Bounded ready-file facts returned after Rust completes export composition.
+#[napi(object)]
+pub struct PreparedExportArchive {
+    pub operation_id: String,
+    pub checkpoint_id: String,
+    pub relative_filename: String,
+    pub download_filename: String,
+    pub stored_byte_count: String,
+    pub logical_root_sha256: String,
+}
+
+/// Read-only snapshot of one native archive job, including a completed one.
+#[napi(object)]
+pub struct ArchiveWorkProgress {
+    pub operation_id: String,
+    pub kind: String,
+    pub completed_bytes: String,
+    pub started: bool,
+    pub finished: bool,
+    pub phase_trace: Option<ArchivePhaseDiagnostics>,
+}
+
+/// Optional timing facts; populated only with SLITHER_TRACE_ARCHIVE_PHASES=1.
+#[napi(object)]
+pub struct ArchivePhaseDiagnostics {
+    pub elapsed_micros: String,
+    pub truncated: bool,
+    pub intervals: Vec<ArchivePhaseTiming>,
+    pub rss_sampler_started: bool,
+    pub requested_rss_sample_interval_micros: String,
+}
+
+/// One bounded phase interval, including still-open outer stages.
+#[napi(object)]
+pub struct ArchivePhaseTiming {
+    pub phase: String,
+    pub started_micros: String,
+    pub finished_micros: Option<String>,
+    pub start_rss_bytes: Option<String>,
+    pub finish_rss_bytes: Option<String>,
+    pub sampled_peak_rss_bytes: Option<String>,
+    pub rss_samples: String,
+}
+
+struct ArchiveProgressJob {
+    operation_id: String,
+    kind: &'static str,
+    completed_bytes: Arc<AtomicU64>,
+    started: AtomicBool,
+    finished: AtomicBool,
+    phase_trace: Option<Arc<ArchivePhaseTrace>>,
+}
+
+impl ArchiveProgressJob {
+    fn new(operation_id: String, kind: &'static str) -> Self {
+        Self {
+            operation_id,
+            kind,
+            completed_bytes: Arc::new(AtomicU64::new(0)),
+            started: AtomicBool::new(false),
+            finished: AtomicBool::new(false),
+            phase_trace: (std::env::var_os("SLITHER_TRACE_ARCHIVE_PHASES").as_deref()
+                == Some(std::ffi::OsStr::new("1")))
+            .then(|| Arc::new(ArchivePhaseTrace::new())),
+        }
+    }
+
+    fn snapshot(&self) -> ArchiveWorkProgress {
+        ArchiveWorkProgress {
+            operation_id: self.operation_id.clone(),
+            kind: self.kind.to_owned(),
+            completed_bytes: u64_hex(self.completed_bytes.load(Ordering::Relaxed)),
+            started: self.started.load(Ordering::Acquire),
+            finished: self.finished.load(Ordering::Acquire),
+            phase_trace: self.phase_trace.as_ref().map(|trace| {
+                let (elapsed, truncated, intervals) = trace.snapshot();
+                ArchivePhaseDiagnostics {
+                    elapsed_micros: u64_hex(elapsed),
+                    truncated,
+                    rss_sampler_started: trace.rss_sampler_started.load(Ordering::Acquire),
+                    requested_rss_sample_interval_micros: u64_hex(
+                        crate::engine::work_progress::ARCHIVE_RSS_SAMPLE_INTERVAL_MICROS,
+                    ),
+                    intervals: intervals
+                        .into_iter()
+                        .map(|interval| ArchivePhaseTiming {
+                            phase: interval.phase.name().to_owned(),
+                            started_micros: u64_hex(interval.started_micros),
+                            finished_micros: interval.finished_micros.map(u64_hex),
+                            start_rss_bytes: interval.start_rss_bytes.map(u64_hex),
+                            finish_rss_bytes: interval.finish_rss_bytes.map(u64_hex),
+                            sampled_peak_rss_bytes: interval.sampled_peak_rss_bytes.map(u64_hex),
+                            rss_samples: u64_hex(interval.rss_samples),
+                        })
+                        .collect(),
+                }
+            }),
+        }
+    }
+}
+
+/// Small immutable facts returned after a complete untrusted archive validation.
+#[napi(object)]
+pub struct ValidatedImportArchiveResult {
+    pub run_id: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub checkpoint_id: String,
+    pub save_logical_root_sha256: String,
+    pub history_count: String,
+    pub hall_of_fame_count: String,
+    pub stored_byte_count: String,
+}
+
+/// Conservative manifest-derived disk terms before decoded import staging.
+#[napi(object)]
+pub struct ImportDiskEstimateResult {
+    pub candidate_spool_bytes: String,
+    pub final_managed_bytes: String,
+}
+
+/// Small prepared-import facts. The private candidate remains retained in Rust.
+#[napi(object)]
+pub struct PreparedImportArchiveResult {
+    pub run_id: String,
+    pub generation: String,
+    pub completed_step: String,
+    pub checkpoint_id: String,
+    pub save_logical_root_sha256: String,
+    pub history_count: String,
+    pub hall_of_fame_count: String,
+    pub stored_byte_count: String,
+    pub descriptor: crate::napi_engine::ManagedCheckpointDescriptor,
+    pub inventory: PreparedImportInventoryResult,
+    pub startup_metadata: String,
+}
+
+/// Trusted fixed-width import inventory consumed only by the SQLite worker.
+#[napi(object)]
+pub struct PreparedImportInventoryResult {
+    pub version: u32,
+    pub relative_filename: String,
+    pub sha256: String,
+    pub stored_byte_count: String,
+    pub history_count: String,
+    pub hall_of_fame_count: String,
+}
+
+/// Small fresh replacement facts. The complete candidate remains in Rust.
+#[napi(object)]
+pub struct PreparedFreshRunResult {
+    pub descriptor: crate::napi_engine::ManagedCheckpointDescriptor,
+    pub startup_metadata: String,
+}
+
+/// Complete off-loop result before the transition enters the shared slot.
+pub struct PreparedFreshRun {
+    transition: PendingRunStartTransition,
+    descriptor: CheckpointDescriptor,
+    startup_metadata_json: String,
+}
+
+/// Keep a Rust panic inside one libuv task instead of unwinding through N-API.
+/// The task's `finally` hook still releases its busy/progress marker.
+fn catch_background_task_panic<T>(
+    task: &'static str,
+    runtime: Option<&EngineRuntime>,
+    operation: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    match catch_unwind(AssertUnwindSafe(operation)) {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(runtime) = runtime {
+                runtime.report_bridge_fault(EngineError::new(
+                    EngineErrorCode::Faulted,
+                    format!("{task} panicked at the background task root"),
+                ));
+            }
+            Err(Error::new(
+                Status::GenericFailure,
+                format!("{task} panicked; background authority faulted"),
+            ))
+        }
+    }
+}
+
+/// Libuv task for constructing and publishing a private generation-one run.
+pub struct PrepareFreshRunTask {
+    runtime: Arc<EngineRuntime>,
+    managed_directory: PathBuf,
+    operation_id: CheckpointOperationId,
+    request: Stage6aP0FreshRunRequest,
+    calculation_workers: usize,
+    settings: Box<[FreshRunSettingUpdate]>,
+    graph: GraphSpec,
+    prepared: PreparedImportSlot,
+    active: Arc<AtomicBool>,
+}
+
+impl Task for PrepareFreshRunTask {
+    type Output = PreparedFreshRun;
+    type JsValue = PreparedFreshRunResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        catch_background_task_panic("fresh-run preparation", Some(&self.runtime), || {
+            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+                self.request.clone(),
+                &self.settings,
+                self.graph.clone(),
+            )
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            transition
+                .configure_calculation_workers(self.calculation_workers)
+                .map_err(|error| Error::new(Status::GenericFailure, error))?;
+            let descriptor = transition
+                .publish_checkpoint(&self.managed_directory, self.operation_id.clone())
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            let startup_metadata_json = transition
+                .startup_metadata_json()
+                .map_err(|error| Error::new(Status::GenericFailure, error))?;
+            Ok(PreparedFreshRun {
+                transition,
+                descriptor,
+                startup_metadata_json,
+            })
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        self.prepared
+            .put(output.transition)
+            .map_err(|_| Error::new(Status::GenericFailure, "prepared replacement slot changed"))?;
+        Ok(PreparedFreshRunResult {
+            descriptor: checkpoint_descriptor_to_napi(output.descriptor),
+            startup_metadata: output.startup_metadata_json,
+        })
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active.store(false, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// Libuv task for file/codec work that must not block the Node event loop.
+pub struct PrepareExportArchiveTask {
+    runtime: Arc<EngineRuntime>,
+    memory_ceiling_bytes: usize,
+    managed_directory: PathBuf,
+    operation_id: String,
+    checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
+    inventory: ExportInventoryDescriptor,
+    progress: Arc<ArchiveProgressJob>,
+    #[cfg(feature = "engine-test-hooks")]
+    export_failure: Arc<AtomicU8>,
+}
+
+impl Task for PrepareExportArchiveTask {
+    type Output = ExportArchiveDescriptor;
+    type JsValue = PreparedExportArchive;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        catch_background_task_panic("archive export", Some(&self.runtime), || {
+            #[cfg(feature = "engine-test-hooks")]
+            let _failure = crate::engine::export_failure_fixture::ExportFailureScope::enter(
+                self.export_failure.swap(0, Ordering::AcqRel),
+            );
+            self.progress.started.store(true, Ordering::Release);
+            let _progress = ProgressScope::enter_with_trace(
+                Arc::clone(&self.progress.completed_bytes),
+                self.progress.phase_trace.clone(),
+            );
+            let memory_ceiling = self.memory_ceiling_bytes;
+            let (checkpoint_limits, graph_limits, admission_policy) =
+                stage6a_p0_archive_validation_contract(memory_ceiling, false)
+                    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            compose_export_archive(
+                &self.managed_directory,
+                &self.operation_id,
+                &self.checkpoint,
+                &self.inventory,
+                &checkpoint_limits,
+                &graph_limits,
+                &admission_policy,
+            )
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(PreparedExportArchive {
+            operation_id: output.operation_id,
+            checkpoint_id: output.checkpoint_id,
+            relative_filename: output.relative_filename,
+            download_filename: output.download_filename,
+            stored_byte_count: output.stored_byte_count_hex,
+            logical_root_sha256: output.logical_root_sha256,
+        })
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.progress.finished.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// Libuv task for validating an untrusted upload without touching authority.
+pub struct ValidateImportArchiveTask {
+    runtime: Arc<EngineRuntime>,
+    memory_ceiling_bytes: usize,
+    archive_path: PathBuf,
+    scratch_directory: PathBuf,
+    operation_id: String,
+    progress: Arc<ArchiveProgressJob>,
+}
+
+/// Bounded off-loop USTAR-header and final-manifest inspection.
+pub struct EstimateImportDiskTask {
+    runtime: Arc<EngineRuntime>,
+    archive_path: PathBuf,
+}
+
+impl Task for EstimateImportDiskTask {
+    type Output = ImportDiskEstimate;
+    type JsValue = ImportDiskEstimateResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        catch_background_task_panic("import disk estimate", Some(&self.runtime), || {
+            estimate_import_disk_bytes(&self.archive_path)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(ImportDiskEstimateResult {
+            candidate_spool_bytes: u64_hex(output.candidate_spool_bytes),
+            final_managed_bytes: u64_hex(output.final_managed_bytes),
+        })
+    }
+}
+
+/// Libuv preparation task retaining its admitted candidate in the native handle.
+pub struct PrepareImportArchiveTask {
+    runtime: Arc<EngineRuntime>,
+    memory_ceiling_bytes: usize,
+    archive_path: PathBuf,
+    scratch_directory: PathBuf,
+    managed_directory: PathBuf,
+    operation_id: String,
+    legacy_run_id: String,
+    legacy_seed: u32,
+    calculation_workers: usize,
+    prepared: PreparedImportSlot,
+    active: Arc<AtomicBool>,
+    progress: Arc<ArchiveProgressJob>,
+}
+
+impl Task for PrepareImportArchiveTask {
+    type Output = PreparedImportArchive;
+    type JsValue = PreparedImportArchiveResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        catch_background_task_panic("archive import preparation", Some(&self.runtime), || {
+            self.progress.started.store(true, Ordering::Release);
+            let _progress = ProgressScope::enter_with_trace(
+                Arc::clone(&self.progress.completed_bytes),
+                self.progress.phase_trace.clone(),
+            );
+            let memory_ceiling = self.memory_ceiling_bytes;
+            let (checkpoint_limits, graph_limits, admission_policy) =
+                stage6a_p0_archive_validation_contract(memory_ceiling, true)
+                    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            let mut prepared = prepare_import_archive(
+                &self.archive_path,
+                &self.scratch_directory,
+                &self.managed_directory,
+                &self.operation_id,
+                &self.legacy_run_id,
+                self.legacy_seed,
+                &checkpoint_limits,
+                &graph_limits,
+                &admission_policy,
+                memory_ceiling,
+            )
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            prepared
+                .transition
+                .configure_calculation_workers(self.calculation_workers)
+                .map_err(|error| Error::new(Status::GenericFailure, error))?;
+            Ok(prepared)
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        let facts = output.facts;
+        let descriptor = output.descriptor;
+        let inventory = output.inventory;
+        let startup_metadata = output.startup_metadata_json;
+        self.prepared
+            .put(output.transition)
+            .map_err(|_| Error::new(Status::GenericFailure, "prepared import slot changed"))?;
+        Ok(PreparedImportArchiveResult {
+            run_id: facts.run_id,
+            generation: facts.generation_hex,
+            completed_step: facts.completed_step_hex,
+            checkpoint_id: facts.checkpoint_id,
+            save_logical_root_sha256: facts.save_logical_root_sha256,
+            history_count: facts.history_count_hex,
+            hall_of_fame_count: facts.hall_of_fame_count_hex,
+            stored_byte_count: facts.stored_byte_count_hex,
+            descriptor: checkpoint_descriptor_to_napi(descriptor),
+            inventory: PreparedImportInventoryResult {
+                version: inventory.version,
+                relative_filename: inventory.relative_filename,
+                sha256: inventory.sha256,
+                stored_byte_count: inventory.stored_byte_count_hex,
+                history_count: inventory.history_count_hex,
+                hall_of_fame_count: inventory.hall_of_fame_count_hex,
+            },
+            startup_metadata,
+        })
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.active.store(false, Ordering::Release);
+        self.progress.finished.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
+impl Task for ValidateImportArchiveTask {
+    type Output = ValidatedImportArchive;
+    type JsValue = ValidatedImportArchiveResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        catch_background_task_panic("archive import validation", Some(&self.runtime), || {
+            self.progress.started.store(true, Ordering::Release);
+            let _progress = ProgressScope::enter_with_trace(
+                Arc::clone(&self.progress.completed_bytes),
+                self.progress.phase_trace.clone(),
+            );
+            let memory_ceiling = self.memory_ceiling_bytes;
+            let (checkpoint_limits, graph_limits, admission_policy) =
+                stage6a_p0_archive_validation_contract(memory_ceiling, true)
+                    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            validate_import_archive(
+                &self.archive_path,
+                &self.scratch_directory,
+                &self.operation_id,
+                &checkpoint_limits,
+                &graph_limits,
+                &admission_policy,
+            )
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+        })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(ValidatedImportArchiveResult {
+            run_id: output.run_id,
+            generation: output.generation_hex,
+            completed_step: output.completed_step_hex,
+            checkpoint_id: output.checkpoint_id,
+            save_logical_root_sha256: output.save_logical_root_sha256,
+            history_count: output.history_count_hex,
+            hall_of_fame_count: output.hall_of_fame_count_hex,
+            stored_byte_count: output.stored_byte_count_hex,
+        })
+    }
+
+    fn finally(self, _env: Env) -> Result<()> {
+        self.progress.finished.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
+/// The fresh-run session can create this handle only by transferring its sole
+/// activated authority. JavaScript cannot construct it or supply a world.
+#[napi]
+pub struct ExperimentalRunningAuthority {
+    runtime: Arc<EngineRuntime>,
+    calculation_workers: usize,
+    /// Admission ceiling inherited from the session that owns the running authority.
+    memory_ceiling_bytes: usize,
+    drain_active: AtomicBool,
+    join_scheduled: Arc<AtomicBool>,
+    prepared_import: PreparedImportSlot,
+    import_active: Arc<AtomicBool>,
+    archive_progress: Mutex<Option<Arc<ArchiveProgressJob>>>,
+    #[cfg(feature = "engine-test-hooks")]
+    export_failure: Arc<AtomicU8>,
+}
+
+impl ExperimentalRunningAuthority {
+    pub(crate) fn from_runtime(
+        runtime: Arc<EngineRuntime>,
+        calculation_workers: usize,
+        memory_ceiling_bytes: usize,
+    ) -> Self {
+        Self {
+            runtime,
+            calculation_workers,
+            memory_ceiling_bytes,
+            drain_active: AtomicBool::new(false),
+            join_scheduled: Arc::new(AtomicBool::new(false)),
+            prepared_import: PreparedImportSlot::new(),
+            import_active: Arc::new(AtomicBool::new(false)),
+            archive_progress: Mutex::new(None),
+            #[cfg(feature = "engine-test-hooks")]
+            export_failure: Arc::new(AtomicU8::new(0)),
+        }
+    }
+
+    fn submit(&self, sequence: u64, command: RunningAuthorityCommand) -> Result<()> {
+        self.root(|| {
+            self.runtime
+                .try_submit(CommandBatch {
+                    contract_version: ENGINE_CONTRACT_VERSION,
+                    commands: vec![SequencedCommand {
+                        sequence,
+                        command: EngineCommand::RunningAuthority(command),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .map_err(engine_error_to_napi)
+        })
+    }
+
+    fn root<T>(&self, operation: impl FnOnce() -> Result<T>) -> Result<T> {
+        match catch_unwind(AssertUnwindSafe(operation)) {
+            Ok(result) => result,
+            Err(_) => {
+                self.runtime.report_bridge_fault(EngineError::new(
+                    EngineErrorCode::Faulted,
+                    "panic at background authority N-API boundary",
+                ));
+                Err(Error::new(
+                    Status::GenericFailure,
+                    "background authority faulted",
+                ))
+            }
+        }
+    }
+
+    fn begin_archive_job(
+        &self,
+        operation_id: String,
+        kind: &'static str,
+    ) -> Result<Arc<ArchiveProgressJob>> {
+        let mut current = self
+            .archive_progress
+            .lock()
+            .map_err(|_| Error::new(Status::GenericFailure, "archive progress lock is poisoned"))?;
+        if current
+            .as_ref()
+            .is_some_and(|job| !job.finished.load(Ordering::Acquire))
+        {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another native archive job is still running",
+            ));
+        }
+        let job = Arc::new(ArchiveProgressJob::new(operation_id, kind));
+        *current = Some(Arc::clone(&job));
+        Ok(job)
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl ExperimentalRunningAuthority {
+    /// Test-addon-only one-shot failure for the next export on this handle.
+    #[napi(catch_unwind)]
+    pub fn arm_export_failure_for_test(&self, mode: u32) -> Result<()> {
+        if !(1..=3).contains(&mode) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "export failure mode must be 1, 2 or 3",
+            ));
+        }
+        self.export_failure
+            .compare_exchange(0, mode as u8, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                Error::new(Status::GenericFailure, "an export failure is already armed")
+            })?;
+        Ok(())
+    }
+
+    /// Test-addon-only trigger; production addons expose no panic injection method.
+    #[napi(catch_unwind)]
+    pub fn arm_calculation_panic_for_test(&self) -> Result<()> {
+        self.root(|| {
+            self.runtime
+                .arm_calculation_panic_for_test()
+                .map_err(engine_error_to_napi)
+        })
+    }
+}
+
+#[napi]
+impl ExperimentalRunningAuthority {
+    /// Read native archive bytes completed without waiting on its worker thread.
+    #[napi(catch_unwind)]
+    pub fn archive_work_progress(&self) -> Result<Option<ArchiveWorkProgress>> {
+        self.root(|| {
+            let current = self.archive_progress.lock().map_err(|_| {
+                Error::new(Status::GenericFailure, "archive progress lock is poisoned")
+            })?;
+            Ok(current.as_ref().map(|job| job.snapshot()))
+        })
+    }
+
+    /// Start the retained coordinator after Node has attached its output router.
+    #[napi(catch_unwind)]
+    pub fn start(&self) -> Result<()> {
+        self.root(|| self.runtime.start().map_err(engine_error_to_napi))
+    }
+
+    /// Queue immutable publication with bounded, server-controlled inputs.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_checkpoint(
+        &self,
+        sequence: JsString<'_>,
+        options: Object<'_>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence)?;
+        let (directory, operation_id) = parse_managed_checkpoint_publication_options(&options)?;
+        self.submit(
+            sequence,
+            RunningAuthorityCommand::PublishGenerationCheckpoint {
+                managed_directory: directory
+                    .to_str()
+                    .ok_or_else(|| {
+                        Error::new(Status::InvalidArg, "managed directory must be UTF-8")
+                    })?
+                    .to_owned(),
+                operation_id,
+            },
+        )
+    }
+
+    /// Build one exact leased checkpoint export on libuv's worker pool.
+    #[napi(catch_unwind)]
+    pub fn prepare_export_archive(
+        &self,
+        managed_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+        checkpoint: Object<'_>,
+        inventory: Object<'_>,
+    ) -> Result<AsyncTask<PrepareExportArchiveTask>> {
+        let managed_directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        let checkpoint = checkpoint_descriptor_from_napi_object(&checkpoint)?;
+        let inventory = parse_export_inventory_descriptor(&inventory, operation_id.as_str())?;
+        let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
+        Ok(AsyncTask::new(PrepareExportArchiveTask {
+            runtime: Arc::clone(&self.runtime),
+            memory_ceiling_bytes: self.memory_ceiling_bytes,
+            managed_directory,
+            operation_id: operation_id.as_str().to_owned(),
+            checkpoint,
+            inventory,
+            progress,
+            #[cfg(feature = "engine-test-hooks")]
+            export_failure: Arc::clone(&self.export_failure),
+        }))
+    }
+
+    /// Fully validate one untrusted save archive without changing live or durable state.
+    #[napi(catch_unwind)]
+    pub fn validate_import_archive(
+        &self,
+        archive_path: JsString<'_>,
+        scratch_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+    ) -> Result<AsyncTask<ValidateImportArchiveTask>> {
+        let archive_path = parse_managed_path(bounded_js_string(
+            archive_path,
+            "archivePath",
+            32 * 1024,
+            false,
+        )?)?;
+        let scratch_directory = parse_managed_path(bounded_js_string(
+            scratch_directory,
+            "scratchDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        let progress =
+            self.begin_archive_job(operation_id.as_str().to_owned(), "validate-import")?;
+        Ok(AsyncTask::new(ValidateImportArchiveTask {
+            runtime: Arc::clone(&self.runtime),
+            memory_ceiling_bytes: self.memory_ceiling_bytes,
+            archive_path,
+            scratch_directory,
+            operation_id: operation_id.as_str().to_owned(),
+            progress,
+        }))
+    }
+
+    /// Inspect bounded archive metadata on a worker before admitting disk work.
+    #[napi(catch_unwind)]
+    pub fn estimate_import_disk(
+        &self,
+        archive_path: JsString<'_>,
+    ) -> Result<AsyncTask<EstimateImportDiskTask>> {
+        let archive_path = parse_managed_path(bounded_js_string(
+            archive_path,
+            "archivePath",
+            32 * 1024,
+            false,
+        )?)?;
+        Ok(AsyncTask::new(EstimateImportDiskTask {
+            runtime: Arc::clone(&self.runtime),
+            archive_path,
+        }))
+    }
+
+    /// Construct and publish one private generation-one replacement.
+    /// The running game and SQLite remain unchanged until later commands commit it.
+    #[napi(catch_unwind)]
+    pub fn prepare_fresh_run(
+        &self,
+        managed_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+        run_id: JsString<'_>,
+        seed: u32,
+        settings: Array<'_>,
+        graph_spec_json: JsString<'_>,
+    ) -> Result<AsyncTask<PrepareFreshRunTask>> {
+        let managed_directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        let run_id = bounded_js_string(run_id, "runId", 256, false)?;
+        let settings = parse_fresh_run_settings(&settings)?;
+        let graph = parse_fresh_run_graph(graph_spec_json)?;
+        if self.import_active.swap(true, Ordering::AcqRel) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another replacement preparation is already running",
+            ));
+        }
+        if self.prepared_import.is_some() {
+            self.import_active.store(false, Ordering::Release);
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another prepared replacement is awaiting its durability decision",
+            ));
+        }
+        let memory_ceiling_bytes = self.memory_ceiling_bytes;
+        Ok(AsyncTask::new(PrepareFreshRunTask {
+            runtime: Arc::clone(&self.runtime),
+            managed_directory,
+            operation_id,
+            request: Stage6aP0FreshRunRequest {
+                run_id,
+                seed,
+                memory_ceiling_bytes,
+            },
+            calculation_workers: self.calculation_workers,
+            settings,
+            graph,
+            prepared: self.prepared_import.clone(),
+            active: Arc::clone(&self.import_active),
+        }))
+    }
+
+    /// Fully validate and retain an imported authority while publishing only
+    /// its immutable managed checkpoint. Live state and SQLite remain unchanged.
+    #[napi(catch_unwind)]
+    pub fn prepare_import_archive(
+        &self,
+        archive_path: JsString<'_>,
+        scratch_directory: JsString<'_>,
+        managed_directory: JsString<'_>,
+        operation_id: JsString<'_>,
+        legacy_run_id: JsString<'_>,
+        legacy_seed: u32,
+    ) -> Result<AsyncTask<PrepareImportArchiveTask>> {
+        let archive_path = parse_managed_path(bounded_js_string(
+            archive_path,
+            "archivePath",
+            32 * 1024,
+            false,
+        )?)?;
+        let scratch_directory = parse_managed_path(bounded_js_string(
+            scratch_directory,
+            "scratchDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let managed_directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32 * 1024,
+            false,
+        )?)?;
+        let operation_id = parse_checkpoint_operation_id(bounded_js_string(
+            operation_id,
+            "operationId",
+            32,
+            false,
+        )?)?;
+        let legacy_run_id = bounded_js_string(legacy_run_id, "legacyRunId", 256, false)?;
+        if self.import_active.swap(true, Ordering::AcqRel) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another import preparation is already running",
+            ));
+        }
+        if self.prepared_import.is_some() {
+            self.import_active.store(false, Ordering::Release);
+            return Err(Error::new(
+                Status::GenericFailure,
+                "another prepared import is awaiting its durability decision",
+            ));
+        }
+        let progress = match self.begin_archive_job(operation_id.as_str().to_owned(), "import") {
+            Ok(job) => job,
+            Err(error) => {
+                self.import_active.store(false, Ordering::Release);
+                return Err(error);
+            }
+        };
+        Ok(AsyncTask::new(PrepareImportArchiveTask {
+            runtime: Arc::clone(&self.runtime),
+            memory_ceiling_bytes: self.memory_ceiling_bytes,
+            archive_path,
+            scratch_directory,
+            managed_directory,
+            operation_id: operation_id.as_str().to_owned(),
+            legacy_run_id,
+            legacy_seed,
+            calculation_workers: self.calculation_workers,
+            prepared: self.prepared_import.clone(),
+            active: Arc::clone(&self.import_active),
+            progress,
+        }))
+    }
+
+    /// Drop one private candidate after upload validation or metadata commit
+    /// fails. Published content-addressed files remain harmless and reusable.
+    #[napi(catch_unwind)]
+    pub fn discard_prepared_import(&self) -> Result<()> {
+        if self.import_active.load(Ordering::Acquire) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "import preparation is still running",
+            ));
+        }
+        let removed = self.prepared_import.take();
+        if removed.is_none() {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "no prepared import is retained",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Queue the pre-commit pause at the next untouched step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_stage_prepared_import(&self, sequence: JsString<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::StagePreparedImport {
+                slot: self.prepared_import.clone(),
+            },
+        )
+    }
+
+    /// Resume the unchanged game after a failure before SQLite commits.
+    #[napi(catch_unwind)]
+    pub fn submit_cancel_prepared_import(&self, sequence: JsString<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::CancelPreparedImport {
+                slot: self.prepared_import.clone(),
+            },
+        )
+    }
+
+    /// Queue the final import swap only after the SQLite worker has selected
+    /// and returned the complete committed checkpoint descriptor.
+    #[napi(catch_unwind)]
+    pub fn submit_import_persistence_acknowledgement(
+        &self,
+        sequence: JsString<'_>,
+        descriptor: Object<'_>,
+        branch_run_id: Option<JsString<'_>>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence)?;
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        let branch_run_id = branch_run_id
+            .map(|value| bounded_js_string(value, "branchRunId", 256, false))
+            .transpose()?;
+        self.submit(
+            sequence,
+            RunningAuthorityCommand::PublishPreparedImport {
+                slot: self.prepared_import.clone(),
+                descriptor: Box::new(descriptor),
+                branch_run_id,
+            },
+        )
+    }
+
+    /// Queue the exact descriptor acknowledged by the dedicated SQLite worker.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_persistence_acknowledgement(
+        &self,
+        sequence: JsString<'_>,
+        descriptor: Object<'_>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence)?;
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        self.submit(
+            sequence,
+            RunningAuthorityCommand::AcknowledgeGenerationPersistence {
+                descriptor: Box::new(descriptor),
+            },
+        )
+    }
+
+    /// Queue connected-controller reassignment at the durable generation barrier.
+    #[napi(catch_unwind)]
+    pub fn submit_prepare_generation_reassignments(&self, sequence: JsString<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::PrepareGenerationReassignments,
+        )
+    }
+
+    /// Return one exact local-send result to the Rust-owned assignment barrier.
+    #[napi(catch_unwind)]
+    pub fn submit_generation_assignment_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        let sequence = parse_background_sequence(sequence)?;
+        let receipt = parse_controller_receipt(&receipt)?;
+        self.submit(
+            sequence,
+            RunningAuthorityCommand::SubmitGenerationAssignmentReceipts {
+                receipts: vec![receipt].into_boxed_slice(),
+            },
+        )
+    }
+
+    /// Stage an fresh controller join at an eligible source boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_join(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::JoinController(Box::new(parse_controller_join(&request)?)),
+        )
+    }
+
+    /// Resolve the retained fresh join assignment without touching ordinary receipts.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_join_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerJoinReceipt(parse_reclaim_receipt(&receipt)?),
+        )
+    }
+
+    /// Stage an explicit token reclaim at an eligible source boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_reclaim(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ReclaimController(Box::new(parse_controller_reclaim(
+                &request,
+            )?)),
+        )
+    }
+
+    /// Resolve the retained reclaim assignment without touching ordinary receipts.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_reclaim_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerReclaimReceipt(parse_reclaim_receipt(
+                &receipt,
+            )?),
+        )
+    }
+
+    /// Queue a socket close for the next eligible pre-step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_disconnect(
+        &self,
+        sequence: JsString<'_>,
+        close: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::DisconnectController(parse_controller_disconnect(&close)?),
+        )
+    }
+
+    /// Queue steering for the next eligible pre-step boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_action(
+        &self,
+        sequence: JsString<'_>,
+        action: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerAction(parse_controller_action(&action)?),
+        )
+    }
+
+    /// Queue one bounded atomic live-settings batch at the next clean boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_live_settings(&self, sequence: JsString<'_>, updates: Array<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ApplyLiveSettings {
+                updates: parse_live_settings(&updates)?,
+            },
+        )
+    }
+
+    /// Queue one browser-addressed God Mode translation at the next clean boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_god_mode_move(
+        &self,
+        sequence: JsString<'_>,
+        snake_id: u32,
+        x: f64,
+        y: f64,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::GodModeMove {
+                frame_v1_id: snake_id,
+                x,
+                y,
+            },
+        )
+    }
+
+    /// Queue one browser-addressed God Mode death through ordinary side effects.
+    #[napi(catch_unwind)]
+    pub fn submit_god_mode_kill(&self, sequence: JsString<'_>, snake_id: u32) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::GodModeKill {
+                frame_v1_id: snake_id,
+            },
+        )
+    }
+
+    /// Queue an aggregate subscriber toggle for focused neural capture.
+    #[napi(catch_unwind)]
+    pub fn submit_visualization(&self, sequence: JsString<'_>, enabled: bool) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SetVisualization { enabled },
+        )
+    }
+
+    /// Queue one exact retained winner for Rust-owned decoding and resurrection.
+    #[napi(catch_unwind)]
+    pub fn submit_hall_of_fame_resurrection(
+        &self,
+        sequence: JsString<'_>,
+        managed_directory: JsString<'_>,
+        weights: ManagedHallOfFameWeightsDescriptor,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ResurrectHallOfFame {
+                managed_directory: bounded_js_string(
+                    managed_directory,
+                    "managedDirectory",
+                    32_768,
+                    false,
+                )?,
+                weights: Box::new(hall_of_fame_weights_descriptor_from_napi(weights)?),
+            },
+        )
+    }
+
+    /// Resolve an ordinary observation/death-assignment send without touching a generation barrier.
+    #[napi(catch_unwind)]
+    pub fn submit_controller_delivery_receipt(
+        &self,
+        sequence: JsString<'_>,
+        receipt: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                receipts: vec![parse_controller_receipt(&receipt)?].into_boxed_slice(),
+            },
+        )
+    }
+
+    /// Queue the separately gated final generation swap.
+    #[napi(catch_unwind)]
+    pub fn submit_publish_generation_start(&self, sequence: JsString<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::PublishAcknowledgedGenerationStart,
+        )
+    }
+
+    /// Drain prepared events without blocking on or inspecting the game world.
+    #[napi(catch_unwind)]
+    pub fn drain_outputs(
+        &self,
+        max_events: f64,
+        max_owned_bytes: f64,
+    ) -> Result<Stage6BackgroundGenerationDrain> {
+        self.root(|| {
+            let max_events =
+                positive_usize(max_events, "maxEvents").map_err(engine_error_to_napi)?;
+            let max_owned_bytes =
+                positive_usize(max_owned_bytes, "maxOwnedBytes").map_err(engine_error_to_napi)?;
+            if self.drain_active.swap(true, Ordering::AcqRel) {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "another background output drain is active",
+                ));
+            }
+            let _guard = DrainGuard(&self.drain_active);
+            let drained = self
+                .runtime
+                .drain_outputs(max_events, max_owned_bytes)
+                .map_err(engine_error_to_napi)?;
+            let events = drained
+                .events
+                .into_iter()
+                .map(background_generation_event_to_napi)
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    self.runtime.report_bridge_fault(error.clone());
+                    engine_error_to_napi(error)
+                })?;
+            Ok(Stage6BackgroundGenerationDrain {
+                events,
+                more_work: drained.more_work,
+                generation: u64_hex(drained.generation),
+            })
+        })
+    }
+
+    /// Read bounded health scalars from the background owner.
+    #[napi(catch_unwind)]
+    pub fn health(
+        &self,
+        include_step_timing_histogram: Option<bool>,
+    ) -> Result<Stage6BackgroundGenerationHealth> {
+        self.root(|| {
+            background_generation_health_to_napi(
+                self.runtime.health(),
+                self.calculation_workers,
+                include_step_timing_histogram.unwrap_or(false),
+            )
+            .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Observe queue occupancy and peaks only when explicitly requested by diagnostics.
+    #[napi(catch_unwind)]
+    pub fn queue_diagnostics(
+        &self,
+    ) -> Result<crate::napi_queue_diagnostics::RuntimeQueueDiagnostics> {
+        self.root(|| {
+            Ok(crate::napi_queue_diagnostics::queue_diagnostics(
+                &self.runtime,
+            ))
+        })
+    }
+
+    /// Read cached welcome metadata without repacking or waiting on the authority.
+    #[napi(catch_unwind)]
+    pub fn latest_display(&self) -> Result<Option<BackgroundDisplayStatus>> {
+        self.root(|| {
+            self.runtime
+                .latest_display()
+                .map(|status| status.map(display_status_to_napi))
+                .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Copy only a newer cached focused snapshot; never inspect the live authority.
+    #[napi(catch_unwind)]
+    pub fn latest_visualization(
+        &self,
+        after_sequence: JsString<'_>,
+    ) -> Result<Option<BackgroundVisualization>> {
+        let after_sequence = parse_u64_hex(
+            &bounded_js_string(after_sequence, "afterSequence", 16, false)?,
+            "afterSequence",
+            true,
+        )?;
+        self.root(|| {
+            self.runtime
+                .latest_visualization(after_sequence)
+                .map_err(engine_error_to_napi)?
+                .map(visualization_to_napi)
+                .transpose()
+        })
+    }
+
+    /// Copy into a non-shared Uint8Array owned by Node until socket sends complete.
+    /// No JS callback runs while its mutable byte slice exists, and Rust retains none.
+    #[napi(catch_unwind)]
+    pub fn copy_latest_frame(
+        &self,
+        env: Env,
+        destination: Object<'_>,
+        after_sequence: JsString<'_>,
+    ) -> Result<BackgroundFrameCopy> {
+        let after_sequence = parse_u64_hex(
+            &bounded_js_string(after_sequence, "afterSequence", 16, false)?,
+            "afterSequence",
+            true,
+        )?;
+        self.root(|| {
+            let mut typed = false;
+            // SAFETY: env and destination are live values on this N-API call's JS thread.
+            napi::check_status!(unsafe {
+                napi::sys::napi_is_typedarray(env.raw(), destination.raw(), &mut typed)
+            })?;
+            if !typed {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "destination must be a non-shared Uint8Array",
+                ));
+            }
+            let mut kind = 0;
+            let mut length = 0;
+            let mut data = std::ptr::null_mut();
+            let mut backing = std::ptr::null_mut();
+            // SAFETY: the intrinsic typed-array query bypasses user properties. Returned
+            // backing and data remain rooted by destination throughout this synchronous call.
+            napi::check_status!(unsafe {
+                napi::sys::napi_get_typedarray_info(
+                    env.raw(),
+                    destination.raw(),
+                    &mut kind,
+                    &mut length,
+                    &mut data,
+                    &mut backing,
+                    std::ptr::null_mut(),
+                )
+            })?;
+            let mut ordinary_buffer = false;
+            // SAFETY: backing is the live intrinsic buffer returned above. SharedArrayBuffer
+            // is not an ArrayBuffer, and must be rejected before constructing a Rust slice.
+            napi::check_status!(unsafe {
+                napi::sys::napi_is_arraybuffer(env.raw(), backing, &mut ordinary_buffer)
+            })?;
+            if kind != napi::sys::TypedarrayType::uint8_array
+                || !ordinary_buffer
+                || (length > 0 && data.is_null())
+                || length > isize::MAX as usize
+            {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "destination must be a non-shared Uint8Array",
+                ));
+            }
+            let destination = if length == 0 {
+                &mut []
+            } else {
+                // SAFETY: the Uint8Array owns length initialized bytes starting at data,
+                // including its byte offset. Its non-shared backing cannot be concurrently
+                // resized/written; no JS callbacks occur until this borrow ends. The source
+                // is private Rust cache storage and cannot alias this destination.
+                unsafe { std::slice::from_raw_parts_mut(data.cast::<u8>(), length) }
+            };
+            let result = self
+                .runtime
+                .copy_latest_frame(destination, after_sequence)
+                .map_err(engine_error_to_napi)?;
+            let (status, display) = match result {
+                FrameCopyResult::Busy => ("busy", None),
+                FrameCopyResult::Unchanged => ("unchanged", None),
+                FrameCopyResult::TooSmall(display) => {
+                    ("tooSmall", Some(display_status_to_napi(display)))
+                }
+                FrameCopyResult::Copied(display) => {
+                    ("copied", Some(display_status_to_napi(display)))
+                }
+            };
+            Ok(BackgroundFrameCopy {
+                status: status.to_owned(),
+                display,
+            })
+        })
+    }
+
+    /// Signal shutdown without blocking Node on authority work.
+    #[napi(catch_unwind)]
+    pub fn request_stop(&self) {
+        self.runtime.request_stop();
+    }
+
+    /// Join the background coordinator on a libuv worker.
+    #[napi(catch_unwind)]
+    pub fn join(&self) -> Result<AsyncTask<JoinEngineTask>> {
+        if self.join_scheduled.swap(true, Ordering::AcqRel) {
+            return Err(Error::new(
+                Status::GenericFailure,
+                "background authority join already scheduled",
+            ));
+        }
+        // Signal before libuv schedules the join, including a queue-capacity wait.
+        self.runtime.request_stop();
+        Ok(AsyncTask::new(JoinEngineTask::new(
+            Arc::clone(&self.runtime),
+            Arc::clone(&self.join_scheduled),
+        )))
+    }
+}
+
+impl Drop for ExperimentalRunningAuthority {
+    fn drop(&mut self) {
+        self.runtime.request_stop();
+    }
+}
+
+struct DrainGuard<'guard>(&'guard AtomicBool);
+impl Drop for DrainGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Parse the metadata worker's exact bounded export inventory descriptor.
+fn parse_export_inventory_descriptor(
+    descriptor: &Object<'_>,
+    operation_id: &str,
+) -> Result<ExportInventoryDescriptor> {
+    const KEYS: [&str; 6] = [
+        "version",
+        "relativeFilename",
+        "sha256",
+        "storedByteCount",
+        "historyCount",
+        "hallOfFameCount",
+    ];
+    let names = descriptor.get_property_names()?;
+    if names.get_array_length()? != KEYS.len() as u32 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "export inventory has unknown or missing fields",
+        ));
+    }
+    let mut seen = [false; KEYS.len()];
+    for index in 0..names.get_array_length()? {
+        let key = names.get_element::<JsString<'_>>(index)?;
+        let key = bounded_js_string(key, "export inventory key", 32, false)?;
+        let position = KEYS
+            .iter()
+            .position(|expected| *expected == key)
+            .ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    "export inventory contains an unknown field",
+                )
+            })?;
+        if seen[position] || !descriptor.has_own_property(KEYS[position])? {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "export inventory has inherited or duplicate fields",
+            ));
+        }
+        seen[position] = true;
+    }
+    let version = descriptor
+        .get::<f64>("version")?
+        .ok_or_else(|| Error::new(Status::InvalidArg, "export inventory omits version"))?;
+    if version != 1.0 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "export inventory version is unsupported",
+        ));
+    }
+    let relative_filename = bounded_object_string(
+        descriptor,
+        "relativeFilename",
+        32 + ".export-inventory-v1".len() + 1,
+    )?;
+    if relative_filename != format!(".{operation_id}.export-inventory-v1") {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "export inventory does not match the operation ID",
+        ));
+    }
+    Ok(ExportInventoryDescriptor {
+        version: 1,
+        relative_filename,
+        sha256: bounded_object_string(descriptor, "sha256", 64)?,
+        stored_byte_count_hex: bounded_object_string(descriptor, "storedByteCount", 16)?,
+        history_count_hex: bounded_object_string(descriptor, "historyCount", 16)?,
+        hall_of_fame_count_hex: bounded_object_string(descriptor, "hallOfFameCount", 16)?,
+    })
+}
+
+/// Parse one optional bounded identity without materializing an unbounded string.
+fn optional_reclaim_identity(request: &Object<'_>, field: &str, maximum: usize) -> Result<String> {
+    match request.get::<JsString<'_>>(field)? {
+        Some(value) => bounded_js_string(value, field, maximum, false),
+        None => Ok(String::new()),
+    }
+}
+
+/// Bound and copy one small numeric settings array before native queue admission.
+fn parse_live_settings(
+    updates: &Array<'_>,
+) -> Result<Box<[crate::engine::live_settings::LiveSettingUpdate]>> {
+    let length = usize::try_from(updates.len())
+        .map_err(|_| Error::new(Status::InvalidArg, "live settings length exceeds usize"))?;
+    if length == 0 || length > crate::engine::live_settings::MAXIMUM_LIVE_SETTING_UPDATES {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "live settings require 1 to 64 updates",
+        ));
+    }
+    let mut parsed = Vec::new();
+    parsed
+        .try_reserve_exact(length)
+        .map_err(|_| Error::new(Status::GenericFailure, "live settings allocation failed"))?;
+    for index in 0..updates.len() {
+        let update = updates
+            .get::<Object<'_>>(index)?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "live setting must be an object"))?;
+        let path = bounded_object_string(&update, "path", 128)?;
+        let value = update
+            .get::<f64>("value")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "live setting omits value"))?;
+        if !value.is_finite() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "live setting value must be finite",
+            ));
+        }
+        parsed.push(crate::engine::live_settings::LiveSettingUpdate { path, value });
+    }
+    Ok(parsed.into_boxed_slice())
+}
+
+/// Bound one complete fresh-run settings projection before libuv task admission.
+fn parse_fresh_run_settings(updates: &Array<'_>) -> Result<Box<[FreshRunSettingUpdate]>> {
+    let length = usize::try_from(updates.len()).map_err(|_| {
+        Error::new(
+            Status::InvalidArg,
+            "fresh-run settings length exceeds usize",
+        )
+    })?;
+    if length == 0 || length > 128 {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "fresh-run settings require 1 to 128 updates",
+        ));
+    }
+    let mut parsed = Vec::new();
+    parsed.try_reserve_exact(length).map_err(|_| {
+        Error::new(
+            Status::GenericFailure,
+            "fresh-run settings allocation failed",
+        )
+    })?;
+    for index in 0..updates.len() {
+        let update = updates
+            .get::<Object<'_>>(index)?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "fresh-run setting must be an object"))?;
+        let path = bounded_object_string(&update, "path", 128)?;
+        let value = update
+            .get::<f64>("value")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "fresh-run setting omits value"))?;
+        if !value.is_finite() {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "fresh-run setting value must be finite",
+            ));
+        }
+        parsed.push(FreshRunSettingUpdate { path, value });
+    }
+    Ok(parsed.into_boxed_slice())
+}
+
+/// Bounded JSON graph root accepted only by private fresh-run construction.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FreshRunGraphWire {
+    #[serde(rename = "type")]
+    graph_type: String,
+    nodes: Vec<FreshRunGraphNodeWire>,
+    edges: Vec<FreshRunGraphEdgeWire>,
+    outputs: Vec<FreshRunGraphOutputWire>,
+    output_size: usize,
+}
+
+/// One current browser graph node before conversion to compiler-owned types.
+#[derive(Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+enum FreshRunGraphNodeWire {
+    Input {
+        id: String,
+        #[serde(rename = "outputSize")]
+        output_size: usize,
+    },
+    Dense {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "outputSize")]
+        output_size: usize,
+    },
+    #[serde(rename = "MLP")]
+    Mlp {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "outputSize")]
+        output_size: usize,
+        #[serde(rename = "hiddenSizes", default)]
+        hidden_sizes: Vec<usize>,
+    },
+    #[serde(rename = "GRU")]
+    Gru {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSize")]
+        hidden_size: usize,
+    },
+    #[serde(rename = "LSTM")]
+    Lstm {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSize")]
+        hidden_size: usize,
+    },
+    #[serde(rename = "RRU")]
+    Rru {
+        id: String,
+        #[serde(rename = "inputSize")]
+        input_size: usize,
+        #[serde(rename = "hiddenSize")]
+        hidden_size: usize,
+    },
+    Concat {
+        id: String,
+    },
+    Split {
+        id: String,
+        #[serde(rename = "outputSizes")]
+        output_sizes: Vec<usize>,
+    },
+}
+
+/// One browser graph edge with optional explicit zero-based ports.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FreshRunGraphEdgeWire {
+    from: String,
+    to: String,
+    from_port: Option<i64>,
+    to_port: Option<i64>,
+}
+
+/// One ordered browser graph output reference.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FreshRunGraphOutputWire {
+    node_id: String,
+    port: Option<i64>,
+}
+
+/// Decode one bounded graph document before the background task owns it.
+fn parse_fresh_run_graph(encoded: JsString<'_>) -> Result<GraphSpec> {
+    let encoded = bounded_js_string(encoded, "graphSpecJson", 1024 * 1024, false)?;
+    let wire: FreshRunGraphWire = serde_json::from_str(&encoded)
+        .map_err(|_| Error::new(Status::InvalidArg, "fresh-run graph JSON is invalid"))?;
+    if wire.graph_type != "graph"
+        || wire.nodes.is_empty()
+        || wire.nodes.len() > 64
+        || wire.edges.len() > 128
+        || wire.outputs.is_empty()
+        || wire.outputs.len() > 8
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "fresh-run graph exceeds its structural limits",
+        ));
+    }
+    let nodes = wire
+        .nodes
+        .into_iter()
+        .map(|node| {
+            let (id, kind) = match node {
+                FreshRunGraphNodeWire::Input { id, output_size } => {
+                    (id, GraphNodeKind::Input { output_size })
+                }
+                FreshRunGraphNodeWire::Dense {
+                    id,
+                    input_size,
+                    output_size,
+                } => (
+                    id,
+                    GraphNodeKind::Dense {
+                        input_size,
+                        output_size,
+                    },
+                ),
+                FreshRunGraphNodeWire::Mlp {
+                    id,
+                    input_size,
+                    output_size,
+                    hidden_sizes,
+                } => (
+                    id,
+                    GraphNodeKind::Mlp {
+                        input_size,
+                        hidden_sizes,
+                        output_size,
+                    },
+                ),
+                FreshRunGraphNodeWire::Gru {
+                    id,
+                    input_size,
+                    hidden_size,
+                } => (
+                    id,
+                    GraphNodeKind::Gru {
+                        input_size,
+                        hidden_size,
+                    },
+                ),
+                FreshRunGraphNodeWire::Lstm {
+                    id,
+                    input_size,
+                    hidden_size,
+                } => (
+                    id,
+                    GraphNodeKind::Lstm {
+                        input_size,
+                        hidden_size,
+                    },
+                ),
+                FreshRunGraphNodeWire::Rru {
+                    id,
+                    input_size,
+                    hidden_size,
+                } => (
+                    id,
+                    GraphNodeKind::Rru {
+                        input_size,
+                        hidden_size,
+                    },
+                ),
+                FreshRunGraphNodeWire::Concat { id } => (id, GraphNodeKind::Concat),
+                FreshRunGraphNodeWire::Split { id, output_sizes } => {
+                    (id, GraphNodeKind::Split { output_sizes })
+                }
+            };
+            GraphNodeSpec { id, kind }
+        })
+        .collect();
+    Ok(GraphSpec {
+        nodes,
+        edges: wire
+            .edges
+            .into_iter()
+            .map(|edge| GraphEdge {
+                from: edge.from,
+                to: edge.to,
+                from_port: edge.from_port,
+                to_port: edge.to_port,
+            })
+            .collect(),
+        outputs: wire
+            .outputs
+            .into_iter()
+            .map(|output| GraphOutputRef {
+                node_id: output.node_id,
+                port: output.port,
+            })
+            .collect(),
+        output_size: wire.output_size,
+    })
+}
+
+/// Validate a fresh legacy identity and stamp its native receipt time.
+pub(crate) fn parse_controller_join(
+    request: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerJoinRequest> {
+    let kind = match bounded_object_string(request, "controllerKind", 32)?.as_str() {
+        "player" => crate::engine::state::ControllerKind::Player,
+        "reinforcementLearning" => crate::engine::state::ControllerKind::ReinforcementLearning,
+        _ => return Err(Error::new(Status::InvalidArg, "invalid controllerKind")),
+    };
+    Ok(crate::engine::contract::ControllerJoinRequest {
+        connection_id: parse_u64_hex(
+            &bounded_object_string(request, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        kind,
+        identity_key: bounded_object_string(request, "identityKey", 128)?,
+        received_at: std::time::Instant::now(),
+    })
+}
+
+/// Correlate a token or legacy identity and stamp its native receipt time.
+pub(crate) fn parse_controller_reclaim(
+    request: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerReclaimRequest> {
+    let kind = match bounded_object_string(request, "controllerKind", 32)?.as_str() {
+        "player" => crate::engine::state::ControllerKind::Player,
+        "reinforcementLearning" => crate::engine::state::ControllerKind::ReinforcementLearning,
+        _ => return Err(Error::new(Status::InvalidArg, "invalid controllerKind")),
+    };
+    Ok(crate::engine::contract::ControllerReclaimRequest {
+        connection_id: parse_u64_hex(
+            &bounded_object_string(request, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        kind,
+        resume_token: optional_reclaim_identity(request, "resumeToken", 256)?,
+        identity_key: optional_reclaim_identity(request, "identityKey", 128)?,
+        received_at: std::time::Instant::now(),
+    })
+}
+
+/// Validate exact reclaim receipt correlation before native queue admission.
+pub(crate) fn parse_reclaim_receipt(
+    receipt: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerReclaimReceipt> {
+    Ok(crate::engine::contract::ControllerReclaimReceipt {
+        request_sequence: parse_u64_hex(
+            &bounded_object_string(receipt, "requestSequence", 16)?,
+            "requestSequence",
+            false,
+        )?,
+        connection_id: parse_u64_hex(
+            &bounded_object_string(receipt, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        lease_id: parse_u64_hex(
+            &bounded_object_string(receipt, "leaseId", 16)?,
+            "leaseId",
+            false,
+        )?,
+        accepted: receipt
+            .get::<bool>("accepted")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "receipt omits accepted"))?,
+    })
+}
+
+/// Validate a bounded exact close before stamping its native receipt time.
+pub(crate) fn parse_controller_disconnect(
+    close: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerDisconnectRequest> {
+    let lease_id = parse_u64_hex(
+        &bounded_object_string(close, "leaseId", 16)?,
+        "leaseId",
+        false,
+    )?;
+    let connection_id = parse_u64_hex(
+        &bounded_object_string(close, "connectionId", 16)?,
+        "connectionId",
+        false,
+    )?;
+    Ok(crate::engine::contract::ControllerDisconnectRequest {
+        lease_id,
+        connection_id,
+        received_at: std::time::Instant::now(),
+    })
+}
+
+/// Validate wire values before recording the action's Rust-owned receipt time.
+pub(crate) fn parse_controller_action(
+    action: &Object<'_>,
+) -> Result<crate::engine::contract::ControllerActionRequest> {
+    let lease_id = parse_u64_hex(
+        &bounded_object_string(action, "leaseId", 16)?,
+        "leaseId",
+        false,
+    )?;
+    let connection_id = parse_u64_hex(
+        &bounded_object_string(action, "connectionId", 16)?,
+        "connectionId",
+        false,
+    )?;
+    let client_tick = parse_u64_hex(
+        &bounded_object_string(action, "clientTick", 16)?,
+        "clientTick",
+        true,
+    )?;
+    let turn = action
+        .get::<f64>("turn")?
+        .ok_or_else(|| Error::new(Status::InvalidArg, "action omits turn"))?;
+    if !turn.is_finite() || !(-1.0..=1.0).contains(&turn) {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "action turn must be finite in [-1, 1]",
+        ));
+    }
+    let boost = action
+        .get::<bool>("boost")?
+        .ok_or_else(|| Error::new(Status::InvalidArg, "action omits boost"))?;
+    Ok(crate::engine::contract::ControllerActionRequest {
+        lease_id,
+        connection_id,
+        turn: turn as f32,
+        boost,
+        client_tick,
+        received_at: std::time::Instant::now(),
+    })
+}
+
+/// Parse bounded correlation fields before admitting one ordinary send result.
+pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalDeliveryReceipt> {
+    Ok(ExternalDeliveryReceipt {
+        operation_epoch: parse_u64_hex(
+            &bounded_object_string(receipt, "operationEpoch", 16)?,
+            "operationEpoch",
+            false,
+        )?,
+        event_sequence: parse_u64_hex(
+            &bounded_object_string(receipt, "eventSequence", 16)?,
+            "eventSequence",
+            false,
+        )?,
+        connection_id: parse_u64_hex(
+            &bounded_object_string(receipt, "connectionId", 16)?,
+            "connectionId",
+            false,
+        )?,
+        lease_id: parse_u64_hex(
+            &bounded_object_string(receipt, "leaseId", 16)?,
+            "leaseId",
+            false,
+        )?,
+        accepted: receipt
+            .get::<bool>("accepted")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "receipt omits accepted"))?,
+    })
+}
+
+#[cfg(test)]
+mod task_panic_tests {
+    use super::{
+        catch_background_task_panic, ArchiveProgressJob, ExperimentalRunningAuthority,
+        PrepareExportArchiveTask, PrepareFreshRunTask, PrepareImportArchiveTask,
+        ValidateImportArchiveTask,
+    };
+    use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
+    use crate::engine::contract::{
+        CommandBatch, EngineCommand, EngineInit, InboundLimits, OutputLimits, PreparedImportSlot,
+        SequencedCommand, ENGINE_CONTRACT_VERSION,
+    };
+    use crate::engine::export_archive::{compose_export_archive, ExportInventoryDescriptor};
+    use crate::engine::fresh_run::{
+        prepare_stage6a_p0_fresh_run_with_settings_and_graph,
+        stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
+    };
+    use crate::engine::graph::typescript_default_graph_spec;
+    use crate::engine::queues::NoopWakeSink;
+    use crate::engine::runtime::EngineRuntime;
+    use crate::engine::task_panic_fixture::{PanicInjection, PanicPoint};
+    use crate::engine::work_progress::{advance, ProgressScope};
+    use napi::bindgen_prelude::Task;
+    use napi::{Error, Status};
+    use sha2::{Digest, Sha256};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    /// Own every file used by one task test and remove the whole isolated root.
+    struct TaskFiles(PathBuf);
+
+    impl TaskFiles {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "slither-task-panic-{}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+
+        fn request(&self) -> Stage6aP0FreshRunRequest {
+            Stage6aP0FreshRunRequest {
+                run_id: "private-task-panic-run".to_owned(),
+                seed: 42,
+                memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            }
+        }
+
+        fn checkpoint(&self) -> CheckpointDescriptor {
+            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+                self.request(),
+                &[],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            transition
+                .publish_checkpoint(
+                    &self.0,
+                    CheckpointOperationId::parse("a".repeat(32)).unwrap(),
+                )
+                .unwrap()
+        }
+
+        fn inventory(&self, operation: &str) -> ExportInventoryDescriptor {
+            let mut bytes = [0u8; 32];
+            bytes[..13].copy_from_slice(b"SLITHER-EXPV1");
+            let relative_filename = format!(".{operation}.export-inventory-v1");
+            fs::write(self.0.join(&relative_filename), bytes).unwrap();
+            ExportInventoryDescriptor {
+                version: 1,
+                relative_filename,
+                sha256: format!("{:x}", Sha256::digest(bytes)),
+                stored_byte_count_hex: "0000000000000020".to_owned(),
+                history_count_hex: "0000000000000000".to_owned(),
+                hall_of_fame_count_hex: "0000000000000000".to_owned(),
+            }
+        }
+
+        fn archive(&self, checkpoint: &CheckpointDescriptor) -> PathBuf {
+            let operation = "b".repeat(32);
+            let inventory = self.inventory(&operation);
+            let (limits, graphs, admission) =
+                stage6a_p0_archive_validation_contract(4 * 1024 * 1024 * 1024, false).unwrap();
+            let archive = compose_export_archive(
+                &self.0, &operation, checkpoint, &inventory, &limits, &graphs, &admission,
+            )
+            .unwrap();
+            self.0.join(archive.relative_filename)
+        }
+
+        fn names(&self) -> Vec<String> {
+            let mut names: Vec<_> = fs::read_dir(&self.0)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+                .collect();
+            names.sort();
+            names
+        }
+    }
+
+    impl Drop for TaskFiles {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("task-owned scratch must be removed");
+        }
+    }
+
+    /// Assert the actual task root contains the panic and faults its retained owner.
+    fn assert_task_panic<T>(
+        result: napi::Result<T>,
+        task_name: &str,
+        injection: &PanicInjection,
+        runtime: &EngineRuntime,
+    ) {
+        assert!(
+            injection.reached(),
+            "real operation boundary must be reached"
+        );
+        let error = result.err().expect("task panic must reject its result");
+        assert_eq!(error.status, Status::GenericFailure);
+        assert!(error.reason.contains(&format!("{task_name} panicked")));
+        assert!(!error.reason.contains("sensitive"));
+        assert!(runtime
+            .health()
+            .fault
+            .as_ref()
+            .is_some_and(|fault| fault.detail().contains(task_name)));
+        assert!(runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::Probe {
+                        correlation_id: 1,
+                        payload: vec![1]
+                    },
+                }]
+                .into_boxed_slice(),
+            })
+            .is_err());
+        runtime
+            .join()
+            .expect("faulted coordinator must join cleanly");
+    }
+
+    /// A subsequent job on the same worker must not inherit a panicked job's counter.
+    fn assert_progress_scope_released() {
+        let counter = Arc::new(AtomicU64::new(0));
+        let _scope = ProgressScope::enter(Arc::clone(&counter));
+        advance(7);
+        assert_eq!(counter.load(Ordering::Relaxed), 7);
+    }
+
+    #[test]
+    fn fresh_run_task_panic_removes_written_checkpoint_and_keeps_candidate_private() {
+        let files = TaskFiles::new();
+        let runtime = running_test_runtime();
+        let prepared = PreparedImportSlot::new();
+        let mut task = PrepareFreshRunTask {
+            runtime: Arc::clone(&runtime),
+            managed_directory: files.0.clone(),
+            operation_id: CheckpointOperationId::parse("c".repeat(32)).unwrap(),
+            request: files.request(),
+            calculation_workers: 1,
+            settings: Box::new([]),
+            graph: typescript_default_graph_spec(),
+            prepared: prepared.clone(),
+            active: Arc::new(AtomicBool::new(true)),
+        };
+        let injection = PanicInjection::arm(PanicPoint::CheckpointWritten);
+        assert_task_panic(
+            task.compute(),
+            "fresh-run preparation",
+            &injection,
+            &runtime,
+        );
+        assert!(!prepared.is_some());
+        assert!(files.names().is_empty());
+    }
+
+    #[test]
+    fn export_task_panic_removes_written_archive_and_preserves_leased_inputs() {
+        let files = TaskFiles::new();
+        let checkpoint = files.checkpoint();
+        let operation = "c".repeat(32);
+        let inventory = files.inventory(&operation);
+        let before = files.names();
+        let retained = fs::read(files.0.join(&checkpoint.relative_filename)).unwrap();
+        let runtime = running_test_runtime();
+        let progress = Arc::new(ArchiveProgressJob::new(operation.clone(), "export"));
+        let mut task = PrepareExportArchiveTask {
+            runtime: Arc::clone(&runtime),
+            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            managed_directory: files.0.clone(),
+            operation_id: operation,
+            checkpoint: checkpoint.clone(),
+            inventory,
+            progress: Arc::clone(&progress),
+            #[cfg(feature = "engine-test-hooks")]
+            export_failure: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+        };
+        let injection = PanicInjection::arm(PanicPoint::ExportWritten);
+        assert_task_panic(task.compute(), "archive export", &injection, &runtime);
+        assert!(progress.started.load(Ordering::Acquire));
+        assert!(progress.completed_bytes.load(Ordering::Relaxed) > 0);
+        assert_eq!(files.names(), before);
+        assert_eq!(
+            fs::read(files.0.join(&checkpoint.relative_filename)).unwrap(),
+            retained
+        );
+        assert_progress_scope_released();
+    }
+
+    #[test]
+    fn import_validation_task_panic_removes_extracted_checkpoint_and_preserves_upload() {
+        let files = TaskFiles::new();
+        let checkpoint = files.checkpoint();
+        let archive = files.archive(&checkpoint);
+        let retained = fs::read(&archive).unwrap();
+        let before = files.names();
+        let runtime = running_test_runtime();
+        let mut task = ValidateImportArchiveTask {
+            runtime: Arc::clone(&runtime),
+            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            archive_path: archive.clone(),
+            scratch_directory: files.0.clone(),
+            operation_id: "c".repeat(32),
+            progress: Arc::new(ArchiveProgressJob::new("c".repeat(32), "validate")),
+        };
+        let injection = PanicInjection::arm(PanicPoint::ImportExtracted);
+        assert_task_panic(
+            task.compute(),
+            "archive import validation",
+            &injection,
+            &runtime,
+        );
+        assert_eq!(files.names(), before);
+        assert_eq!(fs::read(&archive).unwrap(), retained);
+        assert_progress_scope_released();
+    }
+
+    #[test]
+    fn import_preparation_task_panic_removes_inventory_and_keeps_candidate_private() {
+        let source = TaskFiles::new();
+        let checkpoint = source.checkpoint();
+        let archive = source.archive(&checkpoint);
+        let target = TaskFiles::new();
+        let retained = fs::read(&archive).unwrap();
+        let runtime = running_test_runtime();
+        let prepared = PreparedImportSlot::new();
+        let mut task = PrepareImportArchiveTask {
+            runtime: Arc::clone(&runtime),
+            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            archive_path: archive.clone(),
+            scratch_directory: target.0.clone(),
+            managed_directory: target.0.clone(),
+            operation_id: "c".repeat(32),
+            legacy_run_id: "unused-exact-import".to_owned(),
+            legacy_seed: 0,
+            calculation_workers: 1,
+            prepared: prepared.clone(),
+            active: Arc::new(AtomicBool::new(true)),
+            progress: Arc::new(ArchiveProgressJob::new("c".repeat(32), "import")),
+        };
+        let injection = PanicInjection::arm(PanicPoint::ImportExtracted);
+        assert_task_panic(
+            task.compute(),
+            "archive import preparation",
+            &injection,
+            &runtime,
+        );
+        assert!(!prepared.is_some());
+        assert!(target.names().is_empty());
+        assert_eq!(fs::read(&archive).unwrap(), retained);
+        assert_progress_scope_released();
+    }
+
+    /// Real partial publication rejects before slot installation; panic also faults the owner.
+    /// A new task can reuse the valid unreferenced final without altering the original upload.
+    #[test]
+    fn import_preparation_task_partial_publication_rejects_and_retries() {
+        use crate::engine::task_panic_fixture::PublicationIoErrorInjection;
+
+        let source = TaskFiles::new();
+        let checkpoint = source.checkpoint();
+        let archive = source.archive(&checkpoint);
+        let retained = fs::read(&archive).unwrap();
+        let checkpoint_bytes = fs::read(source.0.join(&checkpoint.relative_filename)).unwrap();
+        for panic in [false, true] {
+            let target = TaskFiles::new();
+            let prepared = PreparedImportSlot::new();
+            let make_task =
+                |runtime: &Arc<EngineRuntime>, operation: &str| PrepareImportArchiveTask {
+                    runtime: Arc::clone(runtime),
+                    memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+                    archive_path: archive.clone(),
+                    scratch_directory: target.0.clone(),
+                    managed_directory: target.0.clone(),
+                    operation_id: operation.to_owned(),
+                    legacy_run_id: "unused-exact-import".to_owned(),
+                    legacy_seed: 0,
+                    calculation_workers: 1,
+                    prepared: prepared.clone(),
+                    active: Arc::new(AtomicBool::new(true)),
+                    progress: Arc::new(ArchiveProgressJob::new(operation.to_owned(), "import")),
+                };
+            let runtime = running_test_runtime();
+            let mut task = make_task(&runtime, &"c".repeat(32));
+            if panic {
+                let injection = PanicInjection::arm(PanicPoint::ImportFilePublished);
+                assert_task_panic(
+                    task.compute(),
+                    "archive import preparation",
+                    &injection,
+                    &runtime,
+                );
+            } else {
+                let injection = PublicationIoErrorInjection::arm();
+                let error = match task.compute() {
+                    Err(error) => error,
+                    Ok(_) => panic!("publication must reject"),
+                };
+                assert!(injection.reached());
+                assert!(error
+                    .reason
+                    .contains("injected import publication I/O error"));
+                assert!(runtime.health().fault.is_none());
+                runtime.request_stop();
+                runtime.join().unwrap();
+            }
+            assert!(!prepared.is_some());
+            assert_eq!(target.names(), vec![checkpoint.relative_filename.clone()]);
+            assert_eq!(fs::read(&archive).unwrap(), retained);
+            assert_eq!(
+                fs::read(target.0.join(&checkpoint.relative_filename)).unwrap(),
+                checkpoint_bytes
+            );
+            assert_progress_scope_released();
+
+            let restarted = running_test_runtime();
+            let mut retry = make_task(&restarted, &"d".repeat(32));
+            let result = retry
+                .compute()
+                .expect("independent retry must reuse the valid final");
+            assert_eq!(
+                result.descriptor.logical_root_sha256,
+                checkpoint.logical_root_sha256
+            );
+            assert_eq!(target.names().len(), 2);
+            assert!(target.0.join(&result.inventory.relative_filename).is_file());
+            assert!(!prepared.is_some(), "compute cannot install the candidate");
+            assert!(restarted.health().fault.is_none());
+            restarted.request_stop();
+            restarted.join().unwrap();
+            assert_eq!(fs::read(&archive).unwrap(), retained);
+            assert_progress_scope_released();
+        }
+    }
+
+    fn running_test_runtime() -> Arc<EngineRuntime> {
+        let runtime = EngineRuntime::new_experimental_probe(
+            EngineInit {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                inbound: InboundLimits {
+                    max_batches: 4,
+                    max_commands: 8,
+                    max_owned_bytes: 64,
+                    max_batch_commands: 4,
+                    max_batch_owned_bytes: 32,
+                },
+                output: OutputLimits {
+                    max_reliable: 8,
+                    max_reliable_owned_bytes: 64,
+                    max_discrete: 4,
+                    max_discrete_owned_bytes: 64,
+                    max_total_owned_bytes: 128,
+                    max_event_owned_bytes: 64,
+                    max_frame_connections: 4,
+                },
+            },
+            Arc::new(NoopWakeSink),
+        )
+        .expect("valid test runtime");
+        runtime.start().expect("coordinator must start");
+        Arc::new(runtime)
+    }
+
+    #[test]
+    fn libuv_task_panic_faults_the_retained_engine() {
+        let runtime = running_test_runtime();
+        let result: napi::Result<()> =
+            catch_background_task_panic("archive export", Some(&runtime), || {
+                panic!("archive worker panic")
+            });
+        assert!(result.is_err());
+        let health = runtime.health();
+        assert!(health.fault.is_some());
+        assert!(health
+            .fault
+            .as_ref()
+            .is_some_and(|error| error.detail().contains("archive export")));
+        assert!(runtime
+            .try_submit(CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::Probe {
+                        correlation_id: 1,
+                        payload: vec![1],
+                    },
+                }]
+                .into_boxed_slice(),
+            })
+            .is_err());
+        runtime
+            .join()
+            .expect("faulted coordinator must join cleanly");
+    }
+
+    #[test]
+    fn synchronous_napi_root_panic_faults_the_retained_engine() {
+        let runtime = running_test_runtime();
+        let handle = ExperimentalRunningAuthority::from_runtime(
+            Arc::clone(&runtime),
+            1,
+            4 * 1024 * 1024 * 1024,
+        );
+        let result: napi::Result<()> = handle.root(|| panic!("synchronous N-API root panic"));
+        let error = result.expect_err("root panic must become an N-API error");
+        assert_eq!(error.status, Status::GenericFailure);
+        assert!(runtime.health().fault.is_some());
+        assert!(runtime
+            .health()
+            .fault
+            .as_ref()
+            .is_some_and(|fault| fault.detail().contains("N-API boundary")));
+        runtime
+            .join()
+            .expect("faulted coordinator must join cleanly");
+    }
+
+    #[test]
+    fn libuv_task_root_contains_panics_and_preserves_ordinary_errors() {
+        let panic_result: napi::Result<()> =
+            catch_background_task_panic("archive export", None, || {
+                panic!("sensitive panic payload")
+            });
+        let panic_error = panic_result.expect_err("panic must become a task failure");
+        assert_eq!(panic_error.status, Status::GenericFailure);
+        assert!(panic_error.reason.contains("archive export panicked"));
+        assert!(!panic_error.reason.contains("sensitive panic payload"));
+
+        let ordinary_result: napi::Result<()> =
+            catch_background_task_panic("archive export", None, || {
+                Err(Error::new(Status::InvalidArg, "bad archive"))
+            });
+        let ordinary_error = ordinary_result.expect_err("ordinary errors must survive");
+        assert_eq!(ordinary_error.status, Status::InvalidArg);
+        assert_eq!(ordinary_error.reason, "bad archive");
+    }
+}

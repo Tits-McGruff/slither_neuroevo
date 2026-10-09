@@ -1,0 +1,139 @@
+{
+  "schema": "slither-stage2-codec-baseline",
+  "version": 2,
+  "evidenceClass": "new measured result",
+  "caveat": "Offline population-weight codec fixture; managed checkpoint container and full server memory are measured separately.",
+  "source": {
+    "commit": "1e36cd7d2d04d8d0cf8fb231132a135306f17ed3",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-29T03:13:40.241Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "node": "v24.12.0",
+    "zlib": "1.3.1-470d3a2",
+    "zstd": "1.5.7"
+  },
+  "fixture": {
+    "scenario": {
+      "name": "P1",
+      "description": "300 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "kind": "fresh",
+    "evolutionGenerations": 0,
+    "seed": 1511506142,
+    "populationCount": 300,
+    "weightsPerGenome": 13458,
+    "totalWeightCount": 4037400,
+    "rawWeightBytes": 16149600,
+    "rawSha256": "cddd46e089ab10f3cb6ac656a60656de612972c071acc05d6e74125d66459d57",
+    "architectureKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "parameterCount": 13458
+  },
+  "decimalJsonWeights": {
+    "bytes": 81229102,
+    "samples": 4037400,
+    "bytesPerFloat": 20.119161341457374,
+    "bytesPerRawByte": 5.02979034,
+    "reductionUsingRawPackedPercent": 80.118456
+  },
+  "wholePopulation": {
+    "rawPacked": {
+      "bytes": 16149600,
+      "sha256": "cddd46e089ab10f3cb6ac656a60656de612972c071acc05d6e74125d66459d57"
+    },
+    "plainZstd": {
+      "encoding": "zstd-level-3",
+      "rawBytes": 16149600,
+      "encodedBytes": 14909993,
+      "encodedToRawRatio": 0.92324225,
+      "reductionPercent": 7.675775,
+      "encodeMs": 30.6613,
+      "decodeMs": 23.0272,
+      "bitExact": true,
+      "decodedSha256": "cddd46e089ab10f3cb6ac656a60656de612972c071acc05d6e74125d66459d57"
+    },
+    "shuffledZstd": {
+      "encoding": "shuffle-zstd-level-3",
+      "rawBytes": 16149600,
+      "encodedBytes": 13779692,
+      "encodedToRawRatio": 0.85325284,
+      "reductionPercent": 14.674716,
+      "encodeMs": 41.5612,
+      "decodeMs": 41.9311,
+      "bitExact": true,
+      "decodedSha256": "cddd46e089ab10f3cb6ac656a60656de612972c071acc05d6e74125d66459d57"
+    },
+    "plainZstdWithFrameChecksum": {
+      "encoding": "zstd-level-3-checksum",
+      "rawBytes": 16149600,
+      "encodedBytes": 14909997,
+      "encodedToRawRatio": 0.9232425,
+      "reductionPercent": 7.67575,
+      "encodeMs": 33.384,
+      "decodeMs": 29.0966,
+      "bitExact": true,
+      "decodedSha256": "cddd46e089ab10f3cb6ac656a60656de612972c071acc05d6e74125d66459d57"
+    },
+    "shuffledZstdWithFrameChecksum": {
+      "encoding": "shuffle-zstd-level-3-checksum",
+      "rawBytes": 16149600,
+      "encodedBytes": 13779696,
+      "encodedToRawRatio": 0.85325308,
+      "reductionPercent": 14.674692,
+      "encodeMs": 47.1135,
+      "decodeMs": 43.0973,
+      "bitExact": true,
+      "decodedSha256": "cddd46e089ab10f3cb6ac656a60656de612972c071acc05d6e74125d66459d57"
+    },
+    "smallestMeasuredComparison": {
+      "encoding": "shuffle-zstd-level-3",
+      "bytes": 13779692
+    },
+    "selectedArchiveV1": {
+      "encoding": "f32le-shuffle4-zstd-v1",
+      "bytes": 13779692
+    }
+  },
+  "perGenome": {
+    "rawBytes": 16149600,
+    "plainZstdBytes": 14914096,
+    "shuffledZstdBytes": 14684752,
+    "minimumAcrossMeasuredBytes": 14684740,
+    "minimumAcrossMeasuredToRawRatio": 0.90929435,
+    "minimumRawSelections": 0,
+    "minimumPlainSelections": 11,
+    "minimumShuffledSelections": 289,
+    "approvedRawOrShuffledBytes": 14684752,
+    "approvedRawOrShuffledToRawRatio": 0.90929509,
+    "approvedRawSelections": 0,
+    "approvedShuffledSelections": 300,
+    "encodeMs": 234.6384
+  },
+  "currentLegacyGzip": {
+    "measured": true,
+    "decompressedBytes": 81289102,
+    "compressedBytes": 36362854,
+    "compressedToDecompressedRatio": 0.44732754,
+    "encodeMs": 2987.3983,
+    "decodeMs": 244.2793,
+    "bitExact": true,
+    "sha256": "1db6dd49d756175714600bb6f272e9667120e73143bc2841facdccb69ea66cae"
+  }
+}

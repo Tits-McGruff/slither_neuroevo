@@ -1,0 +1,36 @@
+{
+  "sourceCommit": "f99e1c006d4a3bc83e218024eb354d59f408e2bc",
+  "scope": "Task-owned production-template systemd user unit, lingering enabled. Same process survives SSH disconnect; normal service stop/start resumes the same run and committed checkpoint. Owner production unit/store untouched.",
+  "phases": [
+    {
+      "phase": "service-start-health.json",
+      "ok": true,
+      "runId": "1c04e12b-0ef6-4f87-ad6b-728fb84813b2",
+      "generation": "0000000000000001",
+      "completedStep": "0000000000000003",
+      "startupCheckpointId": "a5b0070b34b9412ea32a0cb2cef48e8f313208792ebd5238b36c410b1de75167",
+      "nativeBuildIdentifier": "slither_native/0.1.0+f99e1c006d4a.62e68d86759551d3",
+      "calculationWorkers": 5
+    },
+    {
+      "phase": "service-after-disconnect-health.json",
+      "ok": true,
+      "runId": "1c04e12b-0ef6-4f87-ad6b-728fb84813b2",
+      "generation": "0000000000000001",
+      "completedStep": "00000000000028f4",
+      "startupCheckpointId": "a5b0070b34b9412ea32a0cb2cef48e8f313208792ebd5238b36c410b1de75167",
+      "nativeBuildIdentifier": "slither_native/0.1.0+f99e1c006d4a.62e68d86759551d3",
+      "calculationWorkers": 5
+    },
+    {
+      "phase": "service-restart-health.json",
+      "ok": true,
+      "runId": "1c04e12b-0ef6-4f87-ad6b-728fb84813b2",
+      "generation": "0000000000000001",
+      "completedStep": "0000000000000000",
+      "startupCheckpointId": "a5b0070b34b9412ea32a0cb2cef48e8f313208792ebd5238b36c410b1de75167",
+      "nativeBuildIdentifier": "slither_native/0.1.0+f99e1c006d4a.62e68d86759551d3",
+      "calculationWorkers": 5
+    }
+  ]
+}

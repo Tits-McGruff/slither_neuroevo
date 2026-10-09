@@ -4,12 +4,12 @@
 // geometry helpers for collision detection.
 
 import { CFG } from './config.ts';
-import { clamp, hashColor, rand, lerp, angNorm, hypot, TAU } from './utils.ts';
+import { clamp, hashColor, lerp, angNorm, hypot, TAU } from './utils.ts';
 import { buildSensors } from './sensors.ts';
 import type { ArchDefinition, Genome } from './mlp.ts';
-import type { Brain } from './brains/types.ts';
+import type { Brain, InferenceBackend } from './brains/types.ts';
 import type { SimProfiler } from './profiling.ts';
-import type { RandomSource } from './rng.ts';
+import { unseededRandom, type RandomSource } from './rng.ts';
 
 /**
  * Simple data class representing a pellet at (x,y) with value v.
@@ -112,8 +112,12 @@ export interface SnakeSpawnOptions {
   controlMode?: ControlMode;
   /** Optional brain override for the snake. */
   brain?: Brain;
+  /** Immutable math backend used when constructing the snake's brain. */
+  inferenceBackend?: InferenceBackend;
   /** Optional baseline bot index identifier. */
   baselineBotIndex?: number | null;
+  /** Durable population-owned inference slot, or null for non-population snakes. */
+  populationSlot?: number | null;
   /** Optional skin flag for rendering. */
   skin?: number;
 }
@@ -122,6 +126,17 @@ export interface SnakeSpawnOptions {
 export interface SnakeDeathOptions {
   /** Whether to drop corpse pellets after death. */
   dropPellets?: boolean;
+}
+
+/**
+ * Sample a bounded value from an injected uniform source.
+ * @param rng - Uniform random source.
+ * @param min - Inclusive lower bound.
+ * @param max - Exclusive upper bound.
+ * @returns Value in [min, max).
+ */
+function randomBetween(rng: RandomSource, min: number, max: number): number {
+  return min + rng() * (max - min);
 }
 
 /**
@@ -215,8 +230,14 @@ export class Snake {
   controlMode: ControlMode;
   /** Baseline bot identity index or null. */
   baselineBotIndex: number | null;
+  /** Durable population-owned inference slot or null for independently owned snakes. */
+  populationSlot: number | null;
   /** Skin flag used for rendering. */
   skin: number;
+  /** Points score committed at the most recent delivered sensor sample. */
+  pointsAtLastSensorSample: number;
+  /** Random stream used for this snake's spawn and gameplay side effects. */
+  private readonly rng: RandomSource;
 
   /**
    * Create a new snake instance with a generated brain.
@@ -229,7 +250,8 @@ export class Snake {
     this.id = id;
     this.color = hashColor(id * 17 + 3);
     // Spawn at a random position and orientation within a fraction of the arena.
-    const rng = options.rng ?? Math.random;
+    const rng = options.rng ?? unseededRandom;
+    this.rng = rng;
     const a = rng() * TAU;
     const r = Math.sqrt(rng()) * (CFG.worldRadius * 0.60);
     this.x = Math.cos(a) * r;
@@ -247,12 +269,14 @@ export class Snake {
     this.points = [];
     this._initBody();
     this.genome = genome;
-    this.brain = options.brain ?? genome.buildBrain(arch);
+    this.brain = options.brain ?? genome.buildBrain(arch, options.inferenceBackend ?? 'js');
     this.turnInput = 0;
     this.boostInput = 0;
     this.controlMode = options.controlMode ?? 'neural';
     this.baselineBotIndex = options.baselineBotIndex ?? null;
+    this.populationSlot = options.populationSlot ?? null;
     this.skin = options.skin ?? 0;
+    this.pointsAtLastSensorSample = this.pointsScore;
     this.updateRadiusFromLen();
   }
   /**
@@ -355,15 +379,29 @@ export class Snake {
     if (bigCount <= 1) {
       const p = this.points[0];
       if (!p) return;
-      const v = bigVBase * (0.85 + Math.random() * 0.30);
-      world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big", this.id));
+      const v = bigVBase * (0.85 + this.rng() * 0.30);
+      world.addPellet(new Pellet(
+        p.x + randomBetween(this.rng, -jitter, jitter),
+        p.y + randomBetween(this.rng, -jitter, jitter),
+        v,
+        corpseColor,
+        "corpse_big",
+        this.id
+      ));
     } else {
       for (let k = 0; k < bigCount; k++) {
         const idx = Math.floor((k * (len - 1)) / (bigCount - 1));
         const p = this.points[idx];
         if (!p) continue;
-        const v = bigVBase * (0.85 + Math.random() * 0.30);
-        world.addPellet(new Pellet(p.x + rand(jitter, -jitter), p.y + rand(jitter, -jitter), v, corpseColor, "corpse_big", this.id));
+        const v = bigVBase * (0.85 + this.rng() * 0.30);
+        world.addPellet(new Pellet(
+          p.x + randomBetween(this.rng, -jitter, jitter),
+          p.y + randomBetween(this.rng, -jitter, jitter),
+          v,
+          corpseColor,
+          "corpse_big",
+          this.id
+        ));
       }
     }
 
@@ -373,11 +411,11 @@ export class Snake {
         const idx = Math.floor((k * (len - 1)) / Math.max(1, smallCount));
         const p = this.points[idx];
         if (!p) continue;
-        const v = smallVBase * (0.80 + Math.random() * 0.40);
+        const v = smallVBase * (0.80 + this.rng() * 0.40);
         world.addPellet(
           new Pellet(
-            p.x + rand(clusterJitter, -clusterJitter),
-            p.y + rand(clusterJitter, -clusterJitter),
+            p.x + randomBetween(this.rng, -clusterJitter, clusterJitter),
+            p.y + randomBetween(this.rng, -clusterJitter, clusterJitter),
             v,
             corpseColor,
             "corpse_small",
@@ -445,8 +483,8 @@ export class Snake {
       const uy = dy / dist;
       world.addPellet(
         new Pellet(
-          tail.x + ux * 8 + rand(jitter, -jitter),
-          tail.y + uy * 8 + rand(jitter, -jitter),
+          tail.x + ux * 8 + randomBetween(this.rng, -jitter, jitter),
+          tail.y + uy * 8 + randomBetween(this.rng, -jitter, jitter),
           dropV,
           boostColor,
           "boost",
@@ -476,6 +514,25 @@ export class Snake {
       this._sensorBuf = new Float32Array(expected);
     }
     return buildSensors(world, this, this._sensorBuf);
+  }
+  /**
+   * Build one delivered observation and commit its score boundary exactly once.
+   * @param world - World state sampled for the observation.
+   * @param out - Optional output buffer to reuse.
+   * @param deliver - Optional synchronous delivery attempt for external observations.
+   * @returns Sensor vector containing score change since the prior delivery.
+   */
+  sampleSensors(
+    world: WorldLike,
+    out?: Float32Array,
+    deliver?: (sensors: Float32Array) => boolean
+  ): Float32Array {
+    const sampledPointsScore = this.pointsScore;
+    const sensors = this.computeSensors(world, out);
+    if (!deliver || deliver(sensors)) {
+      this.pointsAtLastSensorSample = sampledPointsScore;
+    }
+    return sensors;
   }
   /**
    * Sync control state when switching between external and neural inputs.
@@ -654,10 +711,10 @@ export class Snake {
       let sensors: Float32Array;
       if (profiler) {
         const start = profiler.now();
-        sensors = this.computeSensors(world, this._sensorBuf);
+        sensors = this.sampleSensors(world, this._sensorBuf);
         profiler.recordSensors(profiler.now() - start);
       } else {
-        sensors = this.computeSensors(world, this._sensorBuf);
+        sensors = this.sampleSensors(world, this._sensorBuf);
       }
       this.lastSensors = sensors;
       let out: Float32Array;

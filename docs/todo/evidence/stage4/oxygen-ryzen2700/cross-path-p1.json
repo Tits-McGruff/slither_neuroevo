@@ -1,0 +1,114 @@
+{
+  "schema": "slither-stage4-inference-cross-path-comparison",
+  "version": 1,
+  "scenario": "P1",
+  "fixture": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic numeric data",
+    "scenario": "P1",
+    "description": "300 differently weighted synthetic population brains, v3/16-bin input shape, 64/64 MLP, GRU-16, Dense-2",
+    "populationCount": 300,
+    "inputSize": 83,
+    "totalParametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "weightsSha256": "c1ece367f7325124d15aedbb4a7c3278917e998b968bf2250d75d7f39a7d8abe",
+    "observationsSha256": "37c951630da0807a2670c2676992a191e1f613165f7146895a27940c5a2fa192",
+    "initialRecurrentSha256": "66fb75db79fa96b2cde2be9de6601d3f83eeaac3844c4f9104b5215f3ffe1131",
+    "packedWeightBytes": 16149600,
+    "observationBytes": 99600,
+    "recurrentBytes": 19200,
+    "stagingBytes": 21600,
+    "scratchBytes": 1044,
+    "warmupPasses": 20,
+    "measuredPasses": 120,
+    "actualFreshOrEvolvedGenomes": false,
+    "actualDeliveredSensorObservations": false
+  },
+  "sources": {
+    "rust-scalar-p1.json": "73c4478cfb9e07dbff3d22858e588aecbfce6170e6cf575eee589630c88c516d",
+    "typescript-js-p1.json": "b042f6742f23898bd501e6f2a0da41054f16680929885254be5ca57e972e9f0c",
+    "typescript-count-one-native-p1.json": "d6e8b915c4ade96d48d2bee88a232b6bf06dd631f25daf7e8dea7545df4f8a69"
+  },
+  "comparisons": {
+    "rustVsJs": {
+      "outputs": {
+        "count": 600,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 7.450580596923828e-9,
+        "maxDifferenceIndex": 45,
+        "leftValueAtMax": -0.06979367882013321,
+        "rightValueAtMax": -0.06979367136955261,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 4800,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 890,
+        "leftValueAtMax": -0.05629510059952736,
+        "rightValueAtMax": -0.056295085698366165,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustVsCountOneNative": {
+      "outputs": {
+        "count": 600,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 7.450580596923828e-9,
+        "maxDifferenceIndex": 31,
+        "leftValueAtMax": -0.06455997377634048,
+        "rightValueAtMax": -0.06455996632575989,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 4800,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 74,
+        "leftValueAtMax": -0.06928328424692154,
+        "rightValueAtMax": -0.06928329914808273,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "jsVsCountOneNative": {
+      "outputs": {
+        "count": 600,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 7.450580596923828e-9,
+        "maxDifferenceIndex": 31,
+        "leftValueAtMax": -0.06455997377634048,
+        "rightValueAtMax": -0.06455996632575989,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 4800,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 698,
+        "leftValueAtMax": -0.06714872270822525,
+        "rightValueAtMax": -0.06714870780706406,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    }
+  },
+  "command": [
+    "/home/james/.nvm/versions/node/v24.12.0/bin/node",
+    "/tmp/slither-stage4-inference-85f52eef-20260811/repo/scripts/stage4/compare-inference-reports.ts",
+    "--rust",
+    "/tmp/slither-stage4-inference-85f52eef-20260811/evidence/rust-scalar-p1.json",
+    "--js",
+    "/tmp/slither-stage4-inference-85f52eef-20260811/evidence/typescript-js-p1.json",
+    "--native",
+    "/tmp/slither-stage4-inference-85f52eef-20260811/evidence/typescript-count-one-native-p1.json",
+    "--output",
+    "/tmp/slither-stage4-inference-85f52eef-20260811/evidence/cross-path-p1.json"
+  ]
+}

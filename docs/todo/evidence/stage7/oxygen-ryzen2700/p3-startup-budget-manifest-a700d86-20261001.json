@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-01",
+  "productionCommit": "a700d8637986ccb3e1db9d4c75949e933035b7b7",
+  "platform": {
+    "host": "oxygen",
+    "kernel": "Linux 6.12.111+deb13-amd64",
+    "node": "v24.12.0",
+    "workers": 6,
+    "addonClass": "production release",
+    "target": "x86_64-unknown-linux-gnu"
+  },
+  "report": {
+    "path": "docs/todo/evidence/stage7/oxygen-ryzen2700/p3-startup-budget-a700d86-20261001.json",
+    "sha256": "6a58778de91ce0ccf75f0d236411e01d845ad9be495fcc02c5db568c4c3aa6d2"
+  },
+  "runner": {
+    "path": "scripts/stage7/legacy-p3-startup-budget.ts",
+    "sha256": "fe31ac2a069015c4bf8c4bf3db6ee099c99e134acdf7d52c1b95d7cdf6b82210"
+  },
+  "reproduction": "node ./node_modules/tsx/dist/cli.mjs scripts/stage7/legacy-p3-startup-budget.ts --db-path NEW_DATABASE --output NEW_REPORT",
+  "freeBytesBeforeProbe": 173590761472,
+  "gate": "Full-size P3 legacy SQLite conversion admission, fault transport, unchanged source rows, and exact managed restart",
+  "passed": true,
+  "limitations": [
+    "The P3 source is a deterministic packed-weight capacity fixture; it does not establish evolved real-time P3 performance.",
+    "This exercises supported legacy conversion into a new managed generation-one run, not a P3 configuration on the --fresh CLI.",
+    "RSS includes allocations retained across fixture creation and all startup attempts in one process. It does not close an isolated production memory gate.",
+    "An initial run has one current pointer and no explicit active selection row. Normal restart must resolve the sole current run and its exact checkpoint."
+  ],
+  "cleanup": "Required report and executed runner retained in the project; owned remote checkout, addon, database and managed files removed after stopped-process and exact-path checks. Owner service remains stopped."
+}

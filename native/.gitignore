@@ -1,0 +1,8 @@
+# Rust and npm build trees.
+/target/
+/node_modules/
+
+# Generated napi-rs loader and binary outputs.
+*.node
+/index.js
+/index.d.ts

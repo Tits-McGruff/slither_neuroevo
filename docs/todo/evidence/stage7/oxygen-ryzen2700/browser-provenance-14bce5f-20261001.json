@@ -1,0 +1,63 @@
+{
+  "sourceRevision": "14bce5f5f89a7cb5b5ac215eabf6a879dee2b735",
+  "nativeBuildIdentifier": "slither_native/0.1.0+14bce5f5f89a.d817a018981e7e22",
+  "nativeProfile": "release production addon, no test hooks",
+  "serverTarget": "Oxygen Debian x86_64 GNU, Ryzen 7 2700, six Rust calculation workers",
+  "browserTarget": "Windows desktop, Ryzen 7 5800X, RTX 4080, Codex in-app Chromium 154",
+  "browserViewport": {
+    "devicePixelRatio": 1,
+    "width": 1223,
+    "height": 1244
+  },
+  "trainerSource": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "trainerActors": 2,
+  "scenarioSeconds": 60,
+  "completedStage7Acceptance": false,
+  "laptopBrowserAcceptance": false,
+  "archiveMemoryAcceptance": false,
+  "archiveAttempt": {
+    "sourceRevision": "14bce5f5f89a7cb5b5ac215eabf6a879dee2b735",
+    "completed": false,
+    "ordinaryDownloadEventObserved": false,
+    "downloadWaitMilliseconds": 25000,
+    "failure": "Error: Timed out after 25000ms waiting for download.",
+    "archiveMemoryGatePassed": false,
+    "scope": "The Export UI control was clicked in the in-app browser; no completed download or original file path was returned. This is not archive memory acceptance."
+  },
+  "measurementMethod": "The observer is injected into the page through tab-scoped CDP before Play. It wraps actual requestAnimationFrame callbacks (excluding its own independent observer callback), preserves scheduling and socket sends, retains scalar intervals/heap samples without world/population payloads, and leaves every measured stall in the percentile. Desktop runtime/frame intervals are separate from archive memory and laptop results.",
+  "calibration": {
+    "intervalsAtMost40Ms": 900,
+    "p95Ms": 16.8,
+    "intervals": 900,
+    "visible": true,
+    "wallSeconds": 15.0104,
+    "focused": true
+  },
+  "artifacts": {
+    "browser-p0-14bce5f-20261001.json": "c2988d604682aa1f974f660ea3ed6f456b9cbb955978ba0b5eac6f2599e94e23",
+    "browser-p0-14bce5f-20261001.png": "90e2d755c86a56dcc13ac7f9df38cb109827813c50d11c7e86d6751fc5c9ea15",
+    "browser-p0-final-health-14bce5f-20261001.json": "ef6757dd32fcdd8399f3d349d0a57a33e612533a8e6f17933a81b7935e2aba3d",
+    "browser-p0-start-health-14bce5f-20261001.json": "1a5d0c3b3ace66f105525dc45e6fe95e4edafd033326a57391c11e1131821c7a",
+    "browser-p1-14bce5f-20261001.json": "1024354343b3b9d0912785106bcbfb56482e0ef2f2412f20858f43ae930182e2",
+    "browser-p1-14bce5f-20261001.png": "bb962a194d767a3d0c021fa678950706f6ee5b52921bc583e85ba0085bb690f3",
+    "browser-p1-final-health-14bce5f-20261001.json": "726db1e08f978ab22344476ce58cdd41fe386f878f15305dcf8c924a9f9b0fb7",
+    "browser-p1-start-health-14bce5f-20261001.json": "823e2b95df01613ad33b39f1e320475884849793dea7110aa38584198cef70c4",
+    "browser-p2-14bce5f-20261001.json": "d2a01e747d807d4668844dc720bdfbbf11798c5e7daca586da10f860aa6f02ef",
+    "browser-p2-14bce5f-20261001.png": "72e707fe182b8115f80bb653600a4ec8de66982b63a6310d8ac30b81cb376820",
+    "browser-p2-final-health-14bce5f-20261001.json": "6e8b2e1ddaee7d6ad554df119242994ad7f2a6b19c818efd8d281441619cdd30",
+    "browser-p2-start-health-14bce5f-20261001.json": "47f668f270e24c2138705fd943469598f85276418180538b386f9d0171defc48",
+    "browser-runner-14bce5f-20261001.py": "1c8e6230e887e316a6beb13d44996535bc2e91dec32de35e74c4cd887cb5229a",
+    "browser-server-14bce5f-20261001.sh": "bc42b3c78da4a75e50010036cfdcaca15dc4c22d29fd78f6a48bb8ec79afbc6b"
+  },
+  "cleanup": "All owned server/trainer processes stopped; QA tab closed; the 986 MiB remote checkout/addon/databases and Windows trainer/sampler scratch were removed after retained reports matched their copied SHA256 values. Owner service inactive and ports 5174/5180/5181 closed. Generated native target removed immediately after build, releasing 1.1 GiB.",
+  "desktopDrawingGatePassed": true,
+  "renderingLimitations": "Each workload has a sixty-second desktop sample with actual player actions and two real PyRL actors. Laptop, P4 long-body stress, archive heap/usability and full Stage 7 remain unproven. P2 includes a 1.55-second draw-interval stall while graph/settings UI opened; it is retained in the percentile. Health snapshots bracket captures but are not exact measurement-clock counters.",
+  "foregroundDiagnostic": "P0 background capture had 70 intervals and 15.7% at most 40ms. Showing the host without bringing the selected page forward also remained throttled. Page.bringToFront restored approximately 60Hz; a new complete foreground window had 3,602 intervals with every interval below 40ms. The two diagnostic windows are not foreground acceptance.",
+  "smallArchiveAttempt": {
+    "archiveMemoryGatePassed": false,
+    "downloadWaitMilliseconds": 10000,
+    "completed": false
+  },
+  "observerSha256": "9694aab8f14e832f474ee80897774c5dabb39e76c7287ed7c81540110eb4a739",
+  "textHashNormalization": "UTF8 with LF line endings; PNG hashes use original binary bytes"
+}

@@ -1,0 +1,154 @@
+{
+  "schema": "slither-stage2-codec-baseline",
+  "version": 3,
+  "evidenceClass": "new measured target-VM codec result",
+  "caveat": "Offline population-weight codec fixture measured on the oxygen Ryzen 7 2700 Debian VM; managed checkpoint container and full server memory are measured separately.",
+  "source": {
+    "commit": "4cd1c004b78cf5d192eb7d69b35c9d052f25db7c",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-08-01T19:02:49.726Z",
+    "platform": "linux",
+    "architecture": "x64",
+    "provenance": {
+      "declaration": "owner-target-vm",
+      "platformIsLinux": true,
+      "distributionId": "debian",
+      "distributionIsDebian": true,
+      "hostname": "oxygen",
+      "hostnameIsOxygen": true,
+      "cpuModel": "AMD Ryzen 7 2700 Eight-Core Processor",
+      "cpuModelMatches": true,
+      "logicalCpuCount": 8,
+      "logicalCpuCountMatches": true,
+      "totalMemoryBytes": 16775352320,
+      "memoryAllocationMatches": true,
+      "ownerTargetVmValidated": true
+    },
+    "node": "v24.12.0",
+    "zlib": "1.3.1-470d3a2",
+    "zstd": "1.5.7"
+  },
+  "fixture": {
+    "scenario": {
+      "name": "P0",
+      "description": "55 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "kind": "evolved",
+    "evolutionGenerations": 25,
+    "seed": 1511506142,
+    "populationCount": 55,
+    "weightsPerGenome": 13458,
+    "totalWeightCount": 740190,
+    "rawWeightBytes": 2960760,
+    "rawSha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178",
+    "architectureKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "parameterCount": 13458
+  },
+  "decimalJsonWeights": {
+    "bytes": 14834900,
+    "samples": 740190,
+    "bytesPerFloat": 20.042016239073753,
+    "bytesPerRawByte": 5.01050406,
+    "reductionUsingRawPackedPercent": 80.041928
+  },
+  "wholePopulation": {
+    "rawPacked": {
+      "bytes": 2960760,
+      "sha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178"
+    },
+    "plainZstd": {
+      "encoding": "zstd-level-3",
+      "rawBytes": 2960760,
+      "encodedBytes": 2115432,
+      "encodedToRawRatio": 0.71448952,
+      "reductionPercent": 28.551048,
+      "encodeMs": 33.531933,
+      "decodeMs": 6.766917,
+      "bitExact": true,
+      "decodedSha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178"
+    },
+    "shuffledZstd": {
+      "encoding": "shuffle-zstd-level-3",
+      "rawBytes": 2960760,
+      "encodedBytes": 2276354,
+      "encodedToRawRatio": 0.76884111,
+      "reductionPercent": 23.115889,
+      "encodeMs": 23.471893,
+      "decodeMs": 18.279008,
+      "bitExact": true,
+      "decodedSha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178"
+    },
+    "plainZstdWithFrameChecksum": {
+      "encoding": "zstd-level-3-checksum",
+      "rawBytes": 2960760,
+      "encodedBytes": 2115436,
+      "encodedToRawRatio": 0.71449087,
+      "reductionPercent": 28.550913,
+      "encodeMs": 31.413089,
+      "decodeMs": 13.609084,
+      "bitExact": true,
+      "decodedSha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178"
+    },
+    "shuffledZstdWithFrameChecksum": {
+      "encoding": "shuffle-zstd-level-3-checksum",
+      "rawBytes": 2960760,
+      "encodedBytes": 2276358,
+      "encodedToRawRatio": 0.76884246,
+      "reductionPercent": 23.115754,
+      "encodeMs": 19.803501,
+      "decodeMs": 13.098209,
+      "bitExact": true,
+      "decodedSha256": "ce057b230124c8f36d4ed4507394477726614e7633da70d530a592b2efa65178"
+    },
+    "smallestMeasuredComparison": {
+      "encoding": "zstd-level-3",
+      "bytes": 2115432
+    },
+    "selectedArchiveV1": {
+      "encoding": "f32le-shuffle4-zstd-v1",
+      "bytes": 2276354
+    }
+  },
+  "perGenome": {
+    "rawBytes": 2960760,
+    "plainZstdBytes": 2744370,
+    "shuffledZstdBytes": 2728198,
+    "minimumAcrossMeasuredBytes": 2728196,
+    "minimumAcrossMeasuredToRawRatio": 0.92145125,
+    "minimumRawSelections": 0,
+    "minimumPlainSelections": 2,
+    "minimumShuffledSelections": 53,
+    "approvedRawOrShuffledBytes": 2728198,
+    "approvedRawOrShuffledToRawRatio": 0.92145192,
+    "approvedRawSelections": 0,
+    "approvedShuffledSelections": 55,
+    "encodeMs": 78.825188
+  },
+  "currentLegacyGzip": {
+    "measured": true,
+    "decompressedBytes": 14845900,
+    "compressedBytes": 6679346,
+    "compressedToDecompressedRatio": 0.44991183,
+    "encodeMs": 807.567104,
+    "decodeMs": 69.590929,
+    "bitExact": true,
+    "sha256": "61ac7a3b21494a04c134dc44de905cf5acd77c2eba38572ed7b2bb7266ad9013"
+  }
+}

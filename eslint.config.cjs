@@ -29,7 +29,8 @@ module.exports = [
       'docs/feedback-from-outside-llms/**',
       'markdown-rules/**',
       '.vscode/**',
-      'docs/api/**'
+      'docs/api/**',
+      'native/**'
     ]
   },
   {

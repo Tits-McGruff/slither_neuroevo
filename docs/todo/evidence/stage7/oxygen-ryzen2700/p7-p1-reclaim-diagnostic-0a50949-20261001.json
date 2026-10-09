@@ -1,0 +1,564 @@
+{
+  "scope": "Focused generation-boundary reconnect attribution; supplements an already interrupted player soak, not full P7 acceptance",
+  "wallSeconds": 183.22936516299998,
+  "frames": 5389,
+  "attempts": [
+    {
+      "requested": {
+        "generation": 0,
+        "tick": 0
+      },
+      "assigned": {
+        "snakeId": 8342,
+        "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+        "reclaimed": false
+      },
+      "health": {
+        "ok": true,
+        "generation": "0000000000000019",
+        "completedStep": "0000000000015f7e",
+        "worldEpoch": "0000000000000014"
+      },
+      "consistent": true
+    },
+    {
+      "requested": {
+        "snakeId": 8342,
+        "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+        "generation": 25,
+        "tick": 90008
+      },
+      "assigned": {
+        "snakeId": 8342,
+        "tokenHash": "394432d40579d4e7f7cfdc4504dd3bccd0c6bad5407877c8a4def7070ea241e9",
+        "reclaimed": true
+      },
+      "result": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 8342
+      },
+      "health": {
+        "ok": true,
+        "generation": "0000000000000019",
+        "completedStep": "0000000000015fa0",
+        "worldEpoch": "0000000000000014"
+      },
+      "consistent": true
+    },
+    {
+      "requested": {
+        "snakeId": 8655,
+        "tokenHash": "798b4b06990fff7e59637152e25584ec0ea5aed6fb3c2e1858792b8887b0b582",
+        "generation": 26,
+        "tick": 93610
+      },
+      "assigned": {
+        "snakeId": 8655,
+        "tokenHash": "c0fc0ddd0bb967a1f5bf0c18c976b2f5ba2397df89afb1d4e2b7f067bc886aad",
+        "reclaimed": true
+      },
+      "result": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 8655
+      },
+      "health": {
+        "ok": true,
+        "generation": "000000000000001a",
+        "completedStep": "0000000000016db2",
+        "worldEpoch": "0000000000000015"
+      },
+      "consistent": true
+    },
+    {
+      "requested": {
+        "snakeId": 9009,
+        "tokenHash": "a6100ed5dd1f24cc4d8df3081fd708bb610264129415b28a15b54c4a07ea3535",
+        "generation": 27,
+        "tick": 97209
+      },
+      "assigned": {
+        "snakeId": 9009,
+        "tokenHash": "c7b4025aa57a733591bd3c7ef2d21ab4d4190e62498cd7a737206654f3bd37dc",
+        "reclaimed": true
+      },
+      "result": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 9009
+      },
+      "health": {
+        "ok": true,
+        "generation": "000000000000001b",
+        "completedStep": "0000000000017bc0",
+        "worldEpoch": "0000000000000016"
+      },
+      "consistent": true
+    },
+    {
+      "requested": {
+        "snakeId": 9347,
+        "tokenHash": "61c3c31cc2a912e9e2a3de2099167af21852ea81c5b633f1c82645758b33a33c",
+        "generation": 28,
+        "tick": 100810
+      },
+      "assigned": {
+        "snakeId": 9347,
+        "tokenHash": "accb1ec8304097d1e56dcbfb9943dda5d108a2c1353dc43bc48898c7d6584d51",
+        "reclaimed": true
+      },
+      "result": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 9347
+      },
+      "health": {
+        "ok": true,
+        "generation": "000000000000001c",
+        "completedStep": "00000000000189d1",
+        "worldEpoch": "0000000000000017"
+      },
+      "consistent": true
+    }
+  ],
+  "events": [
+    {
+      "wallSeconds": 0.011499841000000004,
+      "type": "connect",
+      "requested": {
+        "generation": 0,
+        "tick": 0
+      }
+    },
+    {
+      "wallSeconds": 0.01938721100000001,
+      "type": "assign",
+      "snakeId": 8342,
+      "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+      "reclaimed": false,
+      "generation": 25,
+      "tick": 89980
+    },
+    {
+      "wallSeconds": 0.061607364000000005,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "generation": 0,
+          "tick": 0
+        },
+        "assigned": {
+          "snakeId": 8342,
+          "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+          "reclaimed": false
+        },
+        "health": {
+          "ok": true,
+          "generation": "0000000000000019",
+          "completedStep": "0000000000015f7e",
+          "worldEpoch": "0000000000000014"
+        },
+        "consistent": true
+      }
+    },
+    {
+      "wallSeconds": 0.495323496,
+      "type": "disconnect",
+      "snakeId": 8342,
+      "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+      "generation": 25,
+      "generationTime": 59.733333333331224,
+      "tick": 90008,
+      "health": {
+        "ok": true,
+        "generation": "0000000000000019",
+        "completedStep": "0000000000015f99",
+        "worldEpoch": "0000000000000014"
+      }
+    },
+    {
+      "wallSeconds": 0.5996227719999999,
+      "type": "connect",
+      "requested": {
+        "snakeId": 8342,
+        "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+        "generation": 25,
+        "tick": 90008
+      }
+    },
+    {
+      "wallSeconds": 0.601447453,
+      "type": "reclaimResult",
+      "packet": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 8342
+      },
+      "generation": 25,
+      "tick": 90008
+    },
+    {
+      "wallSeconds": 0.601563884,
+      "type": "assign",
+      "snakeId": 8342,
+      "tokenHash": "394432d40579d4e7f7cfdc4504dd3bccd0c6bad5407877c8a4def7070ea241e9",
+      "reclaimed": true,
+      "generation": 25,
+      "tick": 90008
+    },
+    {
+      "wallSeconds": 0.6068531399999999,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "snakeId": 8342,
+          "tokenHash": "48bf5f522bf67e3cf9b5f992657b96e71fcd6b9899e2c9de3e17ad48d944e4fa",
+          "generation": 25,
+          "tick": 90008
+        },
+        "assigned": {
+          "snakeId": 8342,
+          "tokenHash": "394432d40579d4e7f7cfdc4504dd3bccd0c6bad5407877c8a4def7070ea241e9",
+          "reclaimed": true
+        },
+        "result": {
+          "type": "reclaimResult",
+          "reclaimed": true,
+          "reason": "reclaimed",
+          "snakeId": 8342
+        },
+        "health": {
+          "ok": true,
+          "generation": "0000000000000019",
+          "completedStep": "0000000000015fa0",
+          "worldEpoch": "0000000000000014"
+        },
+        "consistent": true
+      }
+    },
+    {
+      "wallSeconds": 1.277614321,
+      "type": "assign",
+      "snakeId": 8655,
+      "tokenHash": "798b4b06990fff7e59637152e25584ec0ea5aed6fb3c2e1858792b8887b0b582",
+      "reclaimed": false,
+      "generation": 25,
+      "tick": 90024
+    },
+    {
+      "wallSeconds": 61.052088557,
+      "type": "disconnect",
+      "snakeId": 8655,
+      "tokenHash": "798b4b06990fff7e59637152e25584ec0ea5aed6fb3c2e1858792b8887b0b582",
+      "generation": 26,
+      "generationTime": 59.733333333331224,
+      "tick": 93609,
+      "health": {
+        "ok": true,
+        "generation": "000000000000001a",
+        "completedStep": "0000000000016daa",
+        "worldEpoch": "0000000000000015"
+      }
+    },
+    {
+      "wallSeconds": 61.161678946,
+      "type": "connect",
+      "requested": {
+        "snakeId": 8655,
+        "tokenHash": "798b4b06990fff7e59637152e25584ec0ea5aed6fb3c2e1858792b8887b0b582",
+        "generation": 26,
+        "tick": 93610
+      }
+    },
+    {
+      "wallSeconds": 61.168287987,
+      "type": "reclaimResult",
+      "packet": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 8655
+      },
+      "generation": 26,
+      "tick": 93617
+    },
+    {
+      "wallSeconds": 61.168439809,
+      "type": "assign",
+      "snakeId": 8655,
+      "tokenHash": "c0fc0ddd0bb967a1f5bf0c18c976b2f5ba2397df89afb1d4e2b7f067bc886aad",
+      "reclaimed": true,
+      "generation": 26,
+      "tick": 93617
+    },
+    {
+      "wallSeconds": 61.174554571,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "snakeId": 8655,
+          "tokenHash": "798b4b06990fff7e59637152e25584ec0ea5aed6fb3c2e1858792b8887b0b582",
+          "generation": 26,
+          "tick": 93610
+        },
+        "assigned": {
+          "snakeId": 8655,
+          "tokenHash": "c0fc0ddd0bb967a1f5bf0c18c976b2f5ba2397df89afb1d4e2b7f067bc886aad",
+          "reclaimed": true
+        },
+        "result": {
+          "type": "reclaimResult",
+          "reclaimed": true,
+          "reason": "reclaimed",
+          "snakeId": 8655
+        },
+        "health": {
+          "ok": true,
+          "generation": "000000000000001a",
+          "completedStep": "0000000000016db2",
+          "worldEpoch": "0000000000000015"
+        },
+        "consistent": true
+      }
+    },
+    {
+      "wallSeconds": 61.805497484,
+      "type": "assign",
+      "snakeId": 8983,
+      "tokenHash": "9a4ab61163a65750def234662b355cad99a18bbd9d50ecb754e2365ccb9d63d5",
+      "reclaimed": false,
+      "generation": 26,
+      "tick": 93625
+    },
+    {
+      "wallSeconds": 82.897809538,
+      "type": "assign",
+      "snakeId": 8997,
+      "tokenHash": "527636573a47bb37f887f4bdb3d60ad58adc4c7daac57085e1fab99b96c33bb4",
+      "reclaimed": false,
+      "generation": 27,
+      "tick": 94889
+    },
+    {
+      "wallSeconds": 110.663805662,
+      "type": "assign",
+      "snakeId": 9007,
+      "tokenHash": "e66baf7027e4c8960b961c3f5196e380795ef06640a0ea1b912c36bbdc3fc415",
+      "reclaimed": false,
+      "generation": 27,
+      "tick": 96555
+    },
+    {
+      "wallSeconds": 118.81370023100001,
+      "type": "assign",
+      "snakeId": 9009,
+      "tokenHash": "a6100ed5dd1f24cc4d8df3081fd708bb610264129415b28a15b54c4a07ea3535",
+      "reclaimed": false,
+      "generation": 27,
+      "tick": 97044
+    },
+    {
+      "wallSeconds": 121.55351237200001,
+      "type": "disconnect",
+      "snakeId": 9009,
+      "tokenHash": "a6100ed5dd1f24cc4d8df3081fd708bb610264129415b28a15b54c4a07ea3535",
+      "generation": 27,
+      "generationTime": 59.71666666666456,
+      "tick": 97209,
+      "health": {
+        "ok": true,
+        "generation": "000000000000001b",
+        "completedStep": "0000000000017bba",
+        "worldEpoch": "0000000000000016"
+      }
+    },
+    {
+      "wallSeconds": 121.654797535,
+      "type": "connect",
+      "requested": {
+        "snakeId": 9009,
+        "tokenHash": "a6100ed5dd1f24cc4d8df3081fd708bb610264129415b28a15b54c4a07ea3535",
+        "generation": 27,
+        "tick": 97209
+      }
+    },
+    {
+      "wallSeconds": 121.65526044100001,
+      "type": "reclaimResult",
+      "packet": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 9009
+      },
+      "generation": 27,
+      "tick": 97209
+    },
+    {
+      "wallSeconds": 121.65542544600001,
+      "type": "assign",
+      "snakeId": 9009,
+      "tokenHash": "c7b4025aa57a733591bd3c7ef2d21ab4d4190e62498cd7a737206654f3bd37dc",
+      "reclaimed": true,
+      "generation": 27,
+      "tick": 97209
+    },
+    {
+      "wallSeconds": 121.66175652800001,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "snakeId": 9009,
+          "tokenHash": "a6100ed5dd1f24cc4d8df3081fd708bb610264129415b28a15b54c4a07ea3535",
+          "generation": 27,
+          "tick": 97209
+        },
+        "assigned": {
+          "snakeId": 9009,
+          "tokenHash": "c7b4025aa57a733591bd3c7ef2d21ab4d4190e62498cd7a737206654f3bd37dc",
+          "reclaimed": true
+        },
+        "result": {
+          "type": "reclaimResult",
+          "reclaimed": true,
+          "reason": "reclaimed",
+          "snakeId": 9009
+        },
+        "health": {
+          "ok": true,
+          "generation": "000000000000001b",
+          "completedStep": "0000000000017bc0",
+          "worldEpoch": "0000000000000016"
+        },
+        "consistent": true
+      }
+    },
+    {
+      "wallSeconds": 122.374444684,
+      "type": "assign",
+      "snakeId": 9324,
+      "tokenHash": "fb6e46ba7892bd4772e261b6762ea5aeea429e57a6131330f375a0af0514a3b3",
+      "reclaimed": false,
+      "generation": 27,
+      "tick": 97226
+    },
+    {
+      "wallSeconds": 122.550530006,
+      "type": "assign",
+      "snakeId": 9326,
+      "tokenHash": "c3c8d30651150ba85d025e20329561fcc2346811f9008ed28fcbfa9169d542e5",
+      "reclaimed": false,
+      "generation": 28,
+      "tick": 97234
+    },
+    {
+      "wallSeconds": 141.066033115,
+      "type": "assign",
+      "snakeId": 9332,
+      "tokenHash": "b61bfd2ea10fbb877ed40c759ee92b08660c8f559decbd83c680fee3d3438d6f",
+      "reclaimed": false,
+      "generation": 28,
+      "tick": 98346
+    },
+    {
+      "wallSeconds": 174.565533704,
+      "type": "assign",
+      "snakeId": 9347,
+      "tokenHash": "61c3c31cc2a912e9e2a3de2099167af21852ea81c5b633f1c82645758b33a33c",
+      "reclaimed": false,
+      "generation": 28,
+      "tick": 100356
+    },
+    {
+      "wallSeconds": 182.118014171,
+      "type": "disconnect",
+      "snakeId": 9347,
+      "tokenHash": "61c3c31cc2a912e9e2a3de2099167af21852ea81c5b633f1c82645758b33a33c",
+      "generation": 28,
+      "generationTime": 59.71666666666456,
+      "tick": 100810,
+      "health": {
+        "ok": true,
+        "generation": "000000000000001c",
+        "completedStep": "00000000000189cb",
+        "worldEpoch": "0000000000000017"
+      }
+    },
+    {
+      "wallSeconds": 182.22130001099998,
+      "type": "connect",
+      "requested": {
+        "snakeId": 9347,
+        "tokenHash": "61c3c31cc2a912e9e2a3de2099167af21852ea81c5b633f1c82645758b33a33c",
+        "generation": 28,
+        "tick": 100810
+      }
+    },
+    {
+      "wallSeconds": 182.221973765,
+      "type": "reclaimResult",
+      "packet": {
+        "type": "reclaimResult",
+        "reclaimed": true,
+        "reason": "reclaimed",
+        "snakeId": 9347
+      },
+      "generation": 28,
+      "tick": 100810
+    },
+    {
+      "wallSeconds": 182.222136035,
+      "type": "assign",
+      "snakeId": 9347,
+      "tokenHash": "accb1ec8304097d1e56dcbfb9943dda5d108a2c1353dc43bc48898c7d6584d51",
+      "reclaimed": true,
+      "generation": 28,
+      "tick": 100810
+    },
+    {
+      "wallSeconds": 182.228625895,
+      "type": "resolved",
+      "attempt": {
+        "requested": {
+          "snakeId": 9347,
+          "tokenHash": "61c3c31cc2a912e9e2a3de2099167af21852ea81c5b633f1c82645758b33a33c",
+          "generation": 28,
+          "tick": 100810
+        },
+        "assigned": {
+          "snakeId": 9347,
+          "tokenHash": "accb1ec8304097d1e56dcbfb9943dda5d108a2c1353dc43bc48898c7d6584d51",
+          "reclaimed": true
+        },
+        "result": {
+          "type": "reclaimResult",
+          "reclaimed": true,
+          "reason": "reclaimed",
+          "snakeId": 9347
+        },
+        "health": {
+          "ok": true,
+          "generation": "000000000000001c",
+          "completedStep": "00000000000189d1",
+          "worldEpoch": "0000000000000017"
+        },
+        "consistent": true
+      }
+    },
+    {
+      "wallSeconds": 182.90833876399998,
+      "type": "assign",
+      "snakeId": 9661,
+      "tokenHash": "f0354d1883fb8330f2a65918cb4a388ba804d7c0ef46f333cad6a5b71e557488",
+      "reclaimed": false,
+      "generation": 28,
+      "tick": 100827
+    }
+  ]
+}

@@ -18,7 +18,7 @@ interface ServerTomlConfig {
   publicWsUrl?: string;
 }
 
-/** Resolved UI defaults derived from the TOML config. */
+/** Resolved UI defaults derived from TOML and environment overrides. */
 interface UiDefaults {
   /** Resolved UI dev server host. */
   uiHost: string;
@@ -112,31 +112,39 @@ function pickLanIpv4(): string | null {
 }
 
 /**
- * Resolve UI defaults from the server TOML config.
+ * Resolve UI defaults with environment overrides taking precedence over TOML.
  * @param raw - Raw TOML config data.
+ * @param detectedLanIpv4 - Detected non-loopback address used for wildcard binds.
+ * @param env - Matching server/UI environment overrides.
  * @returns Resolved UI defaults.
  */
-function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
+export function resolveUiDefaults(
+  raw: ServerTomlConfig,
+  detectedLanIpv4: string | null = pickLanIpv4(),
+  env: NodeJS.ProcessEnv = process.env
+): UiDefaults {
   const defaultServerPort = 5174;
   const defaultUiHost = "127.0.0.1";
   const defaultUiPort = 5173;
 
+  const host = env["UI_HOST"] || raw.uiHost;
   const uiHost =
-    typeof raw.uiHost === "string" && raw.uiHost.trim()
-      ? raw.uiHost.trim()
+    typeof host === "string" && host.trim()
+      ? host.trim()
       : defaultUiHost;
-  const uiPort = coercePort(raw.uiPort, defaultUiPort);
+  const uiPort = coercePort(env["UI_PORT"], coercePort(raw.uiPort, defaultUiPort));
 
+  const wsUrl = env["PUBLIC_WS_URL"] || raw.publicWsUrl;
   const publicWsUrl =
-    typeof raw.publicWsUrl === "string" && raw.publicWsUrl.trim()
-      ? raw.publicWsUrl.trim()
+    typeof wsUrl === "string" && wsUrl.trim()
+      ? wsUrl.trim()
       : "";
-  const serverPort = coercePort(raw.port, defaultServerPort);
+  const serverPort = coercePort(env["PORT"], coercePort(raw.port, defaultServerPort));
   const publicHost = extractHostFromWsUrl(publicWsUrl);
   const hmrHost =
     uiHost && uiHost !== "0.0.0.0" && uiHost !== "::"
       ? uiHost
-      : publicHost || pickLanIpv4() || undefined;
+      : publicHost || detectedLanIpv4 || undefined;
 
   return {
     uiHost,
@@ -148,21 +156,23 @@ function resolveUiDefaults(raw: ServerTomlConfig): UiDefaults {
 }
 
 /**
- * Build the Vite configuration using server TOML defaults.
+ * Build the Vite configuration using server TOML defaults and environment overrides.
  * @returns Vite config object.
  */
-function buildViteConfig() {
+export function buildViteConfig() {
   const configPath = resolveServerConfigPath();
   const rawConfig = loadTomlConfig(configPath);
   const defaults = resolveUiDefaults(rawConfig);
   const serverConfig = {
     open: true,
     host: defaults.uiHost,
-    port: defaults.uiPort
+    port: defaults.uiPort,
+    strictPort: true
   } as {
     open: boolean;
     host: string;
     port: number;
+    strictPort: boolean;
     hmr?: { host: string };
     headers?: Record<string, string>;
   };
@@ -184,13 +194,12 @@ function buildViteConfig() {
       outDir: "dist",
       emptyOutDir: true
     },
-    assetsInclude: ["**/*.wasm"],
     test: {
       setupFiles: ["src/test/vitest.setup.ts"]
     },
     define: {
-      __SLITHER_DEFAULT_WS_URL__: JSON.stringify(defaults.publicWsUrl),
-      __SLITHER_SERVER_PORT__: JSON.stringify(defaults.serverPort)
+      'import.meta.env.SLITHER_DEFAULT_WS_URL': JSON.stringify(defaults.publicWsUrl),
+      'import.meta.env.SLITHER_SERVER_PORT': JSON.stringify(defaults.serverPort)
     },
     server: serverConfig
   };

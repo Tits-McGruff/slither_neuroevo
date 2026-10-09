@@ -1,0 +1,236 @@
+{
+  "sourceRevision": "8e7113a62b8febe0b7e64b8a97a7515915e7b276",
+  "commonRunId": "28b4e9f7-2c91-4a9a-8a97-4b199cd88cd6",
+  "commonStartupCheckpointId": "3f8fafbcf88dfe6d39cf24072a819d456a0d94806e339f9ddb76affe81aab932",
+  "commonConfigHash": "sha256:cf32f71860113794f464db9898657d83af38ca9b1cbc7bd5d6c944cf65b37f97",
+  "commonNativeBuildIdentifier": "slither_native/0.1.0+8e7113a62b8f.62e68d86759551d3",
+  "metrics": [
+    {
+      "workers": 4,
+      "file": "p1-worker-w4-loaded-8e7113a-20261004.json",
+      "sha256": "2008c64629b5bad38d566cc37694f592cb98f77cb294f91d24f503c0b4653e8d",
+      "playerFile": "p1-worker-w4-player-8e7113a-20261004.json",
+      "minimumWallSeconds": 600.1430273750001,
+      "maximumWallSeconds": 600.188771862,
+      "deltaSteps": "35765",
+      "simulatedWallRatio": 0.9931597545286793,
+      "droppedWallMicros": "123667",
+      "p50UpperMs": 8,
+      "p95UpperMs": 16,
+      "p99UpperMs": 24,
+      "above16667Micros": "611",
+      "above16667Percent": 1.7083741087655528,
+      "ordinarySlowSteps": "601",
+      "terminalSteps": "10",
+      "slowControlMicros": "7934191",
+      "slowSensingMicros": "5446909",
+      "slowInferenceMicros": "1246100",
+      "slowWorldMicros": "4115435",
+      "generationIntervalCount": 9,
+      "generationIntervalMaximumSeconds": 61.29918177100003,
+      "checkpointBarrier": {
+        "samples": 11,
+        "meanMs": 183.98071118182799,
+        "p95Ms": 250,
+        "maxMs": 205.3214680000092
+      },
+      "eventLoopP95Ms": 10.878975,
+      "eventLoopP99Ms": 11.665407,
+      "healthLatencyP95Ms": 3.1221529999747872,
+      "maxRssBytes": 187994112,
+      "trainerActions": 68966,
+      "trainerActionP95Ms": 8,
+      "queueGate": true,
+      "measuredGate": false
+    },
+    {
+      "workers": 5,
+      "file": "p1-worker-w5-loaded-8e7113a-20261004.json",
+      "sha256": "1957e9bd125cc9d284322cba29a5a1785104ec1177d8df5b0be703723d62e324",
+      "playerFile": "p1-worker-w5-player-8e7113a-20261004.json",
+      "minimumWallSeconds": 600.1760224450001,
+      "maximumWallSeconds": 600.220065859,
+      "deltaSteps": "35775",
+      "simulatedWallRatio": 0.9933856495561869,
+      "droppedWallMicros": "0",
+      "p50UpperMs": 8,
+      "p95UpperMs": 16,
+      "p99UpperMs": 16.667,
+      "above16667Micros": "326",
+      "above16667Percent": 0.9112508735150244,
+      "ordinarySlowSteps": "316",
+      "terminalSteps": "10",
+      "slowControlMicros": "4006529",
+      "slowSensingMicros": "2706050",
+      "slowInferenceMicros": "598473",
+      "slowWorldMicros": "2542638",
+      "generationIntervalCount": 9,
+      "generationIntervalMaximumSeconds": 61.28369866699999,
+      "checkpointBarrier": {
+        "samples": 11,
+        "meanMs": 185.72951736361708,
+        "p95Ms": 250,
+        "maxMs": 205.06028899992816
+      },
+      "eventLoopP95Ms": 10.903551,
+      "eventLoopP99Ms": 11.755519,
+      "healthLatencyP95Ms": 3.3173969999770634,
+      "maxRssBytes": 184651776,
+      "trainerActions": 69305,
+      "trainerActionP95Ms": 0.5,
+      "queueGate": true,
+      "measuredGate": true
+    },
+    {
+      "workers": 6,
+      "file": "p1-worker-w6-loaded-8e7113a-20261004.json",
+      "sha256": "2a97dad2a54ddebec095dc4b55c108053d03634af34340dbf58b3bd9aaea481c",
+      "playerFile": "p1-worker-w6-player-8e7113a-20261004.json",
+      "minimumWallSeconds": 600.217734881,
+      "maximumWallSeconds": 600.258745951,
+      "deltaSteps": "35777",
+      "simulatedWallRatio": 0.9933771683553425,
+      "droppedWallMicros": "0",
+      "p50UpperMs": 8,
+      "p95UpperMs": 12,
+      "p99UpperMs": 16.667,
+      "above16667Micros": "306",
+      "above16667Percent": 0.8552980965424715,
+      "ordinarySlowSteps": "296",
+      "terminalSteps": "10",
+      "slowControlMicros": "3865244",
+      "slowSensingMicros": "2598041",
+      "slowInferenceMicros": "547534",
+      "slowWorldMicros": "2549756",
+      "generationIntervalCount": 9,
+      "generationIntervalMaximumSeconds": 61.286169935,
+      "checkpointBarrier": {
+        "samples": 11,
+        "meanMs": 185.27908345453628,
+        "p95Ms": 250,
+        "maxMs": 210.86888999998337
+      },
+      "eventLoopP95Ms": 10.911743,
+      "eventLoopP99Ms": 11.993087,
+      "healthLatencyP95Ms": 3.229875999968499,
+      "maxRssBytes": 180961280,
+      "trainerActions": 68943,
+      "trainerActionP95Ms": 0.5,
+      "queueGate": true,
+      "measuredGate": true
+    }
+  ],
+  "players": [
+    {
+      "workers": 4,
+      "file": "p1-worker-w4-player-8e7113a-20261004.json",
+      "sha256": "e75ff699a44930a2c59e5cba2a2e24ee2e300b150532f63bd7d66f8cb4ca45aa",
+      "frames": 21596,
+      "actions": 19961,
+      "assignments": 35
+    },
+    {
+      "workers": 5,
+      "file": "p1-worker-w5-player-8e7113a-20261004.json",
+      "sha256": "b6a3b20dd53e3f4c8adf502e4a1e075dbfc06245495ddc62018e8ef2190672d0",
+      "frames": 20810,
+      "actions": 19144,
+      "assignments": 28
+    },
+    {
+      "workers": 6,
+      "file": "p1-worker-w6-player-8e7113a-20261004.json",
+      "sha256": "403355653c364aeddaaa7c273756bd00221e4075dd3ad930dd21aa0933cee307",
+      "frames": 20822,
+      "actions": 19245,
+      "assignments": 42
+    }
+  ],
+  "scope": "Three sequential 600-second evolved P1 windows on one source/build with actual two-actor PyRL and a programmatic player. The server starts from byte-identical generation-two fixture copies; each sampler starts in generation three after trainer actions are active. This does not imply identical live action logs, identical measurement-start world states, repeatability across changing host contention, browser rendering, archive overlap, or a thirty-minute memory soak.",
+  "fixture": {
+    "databaseSha256": "280939363c80c441967a267cafc9d96609dcad23091c74a0fb1a00c238e88f1a",
+    "managedFiles": [
+      {
+        "file": "0ebb38e1403341d6031906ceef61702ca853698ccca6192ffeb7faf733589efc.hof-weights-v1",
+        "sha256": "6bed2be75ee630ed19a1c88f10d870c9f18a8927674c850a90ef52a3298e9c6c"
+      },
+      {
+        "file": "3f8fafbcf88dfe6d39cf24072a819d456a0d94806e339f9ddb76affe81aab932.checkpoint-v3",
+        "sha256": "177279893be7925cf9996215e6b92fae5cc890b2dade47299708a598fd3073e7"
+      },
+      {
+        "file": "a7747fd16e52ce7bdfe2af410a07015379bb2e46d429c7b7c70299053519edc8.checkpoint-v3",
+        "sha256": "cab206a047465ae57fd74f7341541be76175c153561d8fcba32fe2ef66709efe"
+      },
+      {
+        "file": "fe9a71a30444a1a5fd528106927c7837f1d94d90a7aeb9841bfe4eb029c285fd.checkpoint-v3",
+        "sha256": "a4cf1dd641997af8f07d9ab5f9a4bfd3a3356e63af58281434be167bcebe0a19"
+      }
+    ],
+    "preparation": "Committed realtime-workload.ts scenario P1, workers=5, measure-seconds=1; it warms real generation one, stops/resumes generation two, then closes. Quiescent database and full managed-directory copies pass cmp/diff before each candidate starts."
+  },
+  "verification": "All three reports share source/build, startup checkpoint, run/config, advertised settings/graph/sensors and sampler/summary digests. Exact step-window and clock-window summaries and generation interval bounds are recomputed from raw observations using committed helpers and match saved summaries. Real trainer assignments are present before all clocks. Every player report ends by explicit stop without protocol errors.",
+  "trainer": {
+    "sourceRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+    "workingTree": "clean",
+    "actors": 2,
+    "networkHidden": 256,
+    "networkLayers": 2,
+    "trainingDevice": "cpu",
+    "inferenceDevice": "cpu",
+    "torchThreads": 1,
+    "ompThreads": 1,
+    "mklThreads": 1,
+    "pythonNumpyTorchSeed": 31337,
+    "checkpointScope": "separate fresh task-owned directory per candidate",
+    "supervisorSha256": "b0898ca6cf398749a20496c8d9b289bd3721f153b1b0b751227ec09fc1a47313"
+  },
+  "player": {
+    "rateHz": 30,
+    "turn": 0.5,
+    "boost": 0,
+    "rendering": false,
+    "reconnects": false,
+    "supervisorSha256": "9643e2f87fd7d11729a8eded7ba47baa72bf2ec42fb0a155ddcf46bed89ed875"
+  },
+  "server": {
+    "sourceVerifiedOnOxygen": true,
+    "releaseBuildAndBrowserAssetsPassed": true,
+    "supervisorSha256": "249cd5f50aa38da298b6a20b937d7d7ef8c638dfb9a3d31222b93d802ed99f64",
+    "ownerProductionTouched": false
+  },
+  "hostContext": {
+    "scope": "Read-only point snapshots; UTC clocks are not assumed synchronized. These do not identify the cause of tail timing or discarded debt.",
+    "carbonBeforeW4": "2026-10-04T04:25:23Z\n 15:25:23 up 15 days, 12:39,  1 user,  load average: 7.74, 7.07, 6.93\ntop - 15:25:24 up 15 days, 12:39,  1 user,  load average: 8.00, 7.14, 6.95\nTasks: 826 total, 5 running, 819 sleep, 2 d-sleep, 0 stopped, 0 zombie\n%Cpu(s): 15.5 us, 16.2 sy,  0.0 ni, 64.0 id,  3.1 wa,  0.0 hi,  1.2 si,  0.0 st \nMiB Mem :  64224.8 total,   2908.0 free,  44891.4 used,  31541.6 buff/cache     \nMiB Swap:      0.0 total,      0.0 free,      0.0 used.  19333.5 avail Mem \n\n    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n1013091 nobody    20   0 1936744 650700  11220 S  99.7   1.0     43,18 qbittorrent-nox\n3970679 nobody    20   0  739024 172744   6140 R  99.7   0.3  30:51.79 Plex Transcoder\n 343027 root      20   0   16.7g  13.8g  13708 S  87.3  22.0     16,17 qemu-system-x86\n  20370 root      20   0       0      0      0 R  83.1   0.0     37,44 mdunraidd0\n  22308 root      20   0 6204504 169488  13756 S  16.6   0.3     12,58 dockerd\n4024305 root      20   0    6632   5120   2980 R  16.6   0.0   0:00.07 top\n  17469 root      20   0       0      0      0 D  12.5   0.0 278:48.26 mdrecoveryd\n3042430 root      20   0  189324  15764   4776 R  12.5   0.0  60:01.10 apps.plugin\n  21364 root      20   0  773556 273232   1604 S   8.3   0.4    6d+23h shfs\n     95 root      rt   0       0      0      0 S   4.2   0.0   0:18.58 migration/13\n   3633 root      20   0   86084   7968   4140 S   4.2   0.0   1:05.51 winbindd\n",
+    "oxygenBeforeW4": "2026-10-04T04:25:25Z\n 15:25:25 up 4 days, 27 min,  3 users,  load average: 0.68, 0.87, 0.69\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   731758592 13805187072    55087104  2627219456 16043589632\nSwap:     8589930496           0  8589930496\nFilesystem                    1B-blocks         Used    Available Use% Mounted on\n/dev/mapper/oxygen--vg-srv 399603867648 210423603200 172549173248  55% /srv\n",
+    "carbonBetweenW4W6": "2026-10-04T04:36:57Z\n 15:36:57 up 15 days, 12:50,  1 user,  load average: 6.65, 7.08, 7.08\ntop - 15:36:57 up 15 days, 12:50,  1 user,  load average: 6.65, 7.08, 7.08\nTasks: 824 total, 4 running, 820 sleep, 0 d-sleep, 0 stopped, 0 zombie\n%Cpu(s): 10.1 us, 14.3 sy,  0.0 ni, 74.7 id,  0.5 wa,  0.0 hi,  0.5 si,  0.0 st \nMiB Mem :  64224.8 total,   3415.8 free,  44734.0 used,  31181.6 buff/cache     \nMiB Swap:      0.0 total,      0.0 free,      0.0 used.  19490.9 avail Mem \n\n    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n1013091 nobody    20   0 1979836 651508  11356 S 102.4   1.0     43,30 qbittorrent-nox\n4038043 nobody    20   0  432976 134428  13072 R 102.4   0.2   3:53.60 Plex Transcoder\n  20370 root      20   0       0      0      0 R  68.3   0.0     37,53 mdunraidd0\n3042430 root      20   0  189324  15752   4760 S  25.6   0.0  61:18.98 apps.plugin\n3041237 201       20   0 1147768 182524  16120 S  21.3   0.3  43:11.18 netdata\n4044671 root      20   0    6632   4900   2772 R  12.8   0.0   0:00.06 top\n  17469 root      20   0       0      0      0 R   8.5   0.0 280:04.59 mdrecoveryd\n  20375 root      20   0       0      0      0 S   4.3   0.0 190:42.27 mdunraidd5\n  21364 root      20   0  773556 273232   1604 S   4.3   0.4    6d+23h shfs\n1821379 root      20   0       0      0      0 S   4.3   0.0  49:44.40 napi/wg0-0\n3981851 root      20   0       0      0      0 I   4.3   0.0   0:35.28 kworker/14:4-wg-crypt-wg0\n",
+    "oxygenBeforeW6": "2026-10-04T04:38:40Z\n 15:38:40 up 4 days, 41 min,  3 users,  load average: 0.36, 0.59, 0.67\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   727588864 13696180224    55128064  2742128640 16047759360\nSwap:     8589930496           0  8589930496\nFilesystem                    1B-blocks         Used    Available Use% Mounted on\n/dev/mapper/oxygen--vg-srv 399603867648 210534416384 172438360064  55% /srv\n",
+    "oxygenAfterW6": "2026-10-04T04:49:19Z\n 15:49:19 up 4 days, 51 min,  3 users,  load average: 0.55, 0.60, 0.65\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   761245696 13592817664    55128064  2812862464 16014102528\nSwap:     8589930496           0  8589930496\n2a97dad2a54ddebec095dc4b55c108053d03634af34340dbf58b3bd9aaea481c  /srv/tablebases/codex-slither-worker-comparison-8e7113a/p1-w6/loaded-window.json\n",
+    "carbonBetweenW6W5": "2026-10-04T04:50:06Z\n 15:50:06 up 15 days, 13:03,  1 user,  load average: 6.79, 7.42, 7.24\ntop - 15:50:06 up 15 days, 13:03,  1 user,  load average: 6.79, 7.42, 7.24\nTasks: 832 total, 3 running, 825 sleep, 1 d-sleep, 0 stopped, 3 zombie\n%Cpu(s): 10.5 us, 14.7 sy,  0.0 ni, 71.4 id,  2.2 wa,  0.0 hi,  1.2 si,  0.0 st \nMiB Mem :  64224.8 total,   2995.4 free,  44566.0 used,  31770.5 buff/cache     \nMiB Swap:      0.0 total,      0.0 free,      0.0 used.  19658.8 avail Mem \n\n    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n4038043 nobody    20   0  433068 132760  11364 R 103.0   0.2  17:22.06 Plex Transcoder\n1013091 nobody    20   0 1979836 651504  11352 S  98.7   1.0     43,43 qbittorrent-nox\n  20370 root      20   0       0      0      0 R  81.5   0.0     38,03 mdunraidd0\n3042430 root      20   0  189324  15728   4736 S  34.3   0.0  62:50.95 apps.plugin\n3041237 201       20   0 1161852 188396  22092 S  17.2   0.3  44:14.93 netdata\n  17469 root      20   0       0      0      0 D  12.9   0.0 281:31.35 mdrecoveryd\n4067682 root      20   0    6632   5156   3028 R  12.9   0.0   0:00.06 top\n  21364 root      20   0  773556 273232   1604 S   4.3   0.4    6d+23h shfs\n 343027 root      20   0   16.7g  13.8g  13708 S   4.3  22.0     16,41 qemu-system-x86\n1821379 root      20   0       0      0      0 S   4.3   0.0  50:16.90 napi/wg0-0\n3042456 root      20   0  170744   5412   4188 S   4.3   0.0   1:39.25 debugfs.plugin\n",
+    "oxygenBeforeW5": "2026-10-04T04:51:43Z\n 15:51:43 up 4 days, 54 min,  3 users,  load average: 0.91, 0.64, 0.65\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   719212544 13621989376    55136256  2825863168 16056135680\nSwap:     8589930496           0  8589930496\nFilesystem                    1B-blocks         Used    Available Use% Mounted on\n/dev/mapper/oxygen--vg-srv 399603867648 210615463936 172357312512  55% /srv\n",
+    "oxygenAfterW5": "2026-10-04T05:02:22Z\n 16:02:22 up 4 days,  1:04,  3 users,  load average: 0.95, 0.71, 0.66\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   787902464 13483548672    55128064  2896609280 15987445760\nSwap:     8589930496           0  8589930496\nFilesystem                    1B-blocks         Used    Available Use% Mounted on\n/dev/mapper/oxygen--vg-srv 399603867648 210683781120 172288995328  56% /srv\n1957e9bd125cc9d284322cba29a5a1785104ec1177d8df5b0be703723d62e324  /srv/tablebases/codex-slither-worker-comparison-8e7113a/p1-w5/loaded-window.json\n",
+    "carbonAfterW5": "2026-10-04T05:03:21Z\n 16:03:21 up 15 days, 13:17,  1 user,  load average: 4.68, 5.96, 6.68\ntop - 16:03:22 up 15 days, 13:17,  1 user,  load average: 4.68, 5.96, 6.68\nTasks: 821 total, 5 running, 815 sleep, 1 d-sleep, 0 stopped, 0 zombie\n%Cpu(s):  9.8 us, 14.1 sy,  0.0 ni, 72.4 id,  2.9 wa,  0.0 hi,  0.7 si,  0.0 st \nMiB Mem :  64224.8 total,   2773.3 free,  44915.0 used,  31883.9 buff/cache     \nMiB Swap:      0.0 total,      0.0 free,      0.0 used.  19309.8 avail Mem \n\n    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n1013091 nobody    20   0 1979836 651504  11352 S 102.3   1.0     43,57 qbittorrent-nox\n4081382 nobody    20   0  738908 179556  13084 R 102.3   0.3   5:27.39 Plex Transcoder\n  20370 root      20   0       0      0      0 R  68.2   0.0     38,13 mdunraidd0\n3042430 root      20   0  189324  15728   4736 R  17.0   0.0  64:13.68 apps.plugin\n  17469 root      20   0       0      0      0 D  12.8   0.0 282:56.94 mdrecoveryd\n4090853 root      20   0    6632   4912   2772 R  12.8   0.0   0:00.06 top\n  22308 root      20   0 6204504 169260  13640 S   8.5   0.3     13,00 dockerd\n3041237 201       20   0 1163124 191912  23192 S   8.5   0.3  45:18.06 netdata\n   3633 root      20   0   86084   7944   4116 S   4.3   0.0   1:05.64 winbindd\n  21364 root      20   0  773556 273232   1604 S   4.3   0.4    6d+23h shfs\n  21602 root      20   0 1358512 112200  26848 S   4.3   0.2 185:27.37 tailscaled\n"
+  },
+  "lifecycle": {
+    "trainerPlayerServerExitCodes": {
+      "w4": [
+        0,
+        0,
+        0
+      ],
+      "w5": [
+        0,
+        0,
+        0
+      ],
+      "w6": [
+        0,
+        0,
+        0
+      ]
+    },
+    "reportDigestsMatchedBeforeCleanup": true,
+    "outsideMeasurementShutdownDiagnostics": "Six-worker shutdown logged two reliable sends to already-closed trainer sockets; five-worker shutdown logged one ECONNRESET. The retained measured windows have zero reliable-send failure deltas. Shutdown messages are not silently recategorized as in-window delivery proof."
+  },
+  "interpretation": "Four workers fail with 1.708% above the 16.667-ms step threshold and 123667 discarded microseconds. Five and six pass these windows with 0.911% and 0.855% respectively. Six has a lower p95 upper bucket (12 versus 16 ms) but no wider p99 bucket margin. Previous five-worker misses remain valid. Select six for the next checkpoint/archive overlap and later-generation acceptance measurements; retain existing production defaults until those broader gates justify a change."
+}

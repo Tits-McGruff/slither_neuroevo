@@ -1,0 +1,604 @@
+{
+  "file": "slither-neuroevo-369b7d8942ce-gen-30-v1.slither-save",
+  "archiveBytes": 113978368,
+  "archiveSha256": "56c035f632c195e2c53a6cd44a1a288bc129cc1d813cb094c514fd572519761c",
+  "independentTarReader": "Python 3.14 tarfile, regular entries, bounded reads and per-entry stored hashes",
+  "entries": [
+    {
+      "name": "checkpoint.bin",
+      "bytes": 6016,
+      "storedSha256": "b86bc56570e8af9c1f26c2fca7bd91e0d88ccb68f81593ec5d22aef9dd8b7314"
+    },
+    {
+      "name": "graph.bin",
+      "bytes": 1519,
+      "storedSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121"
+    },
+    {
+      "name": "population/index.bin",
+      "bytes": 5760,
+      "storedSha256": "9fe524e52bc3f8c05a3703890feffa7436bf94d7138fb273ffdeefe009778862"
+    },
+    {
+      "name": "population/weights.f32le.shuf4.zst",
+      "bytes": 74620584,
+      "storedSha256": "28851ee306df7bf67a8e368311398373fb21a5a9f4a2f8f670f3aba7ebf55247"
+    },
+    {
+      "name": "population/recurrent.f32le.shuf4.zst",
+      "bytes": 31,
+      "storedSha256": "2f349c29dab67bcc2cc495871e3792f5598e3f7a308d6c62d584bfb431bb91f5"
+    },
+    {
+      "name": "history.bin",
+      "bytes": 1624,
+      "storedSha256": "fbacfb5150f6a6d2a7ea0e3bf6b6298729dbde262ed238cb40901887938221f0"
+    },
+    {
+      "name": "hof/index.bin",
+      "bytes": 3480,
+      "storedSha256": "ecb2ea9a365a99726f6fc65ebe95632050393d893005f1ecead1fc9f955aba82"
+    },
+    {
+      "name": "hof/weights.f32le.shuf4.zst",
+      "bytes": 39324750,
+      "storedSha256": "f08b6169a0a547d5a90f7f86046add60b9dbc717d2c10e6d7c67d1c383f0c7b0"
+    },
+    {
+      "name": "manifest.json",
+      "bytes": 6508,
+      "storedSha256": "8621e10270af91efe34b5c052fea2e9c71d0623cf1e8e19d14f9d299db709299"
+    }
+  ],
+  "validatedRoles": [
+    {
+      "role": "checkpoint",
+      "decodedBytes": 6016,
+      "logicalSha256": "b86bc56570e8af9c1f26c2fca7bd91e0d88ccb68f81593ec5d22aef9dd8b7314"
+    },
+    {
+      "role": "graph",
+      "decodedBytes": 1519,
+      "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121"
+    },
+    {
+      "role": "population-index",
+      "decodedBytes": 5760,
+      "logicalSha256": "9fe524e52bc3f8c05a3703890feffa7436bf94d7138fb273ffdeefe009778862"
+    },
+    {
+      "role": "population-weights",
+      "decodedBytes": 88641080,
+      "logicalSha256": "063b1c4c60e8108c90ffaaee4523d22058e37c2a298a9fe409975734e54b5c2a"
+    },
+    {
+      "role": "population-recurrent",
+      "decodedBytes": 21120,
+      "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495"
+    },
+    {
+      "role": "history",
+      "decodedBytes": 1624,
+      "logicalSha256": "fbacfb5150f6a6d2a7ea0e3bf6b6298729dbde262ed238cb40901887938221f0"
+    },
+    {
+      "role": "hall-of-fame-index",
+      "decodedBytes": 3480,
+      "logicalSha256": "ecb2ea9a365a99726f6fc65ebe95632050393d893005f1ecead1fc9f955aba82"
+    },
+    {
+      "role": "hall-of-fame-weights",
+      "decodedBytes": 46738024,
+      "logicalSha256": "24d22d349dbc7264c7177d39ff634e53bc3c0a27ce705a904e9ee9c68ef67470"
+    }
+  ],
+  "saveRootVerified": true,
+  "manifest": {
+    "magic": "slither-neuroevo-save",
+    "archiveVersion": 1,
+    "archiveKind": "exact-generation-boundary-v1",
+    "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+    "generationHex": "000000000000001e",
+    "completedStepHex": "000000000000367d",
+    "checkpointLogicalRootSha256": "369b7d8942ceff4e2cac648cca67a0acb37ec7906d1eeee177541b181f8f9cb2",
+    "logicalRootSha256": "9b530b7858b91b0246025c3d3a4e47b41692fdda8b5df826d8e738173e61077a",
+    "historyCountHex": "000000000000001d",
+    "hallOfFameCountHex": "000000000000001d",
+    "hallOfFameWeightCountHex": "0000000000b24a9a",
+    "checkpointManifest": {
+      "magic": "slither-neuroevo-checkpoint",
+      "containerVersion": 1,
+      "archiveKind": "managed-checkpoint-v3",
+      "checkpointFormatVersion": 3,
+      "stateVersion": 1,
+      "graphLayoutVersion": 1,
+      "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+      "generationHex": "000000000000001e",
+      "completedStepHex": "000000000000367d",
+      "boundaryKind": "generation",
+      "logicalRootSha256": "369b7d8942ceff4e2cac648cca67a0acb37ec7906d1eeee177541b181f8f9cb2",
+      "roles": [
+        {
+          "role": "checkpoint",
+          "path": "checkpoint.bin",
+          "encoding": "raw-binary-v1",
+          "storedBytesHex": "0000000000001780",
+          "decodedBytesHex": "0000000000001780",
+          "decodedCountHex": "0000000000000001",
+          "recordSize": 0,
+          "logicalSha256": "b86bc56570e8af9c1f26c2fca7bd91e0d88ccb68f81593ec5d22aef9dd8b7314"
+        },
+        {
+          "role": "graph",
+          "path": "graph.bin",
+          "encoding": "raw-binary-v1",
+          "storedBytesHex": "00000000000005ef",
+          "decodedBytesHex": "00000000000005ef",
+          "decodedCountHex": "0000000000000001",
+          "recordSize": 0,
+          "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121"
+        },
+        {
+          "role": "population-index",
+          "path": "population/index.bin",
+          "encoding": "raw-binary-v1",
+          "storedBytesHex": "0000000000001680",
+          "decodedBytesHex": "0000000000001680",
+          "decodedCountHex": "0000000000000037",
+          "recordSize": 104,
+          "logicalSha256": "9fe524e52bc3f8c05a3703890feffa7436bf94d7138fb273ffdeefe009778862"
+        },
+        {
+          "role": "population-weights",
+          "path": "population/weights.f32le.shuf4.zst",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytesHex": "0000000004729ea8",
+          "decodedBytesHex": "0000000005488e38",
+          "decodedCountHex": "000000000152238e",
+          "recordSize": 4,
+          "logicalSha256": "063b1c4c60e8108c90ffaaee4523d22058e37c2a298a9fe409975734e54b5c2a"
+        },
+        {
+          "role": "population-recurrent",
+          "path": "population/recurrent.f32le.shuf4.zst",
+          "encoding": "f32le-shuffle4-zstd-v1",
+          "storedBytesHex": "000000000000001f",
+          "decodedBytesHex": "0000000000005280",
+          "decodedCountHex": "00000000000014a0",
+          "recordSize": 4,
+          "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495"
+        }
+      ],
+      "roleStoredBytesHex": "000000000472d2b6",
+      "roleDecodedBytesHex": "00000000054914a7",
+      "populationCountHex": "0000000000000037",
+      "weightFloatCountHex": "000000000152238e",
+      "recurrentFloatCountHex": "00000000000014a0",
+      "weightsEncoding": "f32le-shuffle4-zstd-v1",
+      "recurrentEncoding": "f32le-shuffle4-zstd-v1",
+      "graphArchitectureKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000004000000000000000500000000000000696e7075740093000000000000009300000000000000010000000000000093000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000666561747572657302930000000000000000010000000000000100000000000000000100000000000004000000000000000001000000000000000100000000000000010000000000000001000000000000000000000000000000009804000000000000000000000000000001000000000000000500000000000000696e7075740000000000000000000000000000000006000000000000006d656d6f727903000100000000000060000000000000000100000000000000600000000000000000000000000000000160000000000000000098040000000000208d01000000000001000000000000000060000000000000000100000000000000080000000000000066656174757265730000000000000000000000000000000006000000000000006f75747075740160000000000000000200000000000000010000000000000002000000000000000000000000000000002025060000000000c200000000000000000000000000000000010000000000000006000000000000006d656d6f727900000000000000000000000000000000010000000000000006000000000000006f75747075740000000000000000e22506000000000060000000000000000200000000000000",
+      "graphLayoutSha256": "cfea1501a6bd543555cdae468bd7391956b4ac1590967a11d406eb967778630b",
+      "writeValidationPolicy": "write-hash-count-fsync-rename-v1"
+    },
+    "roles": [
+      {
+        "role": "checkpoint",
+        "path": "checkpoint.bin",
+        "encoding": "raw-binary-v1",
+        "storedBytesHex": "0000000000001780",
+        "decodedBytesHex": "0000000000001780",
+        "decodedCountHex": "0000000000000001",
+        "recordSize": 0,
+        "logicalSha256": "b86bc56570e8af9c1f26c2fca7bd91e0d88ccb68f81593ec5d22aef9dd8b7314"
+      },
+      {
+        "role": "graph",
+        "path": "graph.bin",
+        "encoding": "raw-binary-v1",
+        "storedBytesHex": "00000000000005ef",
+        "decodedBytesHex": "00000000000005ef",
+        "decodedCountHex": "0000000000000001",
+        "recordSize": 0,
+        "logicalSha256": "05e77259e898acd0cc6e5a10f8731180db1ae1fa297d5d8e65abc163f4335121"
+      },
+      {
+        "role": "population-index",
+        "path": "population/index.bin",
+        "encoding": "raw-binary-v1",
+        "storedBytesHex": "0000000000001680",
+        "decodedBytesHex": "0000000000001680",
+        "decodedCountHex": "0000000000000037",
+        "recordSize": 104,
+        "logicalSha256": "9fe524e52bc3f8c05a3703890feffa7436bf94d7138fb273ffdeefe009778862"
+      },
+      {
+        "role": "population-weights",
+        "path": "population/weights.f32le.shuf4.zst",
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "storedBytesHex": "0000000004729ea8",
+        "decodedBytesHex": "0000000005488e38",
+        "decodedCountHex": "000000000152238e",
+        "recordSize": 4,
+        "logicalSha256": "063b1c4c60e8108c90ffaaee4523d22058e37c2a298a9fe409975734e54b5c2a"
+      },
+      {
+        "role": "population-recurrent",
+        "path": "population/recurrent.f32le.shuf4.zst",
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "storedBytesHex": "000000000000001f",
+        "decodedBytesHex": "0000000000005280",
+        "decodedCountHex": "00000000000014a0",
+        "recordSize": 4,
+        "logicalSha256": "fcb99a526c4ae037ad3248525f4245e1580911672c650839de9ebbc64ed68495"
+      },
+      {
+        "role": "history",
+        "path": "history.bin",
+        "encoding": "raw-history-v1",
+        "storedBytesHex": "0000000000000658",
+        "decodedBytesHex": "0000000000000658",
+        "decodedCountHex": "000000000000001d",
+        "recordSize": 56,
+        "logicalSha256": "fbacfb5150f6a6d2a7ea0e3bf6b6298729dbde262ed238cb40901887938221f0"
+      },
+      {
+        "role": "hall-of-fame-index",
+        "path": "hof/index.bin",
+        "encoding": "raw-hof-index-v1",
+        "storedBytesHex": "0000000000000d98",
+        "decodedBytesHex": "0000000000000d98",
+        "decodedCountHex": "000000000000001d",
+        "recordSize": 120,
+        "logicalSha256": "ecb2ea9a365a99726f6fc65ebe95632050393d893005f1ecead1fc9f955aba82"
+      },
+      {
+        "role": "hall-of-fame-weights",
+        "path": "hof/weights.f32le.shuf4.zst",
+        "encoding": "f32le-shuffle4-zstd-v1",
+        "storedBytesHex": "0000000002580c4e",
+        "decodedBytesHex": "0000000002c92a68",
+        "decodedCountHex": "0000000000b24a9a",
+        "recordSize": 4,
+        "logicalSha256": "24d22d349dbc7264c7177d39ff634e53bc3c0a27ce705a904e9ee9c68ef67470"
+      }
+    ]
+  },
+  "sourceRevision": "9b59a0c2ff1161114434e857a5b14c8dbc68b97b",
+  "checkpointRootVerified": true,
+  "oneOriginalRequestVerified": true,
+  "requestBindingVerified": true,
+  "simulationSpeedDuringDownload": 1,
+  "transportEvents": [
+    {
+      "at": "2026-10-03T12:19:58.185Z",
+      "phase": "filesystem",
+      "freeBytes": "242164400128"
+    },
+    {
+      "at": "2026-10-03T12:19:59.422Z",
+      "phase": "fixture-import",
+      "receipt": {
+        "ok": true,
+        "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+        "generation": "000000000000000d",
+        "completedStep": "000000000000168c",
+        "checkpointId": "113748aa4ff85c00ee660be5470c6cab90a35d3b1420e7bf1c8a661206b66bbf",
+        "saveLogicalRootSha256": "84a9ff6c5d37f6f14e6ef47888d89bfc00fa2f44cdc4770d42415b4fca704d71",
+        "branched": false
+      }
+    },
+    {
+      "at": "2026-10-03T12:21:00.951Z",
+      "phase": "request",
+      "requestId": 1,
+      "method": "GET",
+      "url": "/api/export/latest",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "range": null,
+      "ifRange": null,
+      "accept": null,
+      "fetchDestination": "empty",
+      "fetchMode": "navigate",
+      "fetchSite": "same-origin"
+    },
+    {
+      "at": "2026-10-03T12:21:00.968Z",
+      "phase": "selected",
+      "operationId": "5127cb162f18048608defc0ea6b90b46",
+      "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+      "generation": "000000000000001e",
+      "completedStep": "000000000000367d",
+      "checkpointId": "369b7d8942ceff4e2cac648cca67a0acb37ec7906d1eeee177541b181f8f9cb2"
+    },
+    {
+      "at": "2026-10-03T12:21:02.660Z",
+      "phase": "advanced-before-preparation",
+      "operationId": "5127cb162f18048608defc0ea6b90b46",
+      "generation": "000000000000001f",
+      "selectedGeneration": "000000000000001e"
+    },
+    {
+      "at": "2026-10-03T12:21:04.183Z",
+      "phase": "headers",
+      "requestId": 1,
+      "arguments": [
+        200,
+        {
+          "Content-Type": "application/vnd.slither-neuroevo.save",
+          "Content-Length": "113978368",
+          "Content-Disposition": "attachment; filename=\"slither-neuroevo-369b7d8942ce-gen-30-v1.slither-save\"",
+          "X-Slither-Checkpoint-Id": "369b7d8942ceff4e2cac648cca67a0acb37ec7906d1eeee177541b181f8f9cb2",
+          "X-Slither-Save-Root": "9b530b7858b91b0246025c3d3a4e47b41692fdda8b5df826d8e738173e61077a"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-03T12:21:05.250Z",
+      "phase": "finish",
+      "requestId": 1,
+      "bodyBytes": 113978368,
+      "bodySha256": "56c035f632c195e2c53a6cd44a1a288bc129cc1d813cb094c514fd572519761c"
+    },
+    {
+      "at": "2026-10-03T12:21:05.250Z",
+      "phase": "close",
+      "requestId": 1,
+      "finished": true
+    },
+    {
+      "at": "2026-10-03T12:21:54.571Z",
+      "phase": "stopping",
+      "reason": "stop marker"
+    },
+    {
+      "at": "2026-10-03T12:21:54.621Z",
+      "phase": "stopped",
+      "reason": "stop marker"
+    }
+  ],
+  "fixture": {
+    "scenario": "P2",
+    "freeBytes": "238887378944",
+    "snakeCount": 55,
+    "parameterCount": 402914,
+    "rustWorkers": 6,
+    "generationSeconds": 8,
+    "fresh": {
+      "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+      "checkpointId": "257404fb180c7b6c71941b39778cb9c221f64c7860e6c4a404f3d6cc18a9f2e8",
+      "generation": "0000000000000001",
+      "bytes": 74514432,
+      "exportWallMs": 940.8487000000001,
+      "saveRoot": "32c80fa8d57360b75ece21bbf5a5afefa9687825b124d2524c41b74f5fc29eef"
+    },
+    "evolved": {
+      "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+      "checkpointId": "113748aa4ff85c00ee660be5470c6cab90a35d3b1420e7bf1c8a661206b66bbf",
+      "generation": "000000000000000d",
+      "bytes": 90862592,
+      "exportWallMs": 1254.3552000000054,
+      "saveRoot": "84a9ff6c5d37f6f14e6ef47888d89bfc00fa2f44cdc4770d42415b4fca704d71"
+    },
+    "wallSeconds": 39.4589208,
+    "scope": "Unchanged production Rust physics, sensors, inference, evolution and HTTP export; accelerated rate only. Export wall time is not isolated Rust codec timing."
+  },
+  "scope": "P2 large ordinary in-app download through the actual UI and production server; no claim of complete A1, memory, GC, private-process memory or usability gates.",
+  "standaloneProbe": {
+    "bytes": 54525952,
+    "plainClick": {
+      "requests": 1,
+      "completed": false,
+      "closeAfterHeadersMs": 7
+    },
+    "armedBinHelper": {
+      "requests": 1,
+      "completed": true,
+      "savedSha256": "0f79e5a747c25c368b7bc8a162a5c900f66a866846895d759a54cd889f3e6b11"
+    },
+    "armedSaveHelper": {
+      "requests": 1,
+      "completed": true,
+      "savedSha256": "9d990b5d6e2730b76949540b26483b452185c69245576c358acd2249673eddfd"
+    },
+    "unresolved": "Earlier real 12x attempt produced no download event and closed unfinished at the 60-second transfer deadline; its cause is unproven. Plain-click handling differs from armed helper handling.",
+    "transportEvents": [
+      {
+        "at": "2026-10-03T11:39:59.714Z",
+        "phase": "request",
+        "requestId": 1,
+        "filename": "request-1.bin",
+        "expectedBytes": 54525952,
+        "expectedSha256": "9d990b5d6e2730b76949540b26483b452185c69245576c358acd2249673eddfd",
+        "headers": {
+          "host": "127.0.0.1:5192",
+          "connection": "keep-alive",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-dest": "empty",
+          "referer": "http://127.0.0.1:5192/",
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+          "accept-encoding": "gzip, deflate, br, zstd",
+          "accept-language": "en-GB,en;q=0.9"
+        }
+      },
+      {
+        "at": "2026-10-03T11:39:59.714Z",
+        "phase": "headers",
+        "requestId": 1,
+        "filename": "request-1.bin"
+      },
+      {
+        "at": "2026-10-03T11:39:59.721Z",
+        "phase": "close",
+        "requestId": 1,
+        "finished": false,
+        "writtenBytes": 6291456
+      },
+      {
+        "at": "2026-10-03T11:39:59.722Z",
+        "phase": "transferError",
+        "requestId": 1,
+        "message": "Premature close"
+      },
+      {
+        "at": "2026-10-03T11:40:11.780Z",
+        "phase": "request",
+        "requestId": 2,
+        "filename": "request-2.bin",
+        "expectedBytes": 54525952,
+        "expectedSha256": "0f79e5a747c25c368b7bc8a162a5c900f66a866846895d759a54cd889f3e6b11",
+        "headers": {
+          "host": "127.0.0.1:5192",
+          "connection": "keep-alive",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-dest": "empty",
+          "referer": "http://127.0.0.1:5192/",
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+          "accept-encoding": "gzip, deflate, br, zstd",
+          "accept-language": "en-GB,en;q=0.9"
+        }
+      },
+      {
+        "at": "2026-10-03T11:40:11.780Z",
+        "phase": "headers",
+        "requestId": 2,
+        "filename": "request-2.bin"
+      },
+      {
+        "at": "2026-10-03T11:40:18.919Z",
+        "phase": "finish",
+        "requestId": 2,
+        "writtenBytes": 54525952,
+        "writtenSha256": "0f79e5a747c25c368b7bc8a162a5c900f66a866846895d759a54cd889f3e6b11"
+      },
+      {
+        "at": "2026-10-03T11:40:18.919Z",
+        "phase": "close",
+        "requestId": 2,
+        "finished": true,
+        "writtenBytes": 54525952
+      },
+      {
+        "at": "2026-10-03T11:41:07.749Z",
+        "phase": "stopped",
+        "requestNumber": 2
+      },
+      {
+        "at": "2026-10-03T12:18:36.405Z",
+        "phase": "request",
+        "requestId": 1,
+        "filename": "synthetic-request-1.slither-save",
+        "expectedBytes": 54525952,
+        "expectedSha256": "9d990b5d6e2730b76949540b26483b452185c69245576c358acd2249673eddfd",
+        "headers": {
+          "host": "127.0.0.1:5192",
+          "connection": "keep-alive",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-dest": "empty",
+          "referer": "http://127.0.0.1:5192/",
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+          "accept-encoding": "gzip, deflate, br, zstd",
+          "accept-language": "en-GB,en;q=0.9"
+        }
+      },
+      {
+        "at": "2026-10-03T12:18:36.406Z",
+        "phase": "headers",
+        "requestId": 1,
+        "filename": "synthetic-request-1.slither-save"
+      },
+      {
+        "at": "2026-10-03T12:18:36.895Z",
+        "phase": "finish",
+        "requestId": 1,
+        "generatedBytes": 54525952,
+        "generatedSha256": "9d990b5d6e2730b76949540b26483b452185c69245576c358acd2249673eddfd"
+      },
+      {
+        "at": "2026-10-03T12:18:36.895Z",
+        "phase": "close",
+        "requestId": 1,
+        "finished": true,
+        "generatedBytes": 54525952
+      },
+      {
+        "at": "2026-10-03T12:19:59.609Z",
+        "phase": "stopped",
+        "requestNumber": 1
+      }
+    ]
+  },
+  "intermittentTransportEvents": [
+    {
+      "at": "2026-10-03T11:43:28.385Z",
+      "phase": "filesystem",
+      "freeBytes": "243728195584"
+    },
+    {
+      "at": "2026-10-03T11:43:29.588Z",
+      "phase": "fixture-import",
+      "receipt": {
+        "ok": true,
+        "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+        "generation": "000000000000000d",
+        "completedStep": "000000000000168c",
+        "checkpointId": "113748aa4ff85c00ee660be5470c6cab90a35d3b1420e7bf1c8a661206b66bbf",
+        "saveLogicalRootSha256": "84a9ff6c5d37f6f14e6ef47888d89bfc00fa2f44cdc4770d42415b4fca704d71",
+        "branched": false
+      }
+    },
+    {
+      "at": "2026-10-03T11:44:05.411Z",
+      "phase": "request",
+      "requestId": 1,
+      "method": "GET",
+      "url": "/api/export/latest",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+      "range": null,
+      "ifRange": null,
+      "accept": null,
+      "fetchDestination": "empty",
+      "fetchMode": "navigate",
+      "fetchSite": "same-origin"
+    },
+    {
+      "at": "2026-10-03T11:44:05.431Z",
+      "phase": "selected",
+      "operationId": "0e29279b997eecbb40f697c9587d6055",
+      "runId": "bc411f43-29bf-4a7b-ac1b-43d4722b9e49",
+      "generation": "0000000000000018",
+      "completedStep": "0000000000002b37",
+      "checkpointId": "a6f7d6fd1cdf1e992da6d730d0195930d4108db3808d9852136e11d2e0bdee1a"
+    },
+    {
+      "at": "2026-10-03T11:44:07.279Z",
+      "phase": "advanced-before-preparation",
+      "operationId": "0e29279b997eecbb40f697c9587d6055",
+      "generation": "0000000000000019",
+      "selectedGeneration": "0000000000000018"
+    },
+    {
+      "at": "2026-10-03T11:44:08.835Z",
+      "phase": "headers",
+      "requestId": 1,
+      "arguments": [
+        200,
+        {
+          "Content-Type": "application/vnd.slither-neuroevo.save",
+          "Content-Length": "105818112",
+          "Content-Disposition": "attachment; filename=\"slither-neuroevo-a6f7d6fd1cdf-gen-24-v1.slither-save\"",
+          "X-Slither-Checkpoint-Id": "a6f7d6fd1cdf1e992da6d730d0195930d4108db3808d9852136e11d2e0bdee1a",
+          "X-Slither-Save-Root": "ee7a27e235e3a4983ab7ef524e59f51a797125ac839f490b7259d77f382aced6"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-03T11:45:08.859Z",
+      "phase": "close",
+      "requestId": 1,
+      "finished": false
+    }
+  ]
+}

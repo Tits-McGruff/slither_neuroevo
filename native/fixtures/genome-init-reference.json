@@ -1,0 +1,301 @@
+{
+  "evidenceKind": "current-source execution",
+  "sourceRevision": "258ac69e80df411fa724ad16f1b2cb19e1ae210c",
+  "command": "node .\\node_modules\\tsx\\dist\\cli.mjs scripts\\stage5\\generate-genome-init-fixture.ts",
+  "seed": "0x12345678",
+  "biases": {
+    "gruInitUpdateBias": -0.55,
+    "lstmInitForgetBias": 0.75,
+    "rruInitGateBias": 0.2
+  },
+  "graph": {
+    "type": "graph",
+    "nodes": [
+      {
+        "id": "input",
+        "type": "Input",
+        "outputSize": 4
+      },
+      {
+        "id": "split",
+        "type": "Split",
+        "outputSizes": [
+          2,
+          2
+        ]
+      },
+      {
+        "id": "concat",
+        "type": "Concat"
+      },
+      {
+        "id": "mlp",
+        "type": "MLP",
+        "inputSize": 4,
+        "hiddenSizes": [
+          3
+        ],
+        "outputSize": 3
+      },
+      {
+        "id": "gru",
+        "type": "GRU",
+        "inputSize": 3,
+        "hiddenSize": 2
+      },
+      {
+        "id": "lstm",
+        "type": "LSTM",
+        "inputSize": 2,
+        "hiddenSize": 2
+      },
+      {
+        "id": "rru",
+        "type": "RRU",
+        "inputSize": 2,
+        "hiddenSize": 2
+      },
+      {
+        "id": "head",
+        "type": "Dense",
+        "inputSize": 2,
+        "outputSize": 2
+      }
+    ],
+    "edges": [
+      {
+        "from": "input",
+        "to": "split"
+      },
+      {
+        "from": "split",
+        "fromPort": 0,
+        "to": "concat",
+        "toPort": 0
+      },
+      {
+        "from": "split",
+        "fromPort": 1,
+        "to": "concat",
+        "toPort": 1
+      },
+      {
+        "from": "concat",
+        "to": "mlp"
+      },
+      {
+        "from": "mlp",
+        "to": "gru"
+      },
+      {
+        "from": "gru",
+        "to": "lstm"
+      },
+      {
+        "from": "lstm",
+        "to": "rru"
+      },
+      {
+        "from": "rru",
+        "to": "head"
+      }
+    ],
+    "outputs": [
+      {
+        "nodeId": "head"
+      }
+    ],
+    "outputSize": 2
+  },
+  "compiledNodeRanges": [
+    {
+      "id": "input",
+      "type": "Input",
+      "offset": 0,
+      "length": 0
+    },
+    {
+      "id": "split",
+      "type": "Split",
+      "offset": 0,
+      "length": 0
+    },
+    {
+      "id": "concat",
+      "type": "Concat",
+      "offset": 0,
+      "length": 0
+    },
+    {
+      "id": "mlp",
+      "type": "MLP",
+      "offset": 0,
+      "length": 27
+    },
+    {
+      "id": "gru",
+      "type": "GRU",
+      "offset": 27,
+      "length": 36
+    },
+    {
+      "id": "lstm",
+      "type": "LSTM",
+      "offset": 63,
+      "length": 40
+    },
+    {
+      "id": "rru",
+      "type": "RRU",
+      "offset": 103,
+      "length": 20
+    },
+    {
+      "id": "head",
+      "type": "Dense",
+      "offset": 123,
+      "length": 6
+    }
+  ],
+  "totalParameters": 129,
+  "weightBits": [
+    "0x3d11d399",
+    "0xbefff20e",
+    "0xbe86174e",
+    "0x3c02b3c7",
+    "0xbd976c84",
+    "0xbecf377a",
+    "0x3d3bf922",
+    "0x3ea5d43c",
+    "0x3ec85420",
+    "0xbea6567f",
+    "0xbdd5a0e0",
+    "0xbe6fb74a",
+    "0x3f15b146",
+    "0xbeb30b68",
+    "0x3d754f82",
+    "0x3f0ea003",
+    "0x3eba1d76",
+    "0x3f04b991",
+    "0x3ef90609",
+    "0xbe97c0da",
+    "0xbec667d0",
+    "0x3f00442f",
+    "0xbece71f5",
+    "0x3ebe4f30",
+    "0x3f0f8002",
+    "0x3f0c10db",
+    "0x3e541032",
+    "0x3e360d0a",
+    "0x3e952d46",
+    "0xbe0f004d",
+    "0xbe9d0d17",
+    "0x3ea80557",
+    "0x3e358535",
+    "0x3e54734b",
+    "0x3d83a9e4",
+    "0x3d88ff13",
+    "0x3c4dec3e",
+    "0x3e5dec5e",
+    "0x3e8dde47",
+    "0xbc7bdb6a",
+    "0xbd8430b1",
+    "0x3e76305b",
+    "0xbcc01986",
+    "0xbe277421",
+    "0xbe692142",
+    "0xbe0ef7a7",
+    "0xbdd98226",
+    "0xbdfb25c0",
+    "0xbd058a56",
+    "0xbe1b0cb5",
+    "0x3d046fab",
+    "0x3db2db07",
+    "0xbded4473",
+    "0xbcc3512b",
+    "0x3c0c6f0b",
+    "0x3dd2600c",
+    "0xbc349c25",
+    "0xbf0062cb",
+    "0xbf1f4a5d",
+    "0xbc891927",
+    "0x3dc8eeeb",
+    "0x3d182aa2",
+    "0x3d44f472",
+    "0xbe9f8312",
+    "0x3d3e590f",
+    "0xbd6f82b8",
+    "0xbcfad27a",
+    "0x3d617738",
+    "0xbe844845",
+    "0x3c8a7a94",
+    "0x3e8e3e2f",
+    "0x3d724bc3",
+    "0x3dc0002a",
+    "0xbb8bf7c6",
+    "0x3e97f90c",
+    "0x3d3f9969",
+    "0xbc83619f",
+    "0x3d22ac67",
+    "0x3d7b4370",
+    "0xbe175b57",
+    "0x3de261e4",
+    "0x3dc0ab27",
+    "0xbdbf49af",
+    "0x3cfe3a69",
+    "0xbced9d49",
+    "0xbd92311f",
+    "0x3e133a25",
+    "0xbd8f3565",
+    "0xbdfcb22d",
+    "0x3e1c33d8",
+    "0xbe0c9752",
+    "0xbe2a43af",
+    "0xbcb1c95a",
+    "0x3bcbe31e",
+    "0xbd95870e",
+    "0x3dc9f45e",
+    "0x3d5b9432",
+    "0x3f466af5",
+    "0x3f372f07",
+    "0x3d6ab9ed",
+    "0x3d6b0265",
+    "0xbdb655ba",
+    "0xbd76cfbb",
+    "0x3e82f25c",
+    "0xbe01cebc",
+    "0x3d9f45ac",
+    "0xbe357efb",
+    "0xbe1a9645",
+    "0xbe06c292",
+    "0xbeaf674f",
+    "0xbe1e1630",
+    "0x3c91e63b",
+    "0x3c80d81a",
+    "0x3dcd56a8",
+    "0x3d154cf8",
+    "0x3a479fa6",
+    "0xbda3394b",
+    "0xbe197b13",
+    "0x3dd044cd",
+    "0x3d64e7c5",
+    "0x3c322fe5",
+    "0x3e739ee1",
+    "0x3de7ac47",
+    "0x3e8d8290",
+    "0x3eabaecf",
+    "0xbdb8d2ea",
+    "0x3e891f2a",
+    "0x3ed62c3a",
+    "0xbe955d7a"
+  ],
+  "nextRng": {
+    "algorithm": "xorshift32",
+    "version": 1,
+    "stateHex": "0x2d04f541",
+    "gaussianAlgorithm": "box-muller-polar",
+    "gaussianVersion": 1,
+    "gaussianSpareValid": false,
+    "gaussianSpareHex": null
+  }
+}

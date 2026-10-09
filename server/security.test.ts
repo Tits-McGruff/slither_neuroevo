@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import WebSocket, { type RawData } from 'ws';
 import { startServer } from './index.ts';
 import { DEFAULT_CONFIG } from './config.ts';
+import { describeNetworkSuite } from './test/networkSuites.ts';
 
 /**
  * Parses WS text payloads into JSON objects when possible.
@@ -27,75 +28,91 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
 }
 
 /**
- * Starts the server and returns null when permissions prevent binding.
- * @returns Server handle or null when the port is unavailable.
+ * Waits for a protocol error response or policy-violation close after sending data.
+ * @param ws - WebSocket client to monitor.
+ * @param timeoutMs - Timeout in milliseconds.
+ * @param sendOnOpen - Callback that sends the test payload after open.
+ * @returns True when a protocol rejection is observed.
  */
-async function startServerWithGuard() {
-  const isEperm = (err: unknown): boolean =>
-    (err as { code?: string } | null)?.code === 'EPERM';
-  const startPromise = startServer({
-    ...DEFAULT_CONFIG,
-    port: 0,
-    logLevel: 'error'
-  }).catch((err) => {
-    if (isEperm(err)) return null;
-    throw err;
-  });
+function waitForProtocolRejection(
+  ws: WebSocket,
+  timeoutMs: number,
+  sendOnOpen: () => void
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('timeout')), timeoutMs);
 
-  let cleanup = () => { };
-  const guard = new Promise<null>((resolve) => {
-    const handler = (err: unknown) => {
-      if (isEperm(err)) {
-        resolve(null);
-        return;
-      }
-      throw err;
+    const cleanup = () => {
+      ws.off('open', onOpen);
+      ws.off('message', onMessage);
+      ws.off('close', onClose);
+      ws.off('error', onError);
     };
-    process.once('uncaughtException', handler);
-    cleanup = () => process.off('uncaughtException', handler);
+
+    const finish = (result: boolean) => {
+      clearTimeout(timeout);
+      cleanup();
+      resolve(result);
+    };
+
+    const onOpen = () => {
+      try {
+        sendOnOpen();
+      } catch (err) {
+        cleanup();
+        clearTimeout(timeout);
+        reject(err);
+      }
+    };
+
+    const onMessage = (data: RawData, isBinary: boolean) => {
+      if (isBinary) return;
+      const msg = parseJsonMessage(data);
+      if (!msg) return;
+      if (msg['type'] === 'error') {
+        finish(true);
+      }
+    };
+
+    const onClose = (code: number) => {
+      finish(code === 1008);
+    };
+
+    const onError = (err: Error) => {
+      cleanup();
+      clearTimeout(timeout);
+      reject(err);
+    };
+
+    ws.on('open', onOpen);
+    ws.on('message', onMessage);
+    ws.on('close', onClose);
+    ws.on('error', onError);
   });
-
-  let server: Awaited<ReturnType<typeof startServer>> | null = null;
-  try {
-    server = await Promise.race([startPromise, guard]);
-  } finally {
-    cleanup();
-  }
-
-  return server;
 }
 
-describe('security: invalid WS payloads', () => {
+describeNetworkSuite('security: invalid WS payloads', () => {
   it('rejects malformed JSON without crashing', async () => {
-    const server = await startServerWithGuard();
-    if (!server) return;
+    const server = await startServer({
+      ...DEFAULT_CONFIG,
+      port: 0,
+      dbPath: ':memory:',
+      resume: 'fresh',
+      inferenceBackend: 'js',
+      logLevel: 'error'
+    });
 
     const ws = new WebSocket(server.wsUrl);
     let sawError = false;
 
     try {
-      const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
-
-        ws.on('message', (data: RawData, isBinary: boolean) => {
-          if (isBinary) return;
-          const msg = parseJsonMessage(data);
-          if (!msg) return;
-          if (msg['type'] === 'error') {
-            sawError = true;
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-
-        ws.on('open', () => {
-          ws.send('{ this is not json');
-        });
+      sawError = await waitForProtocolRejection(ws, 6000, () => {
+        ws.send('{ this is not json');
       });
-
-      await result;
     } finally {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
       await server.close();
     }
 
@@ -103,36 +120,27 @@ describe('security: invalid WS payloads', () => {
   }, 20000);
 
   it('rejects player join without name', async () => {
-    const server = await startServerWithGuard();
-    if (!server) return;
+    const server = await startServer({
+      ...DEFAULT_CONFIG,
+      port: 0,
+      dbPath: ':memory:',
+      resume: 'fresh',
+      inferenceBackend: 'js',
+      logLevel: 'error'
+    });
 
     const ws = new WebSocket(server.wsUrl);
     let sawError = false;
 
     try {
-      const result = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('timeout')), 4000);
-
-        ws.on('message', (data: RawData, isBinary: boolean) => {
-          if (isBinary) return;
-          const msg = parseJsonMessage(data);
-          if (!msg) return;
-          if (msg['type'] === 'error') {
-            sawError = true;
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-
-        ws.on('open', () => {
-          ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
-          ws.send(JSON.stringify({ type: 'join', mode: 'player', name: '' }));
-        });
+      sawError = await waitForProtocolRejection(ws, 6000, () => {
+        ws.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 2 }));
+        ws.send(JSON.stringify({ type: 'join', mode: 'player', name: '' }));
       });
-
-      await result;
     } finally {
-      ws.close();
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
       await server.close();
     }
 

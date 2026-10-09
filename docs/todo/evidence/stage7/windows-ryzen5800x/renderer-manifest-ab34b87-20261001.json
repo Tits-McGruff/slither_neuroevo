@@ -1,0 +1,13 @@
+{
+  "report": {
+    "file": "renderer-overview-ab34b87-20261001.json",
+    "sha256": "f1404a472132bcb667614071d84814afb9f998ccb9530ca800d945347ac44efe"
+  },
+  "renderer": {
+    "baselineGitBlob": "e063070ae9f5a9f9b13a591833243b5a7b4e360e",
+    "candidateGitBlob": "d3ca88fbd41942a3e2e64f6ed9444712a14c8eca",
+    "denseOverviewAndCurveTrialGitBlob": "c48c363cebe6e51bf423e8bb6ce59b29b91713cf",
+    "difference": "Dense overview and curve trial precede only the geometric scratch-capacity allocation change. The final ordinary comparison and full-minute follow window use candidateGitBlob. That allocation change preserves selected points and output geometry."
+  },
+  "scope": "Paired ordinary/dense drawing diagnostics and complete foreground desktop follow/overview windows. Physical laptop/LAN, archive heap and final acceptance remain open."
+}

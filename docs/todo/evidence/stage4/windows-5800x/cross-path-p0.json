@@ -1,0 +1,114 @@
+{
+  "schema": "slither-stage4-inference-cross-path-comparison",
+  "version": 1,
+  "scenario": "P0",
+  "fixture": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic numeric data",
+    "scenario": "P0",
+    "description": "55 differently weighted synthetic population brains, v3/16-bin input shape, 64/64 MLP, GRU-16, Dense-2",
+    "populationCount": 55,
+    "inputSize": 83,
+    "totalParametersPerBrain": 13458,
+    "recurrentFloatsPerBrain": 16,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "ced9f12f73d0925efd0d75a872e818a878fb838b552c5daa60e3566a4c64e4b6",
+    "weightsSha256": "5d08fee2550b4c438e96608fac993845967fb5c5edc2e5ac09a40ea23cd18d69",
+    "observationsSha256": "c10e2266960c4ba346855f4114d80c27f25970eb46a30cc948de0d6f886aeb5b",
+    "initialRecurrentSha256": "686f728d7c1057e652ae0f69b359ddc2d4318885cfcedde08477b775049fecd1",
+    "packedWeightBytes": 2960760,
+    "observationBytes": 18260,
+    "recurrentBytes": 3520,
+    "stagingBytes": 3960,
+    "scratchBytes": 1044,
+    "warmupPasses": 20,
+    "measuredPasses": 120,
+    "actualFreshOrEvolvedGenomes": false,
+    "actualDeliveredSensorObservations": false
+  },
+  "sources": {
+    "rust-scalar-p0.json": "21559dae5a0b3e51e295b52cd2dfcc9cef2a9ef83bcce1b6875e437b4ce0d535",
+    "typescript-js-p0.json": "06199a6f38ac91a41428b39cb168d7f5b73cd8183a91bc39b0790591c26db0e5",
+    "typescript-count-one-native-p0.json": "1326ded5588b08eb6e2f39d48887e15318ca21bd05519dbd9fa75dfc0baf7cff"
+  },
+  "comparisons": {
+    "rustVsJs": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 7.450580596923828e-9,
+        "maxDifferenceIndex": 45,
+        "leftValueAtMax": -0.06979367882013321,
+        "rightValueAtMax": -0.06979367136955261,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 880,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 628,
+        "leftValueAtMax": 0.04441772401332855,
+        "rightValueAtMax": 0.04441770911216736,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustVsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 7.450580596923828e-9,
+        "maxDifferenceIndex": 45,
+        "leftValueAtMax": -0.06979367882013321,
+        "rightValueAtMax": -0.06979367136955261,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 880,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 74,
+        "leftValueAtMax": -0.06928328424692154,
+        "rightValueAtMax": -0.06928329914808273,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "jsVsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 7.450580596923828e-9,
+        "maxDifferenceIndex": 71,
+        "leftValueAtMax": -0.06453260779380798,
+        "rightValueAtMax": -0.06453260034322739,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 880,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.4901161193847656e-8,
+        "maxDifferenceIndex": 698,
+        "leftValueAtMax": -0.06714872270822525,
+        "rightValueAtMax": -0.06714870780706406,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    }
+  },
+  "command": [
+    "C:\\Program Files\\nodejs\\node.exe",
+    "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\scripts\\stage4\\compare-inference-reports.ts",
+    "--rust",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-inference-8b6dc57-windows-20260811\\rust-scalar-p0.json",
+    "--js",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-inference-8b6dc57-windows-20260811\\typescript-js-p0.json",
+    "--native",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-inference-8b6dc57-windows-20260811\\typescript-count-one-native-p0.json",
+    "--output",
+    "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-stage4-inference-8b6dc57-windows-20260811\\cross-path-p0.json"
+  ]
+}

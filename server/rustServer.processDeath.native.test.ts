@@ -1,0 +1,710 @@
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { appendFile, copyFile, mkdir, mkdtemp, readFile, readdir, rm, utimes } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import Database from 'better-sqlite3';
+import { expect, it } from 'vitest';
+import WebSocket from 'ws';
+import { describeNetworkSuite } from './test/networkSuites.ts';
+import { ARCHIVE_ARTIFACT_GRACE_MS, isRecognizedArchiveArtifact } from './rustEngine/archiveScavenger.ts';
+import { buildLargeBrainGraph } from '../scripts/stage2/fixtures.ts';
+
+/** One scalar health response needed by the process-death contract. */
+interface ProcessHealth {
+  ok: boolean;
+  runId: string;
+  startupCheckpointId: string;
+  completedStep: string;
+  worldEpoch: string;
+  generation: string;
+}
+
+/** Replacement boundaries reached by the real child process. */
+type ReplacementCrashPoint = 'afterCommit' | 'afterSwap';
+
+/** Exact fixture and boundary selected for one disposable child. */
+type ProcessCrashFixture =
+  | { kind: 'replacement' | 'generation'; point: ReplacementCrashPoint }
+  | { kind: 'export'; point: 'afterReady' | 'duringDownload' | 'duringEncoding' }
+  | { kind: 'pruning'; point: 'afterIntent' | 'afterDelete' };
+
+/** Owner-visible operations that publish a complete replacement authority. */
+const REPLACEMENT_OPERATIONS = ['newRun', 'reset', 'import'] as const;
+/** Both sides of the final Rust swap, tested for each replacement entry point. */
+const REPLACEMENT_CRASH_CASES = REPLACEMENT_OPERATIONS.flatMap(operation => [
+  { operation, point: 'afterCommit' as const, description: 'after SQLite commit and before Rust swap' },
+  { operation, point: 'afterSwap' as const, description: 'after Rust swap and before public success' }
+]);
+
+/** Reserve a loopback port briefly for a child server with CLI-only startup. */
+async function availablePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveReady, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolveReady);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('loopback test server has no port');
+  await new Promise<void>((resolveClosed, reject) => server.close(error => error ? reject(error) : resolveClosed()));
+  return address.port;
+}
+
+/** Start the server or its replacement-death fixture in a distinct OS process. */
+function spawnRustServer(port: number, databasePath: string, resume: 'fresh' | 'latest',
+  crashFixture?: ProcessCrashFixture, deploymentRoot = resolve()): {
+  child: ChildProcess;
+  output: () => string;
+} {
+  const args = crashFixture && crashFixture.kind !== 'pruning'
+    ? ['--import', 'tsx', resolve(crashFixture.kind === 'replacement'
+      ? 'server/test/killDuringAuthorityReplacement.ts'
+      : crashFixture.kind === 'generation' ? 'server/test/killDuringGenerationHandoff.ts'
+      : 'server/test/killDuringArchiveExport.ts'),
+    String(port), databasePath, crashFixture.point]
+    : [
+      '--import', 'tsx', resolve(deploymentRoot, 'server/rustServer.ts'),
+      '--host', '127.0.0.1', '--port', String(port),
+      '--db-path', databasePath, '--checkpoint-every', '1', '--rust-workers', '1',
+      ...(resume === 'fresh' ? ['--fresh', '--seed', '42'] : ['--resume', 'latest'])
+    ];
+  if (crashFixture?.kind === 'pruning') {
+    args.splice(2, 0, '--import', pathToFileURL(resolve('server/test/killDuringCheckpointPruning.ts')).href);
+  }
+  const child = spawn(process.execPath, args, { cwd: deploymentRoot, stdio: ['ignore', 'pipe', 'pipe'],
+    ...(crashFixture?.kind === 'pruning'
+      ? { env: { ...process.env, SLITHER_PRUNE_CRASH_POINT: crashFixture.point } } : {}) });
+  let transcript = '';
+  child.stdout?.on('data', bytes => { transcript = `${transcript}${String(bytes)}`.slice(-4096); });
+  child.stderr?.on('data', bytes => { transcript = `${transcript}${String(bytes)}`.slice(-4096); });
+  return { child, output: () => transcript };
+}
+
+/** Poll until healthy Rust authority advances beyond the requested saved boundary. */
+async function readyHealth(
+  port: number,
+  child: ChildProcess,
+  output: () => string,
+  minimumCompletedStep = 0n
+): Promise<ProcessHealth> {
+  const deadline = performance.now() + 15_000;
+  while (performance.now() < deadline && child.exitCode === null && child.signalCode === null) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) });
+      const health = await response.json() as ProcessHealth;
+      if (health.ok && BigInt(`0x${health.completedStep}`) > minimumCompletedStep) return health;
+    } catch { /* Child has not bound its socket yet. */ }
+    await new Promise<void>(done => setTimeout(done, 25));
+  }
+  throw new Error(`Rust child did not start: ${output()}`);
+}
+
+/** Wait for one deliberately incomplete import to create its private spool file. */
+async function pendingUpload(managedRoot: string): Promise<string> {
+  const deadline = performance.now() + 5000;
+  while (performance.now() < deadline) {
+    const names = await readdir(managedRoot);
+    const pending = names.find(name => name.endsWith('.upload.partial'));
+    if (pending) return pending;
+    await new Promise<void>(done => setTimeout(done, 10));
+  }
+  throw new Error('archive upload never created its partial spool');
+}
+
+/** Wait for the worker's export-lease cleanup after the client has consumed its body. */
+async function waitForArchiveCleanup(managedRoot: string): Promise<void> {
+  const deadline = performance.now() + 5000;
+  let remaining: string[];
+  do {
+    remaining = (await readdir(managedRoot)).filter(isRecognizedArchiveArtifact);
+    if (remaining.length === 0) return;
+    await new Promise<void>(done => setTimeout(done, 10));
+  } while (performance.now() < deadline);
+  expect(remaining).toEqual([]);
+}
+
+/** Wait for a child to terminate after an explicit signal. */
+async function terminate(child: ChildProcess, signal: NodeJS.Signals): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>(resolveExit => child.once('exit', () => resolveExit()));
+  child.kill(signal);
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      exited,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Rust child did not exit')), 5000);
+      })
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+/** Wait for the injected child death without retaining a test timer afterward. */
+async function waitForReplacementDeath(child: ChildProcess, output: () => string, timeoutMs = 15_000): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      new Promise<void>(resolveExit => child.once('exit', () => resolveExit())),
+      new Promise<never>((_, rejectExit) => {
+        timer = setTimeout(() => rejectExit(new Error(
+          `Server did not reach the requested death point: ${output()}`)), timeoutMs);
+      })
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+describeNetworkSuite('Rust process-death recovery', () => {
+  it('refuses fresh and resumed deployment with an unchanged addon after source updates', async () => {
+    await mkdir(resolve('data'), { recursive: true });
+    const root = await mkdtemp(resolve('data/codex-stale-addon-'));
+    if (dirname(root) !== resolve('data')) throw new Error('unexpected deployment fixture cleanup path');
+    let child: ChildProcess | undefined;
+    try {
+      // Copy tracked source only; owner config/databases and build caches stay out.
+      const sources = execFileSync('git', ['ls-files', '-z', '--', 'src', 'server', 'native', 'package.json'],
+        { encoding: 'utf8' }).split('\0').filter(Boolean);
+      for (const source of sources) {
+        const destination = join(root, source);
+        await mkdir(dirname(destination), { recursive: true });
+        await copyFile(resolve(source), destination);
+      }
+      const addon = process.platform === 'win32'
+        ? 'slither-native.win32-x64-msvc.node' : 'slither-native.linux-x64-gnu.node';
+      for (const filename of ['index.js', addon]) {
+        await copyFile(resolve('native', filename), join(root, 'native', filename));
+      }
+      const databasePath = join(root, 'retained.sqlite');
+      const managedRoot = `${databasePath}.checkpoints`;
+      const baselinePort = await availablePort();
+      const baseline = spawnRustServer(baselinePort, databasePath, 'fresh', undefined, root);
+      child = baseline.child;
+      await readyHealth(baselinePort, child, baseline.output);
+      await terminate(child, 'SIGTERM');
+      /** Hash the closed metadata store and every retained immutable file. */
+      const snapshot = async (): Promise<Array<{ path: string; sha256: string }>> => {
+        const paths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`].filter(path => existsSync(path));
+        paths.push(...(await readdir(managedRoot)).sort().map(name => join(managedRoot, name)));
+        return Promise.all(paths.map(async path => ({ path,
+          sha256: createHash('sha256').update(await readFile(path)).digest('hex') })));
+      };
+      const retained = await snapshot();
+      // An ordinary source update makes the untouched, previously usable binary stale.
+      await appendFile(join(root, 'native/src/lib.rs'), '\n// Deployment source updated without rebuilding.\n');
+      for (const resume of ['fresh', 'latest'] as const) {
+        const database = resume === 'fresh' ? join(root, 'fresh.sqlite') : databasePath;
+        const port = await availablePort();
+        const rejected = spawnRustServer(port, database, resume, undefined, root);
+        child = rejected.child;
+        let response: Response | undefined;
+        const deadline = performance.now() + 15_000;
+        while (!response && child.exitCode === null && child.signalCode === null && performance.now() < deadline) {
+          try { response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(1000) }); }
+          catch { await new Promise<void>(done => setTimeout(done, 25)); }
+        }
+        expect(response, rejected.output()).toBeDefined();
+        expect(response!.status).toBe(503);
+        expect(await response!.json()).toMatchObject({ ok: false, authority: 'rust', lifecycle: 'startup-fault',
+          interfaceFault: expect.stringMatching(/addon is stale:.*npm --prefix native run build/u) });
+        expect((await fetch(`http://127.0.0.1:${port}/api/export/latest`)).status).toBe(503);
+        await terminate(child, 'SIGTERM');
+        expect(await snapshot()).toEqual(retained);
+        expect(existsSync(join(root, 'fresh.sqlite'))).toBe(false);
+        expect(existsSync(join(root, 'fresh.sqlite.checkpoints'))).toBe(false);
+      }
+    } finally {
+      if (child) await terminate(child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it.each(['afterIntent', 'afterDelete'] as const)('finishes pruning after an OS kill $0', async point => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-pruning-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'pruning', point });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let viewer: WebSocket | undefined;
+    try {
+      await readyHealth(port, first.child, first.output);
+      viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const packets: Array<Record<string, unknown>> = [];
+      viewer.on('message', (bytes, binary) => {
+        if (!binary) packets.push(JSON.parse(bytes.toString()) as Record<string, unknown>);
+      });
+      await new Promise<void>((resolveOpen, rejectOpen) => {
+        viewer!.once('open', resolveOpen);
+        viewer!.once('error', rejectOpen);
+      });
+      /** Await a bounded real lifecycle reply before sending another command. */
+      const untilPacket = async (predicate: (packet: Record<string, unknown>) => boolean): Promise<void> => {
+        const deadline = performance.now() + 5000;
+        while (!packets.some(predicate) && performance.now() < deadline) {
+          await new Promise<void>(done => setTimeout(done, 10));
+        }
+        expect(packets.some(predicate), JSON.stringify(packets)).toBe(true);
+      };
+      viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+      await untilPacket(packet => packet['type'] === 'welcome');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
+      await untilPacket(packet => packet['type'] === 'stateReplaced');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
+      const before = await readyHealth(port, first.child, first.output);
+      const pinned = await fetch(`http://127.0.0.1:${port}/api/checkpoints/current/pin`, { method: 'POST',
+        signal: AbortSignal.timeout(5000) });
+      expect(pinned.status).toBe(200);
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'settings', requestId: 'pruning-speed',
+        updates: [{ path: 'simSpeed', value: 4 }] }));
+      await untilPacket(packet => packet['type'] === 'settingsApplied' && packet['requestId'] === 'pruning-speed');
+      await waitForReplacementDeath(first.child, first.output, 45_000);
+      const markerLine = first.output().split(/\r?\n/u).find(line => line.startsWith('{"type":"pruningCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as { checkpointId: string; filename: string; fileExists: boolean };
+      expect(marker.fileExists).toBe(point === 'afterIntent');
+      expect(existsSync(marker.filename)).toBe(point === 'afterIntent');
+      const database = new Database(databasePath, { readonly: true });
+      let current: { checkpoint_id: string; completed_step_hex: string };
+      let history: unknown;
+      let winners: unknown;
+      let retained: Array<{ checkpoint_id: string; relative_filename: string }>;
+      try {
+        expect(database.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .get(marker.checkpointId)).toEqual({ retention_kind: 'pruning' });
+        current = database.prepare(`SELECT current.checkpoint_id, metadata.completed_step_hex
+          FROM rust_checkpoint_v3_current AS current JOIN rust_checkpoint_v3_metadata AS metadata USING(checkpoint_id)
+          WHERE current.run_id = ?`).get(before.runId) as typeof current;
+        expect(current.checkpoint_id).not.toBe(marker.checkpointId);
+        history = database.prepare('SELECT * FROM rust_generation_history_v1 ORDER BY run_id, generation_hex').all();
+        winners = database.prepare('SELECT * FROM rust_hall_of_fame_v1 ORDER BY run_id, generation_hex').all();
+        expect((history as unknown[]).length).toBeGreaterThanOrEqual(8);
+        retained = database.prepare(`SELECT metadata.checkpoint_id,
+          json_extract(metadata.descriptor_json, '$.relativeFilename') AS relative_filename
+          FROM rust_checkpoint_v3_metadata AS metadata JOIN rust_checkpoint_retention_v1 AS retention USING(checkpoint_id)
+          WHERE retention.retention_kind IN ('automatic', 'pinned')`).all() as typeof retained;
+        expect(database.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .get(before.startupCheckpointId)).toEqual({ retention_kind: 'pinned' });
+      } finally { database.close(); }
+      viewer.terminate();
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output, BigInt(`0x${current!.completed_step_hex}`));
+      expect(after).toMatchObject({ runId: before.runId, startupCheckpointId: current!.checkpoint_id });
+      expect(existsSync(marker.filename)).toBe(false);
+      for (const record of retained!) expect(existsSync(join(managedRoot, record.relative_filename))).toBe(true);
+      const recovered = new Database(databasePath, { readonly: true });
+      try {
+        expect(recovered.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+          .get(marker.checkpointId)).toEqual({ retention_kind: 'pruned' });
+        expect(recovered.prepare('SELECT * FROM rust_generation_history_v1 ORDER BY run_id, generation_hex').all()).toEqual(history);
+        expect(recovered.prepare('SELECT * FROM rust_hall_of_fame_v1 ORDER BY run_id, generation_hex').all()).toEqual(winners);
+      } finally { recovered.close(); }
+    } finally {
+      viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 65_000);
+
+  it.each(REPLACEMENT_CRASH_CASES)('resumes $operation killed $description', async ({ operation, point: crashPoint }) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-replacement-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'replacement', point: crashPoint });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let viewer: WebSocket | undefined;
+    try {
+      let archive: ArrayBuffer | undefined;
+      let sourceHealth: ProcessHealth | undefined;
+      if (operation === 'import') {
+        const sourcePort = await availablePort();
+        const source = spawnRustServer(sourcePort, join(root, 'source.sqlite'), 'fresh');
+        try {
+          sourceHealth = await readyHealth(sourcePort, source.child, source.output);
+          const exported = await fetch(`http://127.0.0.1:${sourcePort}/api/export/latest`, {
+            signal: AbortSignal.timeout(15_000)
+          });
+          expect(exported.status).toBe(200);
+          archive = await exported.arrayBuffer();
+        } finally { await terminate(source.child, 'SIGKILL'); }
+      }
+      const before = await readyHealth(port, first.child, first.output);
+      viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const viewerClosed = new Promise<void>(resolveClosed => viewer!.once('close', () => resolveClosed()));
+      const publicSuccess: string[] = [];
+      const welcome = new Promise<void>((resolveWelcome, rejectWelcome) => {
+        viewer!.once('error', rejectWelcome);
+        viewer!.on('message', (bytes, binary) => {
+          if (binary) return;
+          const message = JSON.parse(bytes.toString()) as { type: string };
+          if (message.type === 'stateReplaced' || message.type === 'newRunResult') {
+            publicSuccess.push(message.type);
+          }
+          if (message.type === 'welcome') {
+            viewer!.off('error', rejectWelcome);
+            resolveWelcome();
+          }
+        });
+      });
+      await new Promise<void>((resolveOpen, rejectOpen) => {
+        viewer!.once('open', resolveOpen);
+        viewer!.once('error', rejectOpen);
+      });
+      viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+      await welcome;
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      let importResponse: Promise<{ status: number } | { error: unknown }> | undefined;
+      if (operation === 'import') {
+        importResponse = fetch(`http://127.0.0.1:${port}/api/import/archive`, {
+          method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' },
+          body: archive!, signal: AbortSignal.timeout(15_000)
+        }).then(response => ({ status: response.status }), error => ({ error }));
+      } else {
+        viewer.send(JSON.stringify(operation === 'newRun'
+          ? { type: 'newRun', requestId: 'kill-during-replacement' }
+          : { type: 'reset' }));
+      }
+      await waitForReplacementDeath(first.child, first.output);
+      await viewerClosed;
+      if (importResponse) expect(await importResponse).toHaveProperty('error');
+      expect(first.child.signalCode === 'SIGKILL' ||
+        (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const markerLine = first.output().split(/\r?\n/u)
+        .find(line => line.startsWith('{"type":"replacementCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as {
+        point: ReplacementCrashPoint;
+        runId: string;
+        checkpointId: string;
+        publication?: { worldEpoch: string; generation: string; completedStep: string };
+      };
+      expect(marker.point).toBe(crashPoint);
+      if (sourceHealth) expect(marker).toMatchObject({ runId: sourceHealth.runId,
+        checkpointId: sourceHealth.startupCheckpointId });
+      expect(publicSuccess).toEqual([]);
+      if (crashPoint === 'afterSwap') {
+        expect(marker.publication).toMatchObject({ generation: '0000000000000001',
+          completedStep: '0000000000000000' });
+        expect(BigInt(`0x${marker.publication!.worldEpoch}`)).toBeGreaterThan(BigInt(`0x${before.worldEpoch}`));
+      }
+      const database = new Database(databasePath, { readonly: true });
+      let committedRunId: string;
+      try {
+        committedRunId = (database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1')
+          .get() as { run_id: string }).run_id;
+        expect(committedRunId).not.toBe(before.runId);
+        expect(committedRunId).toBe(marker.runId);
+        const current = database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(committedRunId) as { checkpoint_id: string };
+        expect(current.checkpoint_id).toBe(marker.checkpointId);
+      } finally { database.close(); }
+      viewer = undefined;
+      const abandonedArtifacts = (await readdir(managedRoot)).filter(isRecognizedArchiveArtifact);
+      if (operation === 'import') expect(abandonedArtifacts.some(name => name.endsWith('.upload.ready'))).toBe(true);
+      const stale = new Date(Date.now() - ARCHIVE_ARTIFACT_GRACE_MS - 60_000);
+      for (const name of abandonedArtifacts) await utimes(join(managedRoot, name), stale, stale);
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after.runId).toBe(committedRunId);
+      expect(after.startupCheckpointId).toBe(marker.checkpointId);
+      expect(after.completedStep).not.toBe('0000000000000000');
+      expect((await readdir(managedRoot)).filter(isRecognizedArchiveArtifact)).toEqual([]);
+    } finally {
+      viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it.each(['afterReady', 'duringDownload', 'duringEncoding'] as const)('recovers export death %s and permits a fresh download', async (point) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-export-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'export', point });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let setup: WebSocket | undefined;
+    try {
+      if (point === 'duringEncoding') {
+        await readyHealth(port, first.child, first.output);
+        setup = new WebSocket(`ws://127.0.0.1:${port}`);
+        await new Promise<void>((resolveSetup, rejectSetup) => {
+          const timer = setTimeout(() => finish(new Error('large export setup timed out')), 15_000);
+          /** Release the setup socket and deadline on every terminal reply. */
+          function finish(error?: Error): void {
+            clearTimeout(timer);
+            setup!.terminate();
+            if (error) rejectSetup(error);
+            else resolveSetup();
+          }
+          setup!.on('error', finish);
+          setup!.on('open', () => setup!.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' })));
+          setup!.on('message', (bytes, binary) => {
+            if (binary) return;
+            const message = JSON.parse(bytes.toString()) as { type: string };
+            if (message.type === 'welcome') {
+              setup!.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+              // Twelve large brains retain a real >8 MiB archive and an observable
+              // unfinished encoding interval without turning setup into a P2 load test.
+              setup!.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(83),
+                settings: { snakeCount: 12, simSpeed: 1 },
+                updates: [{ path: 'baselineBots.count', value: 0 }] }));
+            } else if (message.type === 'stateReplaced') {
+              finish();
+            } else if (message.type === 'error') {
+              finish(new Error(JSON.stringify(message)));
+            }
+          });
+        });
+      }
+      const before = await readyHealth(port, first.child, first.output);
+      const interrupted = fetch(`http://127.0.0.1:${port}/api/export/latest`, {
+        signal: AbortSignal.timeout(15_000)
+      }).then(async response => {
+        await response.arrayBuffer();
+        return { completed: true };
+      }, error => ({ error })).catch(error => ({ error }));
+      await waitForReplacementDeath(first.child, first.output);
+      expect(await interrupted).toHaveProperty('error');
+      expect(first.child.signalCode === 'SIGKILL' ||
+        (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const markerLine = first.output().split(/\r?\n/u)
+        .find(line => line.startsWith('{"type":"exportCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as {
+        point: string; checkpointId: string; relativeFilename: string; storedByteCount: string; offeredBytes: number;
+        progress?: { started: boolean; finished: boolean; completedBytes: string };
+      };
+      expect(marker).toMatchObject({ point, checkpointId: before.startupCheckpointId });
+      expect(marker.relativeFilename).toMatch(point === 'duringEncoding'
+        ? /^\.[0-9a-f]{32}\.slither-save\.partial$/u : /^\.[0-9a-f]{32}\.slither-save\.ready$/u);
+      if (point === 'duringEncoding') {
+        expect(marker.progress).toMatchObject({ started: true, finished: false });
+        expect(BigInt(`0x${marker.progress!.completedBytes}`)).toBeGreaterThan(0n);
+        expect(BigInt(`0x${marker.storedByteCount}`)).toBeGreaterThan(0n);
+        expect((await readdir(managedRoot)).some(name => name.endsWith('.slither-save.ready'))).toBe(false);
+      }
+      if (point === 'duringDownload') {
+        expect(marker.offeredBytes).toBeGreaterThan(0);
+        expect(BigInt(marker.offeredBytes)).toBeLessThan(BigInt(`0x${marker.storedByteCount}`));
+      } else expect(marker.offeredBytes).toBe(0);
+      const database = new Database(databasePath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(before.runId)).toEqual({ checkpoint_id: before.startupCheckpointId });
+      } finally { database.close(); }
+      const artifacts = (await readdir(managedRoot)).filter(isRecognizedArchiveArtifact);
+      expect(artifacts).toContain(marker.relativeFilename);
+      expect(artifacts.some(name => name.endsWith('.export-inventory-v1'))).toBe(true);
+      const stale = new Date(Date.now() - ARCHIVE_ARTIFACT_GRACE_MS - 60_000);
+      for (const name of artifacts) await utimes(join(managedRoot, name), stale, stale);
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after).toMatchObject({ runId: before.runId, startupCheckpointId: before.startupCheckpointId });
+      expect((await readdir(managedRoot)).filter(isRecognizedArchiveArtifact)).toEqual([]);
+      const exported = await fetch(`http://127.0.0.1:${port}/api/export/latest`, {
+        signal: AbortSignal.timeout(15_000)
+      });
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get('x-slither-checkpoint-id')).toBe(before.startupCheckpointId);
+      const exportedBytes = (await exported.arrayBuffer()).byteLength;
+      expect(exportedBytes).toBe(Number(exported.headers.get('content-length')));
+      if (point === 'duringEncoding') {
+        expect(exportedBytes).toBeGreaterThan(8 * 1024 * 1024);
+        expect(BigInt(exportedBytes)).toBeGreaterThan(BigInt(`0x${marker.storedByteCount}`));
+      }
+      await waitForArchiveCleanup(managedRoot);
+    } finally {
+      setup?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it.each(['afterCommit', 'afterSwap'] as const)('resumes the evolved checkpoint after generation death %s', async (point) => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-generation-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh', { kind: 'generation', point });
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let viewer: WebSocket | undefined;
+    try {
+      await readyHealth(port, first.child, first.output);
+      viewer = new WebSocket(`ws://127.0.0.1:${port}`);
+      const viewerClosed = new Promise<void>(done => viewer!.once('close', () => done()));
+      const packets: Array<Record<string, unknown>> = [];
+      const displayedGenerations: number[] = [];
+      viewer.on('message', (bytes, binary) => {
+        if (binary) displayedGenerations.push((bytes as Buffer).readFloatLE(0));
+        else packets.push(JSON.parse(bytes.toString()) as Record<string, unknown>);
+      });
+      await new Promise<void>((done, reject) => { viewer!.once('open', done); viewer!.once('error', reject); });
+      viewer.send(JSON.stringify({ type: 'hello', version: 2, clientType: 'ui' }));
+      /** Wait for a specific lifecycle reply before the next control request. */
+      const untilPacket = async (predicate: (packet: Record<string, unknown>) => boolean): Promise<void> => {
+        const deadline = performance.now() + 5000;
+        while (!packets.some(predicate) && performance.now() < deadline) {
+          await new Promise<void>(done => setTimeout(done, 10));
+        }
+        expect(packets.some(predicate), JSON.stringify(packets)).toBe(true);
+      };
+      await untilPacket(packet => packet['type'] === 'welcome');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 1 },
+        updates: [{ path: 'generationSeconds', value: 8 }, { path: 'baselineBots.count', value: 0 }] }));
+      await untilPacket(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset');
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
+      const before = await readyHealth(port, first.child, first.output);
+      viewer.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.send(JSON.stringify({ type: 'settings', requestId: 'generation-death-speed',
+        updates: [{ path: 'simSpeed', value: 4 }] }));
+      await untilPacket(packet => packet['type'] === 'settingsApplied' &&
+        packet['requestId'] === 'generation-death-speed' && packet['applied'] === true);
+      await waitForReplacementDeath(first.child, first.output);
+      await viewerClosed;
+      expect(first.child.signalCode === 'SIGKILL' ||
+        (process.platform === 'win32' && first.child.exitCode === 1), first.output()).toBe(true);
+      const markerLine = first.output().split(/\r?\n/u)
+        .find(line => line.startsWith('{"type":"generationCrashPoint"'));
+      expect(markerLine, first.output()).toBeDefined();
+      const marker = JSON.parse(markerLine!) as {
+        point: ReplacementCrashPoint; runId: string; checkpointId: string;
+        generation: string; completedStep: string;
+        publication?: { publication: { worldEpoch: string; generation: string; completedStep: string } };
+      };
+      expect(marker).toMatchObject({ point, runId: before.runId, generation: '0000000000000002' });
+      expect(marker.checkpointId).not.toBe(before.startupCheckpointId);
+      expect(BigInt(`0x${marker.completedStep}`)).toBeGreaterThan(BigInt(`0x${before.completedStep}`));
+      expect(displayedGenerations.length).toBeGreaterThan(0);
+      expect(displayedGenerations.every(generation => generation === 1)).toBe(true);
+      expect(packets.filter(packet => packet['type'] === 'stats').every(packet => packet['gen'] === 1)).toBe(true);
+      if (point === 'afterSwap') {
+        expect(marker.publication?.publication).toMatchObject({ generation: marker.generation,
+          completedStep: marker.completedStep });
+        expect(BigInt(`0x${marker.publication!.publication.worldEpoch}`)).toBeGreaterThan(BigInt(`0x${before.worldEpoch}`));
+      }
+      const database = new Database(databasePath, { readonly: true });
+      let history: unknown;
+      let winner: unknown;
+      try {
+        expect(database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(marker.runId)).toEqual({ checkpoint_id: marker.checkpointId });
+        history = database.prepare('SELECT * FROM rust_generation_history_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001');
+        winner = database.prepare('SELECT * FROM rust_hall_of_fame_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001');
+        expect(history).toHaveLength(1);
+        expect(winner).toHaveLength(1);
+      } finally { database.close(); }
+      viewer = undefined;
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output, BigInt(`0x${marker.completedStep}`));
+      expect(after).toMatchObject({ runId: marker.runId, startupCheckpointId: marker.checkpointId });
+      expect(BigInt(`0x${after.generation}`)).toBeGreaterThanOrEqual(2n);
+      expect(BigInt(`0x${after.completedStep}`)).toBeGreaterThan(BigInt(`0x${marker.completedStep}`));
+      const recovered = new Database(databasePath, { readonly: true });
+      try {
+        expect(recovered.prepare('SELECT * FROM rust_generation_history_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001')).toEqual(history);
+        expect(recovered.prepare('SELECT * FROM rust_hall_of_fame_v1 WHERE run_id = ? AND generation_hex = ?')
+          .all(marker.runId, '0000000000000001')).toEqual(winner);
+      } finally { recovered.close(); }
+    } finally {
+      viewer?.terminate();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it('resumes the last committed boundary and exports it after an OS kill during steps', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-process-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh');
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    try {
+      const before = await readyHealth(port, first.child, first.output);
+      await terminate(first.child, 'SIGKILL');
+      const database = new Database(databasePath, { readonly: true });
+      try {
+        const current = database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(before.runId) as { checkpoint_id: string } | undefined;
+        expect(current?.checkpoint_id).toBe(before.startupCheckpointId);
+      } finally { database.close(); }
+
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after.runId).toBe(before.runId);
+      expect(after.startupCheckpointId).toBe(before.startupCheckpointId);
+      const exported = await fetch(`http://127.0.0.1:${port}/api/export/latest`, {
+        signal: AbortSignal.timeout(15_000)
+      });
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get('content-disposition')).toContain(before.startupCheckpointId.slice(0, 12));
+      expect(Number(exported.headers.get('content-length'))).toBeGreaterThan(0);
+      await exported.arrayBuffer();
+    } finally {
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+
+  it('cleans a partial import upload after an OS kill without changing the committed run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-upload-death-'));
+    const databasePath = join(root, 'experiment.sqlite');
+    const managedRoot = `${databasePath}.checkpoints`;
+    const port = await availablePort();
+    const first = spawnRustServer(port, databasePath, 'fresh');
+    let restarted: ReturnType<typeof spawnRustServer> | undefined;
+    let upload: ReturnType<typeof httpRequest> | undefined;
+    try {
+      const before = await readyHealth(port, first.child, first.output);
+      upload = httpRequest(`http://127.0.0.1:${port}/api/import/archive`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/vnd.slither-neuroevo.save',
+          'Transfer-Encoding': 'chunked'
+        }
+      });
+      upload.on('error', () => { /* Killing the receiving process closes this upload. */ });
+      upload.write(Buffer.from('incomplete-archive-body'));
+      const partial = await pendingUpload(managedRoot);
+      await terminate(first.child, 'SIGKILL');
+      upload.destroy();
+      expect(await readdir(managedRoot)).toContain(partial);
+
+      // Restart cleanup deliberately preserves fresh artifacts for its documented grace.
+      const stale = new Date(Date.now() - ARCHIVE_ARTIFACT_GRACE_MS - 60_000);
+      await utimes(join(managedRoot, partial), stale, stale);
+
+      restarted = spawnRustServer(port, databasePath, 'latest');
+      const after = await readyHealth(port, restarted.child, restarted.output);
+      expect(after.runId).toBe(before.runId);
+      expect(after.startupCheckpointId).toBe(before.startupCheckpointId);
+      expect(await readdir(managedRoot)).not.toContain(partial);
+      const database = new Database(databasePath, { readonly: true });
+      try {
+        const current = database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+          .get(before.runId) as { checkpoint_id: string } | undefined;
+        expect(current?.checkpoint_id).toBe(before.startupCheckpointId);
+      } finally { database.close(); }
+    } finally {
+      upload?.destroy();
+      if (restarted) await terminate(restarted.child, 'SIGTERM');
+      await terminate(first.child, 'SIGKILL');
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 45_000);
+});

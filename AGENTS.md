@@ -1,184 +1,451 @@
 # Agent instructions for slither_neuroevo
 
-## Project overview and top-level layout
-
-This repository is a browser-based neuroevolution simulation modeled after slither.io, built with Vite and ES modules. The user-facing entry point is `index.html`, which provides a full-screen canvas plus the control panel tabs, while `styles.css` defines the UI layout, tab visuals, and animation. The `README.md` explains how to run the dev server and why the project cannot be opened directly from the filesystem, so follow those workflow notes when suggesting run instructions.
-
-At the top level, `package.json` and `package-lock.json` define the Node toolchain (`vite` for dev/build/preview and `vitest` for tests), and `vite.config.ts` contains the non-default cache directory that avoids file-lock issues on network drives. TypeScript configuration lives in `tsconfig.json` with server overrides in `server/tsconfig.json`, and lint rules live in `eslint.config.cjs` (including TSDoc enforcement for `src/`, `server/`, and `scripts/`). The Node server lives under `server/` and persists data in `data/slither.db` (SQLite). Server defaults are in `server/config.toml`, loaded by `server/config.ts`, and `vite.config.ts` reads the TOML (or `SERVER_CONFIG`) to inject UI defaults. Test grouping utilities live in `scripts/run-tests.ts`. Windows users have a convenience launcher in `play.bat`, and POSIX users can use `play.sh`, both installing dependencies and running the dev server. Active planning notes live in `docs/todo/*.md`, while historical plans are archived under `docs/todo/archive/`. External feedback notes live in `docs/feedback-from-outside-llms/`. CI is wired through `.github/workflows/node.js.yml`, which runs `npm ci`, `npm run build`, `npm run typecheck`, and `npm test` across Node 20/22/24 on Ubuntu and Windows.
-
-## Runtime architecture and data flow
-
-The runtime has two modes: a Node server that owns the `World` and streams frames over WebSocket, and a local Web Worker fallback when the server is unavailable. `src/main.ts` owns the DOM, canvas sizing, tab switching, settings sliders, and rendering. It connects to the server with `src/net/wsClient.ts` (see `server/protocol.ts` for message shapes) and falls back to a worker via `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })` if the WS connection fails.
-
-Server mode is implemented in `server/index.ts` + `server/simServer.ts` + `server/wsHub.ts`, with player/session routing in `server/controllerRegistry.ts` and the HTTP API in `server/httpApi.ts`. The server runs the fixed-step loop, serializes frames with `WorldSerializer`, and sends a binary buffer plus stats messages. Clients send `hello`, `join`, `ping`, `action`, `view` (viewport + follow/overview toggle), `viz` (visualizer streaming), and `reset` messages; the server replies with `welcome`, `stats`, `assign`, `sensors`, `error`, and the raw frame buffer. Player control relies on per-snake sensor messages and tick-aligned actions; when a controlled snake dies, the controller registry spawns a fresh external snake and emits a new `assign`.
-
-On a successful server connection, the client auto-joins as a spectator, enables Visualizer streaming when the tab is active, and shows the join overlay until the user submits a nickname. Overview view is requested when the user explicitly spectates or toggles view mode.
-
-If the server handshake fails, a 2-second fallback starts the worker, hides the join overlay, and keeps reconnection attempts running in the background.
-
-Server URLs resolve from `?server=ws://...`, then the `slither_server_url` localStorage key, then the build-time defaults injected by `vite.config.ts` (from `server/config.toml` or `SERVER_CONFIG`), and finally the runtime hostname + injected server port fallback (default `ws://localhost:5174`).
-
-Worker mode runs the same loop inside `src/worker.ts` and posts a transferable buffer back to the main thread each iteration. The worker message protocol is explicit: `init` rebuilds a world (and can reset `CFG`), `updateSettings` applies `path/value` updates to `CFG`, `action` handles view/sim speed toggles, `resize` updates the viewport, `viz` toggles streaming, `resurrect` injects a saved genome, `import`/`export` drive population transfer, and `godMode` handles kill/move actions. `init` can include `graphSpec`, `population`, `generation`, and `stackOrder` to override the brain layout and state. Worker responses include `frame` (buffer + stats), `exportResult`, and `importResult`. When adding new messages or fields, update both ends (`src/main.ts` and `src/worker.ts`) and keep tests or parsing code in sync. Shared worker message and settings types live in `src/protocol/messages.ts` and `src/protocol/settings.ts`.
-
-### Multi-threaded inference pool
-
-To overcome the single-threaded bottleneck of JavaScript, the simulation now employs a parallel inference engine (`src/workerPool.ts`) that distributes neural network forward passes across multiple dedicated worker threads (`src/worker/inferWorker.ts`). This system is designed for zero-copy synchronization using `SharedArrayBuffer` and `Atomics`.
-
-1. **Initialization**: On startup, `src/workerPool.ts` spawns `navigator.hardwareConcurrency - 1` workers. It allocates three primary shared buffers:
-    * **Inputs**: A flat f32 buffer storing sensor data for all agents.
-    * **Outputs**: A flat f32 buffer where workers write turn/boost decisions.
-    * **Weights**: A large buffer storing the optimized network weights for the entire population.
-2. **Dispatch**: During the game loop, the main simulation worker writes sensor data to the Shared Input Buffer. It then dispatches batches of agents to the worker pool by writing atomic flags. Workers wake up, read their assigned slice of inputs, execute the WASM inference kernels, and write directly to the Shared Output Buffer.
-3. **Synchronization**: The main thread waits (via `Atomics.wait` or a spin-lock fallback) for all workers to signal completion before proceeding to apply the control outputs. This ensures deterministic lock-step execution.
-4. **Fallback**: If the environment lacks `SharedArrayBuffer` support (e.g., due to missing `Cross-Origin-Opener-Policy: same-origin` headers), the pool detects this capability failure and gracefully disables itself. The simulation then reverts to the legacy single-threaded JS/SIMD loop (`BatchInferenceRunner`), ensuring the application remains functional on restrictive hosts.
-
-## Binary frame format and rendering pipeline
-
-The fast path relies on a strict binary format for world snapshots. `src/serializer.ts` writes a `Float32Array` with a 7-float header (`generation`, `totalSnakes`, `aliveCount`, `worldRadius`, `cameraX`, `cameraY`, `zoom`), followed by a compact per-snake block and then the pellet block. Only alive snakes are serialized, and each snake starts with 8 floats (id, radius, skin flag, x, y, dir, boost flag, point count) followed by `pointCount * 2` floats for the body points. The pellet section starts with `pelletCount`, then repeats `(x, y, value, type, colorId)` where type is `0 ambient`, `1 corpse_big`, `2 corpse_small`, `3 boost`. Frame offsets and read helpers are centralized in `src/protocol/frame.ts`. The renderer uses this buffer to drive speed-based glow and boost trails, so pointer math must remain exact. Server and worker modes share this exact buffer layout.
-
-`src/render.ts` (`renderWorldStruct`) parses this buffer linearly to draw the grid, pellets, then snakes, and `src/main.ts` also parses it to support God Mode selection. Any layout change must be reflected in `src/serializer.ts`, `src/render.ts`, and the parsing logic in `src/main.ts` (for selection and camera), or you will get corrupted rendering and interactions. When you need to extend what the UI can see, prefer adding fields to the buffer rather than reintroducing heavy object cloning on the worker boundary.
-
-## Simulation core: World, Snake, sensors, and physics
-
-`src/world.ts` is the heart of the simulation. It builds the population based on the current settings (`buildArch` from `src/mlp.ts`), spawns snakes from genomes, manages pellets through a `PelletGrid` map, and orchestrates the per-tick update loop. Each `World.update()` scales the time step by `simSpeed`, clamps it against `CFG.dtClamp`, subdivides it according to `CFG.collision.substepMaxDt`, and then runs physics steps that spawn pellets, advance snakes, rebuild the collision grid, and resolve head-to-body collisions. Collisions are detected via `FlatSpatialHash` from `src/spatialHash.ts`, which stores segment midpoints in typed arrays to avoid per-frame allocations. When a collision is detected the victim dies, and kill points are awarded to the aggressor via `CFG.reward.pointsPerKill`. Ambient food spawning uses a "Fractal Food" algorithm (`_spawnAmbientPellet`), employing interference noise and rejection sampling to create filaments and voids, encouraging movement and strategy.
-
-The `Snake` class in `src/snake.ts` handles its own movement, boosting, feeding, and growth. It runs neural inference on a fixed controller timestep (`CFG.brain.controlDt`) so recurrent memory length stays stable even when physics substeps change, then converts outputs into turn and boost decisions. Boosting burns points and shrinks the snake while dropping pellets behind it (`CFG.boost`), and the death path (`Snake.die`) converts body mass into pellets based on `CFG.death` parameters. Movement uses the turn rate and speed penalties in `CFG`, clamps the snake within the world radius, updates segment positions to maintain spacing, then grows or shrinks towards `targetLen` while updating radius via a logarithmic length curve.
-
-Sensors are built in `src/sensors.ts` and must stay in sync with `CFG.brain.inSize`. The sensor vector length is `5 + 3 * bubbleBins`, where `bubbleBins` is `Math.max(8, floor(CFG.sense.bubbleBins))` (default 12), and the first five values are heading sin/cos, size fraction, boost margin, and a log-scaled points percentile. The remaining values are three radial histograms (food density, hazard clearance, and wall distance) computed in a 360-degree bubble around the head. Sensor scanning uses both the pellet grid and the collision grid with work caps (`CFG.sense.maxPelletChecks` and `CFG.sense.maxSegmentChecks`), so if you expand inputs you should update both `CFG.brain.inSize` and any downstream UI that expects a fixed sensor size.
-
-## Baseline Bot Strategies
-
-Baseline bots (`src/bots/baselineBots.ts`) are scripted entities that fill the arena. They now employ "Life Stage" strategies based on their length:
-
-* **Small (< 25)**: "Coward" mode. Prioritizes high clearance and clamps food attraction to avoid kamikaze deaths.
-* **Medium (25-80)**: "Hunter" mode. Actively intercepts nearby snakes and boosts to attack if safe.
-* **Large (> 80)**: "Bully" mode. Seeks high density to block paths and cause accidents.
-
-Bot respawning is controlled by `CFG.baselineBots.respawnDelay` (default 3.0s), ensuring a steady population without instant flooding.
-
-## Neural controllers and evolution
-
-Neural architecture and genetics are centralized in `src/mlp.ts` plus the brain registry and builders under `src/brains/` (`registry.ts`, `stackBuilder.ts`, `graph/schema.ts`). `buildArch(settings)` uses the active graph spec (`CFG.brain.graphSpec`) when set (from the graph editor or JSON import), otherwise it falls back to the legacy stack builder. Graph specs must match `CFG.brain.inSize` and `CFG.brain.outSize` or they are ignored. `Genome` stores weights in a `Float32Array` with `toJSON()`/`fromJSON()` for persistence compatibility. Keep `archKey()` stable if you care about loading older populations, and be mindful that `Genome.toJSON()` converts typed arrays into plain arrays for storage.
-
-Evolution happens in `World._endGeneration()`, which computes fitness via `Snake.computeFitness()` (using `CFG.reward` weights), sorts the population, saves the best genome into the Hall of Fame, and breeds a new population using elite preservation plus tournament selection, crossover, and mutation. Recurrent nodes (GRU/LSTM/RRU) use block-wise or unit-wise crossover via `CFG.brain.gruCrossoverMode`, and share the recurrent mutation rate/std (`CFG.brain.gruMutationRate` / `CFG.brain.gruMutationStd`) for their parameter ranges. Any change to these operators should consider both feed-forward and recurrent blocks.
-
-## Rendering, theme, and particles
-
-Rendering is split into a fast path and a legacy path. The serialized-buffer path (`renderWorldStruct` in `src/render.ts`) draws from the binary frame buffer produced by either the server or the worker, uses `THEME` and `getPelletColor`/`getPelletGlow` from `src/theme.ts`, assigns snake colors with `hashColor` in `src/utils.ts` unless the gold skin flag is set, and adds speed/boost-based glow plus boost trails. The legacy path (`renderWorld`) draws directly from a `World` instance and includes extra overlays and particle rendering, which is useful for debugging but is not the default in worker or server mode.
-
-`src/particles.ts` implements a pooled particle system with additive blending and is updated inside `World.update()` and rendered inside `renderWorld`. Those particles are not serialized into the worker buffer; the fast path instead uses lightweight render-side boost trails driven by the serialized boost flag and speed estimate. `src/theme.ts` is the single source of truth for palette and glow colors, so keep visual changes centralized there rather than scattering hard-coded colors across the renderer.
-
-## UI, settings, and visualization panels
-
-`index.html` defines the tabbed control panel (Settings, Visualizer, Stats, Hall of Fame) plus the God Mode log panel and the join overlay. `styles.css` implements the panel layout, sliders, tab buttons, the join overlay, and simple entry transitions. `src/main.ts` wires these DOM elements to the worker or server connection, holds a `currentFrameBuffer`, and uses a `proxyWorld` to expose minimal world-like methods (`toggleViewMode`, `resurrect`) to the UI and Hall of Fame code. The God Mode interactions (click to select, right-click to kill, drag to move) depend on parsing the buffer and converting screen coordinates to world coordinates using the camera values embedded in the frame header. The Settings lock hides `#settingsControls` to keep sliders out of reach, and the join overlay requires a nickname before player control is enabled.
-
-The settings system is in `src/settings.ts`, which constructs grouped sliders from `SETTING_SPECS` and uses `data-path` attributes to map slider values into `CFG` via `setByPath` from `src/utils.ts`. Sliders marked `requiresReset` only apply on world reset; live sliders call back to `src/main.ts`, which posts incremental updates to the worker. The top-level core sliders (snake count, sim speed, layer counts, neuron sizes) are wired directly in `src/main.ts` and must stay aligned with `buildArch()` in `src/mlp.ts` and defaults in `src/config.ts`. Brain layouts are edited via the unified graph editor in the Settings tab (nodes/edges/outputs + templates), with optional JSON import/export for advanced edits.
-
-The diagram is interactive: drag nodes to reposition (layout overrides are UI-only), toggle Connect mode to add edges by clicking start/target nodes, and use the inspector to edit node/edge/output fields.
-
-Connect mode auto-assigns Split/Concat ports, and Full screen uses a backdrop that leaves the right-hand control panel visible.
-
-The diagram toolbar supports Add node/output, Delete, Auto layout, and Full screen.
-
-Saved presets load from the server DB, and the current graph draft can be applied to reset the world.
-
-Graph preset lists come from `/api/graph-presets` and stay empty in worker mode.
-
-Advanced JSON controls (Load JSON into editor, Copy current graph, Export JSON) live under the optional details panel.
-
-`src/main.ts` persists the applied graph spec to localStorage (`slither_neuroevo_graph_spec`) and reloads it on startup, falling back to the default template if invalid.
-
-Visualization helpers live in `src/BrainViz.ts`, `src/FitnessChart.ts`, and `src/chartUtils.ts`. The Brain Visualizer renders activation heat strips when the worker or server sends `stats.viz` data (enabled via the Visualizer tab; `src/main.ts` posts a `viz` message to toggle streaming). The Stats tab uses a chart selector to render fitness, species diversity, and network complexity from `fitnessHistory` entries sent by the worker or server (min/avg/max plus species/complexity metrics).
-
-## Persistence and Hall of Fame
-
-Persistence utilities are in `src/storage.ts`, which provides a small `Storage` wrapper and explicit population save/load helpers keyed by `slither_neuroevo_pop`. The Hall of Fame in `src/hallOfFame.ts` stores the top 50 snakes by fitness in `slither_neuroevo_hof` and is populated from `World._endGeneration()`. In the UI, `window.spawnHoF` is defined in `src/main.ts` and calls `proxyWorld.resurrect()` so the worker can spawn the saved genome, which also triggers follow mode and re-centers the camera on the resurrected snake.
-
-Import/export is exposed in the Settings tab and uses the worker protocol in worker mode or the server HTTP endpoints in server mode. `src/main.ts` requests an export payload from the worker, adds HoF data, and downloads a JSON file; in server mode it posts `/api/save` then fetches `/api/export/latest` before downloading. Imports validate the JSON, update the Hall of Fame store, persist population JSON in localStorage, and send the genomes to the worker for an in-place reset; in server mode it posts `/api/import`. Server-side persistence (`server/persistence.ts`) stores population snapshots plus graph presets in SQLite (`data/slither.db`); `server/httpApi.ts` exposes `/api/save`, `/api/export/latest`, `/api/import`, `/api/graph-presets` (list/save), and `/api/graph-presets/:id` (load) for DB-backed workflows, while export still writes JSON to the client file system. Diagram layout overrides are not persisted.
-
-### Scalable server persistence (Chunked blob format)
-
-Previous versions of the server stored population snapshots as a single massive JSON string in SQLite. As population sizes and neural complexity grew, this approach hit the V8 engine's hard string length limit (approximately 512MB), causing the server to crash when saving Generation 100+ with 300 snakes.
-
-To resolve this, the persistence layer (`server/persistence.ts`) now employs a **Chunked Binary Serialization** strategy:
-
-1. **Genome Stripping**: When a snapshot is saved, the massive `genomes` array is removed from the metadata payload. The lightweight metadata (stats, settings, hall of fame) is saved as normal JSON in the `payload_json` column.
-2. **Binary Serialization**: The genomes are handed off to `src/persistence/chunked.ts`, which serializes them into a compact binary format. This format is broken into 512MB chunks (if necessary) to respect Node buffer limits.
-3. **Compression**: The binary chunks are compressed using Gzip (via Node's `zlib`).
-4. **Blob Storage**: The resulting compressed buffer is stored in a dedicated `genomes_blob` BLOB column in the `population_snapshots` table.
-
-This architecture ensures that the application can scale to thousands of complex agents without memory crashes. When loading a snapshot (`loadLatestSnapshot`), the server strictly reverses this process: reading the blob, gunzipping, parsing the binary chunks, and re-attaching the genomes to the JSON payload before passing it to the simulation controller. Existing database migrations (`ensureSnapshotColumns`) handle the schema update automatically.
-
-## Rust & WASM Toolchain
-
-The high-performance numerics are backed by a Rust crate located in `wasm/`. This crate compiles to a WebAssembly module that exposes SIMD-accelerated kernels (`dense_forward`, `lstm_step`, etc.) to the JavaScript runtime.
-
-**Build Pipeline**:
-The build process is automated via `scripts/build-wasm.mjs`. Use `npm run build` to invoke the pipeline, which:
-
-1. Calls `cargo build --target wasm32-unknown-unknown --release`.
-2. Optimizes the output binary using `wasm-opt` (if available) or internal shrinking flags.
-3. Copies the resulting `.wasm` file to the `public/` directory for Vite consumption.
-
-**Safety Invariants**:
-Because the WASM module operates on raw pointers passed from JavaScript (`SharedArrayBuffer` views), memory safety is manual and critical.
-
-* **Unsafe Blocks**: All raw pointer arithmetic in `lib.rs` is wrapped in explicit `unsafe {}` blocks. Every such block MUST be accompanied by a `/// # Safety` documentation comment explaining the contract (e.g., "Pointers must be valid for `len` elements").
-* **Slice Copying**: Manual `for` loops that copy data byte-by-byte are banned. Use `slice.copy_from_slice()` instead, as it compiles to efficient `memcpy` intrinsics and allows the Rust compiler to elide bounds checks where possible.
-* **Linting**: The CI pipeline enforces `cargo clippy` and `cargo fmt`. You can run these locally with `npm run lint:rust` and `npm run format:rust`.
-* **Testing**: `npm run test:rust` acts as a compile-check for the WASM target (via `--no-run`), while `npm test` runs the actual behavioral integration tests (`server/mtParity.test.ts`) using the verified binary.
-
-## Utilities and configuration
-
-`src/config.ts` owns the full configuration surface in `CFG_DEFAULT`, and `resetCFGToDefaults()` rebuilds `CFG` by deep-cloning via JSON. This means new config entries should remain JSON-serializable and should be added to both `CFG_DEFAULT` and the UI slider specs if you want them exposed. `src/utils.ts` provides common math helpers, random utilities, and the color hashing used for snake skins. These helpers are used in hot loops, so prefer reusing them rather than introducing extra per-frame allocations.
-
-## Documentation expectations
-
-* `README.md` is for users and QA: explain sliders, brain types, presets, and troubleshooting. Keep dev architecture and testing details out of README.
-* `AGENTS.md` is the dev reference: include system architecture, buffer contracts, and regression pitfalls.
-* Slider names and meanings in README should mirror `src/settings.ts` and `src/config.ts`. If you change a slider label or path, update docs accordingly.
-* Add TSDoc-style documentation for every function, class, class field, and module-level variable (including tests and server/util scripts), plus inline comments for behavior not covered by the docblocks. Linting is configured in `eslint.config.cjs` and enforced via `npm run lint`.
-
-## Recent additions and footguns
-
-* Fast-path visuals include speed/boost-based glow and boost trail particles in `renderWorldStruct`. The buffer contract is: header (7 floats), alive snakes (8 + 2\*ptCount floats), then pellets (count + 5 floats: x, y, value, type, colorId). Update serializer, render, and tests together if this changes.
-* Starfield/grid draw in the fast renderer; camera/zoom must come from the worker buffer (no main-thread overrides).
-* Fitness history now ships min/avg/max from the worker or server when it grows. Keep histories finite and capped when syncing to the UI.
-* `bestPointsThisGen` must be initialized before any sensor pass; NaNs here made first-generation snakes vanish. Preserve that initialization when refactoring world state or sensors.
-* Graph editor ports are 0-based; Split output sizes must sum to the input size, and total output size must match `CFG.brain.outSize` (turn+boost). Diagram layout overrides are UI-only.
-* `data/slither.db` is local server state and should not be committed; it will exceed GitHub size limits if tracked.
-* `better-sqlite3` is a native dependency; Windows installs need C++ build tools and a Windows SDK.
-
-## Tests and verification
-
-The automated tests are plain Vitest suites under `src/*.test.ts` and `server/*.test.ts`. Coverage spans module-level behaviors (brains, sensors, world, render, serializer) plus server integration and persistence guards (first-tick world safety, render-from-serialized buffers, main/worker history sync, protocol validation). Run them with `npm test` (which maps to `vitest run`) or the category scripts (`npm run test:unit`, `npm run test:integration`, `npm run test:system`, `npm run test:acceptance`, `npm run test:regression`, `npm run test:performance`, `npm run test:security`) powered by `scripts/run-tests.ts`. Keep in mind these are Node-based tests rather than browser integration tests.
-
-## Build, dev, and CI workflows
-
-The normal workflow is:
-
-```bash
+## Project scope and layout
+
+Slither Neuroevolution is a browser-based neuroevolution sandbox. The browser
+is a rendering and control client. Normal startup has one Rust-owned
+authoritative game, with Node limited to a thin HTTP,
+WebSocket, static-file, routing, and SQLite-metadata interface. Loopback is the
+default, and deliberate use from other devices on the owner's trusted home LAN
+is supported. This repository does not provide authentication, TLS, or a
+hardened public deployment mode.
+
+The main browser entry point is `index.html`, with UI behavior in `src/main.ts`,
+rendering in `src/render.ts`, and styling in `styles.css`. Production server
+startup is in `server/rustServer.ts`. The retained reference starts in
+`server/index.ts`, with
+orchestration in `server/simServer.ts`, the fixed-step engine in
+`src/sim/SimCore.ts`, and its model in `src/world.ts`. Rust lives under
+`native/`.
+
+`package.json` and `package-lock.json` define the Node toolchain. TypeScript is
+checked through `tsconfig.json`, ESLint through `eslint.config.cjs`, and Vite
+through `vite.config.ts`. SQLite state defaults to the ignored
+`data/slither.db`. `server/config.toml` is also ignored: `server/config.ts`
+creates it from current defaults on first startup when it is absent. Do not
+describe it as a tracked source file.
+
+Active plans live in `docs/todo/`.
+`docs/todo/rust-authoritative-runtime-plan.md`, revision
+`2026-07-29-draft-4`, is the owner-approved implementation plan.
+`docs/todo/rust-authoritative-runtime-implementation-log.md` is its short
+factual execution record. `docs/todo/project-recovery-plan.md`,
+`docs/todo/native_refactor_plan.md`, and `docs/todo/archive/` are superseded
+historical material and must not direct implementation. In particular, the
+old claim that the owner selected kernel-only Rust is false. Durable
+architecture choices live in `docs/decisions/`.
+
+## Explicit reference runtime flow
+
+The TypeScript implementation is selected only with
+`npm run server:reference`; its retained comparison flow is:
+
+```text
+browser control
+  -> Protocol 2 WebSocket validation
+  -> SimServer command queue
+  -> fixed-step boundary
+  -> SimCore scheduler
+  -> World.step
+  -> serial brain or canonical BrainPool
+  -> movement, food, collision, and evolution
+  -> binary frame and JSON stats
+```
+
+`server/wsHub.ts` owns WebSocket connection state. `server/protocol.ts` is the
+source of truth for Protocol 2 JSON messages. `server/controllerRegistry.ts`
+owns external player/bot assignments and rate limits. `server/httpApi.ts`
+provides health, persistence export/import, Hall of Fame, resurrection, and
+graph-preset endpoints.
+
+The browser has no local World or simulation worker. Do not reintroduce a
+browser fallback, optimistic authoritative state, or a second simulation loop.
+On disconnect, the UI reconnects and waits for server frames.
+
+This path is a selectable test oracle. It is not an automatic fallback for the
+Rust-authoritative runtime and must not be imported by production startup.
+
+## Fixed-step scheduling and World ordering
+
+`SimCore.update()` converts elapsed wall time and `simSpeed` into zero or more
+complete fixed steps. `simSpeed` changes the requested rate of fixed-step
+execution; it never enlarges a World delta. A per-pump cap may discard and
+report wall-clock debt, but committed World state never skips a step or uses a
+partial step.
+
+`World.step()` is the sole production control/physics pipeline. It samples all
+due controls from one observation boundary before movement, then advances
+physics with collision-only substeps. Keep external, serial-neural, and pooled
+population controls aligned to that ordering.
+
+## Determinism and run identity
+
+Authoritative randomness uses the versioned streams in `src/rng.ts`. World,
+evolution, observer, and durable baseline-bot streams are derived from the
+normalized run seed. Cosmetic rendering randomness must not advance those
+streams.
+
+Reset rebuilds generation one with the same seed and a new run ID. New Run
+uses system entropy for a different seed and creates a new run ID. Both become
+current only after their required run-start checkpoint commits.
+
+Exact replay is required only for the same source revision, RNG/snapshot
+versions, graph and settings, backend build, target architecture, supported
+environment, completed-step count, and ordered action log. Compare JS and
+native kernels with explicit numeric tolerances; do not promise bit-identical
+long-horizon results across backends or platforms.
+
+## Rust-authoritative runtime and retained reference backend
+
+The kernel-only boundary is superseded. Normal startup uses one Rust-owned
+authoritative game: persistent world state, fixed-step scheduling,
+sensors, heterogeneous neural inference, recurrent state, movement, food,
+collisions, controllers, evolution, generation transitions, RNG/allocator
+state, checkpoint construction, and binary frame packing all belong in Rust.
+Node remains the thin LAN/API/file/SQLite-metadata interface, and browser
+TypeScript remains the renderer, UI, camera presentation, and input collector.
+See `docs/todo/rust-authoritative-runtime-plan.md` and
+`docs/decisions/0002-rust-authoritative-runtime.md`.
+
+The retained TypeScript reference backend still exposes Dense, MLP, GRU, LSTM, and RRU
+kernels from `native/src/simd_kernels.rs` through `native/src/lib.rs`. Keep it
+working for characterization and differential tests, but do not extend the
+per-snake/per-layer N-API boundary as the final architecture.
+
+Reference startup selects the native backend. `src/brains/nativeBridge.ts`
+validates every required export and a source-derived build identifier before
+brains are constructed. Production independently validates the complete Rust
+bridge and build identity. A missing or incompatible addon fails startup with
+build instructions. `--backend js` is reference-only diagnostic mode, not a
+production fallback.
+
+Backend and threading are independent axes. `--mt` requests the canonical
+worker pool; `--mt-workers N` requests a bounded count. Native single-thread,
+native MT, JS diagnostic single-thread, and JS diagnostic MT are all tested.
+Enabling or disabling MT must not change the selected math backend.
+
+`server/brainPool.ts` is the sole retained reference pool,
+`server/brainPoolProtocol.ts` is its parent/worker contract, and
+`server/worker/inferWorker.ts` is the sole inference worker. Shared typed
+buffers hold inputs, outputs, population weights, and slot indices. Completion
+and reset use tagged messages and promises, not a second Atomics-based pool.
+
+Population slots are stable recurrent-state identities. Workers own slots by a
+deterministic modulo rule for the entire pool epoch; shuffled or shrinking
+batches do not migrate GRU/LSTM/RRU state. Pool lifecycle and population
+weights have separate monotonic epochs. A new weight epoch is usable only after
+every worker acknowledges rebinding and recurrent-state reset.
+
+If a requested worker fails, times out, exits, or violates the protocol, the
+in-flight authoritative step is rejected. No successful frame, stats, or
+checkpoint is published, and the server does not fall back mid-generation.
+Health/status remain available. Recovery requires an explicit Reset, New Run,
+or process restart from a valid checkpoint boundary.
+
+Build and verify the addon from the repository root with:
+
+```powershell
+npm --prefix native run build
+cargo test --manifest-path native\Cargo.toml --release
+cargo fmt --manifest-path native\Cargo.toml -- --check
+cargo clippy --manifest-path native\Cargo.toml -- -D warnings
+```
+
+When the local npm shim is broken, use the compiled napi-rs CLI from `native/`:
+
+```powershell
+node .\node_modules\@napi-rs\cli\dist\cli.js build --platform --release
+```
+
+Every public N-API entry validates positive dimensions, checked arithmetic,
+array lengths, scratch/state sizes, and unsupported writable aliasing before
+raw-pointer code. Keep unsafe scopes narrow and document their exact valid
+ranges and non-overlap requirements. Supported native targets are x86_64
+Windows MSVC and x86_64 Linux GNU; there is no WASM path or non-x86_64 native
+fallback.
+
+## Binary frames and rendering
+
+`src/serializer.ts` and `src/protocol/frame.ts` define the hard binary frame
+contract. A `Float32Array` contains:
+
+1. Seven header floats: generation, total snakes, alive count, world radius,
+   camera X, camera Y, and zoom.
+2. Each alive snake: eight floats for ID, radius, skin, head X/Y, direction,
+   boost, and body-point count, followed by `pointCount * 2` body coordinates.
+3. One pellet count followed by five floats per pellet: X, Y, value, type, and
+   color ID.
+
+`src/render.ts` and God Mode parsing in `src/main.ts` walk this layout. Change
+serializer, frame helpers, renderer, selection parsing, and tests together.
+Prefer extending the compact buffer over cloning the World into the browser.
+
+## Sensors and neural controllers
+
+The only supported sensor layout is v3. Its input length is
+`19 + 4 * bubbleBins`, where `bubbleBins` is at least 8. Keep
+`CFG.brain.inSize`, `src/protocol/sensors.ts`, sensor construction, baseline
+bots, graph validation, and visualizer expectations aligned.
+
+`points_delta_norm` is score change accumulated since that snake's previous
+delivered sensor sample, or since construction for its first sample. Unsampled
+control intervals accumulate. `Snake.sampleSensors()` owns this stateful
+boundary; `computeSensors()` remains pure. External, serial-neural, and pooled
+paths must all sample through the same method. Baseline-bot strategy probes are
+not delivered observations and must remain pure.
+
+Neural graph construction is centralized in `src/mlp.ts` and `src/brains/`.
+Graph ports are zero-based. Split sizes must sum to their input, Concat port
+ordering is explicit, and total outputs must equal the two turn/boost values.
+Architecture keys and parameter counts are persistence compatibility
+boundaries.
+
+## UI and Protocol 2 controls
+
+The welcome message supplies the active seed, run ID, config revision/hash,
+authoritative settings, sensor spec, serializer version, and honest inference
+mode. The status pill must show the server, seed, active backend, and active
+worker count.
+
+Live settings use one atomic `settings` request and apply only at a pre-step
+server boundary. The shared metadata in
+`src/protocol/settingDefinitions.ts` defines type, range, and whether a path is
+live or reset-only. The browser updates its displayed state from
+`settingsApplied`, not from an optimistic local write. Reset-only controls and
+graph changes use `reset` through Apply and reset.
+
+God Mode kill uses the normal death path. Move translates the entire body by
+one bounded delta and rebuilds spatial state. Logs are based on
+`godModeResult`. New Run is acknowledged only after its new generation-one
+checkpoint is durable.
+
+## Persistence and export
+
+The current TypeScript reference stores checkpoints as versioned parent
+metadata plus one `snapshot_genomes` child row per dense population slot in a
+single SQLite transaction. Its browser export/import path still materializes
+population JSON. Treat both as compatibility/reference evidence, not the
+approved destination.
+
+The old `genomes_blob` format is read-only compatibility. Its bounded reader
+warns that a legacy load may still allocate the combined population; never
+rewrite or delete a user database merely to migrate it.
+
+A resumable checkpoint is an exact generation-boundary population checkpoint,
+not a mid-tick world save. It captures the evolved population, generation,
+simulation step, seed/run/config identity, authoritative RNG and allocator
+state, and the zero-recurrent-state boundary before spawn, pellets, focus,
+sensors, or inference.
+
+New checkpoint-v3 population payloads are immutable managed files containing
+packed binary data with per-payload raw or shuffled-Zstandard encoding.
+SQLite stores only metadata, current pointers, compact history, graph/config
+records, Hall-of-Fame indexes, and file references. Export is one ordinary
+direct browser download of a self-contained archive; import uploads the
+original file directly. Browser JavaScript never parses or reconstructs the
+population. Keep current/legacy readers until the owner's real databases and
+save files have been inventoried and migrated within the approved limits.
+
+Ordinary exact checkpoints remain generation-boundary saves, not mid-round
+world snapshots. Normal startup uses the latest valid retained managed
+checkpoint and the approved recovery-branch rule.
+
+## Local and trusted-LAN setup
+
+The default workflow is local loopback use:
+
+```powershell
 npm install
+npm --prefix native run build
 npm run server
 npm run dev
 ```
 
-This runs Vite with ES module support and serves the app from a local server (opening `index.html` directly will not work). For production builds use `npm run build` and `npm run preview`. Use `npm run server` (or `npm run server:dev`) to launch the Node simulation server. `play.bat` automates the Vite dev server on Windows and uses `npm run dev -- --open --force` so the browser opens automatically; `play.sh` does the same on POSIX and only auto-opens when `xdg-open` is available. In CI, `.github/workflows/node.js.yml` runs install, build, typecheck, and test across Node 20/22/24.
+Open the Vite URL, normally `http://localhost:5173`. Opening `index.html`
+directly does not work. `play.bat` installs missing dependencies, builds the
+mandatory native addon, starts the Rust server and Vite, and writes
+PID/log files in the repository root. `play.sh` builds the addon and browser
+and starts the Rust server with static assets; a failed-resume database stays put
+and the health-only server remains available for diagnosis.
 
-## Project-specific conventions and gotchas
+Trusted home-LAN use is supported by setting `host` and `uiHost` to
+`0.0.0.0` or an explicit LAN interface and setting `publicWsUrl` when the
+browser cannot derive the simulation-server host from the UI hostname. Both
+launchers must retain non-loopback address discovery and print usable UI,
+server, and WebSocket network URLs. Vite HMR must remain connectable from
+another LAN device. CORS enables those browser/server address combinations; it
+is not authentication. Never equate trusted-LAN routing with public-internet
+hardening, and do not advertise router port forwarding or untrusted-network
+exposure as safe.
 
-Performance is a constant concern in this codebase. Hot paths avoid allocations and prefer typed arrays (`Float32Array` for network weights and serialization buffers, and typed arrays plus an object list in `FlatSpatialHash`), so when adding new per-frame data keep GC pressure low. The worker buffer layout is a hard contract: modify it only if you also update `renderWorldStruct` and the God Mode parsing in `src/main.ts`. There is also a legacy render path (`renderWorld`) that references a `drawSnake` helper not defined in `src/render.ts`, which is a signal that the non-worker renderer is not the current focus; if you revive it, audit that path carefully and supply any missing drawing helpers.
+`server/config.ts` resolves defaults, the generated TOML file, environment
+overrides, and CLI flags. Important production flags include
+`--rust-workers N`, `--seed N`, `--fresh`, `--resume latest|sha256:ID`, and
+`--db-path PATH`. A configured seed conflicts with an existing resume and
+therefore requires `--fresh`. Backend and Node-MT flags are retained only for
+`npm run server:reference`.
 
-Keep the sensors and brain input size aligned. If you change `CFG.sense.bubbleBins` or adjust the sensor vector layout, update `CFG.brain.inSize` and any code that assumes a fixed input length (including BrainViz or any debug panels). Similarly, changes to genetic operators or architecture keys can invalidate saved genomes in localStorage, so consider how `Genome.toJSON()` and `archKey()` are used before altering their output.
+LAN-related overrides are `--host`, `--ui-host`, and `--public-ws-url`, with
+matching `HOST`, `UI_HOST`, and `PUBLIC_WS_URL` environment variables.
+`publicWsUrl` is the browser's configured route to the simulation server; its
+legacy name does not imply public-internet safety.
 
-If any section here feels unclear or you want deeper coverage (for example, the collision math, the exact fitness weighting, or how God Mode parsing walks the buffer), tell me which part to expand so we can iterate.
+## Tests and CI
 
-## TypeScript policy (in-progress conversion)
+Primary test layers are explicit and non-overlapping in
+`scripts/test-categories.ts`:
 
-* Keep runtime behavior and performance identical; types must not alter logic or hot-loop allocations.
-* Use strict typechecking (`tsconfig.json` with `noEmit`) and convert files in dependency order; server overrides live in `server/tsconfig.json`.
-* Prefer shared protocol types under `src/protocol/` for worker/main message contracts.
+- unit: small pure/module contracts;
+- component: multi-module behavior without full server boundaries;
+- integration: real boundaries such as WebSocket, persistence, or pool use;
+- system: process/server lifecycle behavior;
+- acceptance: owner-visible end-to-end contract;
+- regression: named historical failures;
+- performance: measured budgets, informational in CI while history matures;
+- security: input limits, protocol rejection, and boundary hardening.
 
-## Markdown policy
+`native-required` is an additive overlay. It must load the source-identified
+addon and execute native plus MT contracts; it must not skip because native is
+missing. Network suites may skip only when
+`SLITHER_SKIP_NETWORK_TESTS=1` is explicitly set, and they emit a visible
+warning.
 
-* When writing markdown follow the style and formatting rules in markdown-rules/rules.md
+Use direct commands when an npm/PowerShell wrapper obscures completion:
+
+```powershell
+node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts all --reporter=dot
+node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts native-required --reporter=dot
+node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false
+node .\node_modules\eslint\bin\eslint.js .
+node .\node_modules\vite\bin\vite.js build
+cargo test --manifest-path native\Cargo.toml --release
+```
+
+CI is `.github/workflows/CI.yml`. Its Ubuntu/Windows and Node 24/26 matrix
+builds native once in each job, verifies the addon identity, runs the native/MT
+overlay and every primary JavaScript layer, then runs Vite, TypeScript, and
+ESLint. A separate Rust job enforces rustfmt and Clippy.
+
+### Verification cadence and usage efficiency
+
+Use the cheapest validation that can disprove the current change, then widen
+validation at meaningful checkpoints. Correctness gates remain mandatory; this
+section controls how often expensive evidence is reproduced.
+
+#### CI efficiency and checkpoint progression
+
+CI validates cohesive checkpoints asynchronously. Do not treat completion of
+the entire CI matrix as a blocking prerequisite for beginning the next local
+implementation slice unless the current change is a release/cutover gate or a
+failure could invalidate the architecture or correctness of the next work.
+
+After pushing a cohesive checkpoint:
+
+- Start or confirm the expected CI run, then continue useful local work while
+  CI runs. Do not idle on `gh run watch`, repeatedly poll job state, or spend
+  agent turns narrating normal CI progress.
+- Check CI at natural work boundaries or when a notification/result is
+  available. Do not repeatedly query unchanged running jobs.
+- A failure in a test directly exercising changed code must be investigated and
+  fixed before relying on that checkpoint.
+- A failure in an unrelated existing test may receive one focused investigation
+  to determine whether the checkpoint caused it.
+- If an unrelated failure is clearly an infrastructure, runner-load, timing, or
+  pre-existing test-flake problem, make at most one narrowly justified
+  test-hygiene correction when the correction is obvious and low risk.
+- Do not repeatedly restart the full CI matrix solely to chase unrelated
+  timing flakes, overloaded-runner deadlines, transient dependency failures, or
+  other infrastructure noise. Record the outstanding CI issue briefly and
+  continue the migration.
+- Do not widen timeouts merely to obtain a green run unless the original limit
+  is demonstrably incompatible with the test's intended work. Preserve all
+  correctness and liveness assertions.
+- When several unrelated timing failures appear only under the full CI matrix,
+  treat that as evidence of CI contention before treating each test as a new
+  product defect.
+- Prefer fixing CI scheduling once, such as serializing timing-sensitive
+  integration files, over individually increasing many unrelated deadlines.
+- Do not add durable evidence entries for ordinary CI progress, transient
+  runner delays, dependency installation time, or resolved infrastructure
+  flakes.
+- Before pushing the next checkpoint, inspect the previous checkpoint's CI
+  result. If it contains a plausible product regression, resolve that regression
+  first. Otherwise continue without reproducing the full matrix locally.
+
+The purpose of CI is to detect regressions, not to serialize development behind
+every slow or flaky matrix job.
+
+- During implementation, run focused tests for the files, invariants and known
+  regressions affected by the current edit. Add a broader component/integration
+  set only when the change crosses those boundaries.
+- Do not run the complete Rust suite, complete JavaScript test matrix, full
+  lint/type/build matrix, isolated checkpoint handoff and source-identity suite
+  after every small edit. Run the broad local matrix before a cohesive feature
+  checkpoint or push, after a change that can plausibly affect many subsystems,
+  or when a formal stage gate requires it. CI is the normal cross-platform
+  full-matrix confirmation for pushed checkpoints.
+- A passing broad suite does not need to be rerun merely to give a reviewer an
+  independent copy of the same result. Reviewers normally inspect the diff and
+  run only focused tests needed to verify a concern they identify.
+- Use Oxygen/Debian for target-platform behavior, Linux-specific changes,
+  performance measurements and named stage/acceptance gates. Do not repeat a
+  disposable Oxygen clone and full validation for an ordinary Windows-side
+  micro-slice that has no Linux-specific behavior.
+- Reuse fresh evidence from the immediately preceding checkpoint when the
+  current change cannot invalidate it. State the dependency instead of
+  reproducing the same benchmark or compatibility run.
+- Tooling, sandbox, shell, path, missing-build-artifact and permission failures
+  are transient task notes once resolved. Preserve them in durable project
+  documentation only when they reveal a real portability/product defect or
+  change the implementation.
+- Source/build identity checks should stay automated. Durable prose normally
+  records the commit or source identity only when it is needed to identify the
+  tested code; do not narrate canonical byte counts, path-byte counts, temp
+  directory names or other bookkeeping that the automated check already
+  proves.
+
+### Temporary workspaces and retained evidence
+
+- Treat `/tmp` as disposable scratch that may disappear on reboot. Do not use
+  it as an archive or the sole location of evidence needed for a migration gate.
+- Stop disposable processes and remove task-owned scratch, build artifacts and
+  copied databases as soon as their validation slice no longer needs them.
+  Verify the exact paths before cleanup; never sweep unrelated temporary files
+  or another task's checkout.
+- Keep reusable remote checkouts and fixtures in a clearly named persistent
+  working directory. Give them the same cleanup lifecycle; moving files out of
+  `/tmp` is not a reason to retain unused copies or build caches indefinitely.
+- Save required benchmark reports and other retained evidence to a permanent
+  project evidence location before cleaning the workspace. Retain the compact
+  evidence needed to reproduce or assess a result, rather than abandoned
+  binaries, clones or database copies.
+- Check the actual filesystem's free space before a durability or loaded
+  checkpoint run. Preserve the configured disk-admission reserve.
+
+## Coding and documentation rules
+
+- Preserve hot-path typed arrays and avoid per-frame allocation unless a
+  measurement justifies it.
+- Add TSDoc-style documentation for functions, classes, class fields, and
+  module-level variables in `src/`, `server/`, scripts, and tests.
+- Keep shared wire types under `src/protocol/` or `server/protocol.ts`; do not
+  recreate browser-worker message surfaces.
+- `README.md` is for users and QA. `AGENTS.md` is the developer reference.
+  `docs/API-instructions.md` is the local external-client contract.
+- Keep README slider names aligned with
+  `src/protocol/settingDefinitions.ts`. Do not document removed v2 sensor or
+  frame-delta controls.
+- Use ordinary CommonMark with blank lines around lists and fenced blocks.
+- Keep migration documentation compact. Prefer source comments, automated
+  tests/fixtures, CI artifacts and the factual implementation log over a new
+  prose evidence dossier for each implementation slice. Create a standalone
+  evidence document only when it preserves information that is genuinely
+  awkward to encode in tests or CI, such as a benchmark report, compatibility
+  inventory, owner-data audit or a non-obvious cross-platform investigation.
+- Existing verbose evidence files are historical records, not templates for
+  future work. Do not expand or imitate them solely for consistency.
+- Never commit `data/slither.db`, generated native binaries, PID/log files, or
+  `server/config.toml`.
+- Preserve `bestPointsThisGen` initialization before the first sensor pass.
+- Treat `populationSlot`, snake-array index, visible snake ID, baseline-bot
+  slot, and external controller ID as different identities.

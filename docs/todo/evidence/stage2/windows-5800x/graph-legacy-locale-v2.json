@@ -1,0 +1,580 @@
+{
+  "schema": "slither-stage2-graph-baseline",
+  "version": 2,
+  "evidenceClass": "new reproducible fixture",
+  "source": {
+    "commit": "b500175f1f10bbfc9155919b084854d463af4f04",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-08-02T08:02:59.738Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "icu": "77.1"
+  },
+  "input": {
+    "kind": "fixture",
+    "path": "C:\\Users\\jlow8\\AppData\\Local\\Temp\\slither-graph-win-f863cfdb955e4626b7237e8d51029d1f\\scripts\\stage2\\graph-fixtures\\legacy-locale-concat-order.v1.json",
+    "sha256": "22b85250d08de5d15d6d46989e6fb64f7a98b1c3470ff40707d4bcfa7395b922",
+    "byteLength": 1833,
+    "schema": "slither-stage2-graph-fixture",
+    "version": 1,
+    "provenance": {
+      "kind": "synthetic",
+      "fixtureId": "legacy-locale-concat-order.v1",
+      "purpose": "Exercise current localeCompare topological, parameter-block, graph-key, and implicit Concat ordering with case, numeric, punctuation, composed, and decomposed node IDs."
+    },
+    "graphBearingRows": 1,
+    "uniqueGraphSpecs": 1
+  },
+  "orderingProbe": {
+    "input": [
+      "a",
+      "A",
+      "ä",
+      "z",
+      "Z",
+      "10",
+      "2",
+      "é",
+      "é",
+      "_",
+      "-"
+    ],
+    "localeCompare": [
+      "_",
+      "-",
+      "10",
+      "2",
+      "a",
+      "A",
+      "ä",
+      "é",
+      "é",
+      "z",
+      "Z"
+    ],
+    "codeUnit": [
+      "-",
+      "10",
+      "2",
+      "A",
+      "Z",
+      "_",
+      "a",
+      "é",
+      "z",
+      "ä",
+      "é"
+    ],
+    "note": "The current compiler uses localeCompare; code-unit order is the proposed portable replacement."
+  },
+  "graphs": [
+    {
+      "sources": [
+        "synthetic:legacy-locale-concat-order.v1"
+      ],
+      "specSha256": "d05407f2babb1bc73aa0cffeb5d66adf783ddfeeba7b85bfd704bd178542f032",
+      "spec": {
+        "type": "graph",
+        "nodes": [
+          {
+            "id": "source",
+            "type": "Input",
+            "outputSize": 1
+          },
+          {
+            "id": "A",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "a",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "10",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "2",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "_",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "-",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "ä",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "é",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "é",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "Z",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "z",
+            "type": "Dense",
+            "inputSize": 1,
+            "outputSize": 1
+          },
+          {
+            "id": "merge",
+            "type": "Concat"
+          },
+          {
+            "id": "head",
+            "type": "Dense",
+            "inputSize": 11,
+            "outputSize": 2
+          }
+        ],
+        "edges": [
+          {
+            "from": "source",
+            "to": "A"
+          },
+          {
+            "from": "source",
+            "to": "a"
+          },
+          {
+            "from": "source",
+            "to": "10"
+          },
+          {
+            "from": "source",
+            "to": "2"
+          },
+          {
+            "from": "source",
+            "to": "_"
+          },
+          {
+            "from": "source",
+            "to": "-"
+          },
+          {
+            "from": "source",
+            "to": "ä"
+          },
+          {
+            "from": "source",
+            "to": "é"
+          },
+          {
+            "from": "source",
+            "to": "é"
+          },
+          {
+            "from": "source",
+            "to": "Z"
+          },
+          {
+            "from": "source",
+            "to": "z"
+          },
+          {
+            "from": "A",
+            "to": "merge"
+          },
+          {
+            "from": "a",
+            "to": "merge"
+          },
+          {
+            "from": "10",
+            "to": "merge"
+          },
+          {
+            "from": "2",
+            "to": "merge"
+          },
+          {
+            "from": "_",
+            "to": "merge"
+          },
+          {
+            "from": "-",
+            "to": "merge"
+          },
+          {
+            "from": "ä",
+            "to": "merge"
+          },
+          {
+            "from": "é",
+            "to": "merge"
+          },
+          {
+            "from": "é",
+            "to": "merge"
+          },
+          {
+            "from": "Z",
+            "to": "merge"
+          },
+          {
+            "from": "z",
+            "to": "merge"
+          },
+          {
+            "from": "merge",
+            "to": "head"
+          }
+        ],
+        "outputs": [
+          {
+            "nodeId": "head"
+          }
+        ],
+        "outputSize": 2
+      },
+      "storedKey": null,
+      "computedKey": "graph|out:2|nodes:_:Dense:1x1;-:Dense:1x1;10:Dense:1x1;2:Dense:1x1;a:Dense:1x1;A:Dense:1x1;ä:Dense:1x1;é:Dense:1x1;é:Dense:1x1;head:Dense:11x2;merge:Concat;source:Input:1;z:Dense:1x1;Z:Dense:1x1|edges:_->merge:0:0;-->merge:0:0;10->merge:0:0;2->merge:0:0;a->merge:0:0;A->merge:0:0;ä->merge:0:0;é->merge:0:0;é->merge:0:0;merge->head:0:0;source->_:0:0;source->-:0:0;source->10:0:0;source->2:0:0;source->a:0:0;source->A:0:0;source->ä:0:0;source->é:0:0;source->é:0:0;source->z:0:0;source->Z:0:0;z->merge:0:0;Z->merge:0:0|outs:head:0",
+      "storedKeyMatches": true,
+      "order": [
+        "source",
+        "_",
+        "-",
+        "10",
+        "2",
+        "a",
+        "A",
+        "ä",
+        "é",
+        "é",
+        "z",
+        "Z",
+        "merge",
+        "head"
+      ],
+      "totalParams": 46,
+      "totalStateSize": 0,
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "source",
+          "type": "Input",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 0,
+          "paramLength": 0,
+          "inputs": []
+        },
+        {
+          "id": "_",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 0,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "-",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 2,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "10",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 4,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 6,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "a",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 8,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "A",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 10,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "ä",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 12,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "é",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 14,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "é",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 16,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "z",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 18,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "Z",
+          "type": "Dense",
+          "inputSize": 1,
+          "outputSize": 1,
+          "paramOffset": 20,
+          "paramLength": 2,
+          "inputs": [
+            {
+              "fromId": "source",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "merge",
+          "type": "Concat",
+          "inputSize": 11,
+          "outputSize": 11,
+          "paramOffset": 22,
+          "paramLength": 0,
+          "inputs": [
+            {
+              "fromId": "_",
+              "fromPort": 0
+            },
+            {
+              "fromId": "-",
+              "fromPort": 0
+            },
+            {
+              "fromId": "10",
+              "fromPort": 0
+            },
+            {
+              "fromId": "2",
+              "fromPort": 0
+            },
+            {
+              "fromId": "a",
+              "fromPort": 0
+            },
+            {
+              "fromId": "A",
+              "fromPort": 0
+            },
+            {
+              "fromId": "ä",
+              "fromPort": 0
+            },
+            {
+              "fromId": "é",
+              "fromPort": 0
+            },
+            {
+              "fromId": "é",
+              "fromPort": 0
+            },
+            {
+              "fromId": "z",
+              "fromPort": 0
+            },
+            {
+              "fromId": "Z",
+              "fromPort": 0
+            }
+          ]
+        },
+        {
+          "id": "head",
+          "type": "Dense",
+          "inputSize": 11,
+          "outputSize": 2,
+          "paramOffset": 22,
+          "paramLength": 24,
+          "inputs": [
+            {
+              "fromId": "merge",
+              "fromPort": 0
+            }
+          ]
+        }
+      ],
+      "concatInputs": [
+        {
+          "nodeId": "merge",
+          "inputs": [
+            {
+              "fromId": "_",
+              "fromPort": 0
+            },
+            {
+              "fromId": "-",
+              "fromPort": 0
+            },
+            {
+              "fromId": "10",
+              "fromPort": 0
+            },
+            {
+              "fromId": "2",
+              "fromPort": 0
+            },
+            {
+              "fromId": "a",
+              "fromPort": 0
+            },
+            {
+              "fromId": "A",
+              "fromPort": 0
+            },
+            {
+              "fromId": "ä",
+              "fromPort": 0
+            },
+            {
+              "fromId": "é",
+              "fromPort": 0
+            },
+            {
+              "fromId": "é",
+              "fromPort": 0
+            },
+            {
+              "fromId": "z",
+              "fromPort": 0
+            },
+            {
+              "fromId": "Z",
+              "fromPort": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2345 @@
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { Worker } from 'node:worker_threads';
+import { afterEach, describe, expect, it, vi, type TestContext } from 'vitest';
+import type { GraphSpec } from '../../src/brains/graph/schema.ts';
+import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
+import type {
+  ManagedCheckpointDescriptor,
+  ManagedGenerationCommit,
+  ManagedHallOfFameWeightsDescriptor,
+  ManagedHallOfFameReference,
+  ManagedGenerationSummary,
+  ManagedImportInventoryDescriptor
+} from './checkpointPersistenceProtocol.ts';
+
+/**
+ * Test-suite label used in runner output.
+ *
+ * These fixtures cover descriptor validation and metadata transaction mechanics only. Real
+ * checkpoint-file compatibility and corruption are owned by the integrated Rust-to-Node path,
+ * where Rust validates the logical root during restore/startup.
+ */
+const SUITE = 'minimal checkpoint metadata and compact-history persistence worker';
+/** Disposable fixture roots removed after their clients stop. */
+const fixtureRoots: string[] = [];
+/** Active clients closed before their temporary roots are removed. */
+const clients: CheckpointPersistenceClient[] = [];
+
+/**
+ * Format one small unsigned integer as the canonical descriptor u64 wire form.
+ * @param value - Nonnegative value represented exactly in a test fixture.
+ * @returns Fixed-width lowercase hexadecimal value.
+ */
+function u64(value: bigint): string {
+  return value.toString(16).padStart(16, '0');
+}
+
+/**
+ * Encode one JavaScript fixture number as its exact big-endian IEEE-754 Float64 bits.
+ * @param value - Finite fixture value.
+ * @returns Fixed-width lowercase hexadecimal bits matching Rust `f64::to_bits()`.
+ */
+function f64(value: number): string {
+  const bytes = Buffer.allocUnsafe(8);
+  bytes.writeDoubleBE(value);
+  return bytes.toString('hex');
+}
+
+/**
+ * Build one exact compact eight-field generation result.
+ * @param completedGeneration - Generation whose round completed.
+ * @param overrides - Optional field changes for rejection/idempotency tests.
+ * @returns Strict small generation-history record.
+ */
+function createGenerationSummary(
+  completedGeneration: bigint,
+  overrides: Partial<ManagedGenerationSummary> = {}
+): ManagedGenerationSummary {
+  return {
+    completedGeneration: u64(completedGeneration),
+    bestF64Hex: f64(12.5),
+    averageF64Hex: f64(7.25),
+    minimumF64Hex: f64(-1.5),
+    speciesCount: u64(2n),
+    topSpeciesSize: u64(1n),
+    averageWeightF64Hex: f64(0.125),
+    weightVarianceF64Hex: f64(0.03125),
+    ...overrides
+  };
+}
+
+/**
+ * Build one compact reference to the elite already stored in a generation checkpoint.
+ * @param completedGeneration - Generation whose elite was selected.
+ * @param fitnessF64Hex - Exact best-fitness bits shared with compact history.
+ * @param overrides - Optional field changes for validation and replay tests.
+ * @returns Strict scalar Hall-of-Fame reference without duplicated genome weights.
+ */
+function createHallOfFameReference(
+  completedGeneration: bigint,
+  fitnessF64Hex: string,
+  overrides: Partial<ManagedHallOfFameReference> = {}
+): ManagedHallOfFameReference {
+  return {
+    completedGeneration: u64(completedGeneration),
+    sourcePopulationSlot: u64(1n),
+    sourceSnakeId: u64(17n),
+    fitnessF64Hex,
+    pointsF64Hex: f64(6.25),
+    length: u64(9n),
+    successorPopulationSlot: u64(0n),
+    successorGenomeId: u64(1_001n),
+    ...overrides
+  };
+}
+
+/** Write one small immutable winner-weight object into the current disposable managed root. */
+function createHallOfFameWeights(
+  completedGeneration: bigint,
+  overrides: Partial<ManagedHallOfFameWeightsDescriptor> = {}
+): ManagedHallOfFameWeightsDescriptor {
+  const root = fixtureRoots.at(-1);
+  if (!root) throw new Error('Hall-of-Fame weights require an active fixture');
+  const bytes = Buffer.alloc(16, Number(completedGeneration & 0xffn));
+  const logicalSha256 = createHash('sha256').update(bytes).digest('hex');
+  const descriptor: ManagedHallOfFameWeightsDescriptor = {
+    version: 1,
+    logicalSha256,
+    relativeFilename: `${logicalSha256}.hof-weights-v1`,
+    encoding: 'raw-f32le-v1',
+    storedByteCount: u64(BigInt(bytes.length)),
+    decodedByteCount: u64(BigInt(bytes.length)),
+    weightCount: u64(BigInt(bytes.length / 4)),
+    ...overrides
+  };
+  writeFileSync(join(root, 'managed-checkpoints', descriptor.relativeFilename), bytes);
+  return descriptor;
+}
+
+/**
+ * Build the complete small metadata transaction payload for one finished generation.
+ * @param completedGeneration - Generation whose round completed.
+ * @param summaryOverrides - Optional compact-history changes.
+ * @param hallOfFameOverrides - Optional Hall-of-Fame reference changes.
+ * @returns Atomic history/reference commit fixture.
+ */
+function createGenerationCommit(
+  completedGeneration: bigint,
+  summaryOverrides: Partial<ManagedGenerationSummary> = {},
+  hallOfFameOverrides: Partial<ManagedHallOfFameReference> = {}
+): ManagedGenerationCommit {
+  const summary = createGenerationSummary(completedGeneration, summaryOverrides);
+  return {
+    summary,
+    hallOfFame: createHallOfFameReference(
+      completedGeneration,
+      summary.bestF64Hex,
+      hallOfFameOverrides
+    ),
+    hallOfFameWeights: createHallOfFameWeights(completedGeneration)
+  };
+}
+
+/**
+ * Decode one stored 56-byte compact record back to its exact protocol fields.
+ * @param record - SQLite BLOB returned by the disposable test database.
+ * @returns Exact generation-summary wire values.
+ */
+function decodeGenerationSummary(record: Buffer): ManagedGenerationSummary {
+  if (record.length !== 56) throw new RangeError('history fixture record must contain 56 bytes');
+  const hex = (offset: number): string => record.readBigUInt64LE(offset).toString(16).padStart(16, '0');
+  return {
+    completedGeneration: hex(0),
+    bestF64Hex: hex(8),
+    averageF64Hex: hex(16),
+    minimumF64Hex: hex(24),
+    speciesCount: u64(BigInt(record.readUInt32LE(32))),
+    topSpeciesSize: u64(BigInt(record.readUInt32LE(36))),
+    averageWeightF64Hex: hex(40),
+    weightVarianceF64Hex: hex(48)
+  };
+}
+
+/**
+ * Decode one stored 56-byte Hall-of-Fame reference without numeric coercion.
+ * @param record - SQLite BLOB returned by the disposable test database.
+ * @returns Exact Hall-of-Fame wire values.
+ */
+function decodeHallOfFameReference(record: Buffer): ManagedHallOfFameReference {
+  if (record.length !== 56) throw new RangeError('Hall-of-Fame fixture record must contain 56 bytes');
+  const hex = (offset: number): string => record.readBigUInt64LE(offset).toString(16).padStart(16, '0');
+  return {
+    completedGeneration: hex(0),
+    sourcePopulationSlot: u64(BigInt(record.readUInt32LE(8))),
+    successorPopulationSlot: u64(BigInt(record.readUInt32LE(12))),
+    sourceSnakeId: hex(16),
+    successorGenomeId: hex(24),
+    fitnessF64Hex: hex(32),
+    pointsF64Hex: hex(40),
+    length: hex(48)
+  };
+}
+
+/**
+ * Build one isolated root, managed directory, and client-owned worker.
+ * @returns Paths and client for a disposable real SQLite checkpoint publication test.
+ */
+function createFixture(
+  workerUrlForTesting?: URL,
+  workerResponseModeForTesting?: 'invalid' | 'mismatched' | 'exit' | 'exit-clean' | 'stall' | 'stall-after-progress' | 'progressing',
+  noProgressTimeoutMs?: number,
+  checkpointCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply',
+  importCommitFailpointForTesting?: 'before-commit' | 'after-commit-before-reply'
+): {
+  root: string;
+  managedRoot: string;
+  databasePath: string;
+  client: CheckpointPersistenceClient;
+} {
+  const root = mkdtempSync(join(tmpdir(), 'slither-checkpoint-worker-'));
+  fixtureRoots.push(root);
+  const managedRoot = join(root, 'managed-checkpoints');
+  mkdirSync(managedRoot);
+  const databasePath = join(root, 'metadata.sqlite');
+  const client = new CheckpointPersistenceClient({
+    databasePath,
+    managedRootPath: managedRoot,
+    ...(workerUrlForTesting ? { workerUrlForTesting } : {}),
+    ...(workerResponseModeForTesting ? { workerResponseModeForTesting } : {}),
+    ...(noProgressTimeoutMs ? { noProgressTimeoutMs } : {}),
+    ...(checkpointCommitFailpointForTesting ? { checkpointCommitFailpointForTesting } : {}),
+    ...(importCommitFailpointForTesting ? { importCommitFailpointForTesting } : {})
+  });
+  clients.push(client);
+  return { root, managedRoot, databasePath, client };
+}
+
+/**
+ * Create one final digest-derived file and matching scalar descriptor.
+ * @param managedRoot - Controlled directory receiving the final immutable file.
+ * @param options - Optional exact descriptor overrides.
+ * @returns Strict descriptor ready for client submission.
+ */
+function createDescriptor(
+  managedRoot: string,
+  options: Partial<ManagedCheckpointDescriptor> = {}
+): ManagedCheckpointDescriptor {
+  const bytes = Buffer.from(options.operationId ?? 'checkpoint-v3-fixture', 'utf8');
+  const logicalRootSha256 = options.logicalRootSha256 ?? createHash('sha256').update(bytes).digest('hex');
+  const relativeFilename = options.relativeFilename ?? `${logicalRootSha256}.checkpoint-v3`;
+  if (!options.relativeFilename) writeFileSync(join(managedRoot, relativeFilename), bytes);
+  return {
+    protocolVersion: 1,
+    operationId: '0123456789abcdef0123456789abcdef',
+    transitionEpoch: u64(1n),
+    runId: '8c50f3b8-b27a-4d88-b0bc-7a8557c0e456',
+    generation: u64(1n),
+    completedStep: u64(0n),
+    boundaryKind: 'run-start',
+    checkpointFormatVersion: u64(3n),
+    stateVersion: u64(1n),
+    graphLayoutVersion: u64(1n),
+    managedRoot: 'checkpoint-v3',
+    relativeFilename,
+    logicalRootSha256,
+    storedByteCount: u64(BigInt(bytes.length)),
+    decodedByteCount: u64(BigInt(bytes.length)),
+    roleCount: u64(3n),
+    populationCount: u64(2n),
+    weightCount: u64(8n),
+    recurrentStateCount: u64(0n),
+    weightsEncoding: 'raw-f32le-v1',
+    recurrentStateEncoding: 'raw-f32le-v1',
+    graphLayoutSha256: createHash('sha256').update('graph-layout').digest('hex'),
+    writeValidationPolicy: 'write-hash-count-fsync-rename-v1',
+    ...options
+  };
+}
+
+/**
+ * Read the current pointer after closing the worker that exclusively writes it.
+ * @param databasePath - Disposable SQLite database path.
+ * @param runId - Run whose pointer is inspected.
+ * @returns Current checkpoint/root tuple, or undefined before first commit.
+ */
+function readCurrentPointer(databasePath: string, runId: string): {
+  checkpoint_id: string;
+  transition_epoch: string;
+  operation_id: string;
+} | undefined {
+  const db = new Database(databasePath, { readonly: true });
+  try {
+    return db.prepare(
+      'SELECT checkpoint_id, transition_epoch, operation_id FROM rust_checkpoint_v3_current WHERE run_id = ?'
+    ).get(runId) as { checkpoint_id: string; transition_epoch: string; operation_id: string } | undefined;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Create a symlink or skip only when the current platform disallows this test fixture.
+ * @param context - Current Vitest test context.
+ * @param target - Existing target file.
+ * @param linkPath - New link path beneath the controlled root.
+ * @returns True when the symlink exists and can be tested.
+ */
+function createSymlinkOrSkip(context: TestContext, target: string, linkPath: string): boolean {
+  try {
+    symlinkSync(target, linkPath, 'file');
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EPERM' || code === 'EACCES' || code === 'ENOSYS') {
+      context.skip();
+    }
+    throw error;
+  }
+}
+
+afterEach(async () => {
+  for (const client of clients.splice(0)) await client.close().catch(() => {});
+  for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+// Allow worker startup, durable I/O and joined shutdown on shared runners.
+describe(SUITE, { timeout: 30_000 }, () => {
+  it('reports bounded SQLite file and free-page storage counters', async () => {
+    const fixture = createFixture();
+    const diagnostics = await fixture.client.inspectStorage();
+    const pageSize = BigInt(`0x${diagnostics.pageSizeByteCount}`);
+    const pageCount = BigInt(`0x${diagnostics.pageCount}`);
+    const freePages = BigInt(`0x${diagnostics.freelistPageCount}`);
+    expect(diagnostics.schemaVersion).toBe(1);
+    expect(BigInt(`0x${diagnostics.databaseByteCount}`)).toBeGreaterThan(0n);
+    expect(BigInt(`0x${diagnostics.walByteCount}`)).toBeGreaterThanOrEqual(0n);
+    expect(BigInt(`0x${diagnostics.shmByteCount}`)).toBeGreaterThanOrEqual(0n);
+    expect(pageSize).toBeGreaterThanOrEqual(512n);
+    expect(pageCount).toBeGreaterThan(0n);
+    expect(freePages).toBeLessThanOrEqual(pageCount);
+    expect(BigInt(`0x${diagnostics.usedPageByteCount}`)).toBe((pageCount - freePages) * pageSize);
+  });
+
+  it('rolls back every metadata row when the real checkpoint transaction fails before commit', async () => {
+    const fixture = createFixture(undefined, undefined, undefined, 'before-commit');
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/injected checkpoint failure before SQLite commit/u);
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toBeUndefined();
+    const database = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(database.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 0 });
+    } finally { database.close(); }
+    await expect(fixture.client.commit(descriptor)).resolves.toMatchObject({
+      operationId: descriptor.operationId,
+      checkpointId: descriptor.logicalRootSha256
+    });
+  });
+
+  it('replays the exact committed checkpoint after its worker exits before acknowledgement', async () => {
+    const fixture = createFixture(undefined, undefined, undefined, 'after-commit-before-reply');
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/worker|exit|stopped/u);
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toMatchObject({
+      checkpoint_id: descriptor.logicalRootSha256,
+      operation_id: descriptor.operationId
+    });
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    await expect(reopened.commit(descriptor)).resolves.toMatchObject({
+      operationId: descriptor.operationId,
+      checkpointId: descriptor.logicalRootSha256
+    });
+    const database = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(database.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 1 });
+    } finally { database.close(); }
+  });
+
+  it('keeps validated graph presets across metadata-worker restarts', async () => {
+    const fixture = createFixture();
+    const spec: GraphSpec = {
+      type: 'graph',
+      nodes: [
+        { id: 'input', type: 'Input', outputSize: 2 },
+        { id: 'head', type: 'Dense', inputSize: 2, outputSize: 2 }
+      ],
+      edges: [{ from: 'input', to: 'head' }],
+      outputs: [{ nodeId: 'head' }],
+      outputSize: 2
+    };
+    const presetId = await fixture.client.saveGraphPreset('  Small graph  ', spec);
+    expect(await fixture.client.listGraphPresets()).toEqual([
+      { id: presetId, name: 'Small graph', createdAt: expect.any(Number) }
+    ]);
+    await fixture.client.close();
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(reopened);
+    await expect(reopened.loadGraphPreset(presetId)).resolves.toMatchObject({
+      id: presetId, name: 'Small graph', spec
+    });
+    await expect(reopened.loadGraphPreset(presetId + 1)).resolves.toBeNull();
+  });
+
+  it('scans corrupt retained metadata newest first with bounded records and exact cursor retry', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '88'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '99'.repeat(16),
+      generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    await fixture.client.close();
+    const failedCheckpointId = 'f'.repeat(64);
+    const db = new Database(fixture.databasePath);
+    try {
+      db.pragma('foreign_keys = OFF');
+      db.prepare('UPDATE rust_checkpoint_v3_current SET checkpoint_id = ?').run(failedCheckpointId);
+      db.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?').run('x'.repeat(32_768), third.logicalRootSha256);
+      db.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?').run('{broken', second.logicalRootSha256);
+    } finally { db.close(); }
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(client);
+    const newest = await client.scanRecoveryCandidate();
+    expect(newest).toMatchObject({ exhausted: false, descriptor: null, issue: 'retained checkpoint metadata is invalid',
+      cursor: { generation: u64(3n), checkpointId: third.logicalRootSha256, failedCheckpointId } });
+    const middle = await client.scanRecoveryCandidate(newest.cursor);
+    expect(middle).toMatchObject({ descriptor: null, cursor: { generation: u64(2n) } });
+    expect(await client.scanRecoveryCandidate(newest.cursor)).toEqual(middle);
+    const oldest = await client.scanRecoveryCandidate(middle.cursor);
+    expect(oldest.descriptor).toEqual(first);
+    expect(await client.scanRecoveryCandidate(oldest.cursor)).toMatchObject({ exhausted: true, descriptor: null, issue: null });
+    await client.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 3 });
+      expect(inspect.prepare('SELECT length(descriptor_json) AS size FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?').get(third.logicalRootSha256))
+        .toEqual({ size: 32_768 });
+    } finally { inspect.close(); }
+
+  });
+
+  it('rejects a recovery cursor after the pinned source pointer advances', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const scanning = fixture.client.scanRecoveryCandidate();
+    await expect(fixture.client.scanRecoveryCandidate()).rejects.toThrow(/busy/);
+    const initial = await scanning;
+    const second = createDescriptor(fixture.managedRoot, { operationId: 'aa'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await expect(fixture.client.scanRecoveryCandidate(initial.cursor)).rejects.toThrow(/source pointer changed/);
+    expect((await fixture.client.scanRecoveryCandidate()).descriptor).toEqual(second);
+  });
+
+  it.each(['current', 'older'] as const)('selects a prior-run %s checkpoint by exact ID without rewriting either source', async boundary => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '41'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const other = createDescriptor(fixture.managedRoot, { operationId: '42'.repeat(16), runId: 'newer-run' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(other, null, true);
+    const selected = boundary === 'current' ? second : first;
+    const beforeFiles = readdirSync(fixture.managedRoot).sort().map(name => ({ name,
+      bytes: readFileSync(join(fixture.managedRoot, name)) }));
+    /** Read unchanged immutable metadata and compact source records. */
+    const records = (): unknown => {
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try { return ['rust_checkpoint_v3_metadata', 'rust_generation_history_v1', 'rust_hall_of_fame_v1',
+        'rust_checkpoint_retention_v1'].map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()); }
+      finally { database.close(); }
+    };
+    const before = records();
+    const selecting = fixture.client.selectRetainedCheckpoint(selected.logicalRootSha256);
+    await expect(fixture.client.selectRetainedCheckpoint(selected.logicalRootSha256)).rejects.toThrow('busy');
+    const exact = await selecting;
+    expect(exact).toMatchObject({ descriptor: selected, exhausted: false, cursor: {
+      sourceRunId: first.runId, failedCheckpointId: second.logicalRootSha256,
+      explicitResume: { activeRunId: other.runId, activeCheckpointId: other.logicalRootSha256 }
+    } });
+    expect(await fixture.client.selectCurrent()).toEqual(other);
+    await expect(fixture.client.scanRecoveryCandidate(exact.cursor)).rejects.toThrow('cannot continue as an automatic recovery scan');
+    await expect(fixture.client.selectRetainedCheckpoint('f'.repeat(64))).rejects.toThrow('not retained');
+    const request = { operationId: '43'.repeat(16), branchRunId: 'explicit-branch', sourceRunId: first.runId,
+      failedCheckpointId: second.logicalRootSha256, recoveredDescriptor: selected };
+    await expect(fixture.client.commitRecoveryBranch(request)).rejects.toThrow('source is no longer active');
+    const explicit = { ...request, explicitResume: exact.cursor.explicitResume! };
+    const branch = await fixture.client.commitRecoveryBranch(explicit);
+    expect(await fixture.client.commitRecoveryBranch(explicit)).toEqual(branch);
+    expect(await fixture.client.selectStartup()).toMatchObject({ descriptor: selected, runId: 'explicit-branch', recovery: branch });
+    expect(await fixture.client.selectCurrent(first.runId)).toEqual(second);
+    expect(await fixture.client.selectCurrent(other.runId)).toEqual(other);
+    expect(records()).toEqual(before);
+    expect(readdirSync(fixture.managedRoot).sort().map(name => ({ name,
+      bytes: readFileSync(join(fixture.managedRoot, name)) }))).toEqual(beforeFiles);
+  });
+
+  it.each(['active advances', 'source advances', 'target pruned'] as const)(
+    'rejects an explicit-resume transaction after %s', async change => {
+      const fixture = createFixture();
+      const source = createDescriptor(fixture.managedRoot);
+      const active = createDescriptor(fixture.managedRoot, { operationId: '51'.repeat(16), runId: 'active-run' });
+      await fixture.client.commit(source);
+      await fixture.client.commit(active, null, true);
+      const exact = await fixture.client.selectRetainedCheckpoint(source.logicalRootSha256);
+      if (change === 'target pruned') {
+        const database = new Database(fixture.databasePath);
+        try { database.prepare("UPDATE rust_checkpoint_retention_v1 SET retention_kind = 'pruned' WHERE checkpoint_id = ?")
+          .run(source.logicalRootSha256); } finally { database.close(); }
+      } else {
+        const prior = change === 'active advances' ? active : source;
+        const successor = createDescriptor(fixture.managedRoot, { operationId: '52'.repeat(16), runId: prior.runId,
+          generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+        await fixture.client.commit(successor, createGenerationCommit(1n));
+      }
+      const pointer = await fixture.client.selectStartup();
+      await expect(fixture.client.commitRecoveryBranch({ operationId: '53'.repeat(16), branchRunId: 'rejected-branch',
+        sourceRunId: source.runId, failedCheckpointId: source.logicalRootSha256, recoveredDescriptor: source,
+        explicitResume: exact.cursor.explicitResume! })).rejects.toThrow(
+          change === 'target pruned' ? 'no longer retained' : change === 'source advances' ? 'source pointer changed' : 'active pointer changed');
+      expect(await fixture.client.selectStartup()).toEqual(pointer);
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try { expect(database.prepare('SELECT count(*) AS count FROM rust_recovery_branches_v1').get()).toEqual({ count: 0 }); }
+      finally { database.close(); }
+    }
+  );
+
+  it('branches from an older retained boundary without changing the failed suffix and advances independently', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '22'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '33'.repeat(16),
+      generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    const originalFile = readFileSync(join(fixture.managedRoot, third.relativeFilename));
+    const request = { operationId: '44'.repeat(16), branchRunId: 'recovered-lineage',
+      sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256,
+      recoveredDescriptor: second, compatibleBuild: true as const };
+    const result = await fixture.client.commitRecoveryBranch(request);
+    expect(result).toEqual({ ...request, abandonedThroughGeneration: u64(3n) });
+    expect(await fixture.client.commitRecoveryBranch(request)).toEqual(result);
+    await expect(fixture.client.selectCurrent(request.branchRunId)).rejects.toThrow(/provenance-aware/);
+    const branchLease = await fixture.client.acquireCurrentExportLease();
+    expect(branchLease).toMatchObject({ runId: request.branchRunId, descriptor: second,
+      inventory: { historyCount: u64(1n), hallOfFameCount: u64(1n) } });
+    await fixture.client.releaseExportLease(branchLease.operationId);
+    const successor = createDescriptor(fixture.managedRoot, { operationId: '55'.repeat(16),
+      runId: request.branchRunId, generation: u64(3n), completedStep: u64(121n), boundaryKind: 'generation' });
+    await fixture.client.commit(successor, createGenerationCommit(2n, { bestF64Hex: f64(20) }));
+    await expect(fixture.client.commitRecoveryBranch(request)).rejects.toThrow(/superseded/);
+    expect(await fixture.client.selectCurrent(request.branchRunId)).toEqual(successor);
+    expect(await fixture.client.selectCurrent(first.runId)).toEqual(third);
+    expect(await fixture.client.readBrowserHistory(request.branchRunId)).toEqual([
+      { gen: 1, best: 12.5, avg: 7.25, min: -1.5, speciesCount: 2,
+        topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 },
+      { gen: 2, best: 20, avg: 7.25, min: -1.5, speciesCount: 2,
+        topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 }
+    ]);
+    expect(await fixture.client.readBrowserHistory(request.branchRunId, 1)).toEqual([
+      { gen: 2, best: 20, avg: 7.25, min: -1.5, speciesCount: 2,
+        topSpeciesSize: 1, avgWeight: 0.125, weightVariance: 0.03125 }
+    ]);
+    expect(await fixture.client.readBrowserHallOfFame(request.branchRunId)).toEqual([
+      { entryId: u64(2n), gen: 2, fitness: 20, points: 6.25, length: 9, pinned: false },
+      { entryId: u64(1n), gen: 1, fitness: 12.5, points: 6.25, length: 9, pinned: false }
+    ]);
+    expect(await fixture.client.readBrowserHallOfFame(request.branchRunId, 1)).toEqual([
+      { entryId: u64(2n), gen: 2, fitness: 20, points: 6.25, length: 9, pinned: false }
+    ]);
+    const selectedWinner = await fixture.client.selectHallOfFameEntry(request.branchRunId, u64(2n));
+    expect(selectedWinner).toMatchObject({
+      runId: request.branchRunId,
+      entryId: u64(2n),
+      checkpoint: successor,
+      reference: createGenerationCommit(2n, { bestF64Hex: f64(20) }).hallOfFame,
+      weights: createHallOfFameWeights(2n)
+    });
+    await expect(fixture.client.selectHallOfFameEntry(request.branchRunId, u64(1n)))
+      .rejects.toThrow(/busy/);
+    await fixture.client.releaseHallOfFameEntry(selectedWinner.operationId);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 4 });
+      expect(db.prepare('SELECT run_id FROM rust_active_run_v1').get()).toEqual({ run_id: request.branchRunId });
+      expect(db.prepare('SELECT source_run_id, recovered_checkpoint_id, history_through_generation_hex FROM rust_recovery_branches_v1').get())
+        .toEqual({ source_run_id: first.runId, recovered_checkpoint_id: second.logicalRootSha256, history_through_generation_hex: u64(1n) });
+      expect(JSON.parse((db.prepare('SELECT provenance_json FROM rust_recovery_branches_v1').get() as { provenance_json: string }).provenance_json))
+        .toMatchObject({ compatibleBuild: true });
+      expect(db.prepare('SELECT count(*) AS count FROM rust_generation_history_v1 WHERE run_id = ?').get(first.runId)).toEqual({ count: 2 });
+    } finally { db.close(); }
+    expect(readFileSync(join(fixture.managedRoot, third.relativeFilename))).toEqual(originalFile);
+  });
+
+  it('recovers an already-branched lineage only through its inherited prefix', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: 'b1'.repeat(16), generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: 'b2'.repeat(16), generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    await fixture.client.commitRecoveryBranch({ operationId: 'b3'.repeat(16), branchRunId: 'branch-one',
+      sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256, recoveredDescriptor: second });
+    const newest = await fixture.client.scanRecoveryCandidate();
+    expect(newest.descriptor).toEqual(second);
+    const older = await fixture.client.scanRecoveryCandidate(newest.cursor);
+    expect(older.descriptor).toEqual(first);
+    const recovery = { operationId: 'b4'.repeat(16), branchRunId: 'branch-two', sourceRunId: 'branch-one',
+      failedCheckpointId: second.logicalRootSha256, recoveredDescriptor: first };
+    await expect(fixture.client.commitRecoveryBranch({ ...recovery, recoveredDescriptor: third }))
+      .rejects.toThrow(/outside the inherited lineage prefix/);
+    await expect(fixture.client.commitRecoveryBranch(recovery)).resolves.toMatchObject({ abandonedThroughGeneration: u64(2n) });
+    const selected = await fixture.client.selectStartup();
+    expect(selected).toMatchObject({ runId: 'branch-two', descriptor: first, recovery });
+    expect((await fixture.client.scanRecoveryCandidate()).descriptor).toEqual(first);
+  });
+
+  it('rolls back recovery provenance when current-pointer publication fails', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath);
+    db.exec("CREATE TRIGGER reject_recovery BEFORE INSERT ON rust_checkpoint_v3_current WHEN NEW.run_id = 'branch' BEGIN SELECT RAISE(ABORT, 'injected recovery failure'); END");
+    db.close();
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(client);
+    const request = { operationId: '66'.repeat(16), branchRunId: 'branch', sourceRunId: first.runId,
+      failedCheckpointId: first.logicalRootSha256, recoveredDescriptor: first };
+    await expect(client.commitRecoveryBranch(request)).rejects.toThrow(/injected recovery failure/);
+    expect(await client.selectCurrent()).toEqual(first);
+    await client.close();
+    const inspect = new Database(fixture.databasePath);
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_recovery_branches_v1').get()).toEqual({ count: 0 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_active_run_v1').get()).toEqual({ count: 0 });
+      inspect.exec('DROP TRIGGER reject_recovery');
+    } finally { inspect.close(); }
+    const retry = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(retry);
+    await expect(retry.commitRecoveryBranch(request)).resolves.toMatchObject({ branchRunId: 'branch' });
+  });
+
+  it('rejects legacy schema in managed-only mode before journal or schema writes', async () => {
+    const fixture = createFixture();
+    await fixture.client.close();
+    const path = join(fixture.root, 'legacy.sqlite');
+    const database = new Database(path);
+    try {
+      database.exec('CREATE TABLE population_snapshots (id INTEGER PRIMARY KEY, payload_json TEXT)');
+      database.prepare('INSERT INTO population_snapshots VALUES (1, ?)').run('preserved population');
+    } finally { database.close(); }
+    const before = readFileSync(path);
+    const client = new CheckpointPersistenceClient({ databasePath: path,
+      managedRootPath: fixture.managedRoot, existingOnly: 'managed' });
+    clients.push(client);
+    await expect(client.selectCurrent()).rejects.toThrow(/fresh startup requires a compatible managed/u);
+    await expect(client.close()).rejects.toThrow();
+    expect(readFileSync(path)).toEqual(before);
+    expect(existsSync(`${path}-wal`)).toBe(false);
+  });
+
+  it('opens an existing managed store in managed-only mode without changing its current checkpoint', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    await fixture.client.close();
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: 'managed' });
+    clients.push(client);
+    expect(await client.selectCurrent()).toEqual(descriptor);
+    await client.close();
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toMatchObject({
+      checkpoint_id: descriptor.logicalRootSha256, operation_id: descriptor.operationId
+    });
+  });
+  it('refuses missing and unrelated resume databases without creating or changing them', async () => {
+    const fixture = createFixture();
+    await fixture.client.close();
+    const missing = join(fixture.root, 'missing.sqlite');
+    const unrelated = join(fixture.root, 'reference.sqlite');
+    const db = new Database(unrelated);
+    db.exec("CREATE TABLE snapshots (id INTEGER PRIMARY KEY, value TEXT); INSERT INTO snapshots VALUES (1, 'retained')");
+    db.close();
+    const before = readFileSync(unrelated);
+    for (const databasePath of [missing, unrelated]) {
+      const client = new CheckpointPersistenceClient({ databasePath,
+        managedRootPath: fixture.managedRoot, existingOnly: true });
+      clients.push(client);
+      await expect(client.selectCurrent()).rejects.toThrow();
+      await expect(client.close()).rejects.toThrow();
+    }
+    expect(existsSync(missing)).toBe(false);
+    expect(readFileSync(unrelated)).toEqual(before);
+    expect(existsSync(`${unrelated}-wal`)).toBe(false);
+  });
+
+  it('selects one current descriptor after reopening without changing publication identity', async () => {
+    const fixture = createFixture();
+    await expect(fixture.client.selectCurrent()).resolves.toBeNull();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    await fixture.client.close();
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(reopened);
+    const selecting = reopened.selectCurrent();
+    await expect(reopened.selectCurrent()).rejects.toThrow('busy');
+    await expect(selecting).resolves.toEqual(descriptor);
+    await expect(reopened.selectCurrent('missing-run')).resolves.toBeNull();
+    const finalRead = reopened.selectCurrent(descriptor.runId);
+    const closing = reopened.close();
+    await expect(finalRead).resolves.toEqual(descriptor);
+    await closing;
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toEqual({
+      checkpoint_id: descriptor.logicalRootSha256, transition_epoch: descriptor.transitionEpoch, operation_id: descriptor.operationId
+    });
+  });
+
+  it('persists population-only conversion provenance and requires an exact run-start replay', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    const legacyConversion = {
+      snapshotId: 17,
+      sourceFormat: 'legacy-gzip' as const,
+      completeness: 'population-only' as const
+    };
+    await expect(fixture.client.commit(descriptor, null, false, legacyConversion)).resolves.toMatchObject({
+      checkpointId: descriptor.logicalRootSha256
+    });
+    await expect(fixture.client.selectStartup()).resolves.toMatchObject({
+      descriptor,
+      runId: descriptor.runId,
+      legacyConversion
+    });
+    await expect(fixture.client.commit(descriptor, null, false, legacyConversion)).resolves.toMatchObject({
+      checkpointId: descriptor.logicalRootSha256
+    });
+    await expect(fixture.client.commit(descriptor, null, false, {
+      ...legacyConversion,
+      snapshotId: 18
+    })).rejects.toThrow(/different legacy conversion provenance/);
+  });
+
+  it('verifies referenced objects before removing only unreferenced final managed files', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: '51'.repeat(16),
+      transitionEpoch: u64(2n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    const generationCommit = createGenerationCommit(1n);
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, generationCommit);
+    await fixture.client.close();
+
+    const orphanCheckpoint = join(fixture.managedRoot, `${'a'.repeat(64)}.checkpoint-v3`);
+    const orphanWinner = join(fixture.managedRoot, `${'b'.repeat(64)}.hof-weights-v1`);
+    const unknownFile = join(fixture.managedRoot, 'owner-notes.checkpoint-v3');
+    writeFileSync(orphanCheckpoint, 'orphan checkpoint');
+    writeFileSync(orphanWinner, 'orphan winner');
+    writeFileSync(unknownFile, 'leave me alone');
+    const unreferenced = new Database(fixture.databasePath);
+    const unusedFiles: string[] = [];
+    try {
+      const insert = unreferenced.prepare(`INSERT INTO rust_hall_of_fame_weights_v1
+        (logical_sha256, relative_filename, encoding, stored_byte_count_hex,
+          decoded_byte_count_hex, weight_count_hex, created_at_ms)
+        VALUES (?, ?, ?, ?, ?, ?, 0)`);
+      unreferenced.transaction(() => {
+        for (let generation = 100n; generation < 170n; generation++) {
+          const weights = createHallOfFameWeights(generation);
+          unusedFiles.push(weights.relativeFilename);
+          insert.run(weights.logicalSha256, weights.relativeFilename, weights.encoding,
+            weights.storedByteCount, weights.decodedByteCount, weights.weightCount);
+        }
+      })();
+    } finally { unreferenced.close(); }
+
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    await expect(reopened.selectStartup()).resolves.toMatchObject({ descriptor: second });
+    expect(existsSync(orphanCheckpoint)).toBe(false);
+    expect(existsSync(orphanWinner)).toBe(false);
+    expect(unusedFiles.every(file => !existsSync(join(fixture.managedRoot, file)))).toBe(true);
+    expect(existsSync(unknownFile)).toBe(true);
+    const cleaned = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(cleaned.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 1 });
+    } finally { cleaned.close(); }
+    expect(existsSync(join(fixture.managedRoot, first.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, second.relativeFilename))).toBe(true);
+    expect(existsSync(join(
+      fixture.managedRoot,
+      generationCommit.hallOfFameWeights.relativeFilename
+    ))).toBe(true);
+    await reopened.close();
+
+    const protectedOrphan = join(fixture.managedRoot, `${'c'.repeat(64)}.checkpoint-v3`);
+    writeFileSync(protectedOrphan, 'do not delete after failed verification');
+    rmSync(join(fixture.managedRoot, second.relativeFilename));
+    const damaged = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(damaged);
+    await expect(damaged.selectStartup()).resolves.toMatchObject({ descriptor: second });
+    expect(existsSync(protectedOrphan)).toBe(true);
+  });
+
+  it('reclaims only unreferenced finals after leases release and preserves files when a retained reference is invalid', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    const lease = await fixture.client.acquireCurrentExportLease();
+    const orphanCheckpoint = join(fixture.managedRoot, `${'a'.repeat(64)}.checkpoint-v3`);
+    const orphanElite = join(fixture.managedRoot, `${'b'.repeat(64)}.hof-weights-v1`);
+    const unknown = join(fixture.managedRoot, 'owner-notes.txt');
+    writeFileSync(orphanCheckpoint, 'abandoned checkpoint');
+    writeFileSync(orphanElite, 'abandoned elite');
+    writeFileSync(unknown, 'preserve owner notes');
+    await expect(fixture.client.reclaimManagedOrphans()).resolves.toEqual({ completed: false,
+      deletedCheckpointCount: u64(0n), deletedHallOfFameCount: u64(0n), deletedStoredByteCount: u64(0n) });
+    expect(existsSync(orphanCheckpoint) && existsSync(orphanElite)).toBe(true);
+    await fixture.client.releaseExportLease(lease.operationId);
+    const deletedBytes = BigInt(statSync(orphanCheckpoint).size + statSync(orphanElite).size);
+    await expect(fixture.client.reclaimManagedOrphans()).resolves.toEqual({ completed: true,
+      deletedCheckpointCount: u64(1n), deletedHallOfFameCount: u64(1n), deletedStoredByteCount: u64(deletedBytes) });
+    expect(existsSync(orphanCheckpoint) || existsSync(orphanElite)).toBe(false);
+    expect(existsSync(unknown)).toBe(true);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptor);
+    writeFileSync(orphanCheckpoint, 'preserve after failed reference check');
+    rmSync(join(fixture.managedRoot, descriptor.relativeFilename));
+    await expect(fixture.client.reclaimManagedOrphans()).resolves.toMatchObject({ completed: false,
+      deletedCheckpointCount: u64(0n), deletedHallOfFameCount: u64(0n), deletedStoredByteCount: u64(0n) });
+    expect(existsSync(orphanCheckpoint)).toBe(true);
+  });
+
+  it('classifies old managed files and returns bounded owner-policy retention accounting', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: 'abababababababababababababababab',
+      transitionEpoch: u64(2n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    const initial = await fixture.client.inspectRetention();
+    expect(initial).toMatchObject({
+      schemaVersion: 1,
+      activeRunId: first.runId,
+      retained: {
+        latest: { checkpointCount: 1 },
+        recent: { checkpointCount: 1 },
+        milestone: { checkpointCount: 0 },
+        priorRunAnchor: { checkpointCount: 0 },
+        pinned: { checkpointCount: 0 }
+      },
+      plannedPrune: { checkpointCount: 0 }
+    });
+    expect(initial.retained.latest.encodings.rawWeights).toBe(1);
+    expect(initial.retained.recent.encodings.rawRecurrent).toBe(1);
+    await fixture.client.close();
+
+    const oldSchema = new Database(fixture.databasePath);
+    try { oldSchema.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE rust_hall_of_fame_v1_old (
+        run_id TEXT NOT NULL,
+        generation_hex TEXT NOT NULL,
+        checkpoint_id TEXT NOT NULL UNIQUE REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+        record_version INTEGER NOT NULL,
+        record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
+        created_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (run_id, generation_hex)
+      );
+      INSERT INTO rust_hall_of_fame_v1_old
+        SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
+        FROM rust_hall_of_fame_v1;
+      DROP TABLE rust_hall_of_fame_v1;
+      ALTER TABLE rust_hall_of_fame_v1_old RENAME TO rust_hall_of_fame_v1;
+      DROP TABLE rust_hall_of_fame_weights_v1;
+      DROP TABLE rust_checkpoint_retention_v1;
+      CREATE TABLE rust_checkpoint_retention_v1 (
+        checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
+        retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned')),
+        classified_at_ms INTEGER NOT NULL
+      );
+      INSERT INTO rust_checkpoint_retention_v1
+        SELECT checkpoint_id, 'automatic', 0 FROM rust_checkpoint_v3_metadata;
+    `); }
+    finally { oldSchema.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    const backfilled = await reopened.inspectRetention();
+    expect(backfilled.automaticStoredByteCount).toBe(initial.automaticStoredByteCount);
+    expect(backfilled.retained.latest.checkpointCount + backfilled.retained.recent.checkpointCount).toBe(2);
+    const migrated = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(migrated.prepare('SELECT weights_sha256 FROM rust_hall_of_fame_v1').get()).toEqual({
+        weights_sha256: null
+      });
+      expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
+        WHERE type = 'table' AND name = 'rust_hall_of_fame_weights_v1'`).get()).toEqual({ count: 1 });
+      expect(migrated.prepare(`SELECT count(*) AS count FROM sqlite_schema
+        WHERE type = 'index' AND name = 'rust_hof_weights_reference_v1'`).get()).toEqual({ count: 1 });
+    } finally { migrated.close(); }
+    const legacyLease = await reopened.acquireCurrentExportLease();
+    expect(legacyLease.inventory).toMatchObject({ historyCount: u64(1n), hallOfFameCount: u64(0n) });
+    await reopened.releaseExportLease(legacyLease.operationId);
+    await expect(reopened.pinCurrentCheckpoint()).resolves.toEqual({
+      checkpointId: second.logicalRootSha256,
+      generation: second.generation
+    });
+    const pinned = await reopened.inspectRetention();
+    expect(pinned.retained.pinned.checkpointCount).toBe(1);
+    expect(pinned.retained.latest.checkpointCount).toBe(1);
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare(`SELECT retention_kind, count(*) AS count
+        FROM rust_checkpoint_retention_v1 GROUP BY retention_kind ORDER BY retention_kind`).all()).toEqual([
+        { retention_kind: 'automatic', count: 1 },
+        { retention_kind: 'pinned', count: 1 }
+      ]);
+    } finally { inspect.close(); }
+  });
+
+  it('resumes two-phase pruning, preserves pins, and keeps compact history', async () => {
+    const fixture = createFixture();
+    const descriptors = [createDescriptor(fixture.managedRoot)];
+    await fixture.client.commit(descriptors[0]!);
+    for (let generation = 2n; generation <= 11n; generation++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: generation.toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: 'generation'
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor, createGenerationCommit(generation - 1n));
+      if (generation === 2n) await fixture.client.pinCurrentCheckpoint();
+    }
+    const before = await fixture.client.inspectRetention();
+    expect(before.retained.pinned.checkpointCount).toBe(1);
+    expect(before.plannedPrune.checkpointCount).toBe(2);
+
+    await fixture.client.close();
+    const interrupted = new Database(fixture.databasePath);
+    try {
+      interrupted.prepare(`UPDATE rust_checkpoint_retention_v1
+        SET retention_kind = 'pruning' WHERE checkpoint_id = ?`).run(descriptors[0]!.logicalRootSha256);
+    } finally { interrupted.close(); }
+    rmSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename));
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    const result = await reopened.applyRetention();
+    expect(result.deletedCheckpointCount).toBe(2);
+    expect(result.inventory).toMatchObject({
+      retained: {
+        latest: { checkpointCount: 1 },
+        recent: { checkpointCount: 7 },
+        pinned: { checkpointCount: 1 }
+      },
+      plannedPrune: { checkpointCount: 0 }
+    });
+    expect(existsSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename))).toBe(false);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, descriptors[2]!.relativeFilename))).toBe(false);
+    expect(await reopened.selectCurrent()).toEqual(descriptors.at(-1));
+    await reopened.close();
+
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 11 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get()).toEqual({ count: 10 });
+      expect(inspect.prepare(`SELECT count(*) AS count FROM rust_hall_of_fame_v1
+        WHERE weights_sha256 IS NOT NULL`).get()).toEqual({ count: 10 });
+      const weightFiles = inspect.prepare(`SELECT relative_filename FROM rust_hall_of_fame_weights_v1`)
+        .all() as Array<{ relative_filename: string }>;
+      expect(weightFiles.every(row => existsSync(join(fixture.managedRoot, row.relative_filename)))).toBe(true);
+      expect(inspect.prepare(`SELECT retention_kind, count(*) AS count
+        FROM rust_checkpoint_retention_v1 GROUP BY retention_kind ORDER BY retention_kind`).all()).toEqual([
+        { retention_kind: 'automatic', count: 8 },
+        { retention_kind: 'pinned', count: 1 },
+        { retention_kind: 'pruned', count: 2 }
+      ]);
+    } finally { inspect.close(); }
+
+    const historical = new Database(fixture.databasePath);
+    try {
+      historical.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?')
+        .run('invalid old descriptor', descriptors[0]!.logicalRootSha256);
+    } finally { historical.close(); }
+    const stalePrunedFile = join(fixture.managedRoot, descriptors[0]!.relativeFilename);
+    writeFileSync(stalePrunedFile, 'stale pruned file');
+    const restarted = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(restarted);
+    await expect(restarted.selectStartup()).resolves.toMatchObject({ descriptor: descriptors.at(-1) });
+    expect(existsSync(stalePrunedFile)).toBe(false);
+  });
+
+  it('preprunes measured physical storage before a bounded checkpoint publication', async () => {
+    const fixture = createFixture();
+    const fileBytes = 1024 * 1024;
+    const descriptors: ManagedCheckpointDescriptor[] = [];
+    for (let generation = 1n; generation <= 10n; generation++) {
+      const bytes = Buffer.alloc(fileBytes, Number(generation));
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      const filename = `${digest}.checkpoint-v3`;
+      writeFileSync(join(fixture.managedRoot, filename), bytes);
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: generation.toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: generation === 1n ? 'run-start' : 'generation',
+        logicalRootSha256: digest,
+        relativeFilename: filename,
+        storedByteCount: u64(BigInt(fileBytes)),
+        decodedByteCount: u64(BigInt(fileBytes))
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor,
+        generation === 1n ? null : createGenerationCommit(generation - 1n));
+      if (generation === 2n) await fixture.client.pinCurrentCheckpoint();
+    }
+    await fixture.client.applyRetention();
+    const before = await fixture.client.inspectRetention();
+    /** Count the same managed files and SQLite sidecars charged by production. */
+    const physicalBytes = (): bigint => {
+      let total = BigInt(statSync(fixture.databasePath).size);
+      for (const suffix of ['-wal', '-shm']) {
+        const path = `${fixture.databasePath}${suffix}`;
+        if (existsSync(path)) total += BigInt(statSync(path).size);
+      }
+      for (const name of readdirSync(fixture.managedRoot)) {
+        total += BigInt(statSync(join(fixture.managedRoot, name)).size);
+      }
+      return total;
+    };
+    const automatic = BigInt(`0x${before.automaticStoredByteCount}`);
+    const pinned = BigInt(`0x${before.pinnedStoredByteCount}`);
+    const other = physicalBytes() - automatic - pinned;
+    const cap = BigInt(`0x${before.automaticByteCap}`);
+    const reserve = cap - other - BigInt(3 * fileBytes + fileBytes / 2);
+    const result = await fixture.client.applyRetention(reserve);
+    expect(result.inventory.retained.pinned.checkpointCount).toBe(1);
+    expect(result.inventory.automaticStoredByteCount).toBe(u64(BigInt(3 * fileBytes)));
+    expect(await fixture.client.selectCurrent()).toEqual(descriptors.at(-1));
+    expect(physicalBytes() - pinned + reserve).toBeLessThanOrEqual(cap);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, descriptors[6]!.relativeFilename))).toBe(false);
+    expect(existsSync(join(fixture.managedRoot, descriptors[7]!.relativeFilename))).toBe(true);
+    const afterOther = physicalBytes() - BigInt(3 * fileBytes) - pinned;
+    const unsafeReserve = cap - afterOther - BigInt(2 * fileBytes) + 1n;
+    await expect(fixture.client.applyRetention(unsafeReserve)).rejects.toThrow(/protected automatic checkpoints/);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptors.at(-1));
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    expect(existsSync(join(fixture.managedRoot, descriptors[8]!.relativeFilename))).toBe(true);
+  });
+
+  it('charges an in-flight export validation directory without faulting the checkpoint', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor, null);
+    const validationDirectory = join(fixture.managedRoot,
+      `.${'a'.repeat(32)}.import-validation`);
+    mkdirSync(validationDirectory);
+    writeFileSync(join(validationDirectory, `${'b'.repeat(64)}.checkpoint-v3`), Buffer.alloc(1024 * 1024));
+    const before = await fixture.client.inspectRetention();
+    let physicalBytes = BigInt(statSync(fixture.databasePath).size);
+    for (const suffix of ['-wal', '-shm']) {
+      const path = `${fixture.databasePath}${suffix}`;
+      if (existsSync(path)) physicalBytes += BigInt(statSync(path).size);
+    }
+    physicalBytes += BigInt(statSync(join(fixture.managedRoot, descriptor.relativeFilename)).size) +
+      BigInt(statSync(validationDirectory).size) +
+      BigInt(statSync(join(validationDirectory, `${'b'.repeat(64)}.checkpoint-v3`)).size);
+    const automatic = BigInt(`0x${before.automaticStoredByteCount}`);
+    const pinned = BigInt(`0x${before.pinnedStoredByteCount}`);
+    const cap = BigInt(`0x${before.automaticByteCap}`);
+    const reserve = cap - (physicalBytes - automatic - pinned) - automatic;
+    expect(reserve).toBeGreaterThan(0n);
+    await expect(fixture.client.applyRetention(reserve)).resolves.toMatchObject({
+      inventory: { automaticStoredByteCount: before.automaticStoredByteCount }
+    });
+    await expect(fixture.client.applyRetention(reserve + 1n))
+      .rejects.toThrow(/protected automatic checkpoints/);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptor);
+    mkdirSync(join(fixture.managedRoot, 'unknown-directory'));
+    await expect(fixture.client.applyRetention(0n))
+      .rejects.toThrow(/non-file during budget admission: unknown-directory/);
+  });
+
+  it('uses the selected automatic byte cap in the worker inventory and pruning decision', async () => {
+    const fixture = createFixture();
+    await fixture.client.close();
+    const budgeted = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot,
+      existingOnly: true, automaticByteCapBytes: 96n
+    });
+    clients.push(budgeted);
+    const descriptors: ManagedCheckpointDescriptor[] = [];
+    for (let generation = 1n; generation <= 4n; generation++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: generation.toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: generation === 1n ? 'run-start' : 'generation'
+      });
+      descriptors.push(descriptor);
+      await budgeted.commit(descriptor,
+        generation === 1n ? null : createGenerationCommit(generation - 1n));
+    }
+    const before = await budgeted.inspectRetention();
+    expect(before.automaticByteCap).toBe(u64(96n));
+    expect(before.plannedPrune.checkpointCount).toBe(1);
+    const result = await budgeted.applyRetention();
+    expect(result.inventory.automaticStoredByteCount).toBe(u64(96n));
+    expect(existsSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename))).toBe(false);
+    expect(await budgeted.selectCurrent()).toEqual(descriptors.at(-1));
+  });
+
+  it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {
+    const fixture = createFixture();
+    const descriptors: ManagedCheckpointDescriptor[] = [];
+    for (let index = 1; index <= 4; index++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        runId: `retention-run-${index}`,
+        operationId: index.toString(16).padStart(32, '0')
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor, null, true);
+    }
+    const before = await fixture.client.inspectRetention();
+    expect(before.retained.priorRunAnchor.checkpointCount).toBe(2);
+    expect(before.plannedPrune.checkpointCount).toBe(1);
+
+    const result = await fixture.client.applyRetention();
+    expect(result.deletedCheckpointCount).toBe(1);
+    expect(result.inventory.plannedPrune.checkpointCount).toBe(0);
+    expect(await fixture.client.selectCurrent()).toEqual(descriptors[3]);
+    expect(existsSync(join(fixture.managedRoot, descriptors[0]!.relativeFilename))).toBe(false);
+    for (const descriptor of descriptors.slice(1)) {
+      expect(existsSync(join(fixture.managedRoot, descriptor.relativeFilename))).toBe(true);
+    }
+
+    await fixture.client.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT run_id FROM rust_checkpoint_v3_current ORDER BY run_id').all()).toEqual(
+        descriptors.slice(1).map(descriptor => ({ run_id: descriptor.runId }))
+      );
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 4 });
+      expect(inspect.prepare(`SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?`)
+        .get(descriptors[0]!.logicalRootSha256)).toEqual({ retention_kind: 'pruned' });
+    } finally { inspect.close(); }
+  });
+
+  it('migrates Hall-of-Fame history beyond one startup page without loading it all at once', async () => {
+    const fixture = createFixture();
+    const current = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(current);
+    await fixture.client.close();
+    const historical = new Database(fixture.databasePath);
+    try {
+      const insert = historical.prepare(`INSERT INTO rust_hall_of_fame_v1
+        (run_id, generation_hex, checkpoint_id, record_version, record_blob,
+          weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms)
+        VALUES (?, ?, NULL, 1, ?, NULL, NULL, 0, 0, 'legacy', 0)`);
+      historical.transaction(() => {
+        for (let index = 1; index <= 300; index++) {
+          const record = Buffer.alloc(56);
+          record.writeBigUInt64LE(BigInt(index), 0);
+          record.writeDoubleLE(index + 0.5, 32);
+          insert.run(index <= 150 ? 'legacy-page-a' : 'legacy-page-b', u64(BigInt(index)), record);
+        }
+      })();
+    } finally { historical.close(); }
+    const restarted = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(restarted);
+    await expect(restarted.selectStartup()).resolves.toMatchObject({ descriptor: current });
+    await restarted.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 300 });
+      expect(inspect.prepare(`SELECT fitness_value FROM rust_hall_of_fame_v1
+        WHERE run_id = ? AND generation_hex = ?`).get('legacy-page-b', u64(300n)))
+        .toEqual({ fitness_value: 300.5 });
+    } finally { inspect.close(); }
+  });
+
+  it.each(['partial', 'final'] as const)('preserves a pre-existing export inventory %s and permits a fresh lease', async suffix => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    const descriptor = createDescriptor(fixture.managedRoot, {
+      operationId: '22'.repeat(16), transitionEpoch: u64(2n), generation: u64(2n),
+      completedStep: u64(3_600n), boundaryKind: 'generation'
+    });
+    await fixture.client.commit(descriptor, createGenerationCommit(1n));
+    /** Read every compact Rust metadata row without changing the worker-owned database. */
+    const metadataRows = (): unknown => {
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try {
+        const tables = database.prepare(`SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+        return tables.map(({ name }) => ({ name, rows: database.prepare(
+          `SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`
+        ).all() }));
+      } finally { database.close(); }
+    };
+    const beforeMetadata = metadataRows();
+    /** Record every small managed fixture's bytes without including operation scratch. */
+    const managedFiles = () => readdirSync(fixture.managedRoot).sort().map(filename => ({
+      filename, bytes: readFileSync(join(fixture.managedRoot, filename))
+    }));
+    const before = managedFiles();
+    const pointer = readCurrentPointer(fixture.databasePath, descriptor.runId);
+    const earlierBytes = Buffer.from('pre-existing inventory evidence must survive exclusive-create failure');
+    let collisionPath: string | undefined;
+    const originalPost = Worker.prototype.postMessage;
+    /** Insert the collision before the real worker receives its unpredictable operation ID. */
+    const posting = vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(function(this: Worker, ...args) {
+      const message = args[0] as { type?: string; operationId?: string };
+      if (message.type === 'acquireCurrentExportLease' && collisionPath === undefined) {
+        expect(message.operationId).toMatch(/^[0-9a-f]{32}$/u);
+        collisionPath = join(fixture.managedRoot,
+          `.${message.operationId}.export-inventory-v1${suffix === 'partial' ? '.partial' : ''}`);
+        writeFileSync(collisionPath, earlierBytes, { flag: 'wx' });
+      }
+      return Reflect.apply(originalPost, this, args);
+    });
+    try {
+      await expect(fixture.client.acquireCurrentExportLease()).rejects.toThrow(/EEXIST|exist/u);
+      expect(readFileSync(collisionPath!)).toEqual(earlierBytes);
+      unlinkSync(collisionPath!);
+      collisionPath = undefined;
+      posting.mockRestore();
+      expect(managedFiles()).toEqual(before);
+      expect(metadataRows()).toEqual(beforeMetadata);
+      expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toEqual(pointer);
+      const lease = await fixture.client.acquireCurrentExportLease();
+      expect(lease.descriptor).toEqual(descriptor);
+      const inventoryPath = join(fixture.managedRoot, lease.inventory.relativeFilename);
+      const bytes = readFileSync(inventoryPath);
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(lease.inventory.sha256);
+      expect(bytes.subarray(0, 13).toString('ascii')).toBe('SLITHER-EXPV1');
+      expect(lease.inventory).toMatchObject({ historyCount: u64(1n), hallOfFameCount: u64(1n),
+        storedByteCount: u64(208n) });
+      await fixture.client.releaseExportLease(lease.operationId);
+      expect(managedFiles()).toEqual(before);
+      expect(readCurrentPointer(fixture.databasePath, descriptor.runId)).toEqual(pointer);
+      expect(metadataRows()).toEqual(beforeMetadata);
+    } finally {
+      posting.mockRestore();
+      if (collisionPath && existsSync(collisionPath)) unlinkSync(collisionPath);
+    }
+  });
+
+  it('keeps one exact export lease alive across later checkpoints and pruning', async () => {
+    const fixture = createFixture();
+    const descriptors = [createDescriptor(fixture.managedRoot)];
+    await fixture.client.commit(descriptors[0]!);
+    let lease: Awaited<ReturnType<CheckpointPersistenceClient['acquireCurrentExportLease']>> | undefined;
+    for (let generation = 2n; generation <= 11n; generation++) {
+      const descriptor = createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 32n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: 'generation'
+      });
+      descriptors.push(descriptor);
+      await fixture.client.commit(descriptor, createGenerationCommit(generation - 1n));
+      if (generation === 2n) lease = await fixture.client.acquireCurrentExportLease();
+    }
+    expect(lease).toMatchObject({ runId: descriptors[1]!.runId, descriptor: descriptors[1] });
+    expect(lease?.inventory).toMatchObject({
+      version: 1,
+      historyCount: u64(1n),
+      hallOfFameCount: u64(1n),
+      storedByteCount: u64(208n)
+    });
+    const inventoryPath = join(fixture.managedRoot, lease!.inventory.relativeFilename);
+    const inventoryBytes = readFileSync(inventoryPath);
+    expect(inventoryBytes.subarray(0, 13).toString('ascii')).toBe('SLITHER-EXPV1');
+    expect(createHash('sha256').update(inventoryBytes).digest('hex')).toBe(lease!.inventory.sha256);
+    await expect(fixture.client.acquireCurrentExportLease()).rejects.toThrow(/busy/);
+
+    const protectedCleanup = await fixture.client.applyRetention();
+    expect(protectedCleanup.deletedCheckpointCount).toBe(2);
+    expect(protectedCleanup.inventory.plannedPrune.checkpointCount).toBe(1);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(true);
+    await fixture.client.releaseExportLease(lease!.operationId);
+    expect(existsSync(inventoryPath)).toBe(false);
+
+    const releasedCleanup = await fixture.client.applyRetention();
+    expect(releasedCleanup.deletedCheckpointCount).toBe(1);
+    expect(releasedCleanup.inventory.plannedPrune.checkpointCount).toBe(0);
+    expect(existsSync(join(fixture.managedRoot, descriptors[1]!.relativeFilename))).toBe(false);
+    await expect(fixture.client.releaseExportLease(lease!.operationId)).rejects.toThrow(/not active/);
+  });
+
+  it('keeps compact history with the best 50 unique winner objects plus pins', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: (2n + 96n).toString(16).padStart(32, '0'),
+      transitionEpoch: u64(2n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    }), createGenerationCommit(1n, { bestF64Hex: f64(1) }));
+    await fixture.client.close();
+    const pinDatabase = new Database(fixture.databasePath);
+    try {
+      pinDatabase.prepare(`UPDATE rust_hall_of_fame_v1 SET pinned = 1
+        WHERE generation_hex = ?`).run(u64(1n));
+    } finally { pinDatabase.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    for (let generation = 2n; generation <= 53n; generation++) {
+      if (generation === 2n) continue;
+      await reopened.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 96n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation),
+        generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n),
+        boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, {
+        bestF64Hex: f64(Number(generation - 1n))
+      }));
+    }
+    const lease = await reopened.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(52n), hallOfFameCount: u64(51n) });
+    await reopened.releaseExportLease(lease.operationId);
+    await reopened.applyRetention();
+
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get())
+        .toEqual({ count: 52 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_v1').get())
+        .toEqual({ count: 52 });
+      expect(inspect.prepare(`SELECT weight_state, count(*) AS count FROM rust_hall_of_fame_v1
+        GROUP BY weight_state ORDER BY weight_state`).all()).toEqual([
+        { weight_state: 'selected', count: 51 },
+        { weight_state: 'unselected', count: 1 }
+      ]);
+      expect(inspect.prepare(`SELECT generation_hex, pinned FROM rust_hall_of_fame_v1
+        WHERE weight_state = 'unselected'`).all()).toEqual([{ generation_hex: u64(2n), pinned: 0 }]);
+      expect(inspect.prepare(`SELECT count(*) AS count FROM rust_hall_of_fame_v1
+        WHERE genome_sha256 IS NOT NULL`).get()).toEqual({ count: 52 });
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 51 });
+    } finally { inspect.close(); }
+
+    await reopened.close();
+    const guard = new Database(fixture.databasePath);
+    try {
+      guard.exec(`CREATE TRIGGER reject_historical_hof_rewrite
+        BEFORE UPDATE ON rust_hall_of_fame_v1
+        WHEN OLD.generation_hex = '${u64(2n)}' AND OLD.weight_state = 'unselected'
+        BEGIN SELECT RAISE(ABORT, 'rewrote historical unselected Hall-of-Fame row'); END`);
+    } finally { guard.close(); }
+    const incremental = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(incremental);
+    await expect(incremental.commit(createDescriptor(fixture.managedRoot, {
+      operationId: '97'.repeat(16), transitionEpoch: u64(54n), generation: u64(54n),
+      completedStep: u64(53n * 3_600n), boundaryKind: 'generation'
+    }), createGenerationCommit(53n, { bestF64Hex: f64(53) }))).resolves.toMatchObject({
+      runId: expect.any(String), checkpointId: expect.any(String)
+    });
+  });
+
+  it('exports one weight segment when multiple generations select the same genome', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    const firstCommit = createGenerationCommit(1n, { bestF64Hex: f64(10) });
+    await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: '71'.repeat(16), transitionEpoch: u64(2n), generation: u64(2n),
+      completedStep: u64(3_600n), boundaryKind: 'generation'
+    }), firstCommit);
+    const repeatedCommit = createGenerationCommit(2n, { bestF64Hex: f64(20) });
+    rmSync(join(fixture.managedRoot, repeatedCommit.hallOfFameWeights.relativeFilename));
+    repeatedCommit.hallOfFameWeights = firstCommit.hallOfFameWeights;
+    await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: '72'.repeat(16), transitionEpoch: u64(3n), generation: u64(3n),
+      completedStep: u64(7_200n), boundaryKind: 'generation'
+    }), repeatedCommit);
+    await fixture.client.close();
+    const pinDatabase = new Database(fixture.databasePath);
+    try {
+      pinDatabase.prepare('UPDATE rust_hall_of_fame_v1 SET pinned = 1').run();
+    } finally { pinDatabase.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot,
+      existingOnly: true
+    });
+    clients.push(reopened);
+    const lease = await reopened.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(2n), hallOfFameCount: u64(2n) });
+    await reopened.releaseExportLease(lease.operationId);
+
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 1 });
+      expect(inspect.prepare(`SELECT generation_hex, pinned, weight_state FROM rust_hall_of_fame_v1
+        ORDER BY generation_hex`).all()).toEqual([
+        { generation_hex: u64(1n), pinned: 1, weight_state: 'selected' },
+        { generation_hex: u64(2n), pinned: 1, weight_state: 'selected' }
+      ]);
+    } finally { inspect.close(); }
+  });
+
+  it('imports complete history and shared weight objects in one current-pointer transaction', async () => {
+    const source = createFixture();
+    await source.client.commit(createDescriptor(source.managedRoot));
+    for (let generation = 2n; generation <= 3n; generation++) {
+      await source.client.commit(createDescriptor(source.managedRoot, {
+        operationId: (generation + 160n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n), boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, { bestF64Hex: f64(Number(generation)) }));
+    }
+    const lease = await source.client.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(2n), hallOfFameCount: u64(2n) });
+
+    const target = createFixture();
+    copyFileSync(join(source.managedRoot, lease.descriptor.relativeFilename),
+      join(target.managedRoot, lease.descriptor.relativeFilename));
+    const sourceDatabase = new Database(source.databasePath, { readonly: true });
+    try {
+      const objects = sourceDatabase.prepare('SELECT relative_filename FROM rust_hall_of_fame_weights_v1')
+        .all() as Array<{ relative_filename: string }>;
+      for (const object of objects) copyFileSync(join(source.managedRoot, object.relative_filename),
+        join(target.managedRoot, object.relative_filename));
+    } finally { sourceDatabase.close(); }
+    const operationId = 'ef'.repeat(16);
+    const relativeFilename = `.${operationId}.import-inventory-v1`;
+    copyFileSync(join(source.managedRoot, lease.inventory.relativeFilename), join(target.managedRoot, relativeFilename));
+    const descriptor = { ...lease.descriptor, operationId };
+    const inventory: ManagedImportInventoryDescriptor = {
+      ...lease.inventory,
+      relativeFilename
+    };
+    const committed = await target.client.commitImport(descriptor, inventory);
+    expect(committed).toMatchObject({ checkpointId: descriptor.logicalRootSha256, descriptor });
+    expect(await target.client.selectCurrent()).toEqual(descriptor);
+    expect(existsSync(join(target.managedRoot, relativeFilename))).toBe(false);
+
+    const inspect = new Database(target.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 2 });
+      expect(inspect.prepare(`SELECT count(*) AS count FROM rust_hall_of_fame_v1
+        WHERE weight_state = 'selected'`).get()).toEqual({ count: 2 });
+      expect(inspect.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+        .toEqual({ run_id: descriptor.runId });
+    } finally { inspect.close(); }
+    await source.client.releaseExportLease(lease.operationId);
+  });
+
+  it.each(['before-commit', 'after-commit-before-reply'] as const)(
+    'reconciles a managed import worker failure %s', async phase => {
+      const source = createFixture();
+      await source.client.commit(createDescriptor(source.managedRoot));
+      const lease = await source.client.acquireCurrentExportLease();
+      const target = createFixture(undefined, undefined, undefined, undefined, phase);
+      copyFileSync(join(source.managedRoot, lease.descriptor.relativeFilename),
+        join(target.managedRoot, lease.descriptor.relativeFilename));
+      const operationId = 'f0'.repeat(16);
+      const relativeFilename = `.${operationId}.import-inventory-v1`;
+      const descriptor = { ...lease.descriptor, operationId };
+      /** Recreate the exact import inventory after an attempted transaction. */
+      const copyInventory = (): ManagedImportInventoryDescriptor => {
+        copyFileSync(join(source.managedRoot, lease.inventory.relativeFilename),
+          join(target.managedRoot, relativeFilename));
+        return { ...lease.inventory, relativeFilename };
+      };
+      await expect(target.client.commitImport(descriptor, copyInventory())).rejects.toThrow(
+        phase === 'before-commit' ? /injected managed import failure before SQLite commit/u : /worker|exit|stopped/u
+      );
+      if (phase === 'before-commit') {
+        expect(readCurrentPointer(target.databasePath, descriptor.runId)).toBeUndefined();
+        await expect(target.client.commitImport(descriptor, copyInventory())).resolves.toMatchObject({
+          checkpointId: descriptor.logicalRootSha256
+        });
+      } else {
+        expect(readCurrentPointer(target.databasePath, descriptor.runId)).toMatchObject({
+          checkpoint_id: descriptor.logicalRootSha256
+        });
+        const reopened = new CheckpointPersistenceClient({ databasePath: target.databasePath,
+          managedRootPath: target.managedRoot, existingOnly: true });
+        clients.push(reopened);
+        await expect(reopened.selectStartup()).resolves.toMatchObject({
+          runId: descriptor.runId, descriptor
+        });
+        await expect(reopened.commitImport(descriptor, copyInventory())).resolves.toMatchObject({
+          checkpointId: descriptor.logicalRootSha256
+        });
+      }
+      const database = new Database(target.databasePath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get())
+          .toEqual({ count: 1 });
+        expect(database.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+          .toEqual({ run_id: descriptor.runId });
+      } finally { database.close(); }
+      await source.client.releaseExportLease(lease.operationId);
+    }
+  );
+
+  it.each([null, 'conflicting-import-branch'] as const)(
+    'rejects a different root at an existing run/generation with branch=%s', async branchRunId => {
+      const fixture = createFixture();
+      const first = createDescriptor(fixture.managedRoot);
+      await fixture.client.commit(first);
+      const lease = await fixture.client.acquireCurrentExportLease();
+      const second = createDescriptor(fixture.managedRoot, { operationId: '96'.repeat(16),
+        transitionEpoch: u64(2n), generation: u64(2n), completedStep: u64(3_600n), boundaryKind: 'generation' });
+      await fixture.client.commit(second, createGenerationCommit(1n));
+      const operationId = '97'.repeat(16);
+      const conflicting = createDescriptor(fixture.managedRoot, { operationId });
+      expect(conflicting.logicalRootSha256).not.toBe(first.logicalRootSha256);
+      const relativeFilename = `.${operationId}.import-inventory-v1`;
+      /** Recreate the trusted empty generation-one inventory after each terminal attempt. */
+      const inventory = (): ManagedImportInventoryDescriptor => {
+        copyFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename), join(fixture.managedRoot, relativeFilename));
+        return { ...lease.inventory, relativeFilename };
+      };
+      /** Observe every persisted application row independently of the current-pointer check. */
+      const rows = (): unknown => {
+        const database = new Database(fixture.databasePath, { readonly: true });
+        try {
+          const tables = database.prepare(`SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name LIKE 'rust_%' ORDER BY name`).all() as Array<{ name: string }>;
+          return tables.map(({ name }) => ({ name,
+            rows: database.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all() }));
+        } finally { database.close(); }
+      };
+      const before = rows();
+      await expect(fixture.client.commitImport(conflicting, inventory(), branchRunId))
+        .rejects.toThrow('generation identity conflicts with different immutable content');
+      expect(rows()).toEqual(before);
+      expect(await fixture.client.selectCurrent(first.runId)).toEqual(second);
+      await expect(fixture.client.commitImport({ ...first, operationId }, inventory(), 'valid-original-branch'))
+        .resolves.toMatchObject({ runId: 'valid-original-branch', checkpointId: first.logicalRootSha256 });
+      expect(await fixture.client.selectCurrent(first.runId)).toEqual(second);
+      await fixture.client.releaseExportLease(lease.operationId);
+    }
+  );
+
+  it.each(['automatic', 'pinned', 'pruning', 'pruned'] as const)(
+    'resumes an older %s checkpoint as an immediately exportable branch without replacing its future', async retentionKind => {
+    const fixture = createFixture(undefined, undefined, undefined, undefined, 'before-commit');
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '91'.repeat(16),
+      transitionEpoch: u64(2n), generation: u64(2n), completedStep: u64(3_600n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '92'.repeat(16),
+      transitionEpoch: u64(3n), generation: u64(3n), completedStep: u64(7_200n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    const lease = await fixture.client.acquireCurrentExportLease();
+    await fixture.client.commit(third, createGenerationCommit(2n), true);
+
+    const operationId = '93'.repeat(16);
+    const relativeFilename = `.${operationId}.import-inventory-v1`;
+    const inventoryBytes = readFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename));
+    const checkpointBytes = readFileSync(join(fixture.managedRoot, second.relativeFilename));
+    await fixture.client.releaseExportLease(lease.operationId);
+    const classified = new Database(fixture.databasePath);
+    try {
+      classified.prepare(`UPDATE rust_checkpoint_retention_v1
+        SET retention_kind = ? WHERE checkpoint_id = ?`).run(retentionKind, second.logicalRootSha256);
+    } finally { classified.close(); }
+    if (retentionKind === 'pruned') unlinkSync(join(fixture.managedRoot, second.relativeFilename));
+    // The native import publisher restores the original bytes before asking the worker to commit.
+    writeFileSync(join(fixture.managedRoot, second.relativeFilename), checkpointBytes);
+    const copyInventory = (): ManagedImportInventoryDescriptor => {
+      writeFileSync(join(fixture.managedRoot, relativeFilename), inventoryBytes);
+      return { ...lease.inventory, relativeFilename };
+    };
+    const imported = { ...second, operationId };
+    await expect(fixture.client.commitImport(imported, copyInventory())).rejects.toThrow(/resume it as a branch/);
+    const rejected = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(rejected.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+        .get(second.logicalRootSha256)).toEqual({ retention_kind: retentionKind });
+    } finally { rejected.close(); }
+    const branchRunId = 'owner-selected-import-branch';
+    await expect(fixture.client.commitImport(imported, copyInventory(), branchRunId))
+      .rejects.toThrow(/injected managed import failure before SQLite commit/);
+    const rolledBack = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(rolledBack.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+        .get(second.logicalRootSha256)).toEqual({ retention_kind: retentionKind });
+      expect(rolledBack.prepare('SELECT run_id FROM rust_active_run_v1 WHERE singleton = 1').get())
+        .toEqual({ run_id: third.runId });
+      expect(rolledBack.prepare('SELECT 1 FROM rust_import_branches_v1 WHERE branch_run_id = ?')
+        .get(branchRunId)).toBeUndefined();
+    } finally { rolledBack.close(); }
+    const committed = await fixture.client.commitImport(imported, copyInventory(), branchRunId);
+    expect(committed).toMatchObject({ runId: branchRunId, checkpointId: second.logicalRootSha256,
+      descriptor: second, importBranch: { operationId, branchRunId, sourceRunId: second.runId,
+        sourceGeneration: second.generation, sourceCheckpointId: second.logicalRootSha256,
+        recoveredDescriptor: second } });
+    const selected = await fixture.client.selectStartup();
+    expect(selected).toMatchObject({ runId: branchRunId, descriptor: second,
+      recovery: null, importBranch: committed.importBranch });
+    expect(await fixture.client.selectCurrent(second.runId)).toEqual(third);
+    const branchExport = await fixture.client.acquireCurrentExportLease();
+    expect(branchExport).toMatchObject({ runId: branchRunId, descriptor: second });
+    await fixture.client.releaseExportLease(branchExport.operationId);
+    await fixture.client.close();
+
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(reopened);
+    await expect(reopened.selectStartup()).resolves.toMatchObject({ runId: branchRunId,
+      descriptor: second, importBranch: committed.importBranch });
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+        .get(second.runId)).toEqual({ checkpoint_id: third.logicalRootSha256 });
+      expect(inspect.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current WHERE run_id = ?')
+        .get(branchRunId)).toEqual({ checkpoint_id: second.logicalRootSha256 });
+      expect(inspect.prepare('SELECT retention_kind FROM rust_checkpoint_retention_v1 WHERE checkpoint_id = ?')
+        .get(second.logicalRootSha256)).toEqual({ retention_kind: retentionKind === 'pinned' ? 'pinned' : 'automatic' });
+      expect(readFileSync(join(fixture.managedRoot, second.relativeFilename))).toEqual(checkpointBytes);
+    } finally { inspect.close(); }
+  });
+
+  it('rejects ambiguous runs until one durable checkpoint explicitly activates its lineage', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { runId: 'another-run', operationId: 'c'.repeat(32) });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second);
+    await expect(fixture.client.selectCurrent()).rejects.toThrow('multiple current runs');
+    await expect(fixture.client.selectCurrent(first.runId)).resolves.toEqual(first);
+    await expect(fixture.client.selectCurrent(second.runId)).resolves.toEqual(second);
+    await fixture.client.commit(second, null, true);
+    await expect(fixture.client.selectCurrent()).resolves.toEqual(second);
+  });
+
+  it('rejects oversized stored metadata without materializing it or rewriting the source', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    const database = new Database(fixture.databasePath);
+    try {
+      database.prepare('UPDATE rust_checkpoint_v3_metadata SET descriptor_json = ? WHERE checkpoint_id = ?')
+        .run(' '.repeat(32 * 1024), descriptor.logicalRootSha256);
+      await expect(fixture.client.selectCurrent()).rejects.toThrow('missing immutable metadata');
+      expect(database.prepare('SELECT length(descriptor_json) AS length FROM rust_checkpoint_v3_metadata').get()).toEqual({ length: 32 * 1024 });
+    } finally { database.close(); }
+  });
+  it('uses boundary identity rather than resettable Rust operation epochs to advance current', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const committed = await fixture.client.commit(first);
+    expect(committed).toEqual({
+      operationId: first.operationId,
+      transitionEpoch: first.transitionEpoch,
+      runId: first.runId,
+      checkpointId: first.logicalRootSha256,
+      descriptor: first
+    });
+
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: 'fedcba9876543210fedcba9876543210',
+      transitionEpoch: u64(3_600n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    const third = createDescriptor(fixture.managedRoot, {
+      operationId: '11111111111111111111111111111111',
+      transitionEpoch: u64(3_600n),
+      generation: u64(3n),
+      completedStep: u64(7_200n),
+      boundaryKind: 'generation'
+    });
+    await fixture.client.commit(third, createGenerationCommit(2n));
+    await fixture.client.close();
+
+    expect(readCurrentPointer(fixture.databasePath, first.runId)).toEqual({
+      checkpoint_id: third.logicalRootSha256,
+      transition_epoch: third.transitionEpoch,
+      operation_id: third.operationId
+    });
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      const rows = db.prepare(`
+        SELECT generation_hex, checkpoint_id, record_version, record_blob
+        FROM rust_generation_history_v1 ORDER BY generation_hex
+      `).all() as Array<{
+        generation_hex: string;
+        checkpoint_id: string;
+        record_version: number;
+        record_blob: Buffer;
+      }>;
+      expect(rows.map(row => ({
+        generation_hex: row.generation_hex,
+        checkpoint_id: row.checkpoint_id,
+        record_version: row.record_version,
+        summary: decodeGenerationSummary(row.record_blob)
+      }))).toEqual([
+        {
+          generation_hex: u64(1n),
+          checkpoint_id: second.logicalRootSha256,
+          record_version: 1,
+          summary: createGenerationSummary(1n)
+        },
+        {
+          generation_hex: u64(2n),
+          checkpoint_id: third.logicalRootSha256,
+          record_version: 1,
+          summary: createGenerationSummary(2n)
+        }
+      ]);
+      const hallOfFameRows = db.prepare(`
+        SELECT generation_hex, checkpoint_id, record_version, record_blob
+        FROM rust_hall_of_fame_v1 ORDER BY generation_hex
+      `).all() as Array<{
+        generation_hex: string;
+        checkpoint_id: string;
+        record_version: number;
+        record_blob: Buffer;
+      }>;
+      expect(hallOfFameRows.map(row => ({
+        generation_hex: row.generation_hex,
+        checkpoint_id: row.checkpoint_id,
+        record_version: row.record_version,
+        reference: decodeHallOfFameReference(row.record_blob)
+      }))).toEqual([
+        {
+          generation_hex: u64(1n),
+          checkpoint_id: second.logicalRootSha256,
+          record_version: 1,
+          reference: createGenerationCommit(1n).hallOfFame
+        },
+        {
+          generation_hex: u64(2n),
+          checkpoint_id: third.logicalRootSha256,
+          record_version: 1,
+          reference: createGenerationCommit(2n).hallOfFame
+        }
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('commits a zero-weight descriptor for a valid parameterless population graph', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot, {
+      weightCount: u64(0n)
+    });
+    const committed = await fixture.client.commit(descriptor);
+    expect(committed.checkpointId).toBe(descriptor.logicalRootSha256);
+    await fixture.client.close();
+
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare(
+        'SELECT weight_count_hex FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?'
+      ).get(descriptor.logicalRootSha256)).toEqual({ weight_count_hex: u64(0n) });
+    } finally {
+      db.close();
+    }
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)?.checkpoint_id).toBe(
+      descriptor.logicalRootSha256
+    );
+  });
+
+  it('is idempotent for an exact replay without duplicating metadata or regressing the pointer', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(descriptor);
+    await fixture.client.commit({ ...descriptor });
+    await fixture.client.close();
+
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT COUNT(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+    expect(readCurrentPointer(fixture.databasePath, descriptor.runId)?.checkpoint_id).toBe(
+      descriptor.logicalRootSha256
+    );
+  });
+
+  it('rejects a replay that was superseded by a later current pointer', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: 'fedcba9876543210fedcba9876543210',
+      transitionEpoch: u64(3_600n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await expect(fixture.client.commit(first)).rejects.toThrow(/superseded/);
+  });
+
+  it('rejects immutable conflicts and stale or skipped generations without changing current', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const sameOperationDifferentDescriptor = createDescriptor(fixture.managedRoot, {
+      operationId: first.operationId,
+      stateVersion: u64(2n)
+    });
+    await expect(fixture.client.commit(sameOperationDifferentDescriptor)).rejects.toThrow(/operationId conflicts/);
+    const sameRootDifferentOperation = createDescriptor(fixture.managedRoot, {
+      operationId: '44444444444444444444444444444444',
+      logicalRootSha256: first.logicalRootSha256,
+      relativeFilename: first.relativeFilename,
+      storedByteCount: first.storedByteCount,
+      decodedByteCount: first.decodedByteCount
+    });
+    await expect(fixture.client.commit(sameRootDifferentOperation)).rejects.toThrow(/logical checkpoint root/);
+
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: '55555555555555555555555555555555',
+      transitionEpoch: u64(3_600n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    const stale = createDescriptor(fixture.managedRoot, {
+      operationId: '66666666666666666666666666666666',
+      transitionEpoch: u64(1n),
+      generation: u64(2n),
+      completedStep: u64(3_000n),
+      boundaryKind: 'generation'
+    });
+    await expect(fixture.client.commit(stale, createGenerationCommit(1n))).rejects.toThrow(/stale/);
+    const gapped = createDescriptor(fixture.managedRoot, {
+      operationId: '77777777777777777777777777777777',
+      transitionEpoch: u64(4n),
+      generation: u64(4n),
+      completedStep: u64(10_800n),
+      boundaryKind: 'generation'
+    });
+    await expect(fixture.client.commit(gapped, createGenerationCommit(3n))).rejects.toThrow(/exactly one/);
+    await fixture.client.close();
+    expect(readCurrentPointer(fixture.databasePath, first.runId)).toEqual({
+      checkpoint_id: second.logicalRootSha256,
+      transition_epoch: second.transitionEpoch,
+      operation_id: second.operationId
+    });
+  });
+
+  it('rejects and preserves a current pointer whose operation identity no longer matches metadata', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const forgedOperationId = 'ffffffffffffffffffffffffffffffff';
+    const corrupt = new Database(fixture.databasePath);
+    try {
+      corrupt.prepare(`
+        UPDATE rust_checkpoint_v3_current
+        SET operation_id = ?
+        WHERE run_id = ?
+      `).run(forgedOperationId, first.runId);
+    } finally {
+      corrupt.close();
+    }
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: '12121212121212121212121212121212',
+      transitionEpoch: u64(3_600n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await expect(fixture.client.commit(second, createGenerationCommit(1n))).rejects.toThrow(
+      /pointer identity does not match immutable metadata/
+    );
+    await fixture.client.close();
+    expect(readCurrentPointer(fixture.databasePath, first.runId)).toEqual({
+      checkpoint_id: first.logicalRootSha256,
+      transition_epoch: first.transitionEpoch,
+      operation_id: forgedOperationId
+    });
+    const check = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(check.prepare(
+        'SELECT COUNT(*) AS count FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?'
+      ).get(second.logicalRootSha256)).toEqual({ count: 0 });
+      expect(check.prepare('SELECT COUNT(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 0 });
+      expect(check.prepare('SELECT COUNT(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 0 });
+    } finally {
+      check.close();
+    }
+  });
+
+  it('terminates a worker after an invalid protocol response and makes close wait for that exit', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url)
+    );
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/unknown response type/);
+    await expect(fixture.client.close()).rejects.toThrow(/unknown response type/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('rejects orphan cleanup and waits for termination after an invalid worker reply', async () => {
+    const fixture = createFixture(new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url));
+    await expect(fixture.client.reclaimManagedOrphans()).rejects.toThrow(/unknown response type/);
+    await expect(fixture.client.close()).rejects.toThrow(/unknown response type/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('terminates a worker after a correlated but mismatched acknowledgement', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'mismatched'
+    );
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/acknowledgement mismatched/);
+    await expect(fixture.client.close()).rejects.toThrow(/acknowledgement mismatched/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('rejects pending work and close after an unexpected worker exit', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'exit'
+    );
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).rejects.toThrow(/exited with code 3/);
+    await expect(fixture.client.close()).rejects.toThrow(/exited with code 3/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('treats exit zero during close as failure while a commit still awaits its reply', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'exit-clean'
+    );
+    const descriptor = createDescriptor(fixture.managedRoot);
+    const commit = fixture.client.commit(descriptor);
+    const close = fixture.client.close();
+    await expect(commit).rejects.toThrow(/exited cleanly with 1 pending operation/);
+    await expect(close).rejects.toThrow(/exited cleanly with 1 pending operation/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('does not collect a republished winner before its generation commit', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    for (let generation = 2n; generation <= 52n; generation++) {
+      await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 200n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n), boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, { bestF64Hex: f64(Number(generation)) }));
+    }
+    const repeated = createGenerationCommit(52n, { bestF64Hex: f64(1_000) });
+    repeated.hallOfFameWeights = createHallOfFameWeights(1n);
+    const repeatedFile = join(fixture.managedRoot, repeated.hallOfFameWeights.relativeFilename);
+    await expect(fixture.client.commit(createDescriptor(fixture.managedRoot, {
+      operationId: 'e3'.repeat(16), transitionEpoch: u64(53n), generation: u64(53n),
+      completedStep: u64(52n * 3_600n), boundaryKind: 'generation'
+    }), repeated)).resolves.toMatchObject({ checkpointId: expect.any(String) });
+    expect(existsSync(repeatedFile)).toBe(true);
+    await fixture.client.applyRetention();
+    expect(existsSync(repeatedFile)).toBe(true);
+  });
+
+  it('pinning a top-50 winner does not promote a deleted rank-51 object', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    for (let generation = 2n; generation <= 52n; generation++) {
+      await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 300n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation), generation: u64(generation),
+        completedStep: u64((generation - 1n) * 3_600n), boundaryKind: 'generation'
+      }), createGenerationCommit(generation - 1n, { bestF64Hex: f64(Number(generation)) }));
+    }
+    await fixture.client.applyRetention();
+    await fixture.client.close();
+    const pinDatabase = new Database(fixture.databasePath);
+    try {
+      pinDatabase.prepare('UPDATE rust_hall_of_fame_v1 SET pinned = 1 WHERE generation_hex = ?')
+        .run(u64(51n));
+    } finally { pinDatabase.close(); }
+    const reopened = new CheckpointPersistenceClient({
+      databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot, existingOnly: true
+    });
+    clients.push(reopened);
+    await reopened.commit(createDescriptor(fixture.managedRoot, {
+      operationId: 'e4'.repeat(16), transitionEpoch: u64(53n), generation: u64(53n),
+      completedStep: u64(52n * 3_600n), boundaryKind: 'generation'
+    }), createGenerationCommit(52n, { bestF64Hex: f64(0) }));
+    await reopened.applyRetention();
+    const lease = await reopened.acquireCurrentExportLease();
+    expect(lease.inventory.hallOfFameCount).toBe(u64(50n));
+    await reopened.releaseExportLease(lease.operationId);
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_hall_of_fame_weights_v1').get())
+        .toEqual({ count: 50 });
+    } finally { inspect.close(); }
+  });
+
+  it('terminates a persistence worker that stops making observable progress', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'stall',
+      100
+    );
+    await expect(fixture.client.commit(createDescriptor(fixture.managedRoot))).rejects.toThrow(
+      /made no progress for 100 ms/
+    );
+    await expect(fixture.client.close()).rejects.toThrow(/made no progress/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('terminates a persistence worker that stalls after starting an operation', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'stall-after-progress',
+      150
+    );
+    await expect(fixture.client.commit(createDescriptor(fixture.managedRoot))).rejects.toThrow(
+      /made no progress for 150 ms/
+    );
+    await expect(fixture.client.close()).rejects.toThrow(/made no progress/);
+    expect(fixture.client.terminated).toBe(true);
+  });
+
+  it('allows total worker duration to exceed the no-progress limit while counters advance', async () => {
+    const fixture = createFixture(
+      new URL('./checkpointPersistenceInvalidResponseWorker.ts', import.meta.url),
+      'progressing',
+      500
+    );
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(descriptor)).resolves.toMatchObject({
+      operationId: descriptor.operationId,
+      checkpointId: descriptor.logicalRootSha256
+    });
+  });
+
+  it('accepts any positive first operation epoch because it is an acknowledgement token', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot, { transitionEpoch: u64(2_741n) });
+    await expect(fixture.client.commit(descriptor)).resolves.toMatchObject({
+      transitionEpoch: u64(2_741n)
+    });
+  });
+
+  it('requires exact finite compact history only for generation checkpoints', async () => {
+    const fixture = createFixture();
+    const runStart = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit(runStart, createGenerationCommit(1n))).rejects.toThrow(
+      /run-start checkpoints must not include/
+    );
+    await fixture.client.commit(runStart);
+    const generation = createDescriptor(fixture.managedRoot, {
+      operationId: '99999999999999999999999999999999',
+      transitionEpoch: u64(3_600n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await expect(fixture.client.commit(generation)).rejects.toThrow(/generationCommit must be a plain object/);
+    await expect(fixture.client.commit(generation, createGenerationCommit(2n))).rejects.toThrow(
+      /exactly the generation preceding/
+    );
+    await expect(fixture.client.commit(generation, createGenerationCommit(1n, {
+      bestF64Hex: '7ff0000000000000'
+    }))).rejects.toThrow(/finite Float64/);
+    await expect(fixture.client.commit(generation, createGenerationCommit(1n, {
+      speciesCount: u64(3n)
+    }))).rejects.toThrow(/speciesCount exceeds/);
+    await expect(fixture.client.commit(generation, createGenerationCommit(1n, {}, {
+      completedGeneration: u64(2n)
+    }))).rejects.toThrow(/Hall-of-Fame generation/);
+    await expect(fixture.client.commit(generation, createGenerationCommit(1n, {}, {
+      fitnessF64Hex: f64(11.5)
+    }))).rejects.toThrow(/fitness does not match/);
+    await expect(fixture.client.commit(generation, createGenerationCommit(1n, {}, {
+      sourcePopulationSlot: u64(2n)
+    }))).rejects.toThrow(/outside the checkpoint population/);
+    await expect(fixture.client.commit(generation, createGenerationCommit(1n, {}, {
+      successorGenomeId: u64(0n)
+    }))).rejects.toThrow(/identities must be nonzero/);
+  });
+
+  it('rejects zero-step generation boundaries and first pointers without branch provenance', async () => {
+    const fixture = createFixture();
+    const runStart = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(runStart);
+    const zeroStep = createDescriptor(fixture.managedRoot, {
+      operationId: 'abababababababababababababababab',
+      boundaryKind: 'generation',
+      generation: u64(2n),
+      completedStep: u64(0n),
+      transitionEpoch: u64(1n)
+    });
+    await expect(fixture.client.commit(zeroStep, createGenerationCommit(1n))).rejects.toThrow(
+      /completedStep must be nonzero/
+    );
+    const branchWithoutProvenance = createDescriptor(fixture.managedRoot, {
+      operationId: 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd',
+      runId: 'branch-without-provenance',
+      boundaryKind: 'generation',
+      generation: u64(8n),
+      completedStep: u64(25_200n),
+      transitionEpoch: u64(1n)
+    });
+    await expect(fixture.client.commit(
+      branchWithoutProvenance,
+      createGenerationCommit(7n)
+    )).rejects.toThrow(/explicit branch provenance/);
+  });
+
+  it('replays all generation metadata exactly and rejects changed records', async () => {
+    const fixture = createFixture();
+    const runStart = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(runStart);
+    const descriptor = createDescriptor(fixture.managedRoot, {
+      operationId: 'edededededededededededededededed',
+      boundaryKind: 'generation',
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      transitionEpoch: u64(3_600n)
+    });
+    const generationCommit = createGenerationCommit(1n);
+    await fixture.client.commit(descriptor, generationCommit);
+    await fixture.client.commit({ ...descriptor }, {
+      summary: { ...generationCommit.summary },
+      hallOfFame: { ...generationCommit.hallOfFame },
+      hallOfFameWeights: { ...generationCommit.hallOfFameWeights }
+    });
+    await expect(fixture.client.commit(
+      descriptor,
+      createGenerationCommit(1n, { averageF64Hex: f64(7.5) })
+    )).rejects.toThrow(/different compact generation history/);
+    await expect(fixture.client.commit(
+      descriptor,
+      createGenerationCommit(1n, {}, { pointsF64Hex: f64(6.5) })
+    )).rejects.toThrow(/different Hall-of-Fame reference/);
+    const corrupt = new Database(fixture.databasePath);
+    try {
+      corrupt.prepare(
+        'UPDATE rust_generation_history_v1 SET record_version = 2 WHERE checkpoint_id = ?'
+      ).run(descriptor.logicalRootSha256);
+    } finally {
+      corrupt.close();
+    }
+    await expect(fixture.client.commit(descriptor, generationCommit)).rejects.toThrow(
+      /different compact generation history/
+    );
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT COUNT(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 2 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM rust_generation_history_v1').get()).toEqual({ count: 1 });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM rust_hall_of_fame_v1').get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rolls back history, metadata, and pointer when the Hall-of-Fame reference cannot insert', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const forged = createGenerationCommit(1n).hallOfFame;
+    const db = new Database(fixture.databasePath);
+    try {
+      db.pragma('foreign_keys = ON');
+      db.prepare(`
+        INSERT INTO rust_hall_of_fame_v1 (
+          run_id, generation_hex, checkpoint_id, record_version, record_blob,
+          fitness_value, pinned, weight_state, created_at_ms
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, 'legacy', ?)
+      `).run(
+        first.runId, forged.completedGeneration, first.logicalRootSha256,
+        1, Buffer.alloc(56), 0, Date.now()
+      );
+    } finally {
+      db.close();
+    }
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      transitionEpoch: u64(3_600n),
+      generation: u64(2n),
+      completedStep: u64(3_600n),
+      boundaryKind: 'generation'
+    });
+    await expect(fixture.client.commit(second, createGenerationCommit(1n))).rejects.toThrow(
+      /UNIQUE constraint failed/
+    );
+    await fixture.client.close();
+    const check = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(check.prepare(
+        'SELECT COUNT(*) AS count FROM rust_checkpoint_v3_metadata WHERE checkpoint_id = ?'
+      ).get(second.logicalRootSha256)).toEqual({ count: 0 });
+      expect(check.prepare(
+        'SELECT COUNT(*) AS count FROM rust_generation_history_v1 WHERE checkpoint_id = ?'
+      ).get(second.logicalRootSha256)).toEqual({ count: 0 });
+      expect(readCurrentPointer(fixture.databasePath, first.runId)?.checkpoint_id).toBe(
+        first.logicalRootSha256
+      );
+    } finally {
+      check.close();
+    }
+  });
+
+  it('rejects traversal, binary/population fields, invalid digest, and out-of-range count before publication', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit({
+      ...descriptor,
+      relativeFilename: '../escape.checkpoint-v3'
+    })).rejects.toThrow(/digest-derived/);
+    await expect(fixture.client.commit({
+      ...descriptor,
+      logicalRootSha256: 'A'.repeat(64)
+    })).rejects.toThrow(/SHA-256/);
+    const populationPayload = new Uint8Array(2 * 1024 * 1024);
+    await expect(fixture.client.commit({ ...descriptor, population: populationPayload })).rejects.toThrow(
+      /prohibited payload field/
+    );
+    await expect(fixture.client.commit({
+      ...descriptor,
+      populationCount: 'ffffffffffffffff'
+    })).rejects.toThrow(/populationCount/);
+  });
+
+  it('rejects distinct lone-surrogate run IDs before UTF-8 encoding or SQLite key insertion', async () => {
+    const fixture = createFixture();
+    const descriptor = createDescriptor(fixture.managedRoot);
+    await expect(fixture.client.commit({
+      ...descriptor,
+      runId: `run-${String.fromCharCode(0xd800)}`
+    })).rejects.toThrow(/well-formed UTF-16/);
+    await expect(fixture.client.commit({
+      ...descriptor,
+      operationId: '88888888888888888888888888888888',
+      runId: `run-${String.fromCharCode(0xd801)}`
+    })).rejects.toThrow(/well-formed UTF-16/);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT COUNT(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects a symlinked final file without changing the existing pointer', async context => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const second = createDescriptor(fixture.managedRoot, {
+      operationId: '11111111111111111111111111111111',
+      transitionEpoch: u64(2n)
+    });
+    const actualPath = join(fixture.managedRoot, second.relativeFilename);
+    rmSync(actualPath);
+    if (!createSymlinkOrSkip(context, join(fixture.managedRoot, first.relativeFilename), actualPath)) return;
+
+    await expect(fixture.client.commit(second)).rejects.toThrow(/never a symlink/);
+    await fixture.client.close();
+    expect(readCurrentPointer(fixture.databasePath, first.runId)?.checkpoint_id).toBe(first.logicalRootSha256);
+  });
+
+  it('preserves the old pointer when a final file is missing or its length disagrees with the descriptor', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const missingRoot = createHash('sha256').update('missing').digest('hex');
+    const missing = createDescriptor(fixture.managedRoot, {
+      operationId: '22222222222222222222222222222222',
+      transitionEpoch: u64(2n),
+      logicalRootSha256: missingRoot,
+      relativeFilename: `${missingRoot}.checkpoint-v3`
+    });
+    await expect(fixture.client.commit(missing)).rejects.toThrow(/ENOENT|no such file/i);
+
+    const mismatch = createDescriptor(fixture.managedRoot, {
+      operationId: '33333333333333333333333333333333',
+      transitionEpoch: u64(2n),
+      storedByteCount: u64(1n)
+    });
+    await expect(fixture.client.commit(mismatch)).rejects.toThrow(/size does not match/);
+    await fixture.client.close();
+    expect(readCurrentPointer(fixture.databasePath, first.runId)).toMatchObject({
+      checkpoint_id: first.logicalRootSha256,
+      transition_epoch: first.transitionEpoch
+    });
+  });
+});

@@ -1,0 +1,757 @@
+{
+  "startedAtUtc": "2026-09-30T10:53:26.631Z",
+  "requestedSeconds": 1800,
+  "clientScope": "Programmatic player; measures received frames and reconnects, not browser rendering.",
+  "connections": 60,
+  "frames": 53319,
+  "frameBytes": 4277739000,
+  "actions": 54155,
+  "assignments": 148,
+  "reclaimed": 59,
+  "failedReclaims": 0,
+  "errors": [],
+  "reconnects": [
+    {
+      "wallSeconds": 0.025299724999999995,
+      "reclaimed": false,
+      "snakeId": 972
+    },
+    {
+      "wallSeconds": 30.13970877,
+      "reclaimed": true,
+      "snakeId": 972
+    },
+    {
+      "wallSeconds": 45.057808786,
+      "reclaimed": false,
+      "snakeId": 1301
+    },
+    {
+      "wallSeconds": 56.817026142,
+      "reclaimed": false,
+      "snakeId": 1306
+    },
+    {
+      "wallSeconds": 60.264773645,
+      "reclaimed": true,
+      "snakeId": 1306
+    },
+    {
+      "wallSeconds": 90.382065551,
+      "reclaimed": true,
+      "snakeId": 1306
+    },
+    {
+      "wallSeconds": 105.51757127599998,
+      "reclaimed": false,
+      "snakeId": 1631
+    },
+    {
+      "wallSeconds": 106.11565203699999,
+      "reclaimed": false,
+      "snakeId": 1634
+    },
+    {
+      "wallSeconds": 120.510456735,
+      "reclaimed": true,
+      "snakeId": 1634
+    },
+    {
+      "wallSeconds": 120.543465019,
+      "reclaimed": false,
+      "snakeId": 1641
+    },
+    {
+      "wallSeconds": 150.13315813100002,
+      "reclaimed": true,
+      "snakeId": 1641
+    },
+    {
+      "wallSeconds": 165.937642749,
+      "reclaimed": false,
+      "snakeId": 1970
+    },
+    {
+      "wallSeconds": 180.245918382,
+      "reclaimed": true,
+      "snakeId": 1970
+    },
+    {
+      "wallSeconds": 195.82928457,
+      "reclaimed": false,
+      "snakeId": 1983
+    },
+    {
+      "wallSeconds": 210.367181982,
+      "reclaimed": true,
+      "snakeId": 1983
+    },
+    {
+      "wallSeconds": 226.354801049,
+      "reclaimed": false,
+      "snakeId": 2303
+    },
+    {
+      "wallSeconds": 240.49669136,
+      "reclaimed": true,
+      "snakeId": 2303
+    },
+    {
+      "wallSeconds": 244.880636286,
+      "reclaimed": false,
+      "snakeId": 2310
+    },
+    {
+      "wallSeconds": 270.117440622,
+      "reclaimed": true,
+      "snakeId": 2310
+    },
+    {
+      "wallSeconds": 286.768530815,
+      "reclaimed": false,
+      "snakeId": 2639
+    },
+    {
+      "wallSeconds": 287.76693569,
+      "reclaimed": false,
+      "snakeId": 2642
+    },
+    {
+      "wallSeconds": 300.24745386399997,
+      "reclaimed": true,
+      "snakeId": 2642
+    },
+    {
+      "wallSeconds": 330.375391018,
+      "reclaimed": true,
+      "snakeId": 2642
+    },
+    {
+      "wallSeconds": 347.257084141,
+      "reclaimed": false,
+      "snakeId": 2972
+    },
+    {
+      "wallSeconds": 360.498591164,
+      "reclaimed": true,
+      "snakeId": 2972
+    },
+    {
+      "wallSeconds": 390.11776551599996,
+      "reclaimed": true,
+      "snakeId": 2972
+    },
+    {
+      "wallSeconds": 407.70897337799994,
+      "reclaimed": false,
+      "snakeId": 3308
+    },
+    {
+      "wallSeconds": 409.25608542099997,
+      "reclaimed": false,
+      "snakeId": 3311
+    },
+    {
+      "wallSeconds": 410.538515411,
+      "reclaimed": false,
+      "snakeId": 3313
+    },
+    {
+      "wallSeconds": 411.437882117,
+      "reclaimed": false,
+      "snakeId": 3314
+    },
+    {
+      "wallSeconds": 420.236877994,
+      "reclaimed": true,
+      "snakeId": 3314
+    },
+    {
+      "wallSeconds": 446.751064928,
+      "reclaimed": false,
+      "snakeId": 3331
+    },
+    {
+      "wallSeconds": 450.357249547,
+      "reclaimed": true,
+      "snakeId": 3331
+    },
+    {
+      "wallSeconds": 468.157326539,
+      "reclaimed": false,
+      "snakeId": 3648
+    },
+    {
+      "wallSeconds": 472.051697745,
+      "reclaimed": false,
+      "snakeId": 3651
+    },
+    {
+      "wallSeconds": 480.482186938,
+      "reclaimed": true,
+      "snakeId": 3651
+    },
+    {
+      "wallSeconds": 491.783909085,
+      "reclaimed": false,
+      "snakeId": 3662
+    },
+    {
+      "wallSeconds": 493.01587999400004,
+      "reclaimed": false,
+      "snakeId": 3663
+    },
+    {
+      "wallSeconds": 510.101540047,
+      "reclaimed": true,
+      "snakeId": 3663
+    },
+    {
+      "wallSeconds": 528.5922806250001,
+      "reclaimed": false,
+      "snakeId": 3985
+    },
+    {
+      "wallSeconds": 540.221908799,
+      "reclaimed": true,
+      "snakeId": 3985
+    },
+    {
+      "wallSeconds": 570.3413348629999,
+      "reclaimed": true,
+      "snakeId": 3985
+    },
+    {
+      "wallSeconds": 589.033295015,
+      "reclaimed": false,
+      "snakeId": 4316
+    },
+    {
+      "wallSeconds": 597.6588475059999,
+      "reclaimed": false,
+      "snakeId": 4321
+    },
+    {
+      "wallSeconds": 600.466406044,
+      "reclaimed": true,
+      "snakeId": 4321
+    },
+    {
+      "wallSeconds": 628.458506437,
+      "reclaimed": false,
+      "snakeId": 4336
+    },
+    {
+      "wallSeconds": 630.589848469,
+      "reclaimed": true,
+      "snakeId": 4336
+    },
+    {
+      "wallSeconds": 649.50793331,
+      "reclaimed": false,
+      "snakeId": 4655
+    },
+    {
+      "wallSeconds": 650.021791708,
+      "reclaimed": false,
+      "snakeId": 4657
+    },
+    {
+      "wallSeconds": 657.3023491089999,
+      "reclaimed": false,
+      "snakeId": 4660
+    },
+    {
+      "wallSeconds": 660.217444787,
+      "reclaimed": true,
+      "snakeId": 4660
+    },
+    {
+      "wallSeconds": 690.331555444,
+      "reclaimed": true,
+      "snakeId": 4660
+    },
+    {
+      "wallSeconds": 702.4152891580001,
+      "reclaimed": false,
+      "snakeId": 4673
+    },
+    {
+      "wallSeconds": 709.954858233,
+      "reclaimed": false,
+      "snakeId": 4988
+    },
+    {
+      "wallSeconds": 720.449692634,
+      "reclaimed": true,
+      "snakeId": 4988
+    },
+    {
+      "wallSeconds": 750.563438157,
+      "reclaimed": true,
+      "snakeId": 4988
+    },
+    {
+      "wallSeconds": 752.395914029,
+      "reclaimed": false,
+      "snakeId": 5000
+    },
+    {
+      "wallSeconds": 762.795946252,
+      "reclaimed": false,
+      "snakeId": 5006
+    },
+    {
+      "wallSeconds": 770.4158100750001,
+      "reclaimed": false,
+      "snakeId": 5322
+    },
+    {
+      "wallSeconds": 771.179333476,
+      "reclaimed": false,
+      "snakeId": 5323
+    },
+    {
+      "wallSeconds": 773.759483332,
+      "reclaimed": false,
+      "snakeId": 5325
+    },
+    {
+      "wallSeconds": 780.189473272,
+      "reclaimed": true,
+      "snakeId": 5325
+    },
+    {
+      "wallSeconds": 810.3079390180001,
+      "reclaimed": true,
+      "snakeId": 5325
+    },
+    {
+      "wallSeconds": 825.239232386,
+      "reclaimed": false,
+      "snakeId": 5342
+    },
+    {
+      "wallSeconds": 830.836120275,
+      "reclaimed": false,
+      "snakeId": 5656
+    },
+    {
+      "wallSeconds": 832.149570491,
+      "reclaimed": false,
+      "snakeId": 5658
+    },
+    {
+      "wallSeconds": 840.4310284730001,
+      "reclaimed": true,
+      "snakeId": 5658
+    },
+    {
+      "wallSeconds": 854.512970544,
+      "reclaimed": false,
+      "snakeId": 5668
+    },
+    {
+      "wallSeconds": 858.478576109,
+      "reclaimed": false,
+      "snakeId": 5672
+    },
+    {
+      "wallSeconds": 862.928344318,
+      "reclaimed": false,
+      "snakeId": 5674
+    },
+    {
+      "wallSeconds": 870.559978354,
+      "reclaimed": true,
+      "snakeId": 5674
+    },
+    {
+      "wallSeconds": 891.339288476,
+      "reclaimed": false,
+      "snakeId": 5991
+    },
+    {
+      "wallSeconds": 891.622131788,
+      "reclaimed": false,
+      "snakeId": 5993
+    },
+    {
+      "wallSeconds": 900.181632217,
+      "reclaimed": true,
+      "snakeId": 5993
+    },
+    {
+      "wallSeconds": 903.415988078,
+      "reclaimed": false,
+      "snakeId": 5996
+    },
+    {
+      "wallSeconds": 930.2971908579999,
+      "reclaimed": true,
+      "snakeId": 5996
+    },
+    {
+      "wallSeconds": 951.833454023,
+      "reclaimed": false,
+      "snakeId": 6323
+    },
+    {
+      "wallSeconds": 952.814772982,
+      "reclaimed": false,
+      "snakeId": 6326
+    },
+    {
+      "wallSeconds": 960.4251265539999,
+      "reclaimed": true,
+      "snakeId": 6326
+    },
+    {
+      "wallSeconds": 966.624808642,
+      "reclaimed": false,
+      "snakeId": 6331
+    },
+    {
+      "wallSeconds": 969.491839655,
+      "reclaimed": false,
+      "snakeId": 6332
+    },
+    {
+      "wallSeconds": 990.548922351,
+      "reclaimed": true,
+      "snakeId": 6332
+    },
+    {
+      "wallSeconds": 998.2239223109999,
+      "reclaimed": false,
+      "snakeId": 6344
+    },
+    {
+      "wallSeconds": 998.624185583,
+      "reclaimed": false,
+      "snakeId": 6345
+    },
+    {
+      "wallSeconds": 1012.342061354,
+      "reclaimed": false,
+      "snakeId": 6661
+    },
+    {
+      "wallSeconds": 1015.953316624,
+      "reclaimed": false,
+      "snakeId": 6664
+    },
+    {
+      "wallSeconds": 1020.173651494,
+      "reclaimed": true,
+      "snakeId": 6664
+    },
+    {
+      "wallSeconds": 1022.1186830429999,
+      "reclaimed": false,
+      "snakeId": 6665
+    },
+    {
+      "wallSeconds": 1050.298606297,
+      "reclaimed": true,
+      "snakeId": 6665
+    },
+    {
+      "wallSeconds": 1066.516650812,
+      "reclaimed": false,
+      "snakeId": 6680
+    },
+    {
+      "wallSeconds": 1072.843771021,
+      "reclaimed": false,
+      "snakeId": 6998
+    },
+    {
+      "wallSeconds": 1075.28921961,
+      "reclaimed": false,
+      "snakeId": 7001
+    },
+    {
+      "wallSeconds": 1080.4219293810002,
+      "reclaimed": true,
+      "snakeId": 7001
+    },
+    {
+      "wallSeconds": 1110.5505312750001,
+      "reclaimed": true,
+      "snakeId": 7001
+    },
+    {
+      "wallSeconds": 1133.3343176660003,
+      "reclaimed": false,
+      "snakeId": 7333
+    },
+    {
+      "wallSeconds": 1135.8466978440001,
+      "reclaimed": false,
+      "snakeId": 7336
+    },
+    {
+      "wallSeconds": 1140.1765351880001,
+      "reclaimed": true,
+      "snakeId": 7336
+    },
+    {
+      "wallSeconds": 1141.4101566460001,
+      "reclaimed": false,
+      "snakeId": 7338
+    },
+    {
+      "wallSeconds": 1150.558540549,
+      "reclaimed": false,
+      "snakeId": 7340
+    },
+    {
+      "wallSeconds": 1170.293445205,
+      "reclaimed": true,
+      "snakeId": 7340
+    },
+    {
+      "wallSeconds": 1185.2080391010002,
+      "reclaimed": false,
+      "snakeId": 7354
+    },
+    {
+      "wallSeconds": 1193.8448897930002,
+      "reclaimed": false,
+      "snakeId": 7668
+    },
+    {
+      "wallSeconds": 1198.8230746440001,
+      "reclaimed": false,
+      "snakeId": 7670
+    },
+    {
+      "wallSeconds": 1200.420389439,
+      "reclaimed": true,
+      "snakeId": 7670
+    },
+    {
+      "wallSeconds": 1201.3721996950003,
+      "reclaimed": false,
+      "snakeId": 7671
+    },
+    {
+      "wallSeconds": 1210.8041786210001,
+      "reclaimed": false,
+      "snakeId": 7677
+    },
+    {
+      "wallSeconds": 1230.5363414730002,
+      "reclaimed": true,
+      "snakeId": 7677
+    },
+    {
+      "wallSeconds": 1234.0208800330001,
+      "reclaimed": false,
+      "snakeId": 7689
+    },
+    {
+      "wallSeconds": 1254.378964144,
+      "reclaimed": false,
+      "snakeId": 8011
+    },
+    {
+      "wallSeconds": 1260.1596310410002,
+      "reclaimed": true,
+      "snakeId": 8011
+    },
+    {
+      "wallSeconds": 1273.221263564,
+      "reclaimed": false,
+      "snakeId": 8016
+    },
+    {
+      "wallSeconds": 1290.2763188800002,
+      "reclaimed": true,
+      "snakeId": 8016
+    },
+    {
+      "wallSeconds": 1314.900275481,
+      "reclaimed": false,
+      "snakeId": 8343
+    },
+    {
+      "wallSeconds": 1320.3991680750003,
+      "reclaimed": true,
+      "snakeId": 8343
+    },
+    {
+      "wallSeconds": 1350.5144077020002,
+      "reclaimed": true,
+      "snakeId": 8343
+    },
+    {
+      "wallSeconds": 1375.4209666350002,
+      "reclaimed": false,
+      "snakeId": 8674
+    },
+    {
+      "wallSeconds": 1380.133583384,
+      "reclaimed": true,
+      "snakeId": 8674
+    },
+    {
+      "wallSeconds": 1410.252945803,
+      "reclaimed": true,
+      "snakeId": 8674
+    },
+    {
+      "wallSeconds": 1435.931698585,
+      "reclaimed": false,
+      "snakeId": 9007
+    },
+    {
+      "wallSeconds": 1440.3791829840002,
+      "reclaimed": true,
+      "snakeId": 9007
+    },
+    {
+      "wallSeconds": 1470.5059345610002,
+      "reclaimed": true,
+      "snakeId": 9007
+    },
+    {
+      "wallSeconds": 1496.4526090210002,
+      "reclaimed": false,
+      "snakeId": 9339
+    },
+    {
+      "wallSeconds": 1497.9155256120002,
+      "reclaimed": false,
+      "snakeId": 9342
+    },
+    {
+      "wallSeconds": 1499.414292595,
+      "reclaimed": false,
+      "snakeId": 9344
+    },
+    {
+      "wallSeconds": 1500.128274956,
+      "reclaimed": true,
+      "snakeId": 9344
+    },
+    {
+      "wallSeconds": 1503.3613154490001,
+      "reclaimed": false,
+      "snakeId": 9346
+    },
+    {
+      "wallSeconds": 1504.476655485,
+      "reclaimed": false,
+      "snakeId": 9348
+    },
+    {
+      "wallSeconds": 1530.2454575880001,
+      "reclaimed": true,
+      "snakeId": 9348
+    },
+    {
+      "wallSeconds": 1556.9817839270002,
+      "reclaimed": false,
+      "snakeId": 9672
+    },
+    {
+      "wallSeconds": 1560.3758943820003,
+      "reclaimed": true,
+      "snakeId": 9672
+    },
+    {
+      "wallSeconds": 1560.4426641500002,
+      "reclaimed": false,
+      "snakeId": 9675
+    },
+    {
+      "wallSeconds": 1560.4761917110002,
+      "reclaimed": false,
+      "snakeId": 9676
+    },
+    {
+      "wallSeconds": 1566.6069685000002,
+      "reclaimed": false,
+      "snakeId": 9679
+    },
+    {
+      "wallSeconds": 1573.0240394000002,
+      "reclaimed": false,
+      "snakeId": 9681
+    },
+    {
+      "wallSeconds": 1590.490313325,
+      "reclaimed": true,
+      "snakeId": 9681
+    },
+    {
+      "wallSeconds": 1617.48545317,
+      "reclaimed": false,
+      "snakeId": 10014
+    },
+    {
+      "wallSeconds": 1620.112308411,
+      "reclaimed": true,
+      "snakeId": 10014
+    },
+    {
+      "wallSeconds": 1640.8438688360002,
+      "reclaimed": false,
+      "snakeId": 10029
+    },
+    {
+      "wallSeconds": 1650.2248796840001,
+      "reclaimed": true,
+      "snakeId": 10029
+    },
+    {
+      "wallSeconds": 1678.000813045,
+      "reclaimed": false,
+      "snakeId": 10348
+    },
+    {
+      "wallSeconds": 1680.3445267450002,
+      "reclaimed": true,
+      "snakeId": 10348
+    },
+    {
+      "wallSeconds": 1686.659034015,
+      "reclaimed": false,
+      "snakeId": 10353
+    },
+    {
+      "wallSeconds": 1710.4613121830002,
+      "reclaimed": true,
+      "snakeId": 10353
+    },
+    {
+      "wallSeconds": 1738.488922871,
+      "reclaimed": false,
+      "snakeId": 10681
+    },
+    {
+      "wallSeconds": 1740.5848986550002,
+      "reclaimed": true,
+      "snakeId": 10681
+    },
+    {
+      "wallSeconds": 1744.600414263,
+      "reclaimed": false,
+      "snakeId": 10686
+    },
+    {
+      "wallSeconds": 1770.198687567,
+      "reclaimed": true,
+      "snakeId": 10686
+    },
+    {
+      "wallSeconds": 1798.9782297450001,
+      "reclaimed": false,
+      "snakeId": 11011
+    }
+  ],
+  "wallSeconds": 1800.214903362,
+  "passed": true
+}

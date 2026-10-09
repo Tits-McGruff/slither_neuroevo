@@ -1,0 +1,300 @@
+import type {
+  RustBackgroundControllerAction,
+  RustBackgroundControllerDisconnect,
+  RustBackgroundDrain,
+  RustBackgroundDisplay,
+  RustBackgroundFrameCopy,
+  RustBackgroundHealth,
+  RustQueueDiagnostics,
+  RustBackgroundJoinRequest,
+  RustBackgroundReclaimRequest,
+  RustBackgroundReclaimReceipt,
+  RustBackgroundVisualization,
+  RustGenerationAssignmentReceipt
+} from '../../src/protocol/rustBackground.ts';
+import type {
+  ManagedCheckpointDescriptor,
+  ManagedExportInventoryDescriptor,
+  ManagedHallOfFameWeightsDescriptor,
+  ManagedImportInventoryDescriptor,
+  U64Hex
+} from './checkpointPersistenceProtocol.ts';
+import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
+import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
+
+/** One complete numeric setting supplied only to private fresh-run construction. */
+export interface RustFreshRunSetting {
+  /** Canonical normalized settings path. */
+  path: string;
+  /** Finite numeric representation; booleans are zero or one. */
+  value: number;
+}
+
+/** Raw native layer shape before structure-only layers become protocol nulls. */
+export interface RustNativeVisualizationLayer {
+  /** Browser-visible neuron count. */
+  count: number;
+  /** Whether the values array contains one value per neuron. */
+  hasActivations: boolean;
+  /** Packed finite values, empty for a structure-only layer. */
+  activations: number[];
+  /** Recurrent-memory presentation marker. */
+  isRecurrent?: true;
+}
+
+/** Raw replaceable native visualization copied from the Rust cache. */
+export interface RustNativeVisualization extends Omit<RustBackgroundVisualization, 'layers'> {
+  /** Ordered native layers requiring one small boundary normalization. */
+  layers: RustNativeVisualizationLayer[];
+}
+
+/** Coarse production-addon handle created by transferring the durable fresh run. */
+export interface ExperimentalRunningAuthorityNativeHandle {
+  /** Read progress from the native archive worker without waiting for it. */
+  archiveWorkProgress(): RustArchiveWorkProgress | null;
+  /** Prepare one fresh assignment without publishing its snake. */
+  submitControllerJoin(sequence: U64Hex, request: RustBackgroundJoinRequest): void;
+  /** Resolve the exact fresh assignment on its separate delivery barrier. */
+  submitControllerJoinReceipt(sequence: U64Hex, receipt: RustBackgroundReclaimReceipt): void;
+  /** Stage an explicit reconnect without changing the prior lease. */
+  submitControllerReclaim(sequence: U64Hex, request: RustBackgroundReclaimRequest): void;
+  /** Commit only the exact delivered reclaim assignment. */
+  submitControllerReclaimReceipt(sequence: U64Hex, receipt: RustBackgroundReclaimReceipt): void;
+  /** Start only after attaching the Node output router. */
+  start(): void;
+  /** Queue steering for the next eligible step without altering a pending step. */
+  submitControllerAction(sequence: U64Hex, action: RustBackgroundControllerAction): void;
+  /** Queue one complete live-settings batch for atomic Rust application. */
+  submitLiveSettings(sequence: U64Hex, updates: readonly LiveSettingsUpdate[]): void;
+  /** Queue one exact browser-addressed God Mode translation. */
+  submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
+  /** Queue one exact browser-addressed normal God Mode death. */
+  submitGodModeKill(sequence: U64Hex, snakeId: number): void;
+  /** Toggle aggregate opt-in focused activation capture. */
+  submitVisualization(sequence: U64Hex, enabled: boolean): void;
+  /** Decode and resurrect one worker-leased retained winner. */
+  submitHallOfFameResurrection(
+    sequence: U64Hex,
+    managedDirectory: string,
+    weights: ManagedHallOfFameWeightsDescriptor
+  ): void;
+  /** Queue a close without invalidating an already prepared step. */
+  submitControllerDisconnect(sequence: U64Hex, close: RustBackgroundControllerDisconnect): void;
+  /** Publish or exactly retry the retained generation's immutable managed file. */
+  submitGenerationCheckpoint(sequence: U64Hex, options: RustRunStartCheckpointPublishOptions): void;
+  /** Compose one leased checkpoint and its compact history into an opaque ready archive. */
+  prepareExportArchive(
+    managedDirectory: string,
+    operationId: string,
+    checkpoint: ManagedCheckpointDescriptor,
+    inventory: ManagedExportInventoryDescriptor
+  ): Promise<RustPreparedExportArchive>;
+  /** Validate one untrusted save completely without changing the live game or metadata. */
+  validateImportArchive(
+    archivePath: string,
+    scratchDirectory: string,
+    operationId: string
+  ): Promise<RustValidatedImportArchive>;
+  /** Inspect only bounded archive metadata before decoded disk staging. */
+  estimateImportDisk(archivePath: string): Promise<RustImportDiskEstimate>;
+  /** Validate, publish, and retain one private imported authority for durability. */
+  prepareImportArchive(
+    archivePath: string,
+    scratchDirectory: string,
+    managedDirectory: string,
+    operationId: string,
+    legacyRunId: string,
+    legacySeed: number
+  ): Promise<RustPreparedImportArchive>;
+  /** Build and publish a private generation-one candidate without changing the live game. */
+  prepareFreshRun(
+    managedDirectory: string,
+    operationId: string,
+    runId: string,
+    seed: number,
+    settings: readonly RustFreshRunSetting[],
+    graphSpecJson: string
+  ): Promise<RustPreparedFreshRun>;
+  /** Drop a prepared candidate after a pre-commit failure. */
+  discardPreparedImport(): void;
+  /** Pause stepping at the next clean boundary before the import transaction. */
+  submitStagePreparedImport(sequence: U64Hex): void;
+  /** Cancel a staged import before durability and resume the unchanged game. */
+  submitCancelPreparedImport(sequence: U64Hex): void;
+  /** Swap only the exact descriptor returned by the committed import transaction. */
+  submitImportPersistenceAcknowledgement(
+    sequence: U64Hex,
+    descriptor: ManagedCheckpointDescriptor,
+    branchRunId?: string
+  ): void;
+  /** Return the complete descriptor committed by the dedicated SQLite worker. */
+  submitGenerationPersistenceAcknowledgement(sequence: U64Hex, descriptor: ManagedCheckpointDescriptor): void;
+  /** Prepare connected-controller assignments after durability. */
+  submitPrepareGenerationReassignments(sequence: U64Hex): void;
+  /** Return the exact local transport result for a Rust-issued assignment. */
+  submitGenerationAssignmentReceipt(sequence: U64Hex, receipt: RustGenerationAssignmentReceipt): void;
+  /** Return an ordinary observation/replacement send result to its retained step. */
+  submitControllerDeliveryReceipt(sequence: U64Hex, receipt: RustGenerationAssignmentReceipt): void;
+  /** Commit the successor only after both retained barriers resolve. */
+  submitPublishGenerationStart(sequence: U64Hex): void;
+  /** Drain prepared output without inspecting or reconstructing the world. */
+  drainOutputs(maxEvents: number, maxOwnedBytes: number): RustBackgroundDrain;
+  /** Read bounded atomic scalars; opt into bucket-array diagnostics only for requested measurements. */
+  health(includeStepTimingHistogram?: boolean): RustBackgroundHealth;
+  /** Read queue occupancy, lifetime peaks, failures, and immutable admission limits. */
+  queueDiagnostics(): RustQueueDiagnostics;
+  /** Read cached metadata without serializing or waiting on the live world. */
+  latestDisplay(): RustBackgroundDisplay | null;
+  /** Copy only a newer complete single-brain visualization snapshot. */
+  latestVisualization(afterSequence: U64Hex): RustNativeVisualization | null;
+  /** Copy a newer complete frame into a non-shared caller-owned Uint8Array. */
+  copyLatestFrame(destination: Uint8Array, afterSequence: U64Hex): RustBackgroundFrameCopy;
+  /** Signal shutdown without waiting for authoritative work. */
+  requestStop(): void;
+  /** Join on a native worker, leaving the Node event loop responsive. */
+  join(): Promise<void>;
+}
+
+/** One current or most recently completed native archive job. */
+export interface RustArchiveWorkProgress {
+  /** Exact operation token for matching the server-side request. */
+  operationId: string;
+  /** Export, import, or standalone import validation. */
+  kind: 'export' | 'import' | 'validate-import';
+  /** Monotonic count of completed bounded file/codec work. */
+  completedBytes: string;
+  /** Whether libuv has begun running the native task. */
+  started: boolean;
+  /** Whether the native task reached its terminal callback. */
+  finished: boolean;
+  /** Opt-in bounded monotonic intervals, absent during normal operation. */
+  phaseTrace?: RustArchivePhaseDiagnostics | null;
+}
+
+/** Archive-job timings enabled explicitly with SLITHER_TRACE_ARCHIVE_PHASES=1. */
+export interface RustArchivePhaseDiagnostics {
+  /** Current elapsed job-clock microseconds, for aligning external memory samples. */
+  elapsedMicros: U64Hex;
+  /** True means the fixed interval cap was reached; measurements must reject partial traces. */
+  truncated: boolean;
+  /** At most 4096 fixed-name intervals; nested phases may overlap. */
+  intervals: RustArchivePhaseTiming[];
+  /** True only if the native job created and later joins its diagnostic observer. */
+  rssSamplerStarted: boolean;
+  /** Requested cadence; scheduler delays can make actual observations farther apart. */
+  requestedRssSampleIntervalMicros: U64Hex;
+}
+
+/** One phase boundary; absent finish indicates a stage still in progress. */
+export interface RustArchivePhaseTiming {
+  /** Fixed Rust stage name with no filenames or owner data. */
+  phase: string;
+  /** Microseconds since this exact job was submitted. */
+  startedMicros: U64Hex;
+  /** Microseconds at guard completion, including error/unwind cleanup. */
+  finishedMicros?: U64Hex | null;
+  /** Whole server-process memory at Rust stage entry, including Node/workers. */
+  startRssBytes?: U64Hex | null;
+  /** Whole server-process memory at guard exit, including failures/unwinds. */
+  finishRssBytes?: U64Hex | null;
+  /** Maximum successful endpoint or periodic reading; this is a sampled lower bound. */
+  sampledPeakRssBytes?: U64Hex | null;
+  /** Number of successful OS readings attributed to this interval. */
+  rssSamples: U64Hex;
+}
+
+/** Small ready-file facts returned by Rust; archive bytes remain on disk. */
+export interface RustPreparedExportArchive {
+  /** Exact lease and archive operation. */
+  operationId: string;
+  /** Exact checkpoint root bound when the request started. */
+  checkpointId: string;
+  /** Controlled operation-local file below the managed directory. */
+  relativeFilename: string;
+  /** Safe attachment basename suggested by Rust. */
+  downloadFilename: string;
+  /** Exact complete archive bytes. */
+  storedByteCount: U64Hex;
+  /** Encoding-independent save role root. */
+  logicalRootSha256: string;
+}
+
+/** Small trusted identity returned only after every archive role passes Rust validation. */
+export interface RustValidatedImportArchive {
+  /** Run identity recorded by both the outer manifest and embedded checkpoint. */
+  runId: string;
+  /** Exact restored generation. */
+  generation: U64Hex;
+  /** Exact restored completed-step boundary. */
+  completedStep: U64Hex;
+  /** Embedded checkpoint logical-root identity. */
+  checkpointId: string;
+  /** Encoding-independent identity of all save roles. */
+  saveLogicalRootSha256: string;
+  /** Number of validated history records. */
+  historyCount: U64Hex;
+  /** Number of validated Hall-of-Fame records. */
+  hallOfFameCount: U64Hex;
+  /** Exact uploaded archive length. */
+  storedByteCount: U64Hex;
+}
+
+/** Conservative Rust-derived import disk terms, without population payloads. */
+export interface RustImportDiskEstimate {
+  /** Private checkpoint, decoded winner scratch, and object-publication allowance. */
+  candidateSpoolBytes: U64Hex;
+  /** New immutable checkpoint, winner objects, and inventory allowance. */
+  finalManagedBytes: U64Hex;
+}
+
+/** Small prepared-import facts; the complete candidate remains owned by Rust. */
+export interface RustPreparedImportArchive extends RustValidatedImportArchive {
+  /** Newly published descriptor awaiting the SQLite import transaction. */
+  descriptor: ManagedCheckpointDescriptor;
+  /** Rust-written fixed records ready for one worker-owned transaction. */
+  inventory: ManagedImportInventoryDescriptor;
+  /** Bounded Rust-authored welcome metadata for the candidate. */
+  startupMetadata: string;
+}
+
+/** Small Rust-authored result for one private fresh replacement. */
+export interface RustPreparedFreshRun {
+  /** Newly published run-start checkpoint awaiting its SQLite commit. */
+  descriptor: ManagedCheckpointDescriptor;
+  /** Bounded welcome metadata for the still-private candidate. */
+  startupMetadata: string;
+}
+
+/** Required coarse operations on the source-identified native runtime. */
+const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
+  'archiveWorkProgress',
+  'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'prepareExportArchive',
+  'validateImportArchive',
+  'estimateImportDisk',
+  'prepareImportArchive',
+  'prepareFreshRun',
+  'discardPreparedImport',
+  'submitStagePreparedImport',
+  'submitCancelPreparedImport',
+  'submitImportPersistenceAcknowledgement',
+  'submitPrepareGenerationReassignments', 'submitGenerationAssignmentReceipt',
+  'submitControllerDeliveryReceipt',
+  'submitPublishGenerationStart', 'drainOutputs', 'health', 'queueDiagnostics', 'latestDisplay', 'latestVisualization',
+  'copyLatestFrame', 'requestStop', 'join'
+];
+
+/** Validate the handoff result before a Node router can use it. */
+export function validateBackgroundRuntime(value: unknown): ExperimentalRunningAuthorityNativeHandle {
+  if (value === null || typeof value !== 'object') {
+    throw new TypeError('background authority transfer returned no native handle');
+  }
+  const handle = value as Partial<ExperimentalRunningAuthorityNativeHandle>;
+  for (const method of REQUIRED_METHODS) {
+    if (typeof handle[method] !== 'function') {
+      throw new TypeError(`background authority handle is missing ${method}`);
+    }
+  }
+  return handle as ExperimentalRunningAuthorityNativeHandle;
+}

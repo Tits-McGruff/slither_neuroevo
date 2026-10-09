@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 /** Allow importing JS modules via TypeScript. */
 declare module '*.js';
 
@@ -15,4 +17,10 @@ interface AsyncDisposable {
 interface SymbolConstructor {
   readonly dispose: unique symbol;
   readonly asyncDispose: unique symbol;
+}
+
+/** Slither build-time values supplied by Vite in development and production. */
+interface ImportMetaEnv {
+  readonly SLITHER_DEFAULT_WS_URL?: string;
+  readonly SLITHER_SERVER_PORT?: number;
 }

@@ -11,28 +11,53 @@ import {
 } from './settings.ts';
 import { lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
-// import { World } from './world.ts'; // Logic moved to worker
 import {
   exportJsonToFile,
   exportToFile,
   importFromFile,
   loadBaselineBotSettings,
   saveBaselineBotSettings,
-  savePopulationJSON,
   type PopulationFilePayload
 } from './storage.ts';
 import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
 import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
-import { createWsClient, resolveServerUrl, storeServerUrl } from './net/wsClient.ts';
+import {
+  createWsClient,
+  formatImportBranchRuntimeStatus,
+  formatLegacyConversionRuntimeStatus,
+  formatRecoveryRuntimeStatus,
+  formatServerRuntimeStatus,
+  resolveServerUrl,
+  storeServerUrl,
+  type WelcomeInferenceMode
+} from './net/wsClient.ts';
+import { createAuthoritativeControls } from './net/authoritativeControls.ts';
+import {
+  PlayerActionPump,
+  normalizePlayerActionRate,
+  type LatestPlayerAction
+} from './net/playerActionPump.ts';
 import { inferGraphSizes } from './brains/graph/editor.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
 import { validateGraph } from './brains/graph/validate.ts';
+import { graphKey } from './brains/graph/compiler.ts';
+import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
-import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData, WorkerToMainMessage } from './protocol/messages.ts';
+import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData } from './protocol/messages.ts';
+import type {
+  RustImportBranchNotice,
+  RustLegacyConversionNotice,
+  RustRecoveryNotice
+} from './protocol/rustBackground.ts';
 import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
-import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
+import type {
+  CoreSettings,
+  LiveSettingPath,
+  LiveSettingsUpdate,
+  SettingsUpdate
+} from './protocol/settings.ts';
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
@@ -78,7 +103,7 @@ interface SelectedSnake {
 }
 
 /** Connection mode used by the main UI. */
-type ConnectionMode = 'connecting' | 'server' | 'worker';
+type ConnectionMode = 'connecting' | 'server';
 
 declare global {
   /** Global window extensions used by the UI. */
@@ -89,18 +114,38 @@ declare global {
   }
 }
 
-/** Active worker instance when running locally. */
-let worker: Worker | null = null;
 /** WebSocket client when connected to the server. */
 let wsClient: ReturnType<typeof createWsClient> | null = null;
+/** Extracted coalescing and God Mode transport bound to the current socket. */
+const authoritativeControls = createAuthoritativeControls({
+  sendSettings: (requestId, updates) => wsClient?.sendSettings(requestId, updates),
+  sendGodModeKill: (requestId, snakeId) => wsClient?.sendGodModeKill(requestId, snakeId),
+  sendGodModeMove: (requestId, snakeId, x, y) =>
+    wsClient?.sendGodModeMove(requestId, snakeId, x, y),
+  sendNewRun: (requestId) => wsClient?.sendNewRun(requestId)
+});
 /** Current connection mode state. */
 let connectionMode: ConnectionMode = 'connecting';
 /** Current server URL used for connection attempts. */
 let serverUrl = '';
 /** Latest server config hash from the welcome message. */
 let serverCfgHash: string | null = null;
+/** Latest authoritative config revision received from the server. */
+let serverConfigRevision = 0;
+/** Last simulation speed accepted or advertised by the authoritative server. */
+let serverSimSpeed = 1;
 /** Latest server world seed from the welcome message. */
 let serverWorldSeed: number | null = null;
+/** Inference mode advertised for the active server run. */
+let serverInferenceMode: WelcomeInferenceMode | null = null;
+/** Durable recovery provenance advertised for the active branch. */
+let serverRecovery: RustRecoveryNotice | null = null;
+/** Exact archive branch provenance advertised for the active run. */
+let serverImportBranch: RustImportBranchNotice | null = null;
+/** Population-only source advertised for a run converted from old SQLite data. */
+let serverLegacyConversion: RustLegacyConversionNotice | null = null;
+/** Correlation id of the currently pending New Run request. */
+let pendingNewRunRequestId: string | null = null;
 /** Latest tick id observed from server stats. */
 let lastServerTick = 0;
 /** Pending server reset promise used to sequence imports. */
@@ -116,10 +161,16 @@ let reconnectDelayMs = 1000;
 let lastPlayerName = '';
 /** Local storage key for the player nickname. */
 const PLAYER_NAME_KEY = 'slither_neuroevo_player_name';
+/** Local storage key for the opaque controller reclaim token. */
+const PLAYER_RESUME_TOKEN_KEY = 'slither_neuroevo_player_resume_token';
+/** Opaque token for reclaiming the current server-side controller lease. */
+let playerResumeToken = '';
+/** Whether the next successful handshake should immediately request reclaim. */
+let resumePlayerAfterReconnect = false;
+/** Whether an explicitly selected spectator session should resume after reconnect. */
+let resumeSpectatorAfterReconnect = false;
 /** Timer id for reconnect scheduling. */
 let reconnectTimer: number | null = null;
-/** Timer id for worker fallback scheduling. */
-let fallbackTimer: number | null = null;
 /** Whether settings controls are locked. */
 let settingsLocked = true;
 /** Whether join overlay is awaiting user action. */
@@ -132,8 +183,8 @@ let spectatorFollowSnakeId: number | null = null;
 let playerSensorTick = 0;
 /** Latest player sensor metadata for UI overlays. */
 let playerSensorMeta: { x: number; y: number; dir: number } | null = null;
-/** Current pointer position in world coordinates. */
-let pointerWorld: { x: number; y: number } | null = null;
+/** Latest pointer position relative to the canvas in screen pixels. */
+let pointerScreen: { x: number; y: number } | null = null;
 /** Whether boost is held down by input. */
 let boostHeld = false;
 /** Local storage key for graph spec persistence. */
@@ -183,7 +234,7 @@ let cssW = 0,
   dpr = 1;
 
 /**
- * Resize the canvas and notify the worker of the new viewport size.
+ * Resize the canvas and notify the server of the new viewport size.
  */
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
@@ -194,9 +245,6 @@ function resize(): void {
   canvas.width = Math.floor(cssW * dpr);
   canvas.height = Math.floor(cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (worker) {
-    worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
-  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -297,6 +345,8 @@ const n5Val = document.getElementById('n5Val') as HTMLElement;
 const btnApply = document.getElementById('apply') as HTMLButtonElement;
 /** Button to restore default settings. */
 const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
+/** Button that starts a separately seeded, durably checkpointed run. */
+const btnNewRun = document.getElementById('newRun') as HTMLButtonElement;
 /** Button to toggle the settings panel. */
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
 /** Settings tab container element. */
@@ -358,6 +408,11 @@ function loadSavedPlayerName(): void {
     } else if (saved) {
       lastPlayerName = saved;
     }
+    const savedToken = localStorage.getItem(PLAYER_RESUME_TOKEN_KEY);
+    if (savedToken) {
+      playerResumeToken = savedToken;
+      resumePlayerAfterReconnect = true;
+    }
   } catch {
     // Ignore storage failures in non-browser environments.
   }
@@ -379,9 +434,6 @@ tabBtns.forEach(btn => {
     const tabEl = document.getElementById(tabId);
     if (tabEl) tabEl.classList.add('active');
     activeTab = tabId;
-    if (worker) {
-      worker.postMessage({ type: 'viz', enabled: activeTab === 'tab-viz' });
-    }
     if (wsClient && wsClient.isConnected()) {
       wsClient.sendViz(activeTab === 'tab-viz');
     }
@@ -561,13 +613,6 @@ function applyBaselineSeed(seed: number): void {
   updateBaselineSeedLabel(seed);
   setBaselineSeedHintVisible(false);
   persistBaselineBotSettings();
-  if (worker) {
-    worker.postMessage({
-      type: 'updateSettings',
-      updates: [{ path: 'baselineBots.seed', value: seed }]
-    });
-    return;
-  }
   if (wsClient && wsClient.isConnected()) {
     const settings = readSettingsFromCoreUI();
     const updates = collectSettingsUpdatesFromUI();
@@ -1030,7 +1075,7 @@ if (graphApply) {
   graphApply.addEventListener('click', () => {
     const draft = ensureGraphDraft();
     if (!applyGraphSpec(draft, 'Graph applied.')) return;
-    initWorker(true);
+    applyResetToSimulation();
   });
 }
 
@@ -1161,6 +1206,12 @@ let clientZoom = 1;
 let currentVizData: VizData | null = null;
 /** Whether an export request is pending. */
 let pendingExport = false;
+/** Whether the connected server supports an opaque browser-managed save download. */
+let serverArchiveExport = false;
+/** Last production stats generation whose compact Hall of Fame was requested. */
+let serverHallOfFameGeneration = 0;
+/** Whether the connected server accepts the selected save without browser parsing. */
+let serverArchiveImport = false;
 
 /** Proxy world exposed to UI helpers and HoF spawn. */
 const proxyWorld: ProxyWorld = {
@@ -1174,11 +1225,6 @@ const proxyWorld: ProxyWorld = {
   fitnessHistory: fitnessHistory,
   // Helpers mimicking World for Settings UI/Persistence
   toggleViewMode: () => {
-    if (worker) {
-      worker.postMessage({ type: 'action', action: 'toggleView' });
-      proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
-      return;
-    }
     if (wsClient && wsClient.isConnected()) {
       proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
       wsClient.sendView({
@@ -1189,10 +1235,6 @@ const proxyWorld: ProxyWorld = {
     }
   },
   resurrect: async (genome: GenomeJSON) => {
-    if (worker) {
-      worker.postMessage({ type: 'resurrect', genome });
-      return null;
-    }
     if (!wsClient || !wsClient.isConnected()) return null;
     return resurrectOnServer(genome);
   }
@@ -1206,11 +1248,37 @@ window.currentWorld = proxyWorld; // For HoF
 function setConnectionStatus(mode: ConnectionMode): void {
   connectionMode = mode;
   if (!connectionStatus) return;
-  connectionStatus.classList.remove('connecting', 'server', 'worker');
+  connectionStatus.classList.remove('connecting', 'server');
   connectionStatus.classList.add(mode);
-  if (mode === 'server') connectionStatus.textContent = 'Server';
-  else if (mode === 'worker') connectionStatus.textContent = 'Worker';
-  else connectionStatus.textContent = 'Connecting';
+  if (mode === 'server' && serverWorldSeed !== null && serverInferenceMode) {
+    const runtime = formatServerRuntimeStatus(
+      serverWorldSeed,
+      serverInferenceMode
+    );
+    connectionStatus.textContent = serverRecovery
+      ? runtime.replace('Server ·', serverRecovery.explicitResume ? 'Server · selected checkpoint ·' : 'Server · recovered ·')
+      : serverImportBranch
+        ? runtime.replace('Server ·', 'Server · imported branch ·')
+        : serverLegacyConversion
+          ? runtime.replace('Server ·', 'Server · converted save ·')
+          : runtime;
+    connectionStatus.setAttribute(
+      'title',
+      serverRecovery
+        ? formatRecoveryRuntimeStatus(serverRecovery)
+        : serverImportBranch
+          ? formatImportBranchRuntimeStatus(serverImportBranch)
+          : serverLegacyConversion
+            ? formatLegacyConversionRuntimeStatus(serverLegacyConversion)
+            : ''
+    );
+  } else if (mode === 'server') {
+    connectionStatus.textContent = 'Server';
+    connectionStatus.setAttribute('title', '');
+  } else {
+    connectionStatus.textContent = 'Connecting';
+    connectionStatus.setAttribute('title', '');
+  }
 }
 
 /**
@@ -1263,8 +1331,17 @@ function enterSpectatorMode(): void {
   playerSnakeId = null;
   playerSensorTick = 0;
   playerSensorMeta = null;
-  pointerWorld = null;
+  pointerScreen = null;
   boostHeld = false;
+  resumePlayerAfterReconnect = false;
+  resumeSpectatorAfterReconnect = true;
+  playerResumeToken = '';
+  playerActionPump.stop();
+  try {
+    localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY);
+  } catch {
+    // Ignore storage failures in non-browser environments.
+  }
   proxyWorld.viewMode = 'overview';
   setJoinStatus('Spectating');
   updateJoinControls();
@@ -1278,6 +1355,7 @@ function enterSpectatorMode(): void {
  */
 function enterPlayerMode(): void {
   if (!wsClient?.isConnected()) return;
+  resumeSpectatorAfterReconnect = false;
   const fallbackName = 'player';
   const name = joinName?.value.trim() || lastPlayerName || fallbackName;
   if (joinName && !joinName.value.trim()) {
@@ -1293,7 +1371,7 @@ function enterPlayerMode(): void {
   setJoinStatus('Joining...');
   updateJoinControls();
   proxyWorld.viewMode = 'follow';
-  wsClient.sendJoin('player', name);
+  wsClient.sendJoin('player', name, playerResumeToken || undefined);
   wsClient.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
 }
 
@@ -1611,7 +1689,7 @@ function assertGraphSpecInputSizeMatches(spec: GraphSpec, context: string): void
   if (inputSize !== CFG.brain.inSize) {
     throw new Error(
       `${context} input size mismatch (expected ${CFG.brain.inSize}, got ${inputSize}). ` +
-      'If this file was exported from an older build, clear localStorage or delete data/slither.db and retry.'
+      'Rebuild or re-export the graph for the current v3 sensor size; existing checkpoints can remain in place.'
     );
   }
 }
@@ -3235,22 +3313,36 @@ function computeTurnInput(
 }
 
 /**
- * Send a player action message to the server.
+ * Build the newest browser-player command at transmission time.
+ * Pointer screen coordinates are converted using the latest camera and player pose.
+ * @returns Latest Protocol 2 action or null while ownership/state is incomplete.
  */
-function sendPlayerAction(): void {
-  if (!wsClient || !wsClient.isConnected()) return;
-  if (!isPlayerControlActive()) return;
+function buildLatestPlayerAction(): LatestPlayerAction | null {
+  if (!wsClient || !wsClient.isConnected() || !isPlayerControlActive()) return null;
   const meta = playerSensorMeta;
-  const target = pointerWorld;
+  const target = pointerScreen ? screenToWorld(pointerScreen.x, pointerScreen.y) : null;
   const turn = meta && target ? computeTurnInput(meta, target) : 0;
   const boost = boostHeld ? 1 : 0;
   const tick = playerSensorTick ? playerSensorTick + 1 : 0;
-  wsClient.sendAction(tick, playerSnakeId!, turn, boost);
+  return { tick, snakeId: playerSnakeId!, turn, boost };
 }
+
+/** Selected 30/60 Hz Stage 2 measurement candidate for temporary browser resends. */
+const playerActionRateHz = normalizePlayerActionRate(
+  new URLSearchParams(window.location.search).get('playerActionHz')
+);
+/** Browser-player sender independent from display and sensor message delivery. */
+const playerActionPump = new PlayerActionPump({
+  cadenceHz: playerActionRateHz,
+  isActive: isPlayerControlActive,
+  buildLatestAction: buildLatestPlayerAction,
+  sendAction: action =>
+    wsClient?.sendAction(action.tick, action.snakeId, action.turn, action.boost)
+});
 
 /**
  * Store a new frame buffer and update generation stats.
- * @param buffer - Raw frame buffer from worker/server.
+ * @param buffer - Raw frame buffer from the server.
  */
 function applyFrameBuffer(buffer: ArrayBuffer): void {
   currentFrameBuffer = new Float32Array(buffer);
@@ -3359,206 +3451,56 @@ async function resurrectOnServer(genome: GenomeJSON): Promise<number | null> {
   return Number.isFinite(payload.snakeId) ? payload.snakeId ?? null : null;
 }
 
-/**
- * Initialize or reset the worker with current settings.
- * @param resetCfg - Whether to reset CFG to defaults before applying updates.
- */
-function initWorker(resetCfg = true): void {
-  if (!worker) return;
-  const settings = readSettingsFromCoreUI();
-  const updates = collectSettingsUpdatesFromUI();
-  const graphSpec = resolveGraphSpecForReset();
-  worker.postMessage({
-    type: 'init',
-    settings,
-    updates,
-    resetCfg,
-    viewW: cssW,
-    viewH: cssH,
-    graphSpec
+/** Ask the Rust server to resurrect one retained winner by its opaque compact identity. */
+async function resurrectHallOfFameOnServer(entryId: string): Promise<number | null> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return null;
+  const response = await fetch(`${base}/api/resurrect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ entryId })
   });
+  const result = await response.json() as { ok?: boolean; snakeId?: number; message?: string };
+  if (!response.ok || result.ok !== true || !Number.isSafeInteger(result.snakeId)) {
+    console.error('Rust resurrection failed:', result.message ?? response.statusText);
+    return null;
+  }
+  return result.snakeId!;
 }
+
 
 /**
  * Validate the applied graph spec against the active sensor input size.
- * @returns Valid graph spec or null if cleared.
+ * @param settings - Core values used to build the ordinary stack graph.
+ * @returns A sensor-compatible explicit graph for authoritative replacement.
  */
-function resolveGraphSpecForReset(): GraphSpec | null {
-  if (!customGraphSpec) return null;
-  const inputSize = getGraphSpecInputSize(customGraphSpec);
+function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec {
+  const graphSpec = customGraphSpec ?? buildStackGraphSpec(settings, CFG);
+  const inputSize = getGraphSpecInputSize(graphSpec);
   if (inputSize == null || inputSize !== CFG.brain.inSize) {
     console.warn('[sensors.layout.reset_fallback]', {
       expected: CFG.brain.inSize,
       actual: inputSize ?? null
     });
     clearCustomGraphSpec('Custom graph cleared due to input size mismatch.');
-    return null;
+    return buildStackGraphSpec(settings, CFG);
   }
-  return customGraphSpec;
+  return graphSpec;
 }
 
 /**
- * Apply a full reset using the active simulation backend.
- * @param resetCfg - Whether to reset CFG before applying updates in worker mode.
+ * Apply a full reset through the authoritative server.
  */
-function applyResetToSimulation(resetCfg = true): void {
+function applyResetToSimulation(): void {
+  authoritativeControls.dispose();
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
-    const graphSpec = resolveGraphSpecForReset();
+    const graphSpec = resolveGraphSpecForReset(settings);
     wsClient.sendReset(settings, updates, graphSpec);
     return;
   }
-  initWorker(resetCfg);
-}
-
-/**
- * Handle messages arriving from the worker.
- * @param msg - Worker message payload.
- */
-async function handleWorkerMessage(msg: WorkerToMainMessage): Promise<void> {
-  switch (msg.type) {
-    case 'exportResult': {
-      pendingExport = false;
-      if (!msg.data || !Array.isArray(msg.data.genomes)) {
-        alert('Export failed: invalid payload from worker.');
-        return;
-      }
-      const settings = readSettingsFromCoreUI();
-      const updates = collectSettingsUpdatesFromUI();
-      const exportData = {
-        generation: msg.data.generation || 1,
-        archKey: msg.data.archKey,
-        genomes: msg.data.genomes,
-        graphSpec: customGraphSpec ?? null,
-        settings,
-        updates,
-        hof: await hof.getAll()
-      };
-      exportToFile(exportData, `slither_neuroevo_gen${exportData.generation}.json`);
-      return;
-    }
-    case 'importResult': {
-      if (!msg.ok) {
-        const reason = msg.reason || 'unknown error';
-        if (reason.includes('no compatible genomes')) {
-          alert(
-            'Import failed: no compatible genomes (input size mismatch). ' +
-            'Clear localStorage and delete data/slither.db, then re-export from a matching build/layout.'
-          );
-        } else {
-          alert(`Import failed: ${reason}`);
-        }
-      } else {
-        const used = msg.used || 0;
-        const total = msg.total || 0;
-        alert(`Import applied. Loaded ${used}/${total} genomes.`);
-      }
-      return;
-    }
-    case 'frame': {
-      if (!currentFrameBuffer) console.log("First frame received!");
-      applyFrameBuffer(msg.buffer);
-      currentStats = msg.stats;
-      proxyWorld.generation = currentStats.gen;
-
-      // Track fitness history for charts
-      // Full history arrives occasionally; keep UI buffer synced and capped.
-      if (msg.stats.fitnessHistory) {
-        fitnessHistory.length = 0;
-        msg.stats.fitnessHistory.forEach(entry => {
-          fitnessHistory.push({
-            gen: entry.gen,
-            avgFitness: entry.avg,
-            maxFitness: entry.best,
-            minFitness: entry.min ?? 0,
-            speciesCount: entry.speciesCount ?? 0,
-            topSpeciesSize: entry.topSpeciesSize ?? 0,
-            avgWeight: entry.avgWeight ?? 0,
-            weightVariance: entry.weightVariance ?? 0
-          });
-        });
-      }
-      if (msg.stats.fitnessData) {
-        const data = msg.stats.fitnessData;
-        const entry = {
-          gen: data.gen,
-          avgFitness: data.avgFitness,
-          maxFitness: data.maxFitness,
-          minFitness: data.minFitness
-        };
-        const existingIdx = fitnessHistory.findIndex(f => f.gen === data.gen);
-        if (existingIdx >= 0) {
-          fitnessHistory[existingIdx] = { ...fitnessHistory[existingIdx], ...entry };
-        } else {
-          fitnessHistory.push(entry);
-        }
-        if (fitnessHistory.length > 120) fitnessHistory.shift();
-      }
-      if (msg.stats.hofEntry) {
-        hof.add(msg.stats.hofEntry);
-      }
-      if (msg.stats.viz) {
-        currentVizData = normalizeVizData(msg.stats.viz);
-      }
-      return;
-    }
-    default: {
-      const _exhaustive: never = msg;
-      return _exhaustive;
-    }
-  }
-}
-
-/**
- * Attach message handlers to the worker instance.
- * @param target - Worker instance to bind.
- */
-function bindWorkerHandlers(target: Worker): void {
-  target.onmessage = (e: MessageEvent<WorkerToMainMessage>) => {
-    handleWorkerMessage(e.data);
-  };
-}
-
-/**
- * Start the worker-based simulation mode.
- * @param resetCfg - Whether to reset CFG before init.
- */
-function startWorker(resetCfg = true): void {
-  if (worker) return;
-  worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
-  bindWorkerHandlers(worker);
-  initWorker(resetCfg);
-  worker.postMessage({ type: 'resize', viewW: cssW, viewH: cssH });
-  if (activeTab === 'tab-viz') {
-    worker.postMessage({ type: 'viz', enabled: true });
-  }
-  playerSnakeId = null;
-  setJoinOverlayVisible(false);
-  setConnectionStatus('worker');
-}
-
-/**
- * Stop and dispose the worker simulation.
- */
-function stopWorker(): void {
-  if (!worker) return;
-  worker.terminate();
-  worker = null;
-  pendingExport = false;
-  currentVizData = null;
-}
-
-/**
- * Schedule a fallback to worker mode if server connection fails.
- */
-function scheduleWorkerFallback(): void {
-  if (fallbackTimer !== null) return;
-  fallbackTimer = window.setTimeout(() => {
-    fallbackTimer = null;
-    if (wsClient?.isConnected()) return;
-    startWorker(true);
-  }, 2000);
+  console.warn('[reset] not connected to server');
 }
 
 /**
@@ -3571,7 +3513,6 @@ function scheduleReconnect(): void {
     if (!wsClient) return;
     wsClient.connect(serverUrl);
     setConnectionStatus('connecting');
-    scheduleWorkerFallback();
     reconnectDelayMs = Math.min(Math.floor(reconnectDelayMs * 1.5), 10000);
   }, reconnectDelayMs);
 }
@@ -3585,31 +3526,110 @@ function connectToServer(url: string): void {
   serverUrl = url;
   wsClient.connect(url);
   joinPending = false;
-  if (!worker) {
-    setConnectionStatus('connecting');
-    setJoinOverlayVisible(true);
-    setJoinStatus('Connecting...');
-    updateJoinControls();
-  } else {
-    setConnectionStatus('worker');
-    setJoinOverlayVisible(false);
+  setConnectionStatus('connecting');
+  setJoinOverlayVisible(true);
+  setJoinStatus('Connecting...');
+  updateJoinControls();
+}
+
+/**
+ * Apply a complete authoritative settings snapshot received during handshake.
+ * @param core - Active server-owned core settings.
+ * @param updates - Active server-owned CFG path values.
+ */
+function applyAuthoritativeSettingsState(
+  core: CoreSettings,
+  updates: readonly SettingsUpdate[]
+): void {
+  serverSimSpeed = core.simSpeed;
+  applyCoreSettingsToUi(core);
+  for (const update of updates) {
+    setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
   }
-  scheduleWorkerFallback();
+  syncBrainInputSize();
+  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  refreshCoreUIState();
+  persistBaselineBotSettings();
+}
+
+/** Restore the exact admitted graph, keeping ordinary stack graphs in slider mode. */
+function applyAuthoritativeGraphSpec(spec: GraphSpec | undefined, core: CoreSettings): void {
+  if (!spec) return;
+  const stack = buildStackGraphSpec(core, CFG);
+  if (graphKey(spec) === graphKey(stack)) {
+    customGraphSpec = null;
+    CFG.brain.graphSpec = null;
+    graphDraft = null;
+    try { localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY); } catch { /* Storage is optional. */ }
+    refreshCoreUIState();
+    renderGraphEditor();
+    return;
+  }
+  applyGraphSpec(spec, 'Loaded authoritative server graph.');
+}
+
+/**
+ * Apply one authoritative normalized live patch to browser display state.
+ * @param updates - Server-normalized live path/value pairs.
+ */
+function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): void {
+  let baselineSettingsChanged = false;
+  for (const update of updates) {
+    if (update.path === 'simSpeed') {
+      serverSimSpeed = update.value;
+      elSimSpeed.value = String(update.value);
+      continue;
+    }
+    setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
+    baselineSettingsChanged ||= update.path.startsWith('baselineBots.');
+  }
+  syncBrainInputSize();
+  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  refreshCoreUIState();
+  if (baselineSettingsChanged) persistBaselineBotSettings();
+}
+
+/** Refresh compact records, clearing former-run buttons when the authoritative run changes. */
+function refreshServerHallOfFame(clearExisting = true): void {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return;
+  if (clearExisting) {
+    serverHallOfFameGeneration = 0;
+    const table = document.getElementById('hofTable');
+    if (table) table.innerHTML = '';
+  }
+  void hof.loadFromServer(base, clearExisting).then(() => updateHoFTable(proxyWorld))
+    .catch(err => console.warn('HoF load failed', err));
 }
 
 wsClient = createWsClient({
   onConnected: (info) => {
     storeServerUrl(serverUrl);
     reconnectDelayMs = 1000;
-    serverCfgHash = info.cfgHash;
+    serverCfgHash = info.configHash;
+    serverConfigRevision = info.configRevision;
+    serverRecovery = info.recovery ?? null;
+    serverImportBranch = info.importBranch ?? null;
+    serverLegacyConversion = info.legacyConversion ?? null;
+    if (serverRecovery) console.warn('[recovery]', formatRecoveryRuntimeStatus(serverRecovery));
+    if (serverImportBranch) {
+      console.info('[import-branch]', formatImportBranchRuntimeStatus(serverImportBranch));
+    }
+    if (serverLegacyConversion) {
+      console.warn(
+        '[legacy-conversion]',
+        formatLegacyConversionRuntimeStatus(serverLegacyConversion)
+      );
+    }
     serverWorldSeed = info.worldSeed;
+    serverInferenceMode = info.inferenceMode;
+    serverArchiveExport = info.capabilities?.archiveExport === true;
+    serverArchiveImport = info.capabilities?.archiveImport === true;
+    if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
+    applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     lastServerTick = 0;
     spectatorFollowSnakeId = null;
-    if (fallbackTimer !== null) {
-      clearTimeout(fallbackTimer);
-      fallbackTimer = null;
-    }
-    if (worker) stopWorker();
     currentStats = {
       gen: 1,
       generationTime: 0,
@@ -3622,51 +3642,65 @@ wsClient = createWsClient({
     };
     currentVizData = null;
     setConnectionStatus('server');
-    joinPending = false;
-    wsClient?.sendJoin('spectator');
+    if (resumePlayerAfterReconnect && lastPlayerName) {
+      joinPending = true;
+      proxyWorld.viewMode = 'follow';
+      wsClient?.sendJoin('player', lastPlayerName, playerResumeToken || undefined);
+      wsClient?.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
+      setJoinOverlayVisible(true);
+      setJoinStatus('Reclaiming previous snake...');
+    } else {
+      joinPending = false;
+      wsClient?.sendJoin('spectator');
+      setJoinOverlayVisible(!resumeSpectatorAfterReconnect);
+      setJoinStatus(resumeSpectatorAfterReconnect ? 'Spectating' : 'Enter a nickname to play');
+    }
     wsClient?.sendViz(activeTab === 'tab-viz');
-    setJoinOverlayVisible(true);
-    setJoinStatus('Enter a nickname to play');
     updateJoinControls();
     refreshSavedPresets().catch(() => { });
-    const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-    if (base) {
-      hof.loadFromServer(base).catch(err => console.warn('HoF load failed', err));
-    }
+    refreshServerHallOfFame();
   },
   onDisconnected: () => {
-    const hasWorker = !!worker;
-    if (hasWorker) {
-      setConnectionStatus('worker');
-    } else {
-      setConnectionStatus('connecting');
-    }
+    if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
+    serverArchiveExport = false;
+    serverArchiveImport = false;
+    resumePlayerAfterReconnect =
+      playerSnakeId !== null || joinPending || playerResumeToken.length > 0;
+    playerActionPump.stop();
+    authoritativeControls.dispose();
+    setConnectionStatus('connecting');
     serverCfgHash = null;
+    serverConfigRevision = 0;
+    serverSimSpeed = 1;
     serverWorldSeed = null;
+    serverInferenceMode = null;
+    serverRecovery = null;
+    serverImportBranch = null;
+    serverLegacyConversion = null;
+    pendingNewRunRequestId = null;
+    btnNewRun.disabled = false;
     lastServerTick = 0;
     resolvePendingServerReset();
     playerSnakeId = null;
     spectatorFollowSnakeId = null;
     playerSensorTick = 0;
     playerSensorMeta = null;
-    pointerWorld = null;
     boostHeld = false;
     currentVizData = null;
     joinPending = false;
-    if (!hasWorker) {
-      setJoinOverlayVisible(true);
-      setJoinStatus('Connecting...');
-      updateJoinControls();
-    } else {
-      setJoinOverlayVisible(false);
-    }
-    scheduleWorkerFallback();
+    setJoinOverlayVisible(true);
+    setJoinStatus('Connecting...');
+    updateJoinControls();
     scheduleReconnect();
   },
   onFrame: (buffer) => {
     applyFrameBuffer(buffer);
   },
   onStats: (msg) => {
+    if (serverArchiveExport && msg.gen !== serverHallOfFameGeneration) {
+      serverHallOfFameGeneration = msg.gen;
+      refreshServerHallOfFame(false);
+    }
     lastServerTick = msg.tick;
     if (pendingServerReset) {
       if (msg.tick < pendingServerReset.priorTick || msg.tick <= 1) {
@@ -3733,9 +3767,37 @@ wsClient = createWsClient({
   },
   onAssign: (msg) => {
     playerSnakeId = msg.snakeId;
+    playerResumeToken = msg.resumeToken;
+    resumePlayerAfterReconnect = true;
+    try {
+      localStorage.setItem(PLAYER_RESUME_TOKEN_KEY, msg.resumeToken);
+    } catch {
+      // Ignore storage failures in non-browser environments.
+    }
     joinPending = false;
     setJoinOverlayVisible(false);
-    setJoinStatus('Connected');
+    setJoinStatus(msg.reclaimed ? 'Reconnected' : 'Connected');
+    updateJoinControls();
+    playerActionPump.start();
+    playerActionPump.requestImmediate();
+  },
+  onReclaimResult: (msg) => {
+    if (msg.reclaimed) return;
+    playerActionPump.stop();
+    playerResumeToken = '';
+    resumePlayerAfterReconnect = false;
+    joinPending = false;
+    try {
+      localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY);
+    } catch {
+      // Ignore storage failures in non-browser environments.
+    }
+    setJoinOverlayVisible(true);
+    setJoinStatus(
+      msg.reason === 'expired'
+        ? 'Previous control expired; press Play to join again'
+        : `Could not reclaim previous snake (${msg.reason}); press Play to join`
+    );
     updateJoinControls();
   },
   onSensors: (msg) => {
@@ -3744,7 +3806,101 @@ wsClient = createWsClient({
     if (msg.meta) {
       playerSensorMeta = msg.meta;
     }
-    sendPlayerAction();
+  },
+  onSettingsApplied: (msg) => {
+    if (msg.configRevision < serverConfigRevision) return;
+    serverConfigRevision = msg.configRevision;
+    serverCfgHash = msg.configHash;
+    if (msg.applied) {
+      applyAuthoritativeLivePatch(msg.updates);
+      return;
+    }
+    applyValuesToSlidersFromCFG(resolveSettingsRoot());
+    elSimSpeed.value = String(serverSimSpeed);
+    refreshCoreUIState();
+    console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
+  },
+  onGodModeResult: (msg) => {
+    godModeLog.push({
+      time: Date.now(),
+      action: msg.action === 'move' ? 'drag' : 'kill',
+      snakeId: msg.snakeId,
+      result: msg.applied ? 'success' : `rejected: ${msg.reason ?? 'unknown reason'}`
+    });
+    if (msg.applied && msg.action === 'move' && selectedSnake && selectedSnake.id === msg.snakeId) {
+      if (Number.isFinite(msg.x)) selectedSnake.x = msg.x!;
+      if (Number.isFinite(msg.y)) selectedSnake.y = msg.y!;
+    }
+  },
+  onNewRunResult: (msg) => {
+    if (pendingNewRunRequestId === msg.requestId) {
+      pendingNewRunRequestId = null;
+      btnNewRun.disabled = false;
+    }
+    if (!msg.applied) {
+      console.warn(`[new-run] ${msg.reason ?? 'request rejected'}`);
+      return;
+    }
+    if (Number.isFinite(msg.worldSeed)) {
+      serverWorldSeed = msg.worldSeed!;
+      serverRecovery = null;
+      serverImportBranch = null;
+      serverLegacyConversion = null;
+      setConnectionStatus('server');
+    }
+    selectedSnake = null;
+    console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
+  },
+  onStateReplaced: (msg) => {
+    const info = msg.welcome;
+    resolvePendingServerReset();
+    const rejoinPlayer = playerSnakeId !== null || joinPending;
+    playerActionPump.stop();
+    authoritativeControls.dispose();
+    playerSnakeId = null;
+    spectatorFollowSnakeId = null;
+    playerSensorTick = 0;
+    playerSensorMeta = null;
+    playerResumeToken = '';
+    resumePlayerAfterReconnect = false;
+    boostHeld = false;
+    selectedSnake = null;
+    currentVizData = null;
+    lastServerTick = 0;
+    try { localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY); } catch { /* Storage is optional. */ }
+    serverCfgHash = info.configHash;
+    serverConfigRevision = info.configRevision;
+    serverWorldSeed = info.worldSeed;
+    serverRecovery = info.recovery ?? null;
+    serverImportBranch = info.importBranch ?? null;
+    serverLegacyConversion = info.legacyConversion ?? null;
+    serverInferenceMode = info.inferenceMode;
+    serverArchiveExport = info.capabilities?.archiveExport === true;
+    serverArchiveImport = info.capabilities?.archiveImport === true;
+    applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
+    if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
+    refreshServerHallOfFame();
+    setConnectionStatus('server');
+    joinPending = rejoinPlayer;
+    setJoinOverlayVisible(true);
+    const replacementLabel = msg.reason === 'import' ? 'imported run' :
+      msg.reason === 'reset' ? 'reset run' : 'new run';
+    setJoinStatus(rejoinPlayer ? `Joining ${replacementLabel}...` : `${replacementLabel[0]!.toUpperCase()}${replacementLabel.slice(1)} ready`);
+    updateJoinControls();
+    if (rejoinPlayer && lastPlayerName) {
+      proxyWorld.viewMode = 'follow';
+      wsClient?.sendJoin('player', lastPlayerName);
+      wsClient?.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
+    } else {
+      joinPending = false;
+      proxyWorld.viewMode = 'overview';
+      wsClient?.sendJoin('spectator');
+      wsClient?.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
+      setJoinOverlayVisible(false);
+    }
+    wsClient?.sendViz(activeTab === 'tab-viz');
+    console.info(`[import] activated ${msg.checkpointId.slice(0, 12)} from run ${info.runId}`);
   },
   onError: (msg) => {
     console.warn(`[ws] ${msg.message}`);
@@ -3759,7 +3915,7 @@ wsClient = createWsClient({
 });
 
 if (typeof WebSocket === 'undefined') {
-  startWorker(true);
+  console.error('WebSocket not supported');
 } else {
   connectToServer(resolveServerUrl());
 }
@@ -3769,28 +3925,21 @@ if (typeof WebSocket === 'undefined') {
  * @param sliderEl - Slider input element to read.
  */
 function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
-  const path = sliderEl.dataset['path']!;
+  const path = sliderEl.dataset['path'] as LiveSettingPath | undefined;
+  if (!path) return;
   const value = readSettingsInputValue(sliderEl);
   if (value == null) return;
-  setByPath(CFG, path, value);
-  if (path.startsWith('baselineBots.')) {
-    persistBaselineBotSettings();
-  }
-  if (!worker) return;
-  worker.postMessage({
-    type: 'updateSettings',
-    updates: [{
-      path: path as SettingsUpdate['path'],
-      value
-    }]
-  });
+  if (!wsClient?.isConnected()) return;
+  authoritativeControls.queueSetting(path, value);
 }
 
 // Live update simulation speed when the slider moves
 elSimSpeed.addEventListener('input', () => {
   refreshCoreUIState();
-  if (!worker) return;
-  worker.postMessage({ type: 'action', action: 'simSpeed', value: parseFloat(elSimSpeed.value) });
+  const value = Number(elSimSpeed.value);
+  if (wsClient?.isConnected() && Number.isFinite(value)) {
+    authoritativeControls.queueSetting('simSpeed', value);
+  }
 });
 // Update other core UI labels live
 elSnakes.addEventListener('input', refreshCoreUIState);
@@ -3806,7 +3955,7 @@ btnApply.addEventListener('click', () => {
   refreshCoreUIState();
   updateCFGFromUI(resolveSettingsRoot());
   persistBaselineBotSettings();
-  applyResetToSimulation(true);
+  applyResetToSimulation();
 });
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
@@ -3825,7 +3974,13 @@ btnDefaults.addEventListener('click', () => {
   refreshCoreUIState();
   applySettingsLock();
   persistBaselineBotSettings();
-  applyResetToSimulation(true);
+  applyResetToSimulation();
+});
+// Start a separately seeded run after its generation-one checkpoint commits.
+btnNewRun.addEventListener('click', () => {
+  if (!wsClient?.isConnected() || pendingNewRunRequestId !== null) return;
+  pendingNewRunRequestId = authoritativeControls.requestNewRun();
+  btnNewRun.disabled = true;
 });
 // Toggle view mode
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());
@@ -3850,16 +4005,12 @@ window.addEventListener('keydown', e => {
  * @returns Object containing absolute simulation world coordinates \{x, y\}.
  */
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-  // Retrieve camera state from the current data source (Server stream or Local worker buffer).
+  // Retrieve camera state from the authoritative server frame.
   let camX = 0, camY = 0, zoom = 1;
   if (connectionMode === 'server') {
     camX = clientCamX;
     camY = clientCamY;
     zoom = clientZoom;
-  } else if (currentFrameBuffer && currentFrameBuffer.length >= FRAME_HEADER_FLOATS) {
-    camX = currentFrameBuffer[FRAME_HEADER_OFFSETS.cameraX] ?? 0;
-    camY = currentFrameBuffer[FRAME_HEADER_OFFSETS.cameraY] ?? 0;
-    zoom = currentFrameBuffer[FRAME_HEADER_OFFSETS.zoom] ?? 1;
   }
 
   const centerX = cssW / 2;
@@ -3973,18 +4124,7 @@ canvas.addEventListener('contextmenu', (e) => {
   const world = screenToWorld(screenX, screenY);
 
   const snake = findSnakeNear(world.x, world.y);
-  if (snake) {
-    if (worker) {
-      worker.postMessage({ type: 'godMode', action: 'kill', snakeId: snake.id });
-    }
-    godModeLog.push({
-      time: Date.now(),
-      action: 'kill',
-      snakeId: snake.id,
-      result: 'sent'
-    });
-    console.log('Killed snake #' + snake.id);
-  }
+  if (snake && wsClient?.isConnected()) authoritativeControls.killSnake(snake.id);
 });
 
 // Drag to move snake (hold left mouse button)
@@ -3992,7 +4132,8 @@ canvas.addEventListener('mousedown', (e) => {
   if (isPlayerControlActive()) {
     if (e.button === 0) boostHeld = true;
     const rect = canvas.getBoundingClientRect();
-    pointerWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    playerActionPump.requestImmediate();
     return;
   }
   if (e.button === 0 && selectedSnake) {
@@ -4003,7 +4144,8 @@ canvas.addEventListener('mousedown', (e) => {
 canvas.addEventListener('mousemove', (e) => {
   if (isPlayerControlActive()) {
     const rect = canvas.getBoundingClientRect();
-    pointerWorld = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+    pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    playerActionPump.requestImmediate();
     return;
   }
   if (isDragging && selectedSnake) {
@@ -4011,41 +4153,42 @@ canvas.addEventListener('mousemove', (e) => {
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
     const world = screenToWorld(screenX, screenY);
-
-    if (worker) {
-      worker.postMessage({
-        type: 'godMode',
-        action: 'move',
-        snakeId: selectedSnake.id,
-        x: world.x,
-        y: world.y
-      });
+    if (wsClient?.isConnected()) {
+      authoritativeControls.moveSnake(selectedSnake.id, world.x, world.y);
     }
   }
 });
 
-canvas.addEventListener('mouseup', (e) => {
+/**
+ * Finish a God Mode drag and always send the release position immediately.
+ * @param e - Mouse-up event whose client coordinates define the final target.
+ */
+function finishGodModeDrag(e: MouseEvent): void {
   if (isPlayerControlActive()) {
-    if (e.button === 0) boostHeld = false;
+    if (e.button === 0) {
+      boostHeld = false;
+      const rect = canvas.getBoundingClientRect();
+      pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      playerActionPump.requestImmediate();
+    }
     return;
   }
-  if (isDragging) {
-    isDragging = false;
-    if (selectedSnake) {
-      godModeLog.push({
-        time: Date.now(),
-        action: 'drag',
-        snakeId: selectedSnake.id,
-        result: 'completed'
-      });
-    }
-  }
-});
+  if (!isDragging || e.button !== 0) return;
+  isDragging = false;
+  if (!selectedSnake || !wsClient?.isConnected()) return;
+  const rect = canvas.getBoundingClientRect();
+  const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+  authoritativeControls.finishMove(selectedSnake.id, world.x, world.y);
+}
+
+canvas.addEventListener('mouseup', finishGodModeDrag);
+window.addEventListener('mouseup', finishGodModeDrag);
 
 canvas.addEventListener('mouseleave', () => {
   if (!isPlayerControlActive()) return;
   boostHeld = false;
-  pointerWorld = null;
+  pointerScreen = null;
+  playerActionPump.requestImmediate();
 });
 
 /**
@@ -4166,13 +4309,27 @@ async function importServerSnapshot(data: PopulationFilePayload): Promise<{ used
 }
 
 /**
- * Export the latest server snapshot and HoF entries to a local file.
+ * Start an opaque direct archive download when supported, or use the reference JSON path.
  */
 async function exportServerSnapshot(): Promise<void> {
   const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
   if (!base) {
     pendingExport = false;
     alert('Export failed: invalid server URL.');
+    return;
+  }
+  if (serverArchiveExport) {
+    const link = document.createElement('a');
+    link.href = `${base}/api/export/latest`;
+    link.download = '';
+    // Error JSON is not an attachment, so keep its navigation outside the game tab.
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.hidden = true;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    pendingExport = false;
     return;
   }
   try {
@@ -4228,16 +4385,100 @@ async function exportServerSnapshot(): Promise<void> {
 }
 
 // Persistence UI Wiring
+/** Button that permanently protects the Rust server's exact current checkpoint. */
+const btnPinCheckpoint = document.getElementById('btnPinCheckpoint') as HTMLButtonElement | null;
+if (btnPinCheckpoint) {
+  btnPinCheckpoint.addEventListener('click', () => {
+    const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+    if (!base || btnPinCheckpoint.disabled) return;
+    btnPinCheckpoint.disabled = true;
+    void fetch(`${base}/api/checkpoints/current/pin`, { method: 'POST' }).then(async response => {
+      const result = await response.json() as { ok?: boolean; checkpointId?: string; generation?: string; message?: string };
+      if (!response.ok || !result.ok) throw new Error(result.message ?? `pin failed (${response.status})`);
+      alert(`Pinned generation ${BigInt(`0x${result.generation ?? '0'}`).toString()} checkpoint ${result.checkpointId?.slice(0, 12) ?? ''}.`);
+    }).catch(error => {
+      console.error('Checkpoint pin failed', error);
+      alert(`Pin failed: ${(error as Error).message}`);
+    }).finally(() => { btnPinCheckpoint.disabled = false; });
+  });
+}
+
+/** Small success response returned after an atomic Rust archive replacement. */
+interface ServerArchiveImportResult {
+  /** True only after SQLite and the running Rust authority both switched. */
+  ok: boolean;
+  /** Imported run identity. */
+  runId: string;
+  /** Exact fixed-width imported generation. */
+  generation: string;
+  /** Exact imported checkpoint identity. */
+  checkpointId: string;
+  /** True when an older source was resumed under a fresh run identity. */
+  branched?: boolean;
+  /** Original archive run retained when `branched` is true. */
+  sourceRunId?: string;
+  /** Bounded rejection detail when the upload fails. */
+  message?: string;
+}
+
+/** Small structured failure used to offer the explicit safe branch operation. */
+class ServerArchiveImportError extends Error {
+  /** Stable server rejection code, when supplied. */
+  public readonly code: string | undefined;
+
+  public constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'ServerArchiveImportError';
+    this.code = code;
+  }
+}
+
+/**
+ * Upload one selected save unchanged; JavaScript never reads its population bytes.
+ * @param file - Browser-owned file selected by the user.
+ * @param onProgress - Optional visible upload-byte progress callback.
+ * @returns Small committed replacement identity from the server.
+ */
+function uploadServerArchive(
+  file: File,
+  onProgress?: (sentBytes: number, totalBytes: number) => void,
+  resumeAsBranch = false
+): Promise<ServerArchiveImportResult> {
+  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
+  if (!base) return Promise.reject(new Error('invalid server URL.'));
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `${base}/api/import/archive${resumeAsBranch ? '?mode=branch' : ''}`);
+    request.setRequestHeader('Content-Type', 'application/vnd.slither-neuroevo.save');
+    request.timeout = 0;
+    request.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+    request.onerror = () => reject(new Error('archive upload connection failed'));
+    request.onabort = () => reject(new Error('archive upload was cancelled'));
+    request.onload = () => {
+      let result: (Partial<ServerArchiveImportResult> & { code?: string }) | undefined;
+      try { result = JSON.parse(request.responseText) as Partial<ServerArchiveImportResult> & { code?: string }; }
+      catch { /* The status below supplies the bounded failure. */ }
+      if (request.status < 200 || request.status >= 300 || result?.ok !== true ||
+          typeof result.runId !== 'string' || !/^[0-9a-f]{16}$/u.test(result.generation ?? '') ||
+          !/^[0-9a-f]{64}$/u.test(result.checkpointId ?? '')) {
+        reject(new ServerArchiveImportError(
+          result?.message ?? `server archive import failed (${request.status})`, result?.code
+        ));
+        return;
+      }
+      resolve(result as ServerArchiveImportResult);
+    };
+    request.send(file);
+  });
+}
 /** Button that triggers exporting population and HoF data. */
 const btnExport = document.getElementById('btnExport') as HTMLButtonElement | null;
 if (btnExport) {
   btnExport.addEventListener('click', () => {
     if (pendingExport) return;
     pendingExport = true;
-    if (worker) {
-      worker.postMessage({ type: 'export' });
-      return;
-    }
     if (wsClient && wsClient.isConnected()) {
       void exportServerSnapshot();
       return;
@@ -4260,7 +4501,30 @@ if (btnImport && fileInput) {
     if (!target?.files?.length) return;
     const file = target.files.item(0);
     if (!file) return;
+    const importLabel = btnImport.textContent;
+    btnImport.disabled = true;
     try {
+      if (serverArchiveImport) {
+        const progress = (sentBytes: number, totalBytes: number): void => {
+          btnImport.textContent = sentBytes >= totalBytes
+            ? 'Activating...'
+            : `Importing ${Math.min(99, Math.floor(sentBytes * 100 / totalBytes))}%`;
+        };
+        let result: ServerArchiveImportResult;
+        try {
+          result = await uploadServerArchive(file, progress);
+        } catch (error) {
+          if (!(error instanceof ServerArchiveImportError) || error.code !== 'IMPORT_REQUIRES_BRANCH' ||
+              !confirm('This save is older than later history already stored for that run. Resume it as a new run while keeping the later history?')) {
+            throw error;
+          }
+          result = await uploadServerArchive(file, progress, true);
+        }
+        const source = result.branched && result.sourceRunId
+          ? ` as a new run (original run ${result.sourceRunId})` : ` from run ${result.runId}`;
+        alert(`Imported generation ${BigInt(`0x${result.generation}`).toString()}${source}.`);
+        return;
+      }
       const data = await importFromFile(file);
       if (!data || !Array.isArray(data.genomes)) {
         throw new Error('Invalid import file: missing genomes array.');
@@ -4293,7 +4557,7 @@ if (btnImport && fileInput) {
             clearCustomGraphSpec('Graph cleared from import.');
           }
         } else {
-          resolveGraphSpecForReset();
+          resolveGraphSpecForReset(readSettingsFromCoreUI());
         }
         persistBaselineBotSettings();
       }
@@ -4301,7 +4565,7 @@ if (btnImport && fileInput) {
         if (shouldReset) {
           const resetSettings = fileSettings ?? readSettingsFromCoreUI();
           const resetUpdates = fileUpdates ?? collectSettingsUpdatesFromUI();
-          const resetGraphSpec = resolveGraphSpecForReset();
+          const resetGraphSpec = resolveGraphSpecForReset(resetSettings);
           wsClient.sendReset(resetSettings, resetUpdates, resetGraphSpec);
           await waitForServerReset();
         }
@@ -4309,21 +4573,7 @@ if (btnImport && fileInput) {
         alert(`Import applied on server. Loaded ${result.used}/${result.total} genomes.`);
         return;
       }
-      if (!worker) {
-        throw new Error('No active simulation backend for import.');
-      }
-      if (shouldReset) {
-        applyResetToSimulation(true);
-      }
-      let persistWarning = '';
-      const ok = await savePopulationJSON(data.generation, data.genomes);
-      if (!ok) {
-        persistWarning = 'Import succeeded, but persistence failed (quota exceeded). It will not persist after reload.';
-      }
-      worker.postMessage({ type: 'import', data });
-      if (persistWarning) {
-        alert(persistWarning);
-      }
+      throw new Error('No active simulation backend for import.');
     } catch (err) {
       console.error("Import failed", err);
       const error = err as Error;
@@ -4334,6 +4584,8 @@ if (btnImport && fileInput) {
       }
     } finally {
       if (target) target.value = '';
+      btnImport.disabled = false;
+      btnImport.textContent = importLabel;
     }
   });
 }
@@ -4343,14 +4595,9 @@ if (btnImport && fileInput) {
  */
 function frame(): void {
   // console.log("Frame loop running"); // Spammy
-  if (currentFrameBuffer) {
-    if (connectionMode === 'server') {
-      updateClientCamera();
-      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH, clientZoom, clientCamX, clientCamY);
-    } else {
-      // Camera/zoom come from the worker buffer; avoid local overrides here.
-      renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH);
-    }
+  if (connectionMode === 'server' && currentFrameBuffer) {
+    updateClientCamera();
+    renderWorldStruct(ctx, currentFrameBuffer, cssW, cssH, clientZoom, clientCamX, clientCamY);
   }
 
   // Render active tab content
@@ -4363,10 +4610,7 @@ function frame(): void {
       ctxViz.fillText("Waiting for visualization data...", 20, 20);
     }
   } else if (activeTab === 'tab-fitness') {
-    // Fitness Chart needs history.
-    // worker stats has gen.
-    // We can maintain history locally in proxyWorld?
-    // proxyWorld needs specific structure for FitnessChart.
+    // Fitness chart history is retained in the server stats stream.
   }
 
   // Updates UI overlay
@@ -4455,7 +4699,7 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
     html += `
       <div class="hof-item">
         <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
-        <button onclick="window.spawnHoF(${idx})">Spawn</button>
+        <button onclick="window.spawnHoF(${idx})"${entry.genome || entry.entryId ? '' : ' disabled'}>Spawn</button>
       </div>`;
   });
   container.innerHTML = html;
@@ -4466,7 +4710,9 @@ window.spawnHoF = async function (idx) {
   const list = await hof.getAll();
   const entry = list[idx];
   if (entry && window.currentWorld) {
-    const spawnedId = await window.currentWorld.resurrect(entry.genome);
+    const spawnedId = entry.entryId && connectionMode === 'server'
+      ? await resurrectHallOfFameOnServer(entry.entryId)
+      : entry.genome ? await window.currentWorld.resurrect(entry.genome) : null;
     if (spawnedId != null && connectionMode === 'server') {
       spectatorFollowSnakeId = spawnedId;
       proxyWorld.viewMode = 'follow';

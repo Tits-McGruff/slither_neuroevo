@@ -1,0 +1,539 @@
+{
+  "evidenceKind": "selected TypeScript current-source execution",
+  "sourceRevision": "7925faf7aef33bd3de3e1b6d3c021c4320a8dd68",
+  "command": "node .\\node_modules\\tsx\\dist\\cli.mjs scripts\\stage6\\generate-fresh-run-reference.ts",
+  "seed": "0x12345678",
+  "typescriptGraphKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+  "graph": {
+    "type": "graph",
+    "nodes": [
+      {
+        "id": "input",
+        "type": "Input",
+        "outputSize": 83
+      },
+      {
+        "id": "mlp",
+        "type": "MLP",
+        "inputSize": 83,
+        "outputSize": 64,
+        "hiddenSizes": [
+          64
+        ]
+      },
+      {
+        "id": "gru",
+        "type": "GRU",
+        "inputSize": 64,
+        "hiddenSize": 16
+      },
+      {
+        "id": "head",
+        "type": "Dense",
+        "inputSize": 16,
+        "outputSize": 2
+      }
+    ],
+    "edges": [
+      {
+        "from": "input",
+        "to": "mlp"
+      },
+      {
+        "from": "mlp",
+        "to": "gru"
+      },
+      {
+        "from": "gru",
+        "to": "head"
+      }
+    ],
+    "outputs": [
+      {
+        "nodeId": "head"
+      }
+    ],
+    "outputSize": 2
+  },
+  "compiledNodeRanges": [
+    {
+      "id": "input",
+      "type": "Input",
+      "offset": 0,
+      "length": 0
+    },
+    {
+      "id": "mlp",
+      "type": "MLP",
+      "offset": 0,
+      "length": 9536
+    },
+    {
+      "id": "gru",
+      "type": "GRU",
+      "offset": 9536,
+      "length": 3888
+    },
+    {
+      "id": "head",
+      "type": "Dense",
+      "offset": 13424,
+      "length": 34
+    }
+  ],
+  "totalParameters": 13458,
+  "recurrentStateFloats": 16,
+  "normalizedSettings": {
+    "baselineBots.count": {
+      "kind": "integer",
+      "valueDecimal": "10"
+    },
+    "baselineBots.randomizeSeedPerGen": {
+      "kind": "bool",
+      "value": false
+    },
+    "baselineBots.respawnDelay": {
+      "kind": "float",
+      "valueHex": "0x4034000000000000"
+    },
+    "baselineBots.seed": {
+      "kind": "integer",
+      "valueDecimal": "1"
+    },
+    "boost.lenLossPerPoint": {
+      "kind": "float",
+      "valueHex": "0x3fc47ae147ae147b"
+    },
+    "boost.minPointsToBoost": {
+      "kind": "float",
+      "valueHex": "0x3ff3333333333333"
+    },
+    "boost.pelletJitter": {
+      "kind": "float",
+      "valueHex": "0x4024000000000000"
+    },
+    "boost.pelletValueFactor": {
+      "kind": "float",
+      "valueHex": "0x3fe4cccccccccccd"
+    },
+    "boost.pointsCostPerSecond": {
+      "kind": "float",
+      "valueHex": "0x401c000000000000"
+    },
+    "boost.pointsCostSizeFactor": {
+      "kind": "float",
+      "valueHex": "0x3ff199999999999a"
+    },
+    "brain.controlDt": {
+      "kind": "float",
+      "valueHex": "0x3f91111111111111"
+    },
+    "brain.gruCrossoverMode": {
+      "kind": "integer",
+      "valueDecimal": "1"
+    },
+    "brain.gruInitUpdateBias": {
+      "kind": "float",
+      "valueHex": "0xbfe6666666666666"
+    },
+    "brain.gruMutationRate": {
+      "kind": "float",
+      "valueHex": "0x3f9999999999999a"
+    },
+    "brain.gruMutationStd": {
+      "kind": "float",
+      "valueHex": "0x3fcc28f5c28f5c29"
+    },
+    "brain.lstmInitForgetBias": {
+      "kind": "float",
+      "valueHex": "0x3fe3333333333333"
+    },
+    "brain.rruInitGateBias": {
+      "kind": "float",
+      "valueHex": "0x3fb999999999999a"
+    },
+    "brain.sensorVersion": {
+      "kind": "integer",
+      "valueDecimal": "3"
+    },
+    "collision.cellSize": {
+      "kind": "float",
+      "valueHex": "0x4051800000000000"
+    },
+    "collision.hitScale": {
+      "kind": "float",
+      "valueHex": "0x3fea3d70a3d70a3d"
+    },
+    "collision.neighborRange": {
+      "kind": "integer",
+      "valueDecimal": "1"
+    },
+    "collision.skipSegments": {
+      "kind": "integer",
+      "valueDecimal": "0"
+    },
+    "collision.substepMaxDt": {
+      "kind": "float",
+      "valueHex": "0x3f789374bc6a7efa"
+    },
+    "crossoverRate": {
+      "kind": "float",
+      "valueHex": "0x3feb333333333333"
+    },
+    "death.bigPelletValueFactor": {
+      "kind": "float",
+      "valueHex": "0x4008000000000000"
+    },
+    "death.bigShare": {
+      "kind": "float",
+      "valueHex": "0x3fe8f5c28f5c28f6"
+    },
+    "death.clusterJitter": {
+      "kind": "float",
+      "valueHex": "0x402c000000000000"
+    },
+    "death.dropFracLarge": {
+      "kind": "float",
+      "valueHex": "0x3fd51eb851eb851f"
+    },
+    "death.dropFracPow": {
+      "kind": "float",
+      "valueHex": "0x3ff999999999999a"
+    },
+    "death.dropFracSmall": {
+      "kind": "float",
+      "valueHex": "0x3fee666666666666"
+    },
+    "death.jitter": {
+      "kind": "float",
+      "valueHex": "0x4020000000000000"
+    },
+    "death.maxPellets": {
+      "kind": "integer",
+      "valueDecimal": "420"
+    },
+    "death.smallPelletValueFactor": {
+      "kind": "float",
+      "valueHex": "0x3ff0000000000000"
+    },
+    "death.useSnakeColor": {
+      "kind": "bool",
+      "value": true
+    },
+    "eliteFrac": {
+      "kind": "float",
+      "valueHex": "0x3fbeb851eb851eb8"
+    },
+    "foodSpawn.dustStrength": {
+      "kind": "float",
+      "valueHex": "0x3fd6666666666666"
+    },
+    "foodSpawn.edgeFadePower": {
+      "kind": "float",
+      "valueHex": "0x4004cccccccccccd"
+    },
+    "foodSpawn.edgeFadeStart": {
+      "kind": "float",
+      "valueHex": "0x3fd6666666666666"
+    },
+    "foodSpawn.edgeFalloffEnabled": {
+      "kind": "bool",
+      "value": true
+    },
+    "foodSpawn.filamentPower": {
+      "kind": "float",
+      "valueHex": "0x4010cccccccccccd"
+    },
+    "foodSpawn.freqLarge": {
+      "kind": "float",
+      "valueHex": "0x3f654c985f06f694"
+    },
+    "foodSpawn.freqMedium": {
+      "kind": "float",
+      "valueHex": "0x3f713404ea4a8c15"
+    },
+    "foodSpawn.freqSmall": {
+      "kind": "float",
+      "valueHex": "0x3f7bda5119ce075f"
+    },
+    "foodSpawn.warpFreq": {
+      "kind": "float",
+      "valueHex": "0x3f554c985f06f694"
+    },
+    "foodSpawn.warpScale": {
+      "kind": "float",
+      "valueHex": "0x3fb47ae147ae147b"
+    },
+    "foodValue": {
+      "kind": "float",
+      "valueHex": "0x3ff0000000000000"
+    },
+    "generationSeconds": {
+      "kind": "float",
+      "valueHex": "0x406e000000000000"
+    },
+    "growPerFood": {
+      "kind": "float",
+      "valueHex": "0x3ff0000000000000"
+    },
+    "mutationRate": {
+      "kind": "float",
+      "valueHex": "0x3f9eb851eb851eb8"
+    },
+    "mutationStd": {
+      "kind": "float",
+      "valueHex": "0x3fd6666666666666"
+    },
+    "observer.earlyEndAliveThreshold": {
+      "kind": "integer",
+      "valueDecimal": "2"
+    },
+    "observer.earlyEndMinSeconds": {
+      "kind": "float",
+      "valueHex": "0x4020000000000000"
+    },
+    "pelletCountTarget": {
+      "kind": "integer",
+      "valueDecimal": "3500"
+    },
+    "pelletGrid.cellSize": {
+      "kind": "float",
+      "valueHex": "0x405e000000000000"
+    },
+    "pelletSpawnPerSecond": {
+      "kind": "float",
+      "valueHex": "0x4065400000000000"
+    },
+    "reward.fitnessFood": {
+      "kind": "float",
+      "valueHex": "0x4054000000000000"
+    },
+    "reward.fitnessKill": {
+      "kind": "float",
+      "valueHex": "0x4079000000000000"
+    },
+    "reward.fitnessLengthPerSegment": {
+      "kind": "float",
+      "valueHex": "0x4059000000000000"
+    },
+    "reward.fitnessPointsNorm": {
+      "kind": "float",
+      "valueHex": "0x4045000000000000"
+    },
+    "reward.fitnessSurvivalPerSecond": {
+      "kind": "float",
+      "valueHex": "0x3fe6666666666666"
+    },
+    "reward.fitnessTopPointsBonus": {
+      "kind": "float",
+      "valueHex": "0x4082c00000000000"
+    },
+    "reward.pointsPerFood": {
+      "kind": "float",
+      "valueHex": "0x4034000000000000"
+    },
+    "reward.pointsPerKill": {
+      "kind": "float",
+      "valueHex": "0x4079000000000000"
+    },
+    "reward.pointsPerSecondAlive": {
+      "kind": "float",
+      "valueHex": "0x3fe3333333333333"
+    },
+    "sense.bubbleBins": {
+      "kind": "integer",
+      "valueDecimal": "16"
+    },
+    "sense.foodKBase": {
+      "kind": "float",
+      "valueHex": "0x4010000000000000"
+    },
+    "sense.layoutVersion": {
+      "kind": "integer",
+      "valueDecimal": "3"
+    },
+    "sense.maxPelletChecks": {
+      "kind": "integer",
+      "valueDecimal": "900"
+    },
+    "sense.maxSegmentChecks": {
+      "kind": "integer",
+      "valueDecimal": "2200"
+    },
+    "sense.rFarBase": {
+      "kind": "float",
+      "valueHex": "0x4092c00000000000"
+    },
+    "sense.rFarMax": {
+      "kind": "float",
+      "valueHex": "0x40a2c00000000000"
+    },
+    "sense.rFarMin": {
+      "kind": "float",
+      "valueHex": "0x408c200000000000"
+    },
+    "sense.rFarScale": {
+      "kind": "float",
+      "valueHex": "0x4080400000000000"
+    },
+    "sense.rNearBase": {
+      "kind": "float",
+      "valueHex": "0x4080400000000000"
+    },
+    "sense.rNearMax": {
+      "kind": "float",
+      "valueHex": "0x4091300000000000"
+    },
+    "sense.rNearMin": {
+      "kind": "float",
+      "valueHex": "0x407a400000000000"
+    },
+    "sense.rNearScale": {
+      "kind": "float",
+      "valueHex": "0x4070400000000000"
+    },
+    "simSpeed": {
+      "kind": "float",
+      "valueHex": "0x3ff0000000000000"
+    },
+    "snakeBaseSpeed": {
+      "kind": "float",
+      "valueHex": "0x4064a00000000000"
+    },
+    "snakeBoostSizePenalty": {
+      "kind": "float",
+      "valueHex": "0x3fd1eb851eb851ec"
+    },
+    "snakeBoostSpeed": {
+      "kind": "float",
+      "valueHex": "0x407f400000000000"
+    },
+    "snakeCount": {
+      "kind": "integer",
+      "valueDecimal": "55"
+    },
+    "snakeMaxLen": {
+      "kind": "integer",
+      "valueDecimal": "10000"
+    },
+    "snakeMinLen": {
+      "kind": "integer",
+      "valueDecimal": "4"
+    },
+    "snakeRadius": {
+      "kind": "float",
+      "valueHex": "0x4022000000000000"
+    },
+    "snakeRadiusMax": {
+      "kind": "float",
+      "valueHex": "0x4032000000000000"
+    },
+    "snakeSizeSpeedPenalty": {
+      "kind": "float",
+      "valueHex": "0x3fc70a3d70a3d70a"
+    },
+    "snakeSpacing": {
+      "kind": "float",
+      "valueHex": "0x401e000000000000"
+    },
+    "snakeStartLen": {
+      "kind": "integer",
+      "valueDecimal": "5"
+    },
+    "snakeThicknessLogDiv": {
+      "kind": "float",
+      "valueHex": "0x403e000000000000"
+    },
+    "snakeThicknessScale": {
+      "kind": "float",
+      "valueHex": "0x4007333333333333"
+    },
+    "snakeTurnPenalty": {
+      "kind": "float",
+      "valueHex": "0x3ff6666666666666"
+    },
+    "snakeTurnRate": {
+      "kind": "float",
+      "valueHex": "0x400999999999999a"
+    },
+    "worldRadius": {
+      "kind": "integer",
+      "valueDecimal": "3500"
+    }
+  },
+  "populationCount": 55,
+  "baselineCount": 10,
+  "genomeWeightSha256": [
+    "7b43e8b6550111d82c8f7a3c9524578b9037346802e88bcde3ca402d5dd4c2a8",
+    "90f076c7665bd2fcfde3521e3bd037b742a2c6cd7b6a590c02f3845f0e9734b1",
+    "ff0c202b9cc211c6ebb5cbbf8fe6f6a276021769f42fbe082af890c44f7e17d3",
+    "8d4c6cec22b7e01cab68b0df59fee373dfe0cea2765346a09e08133d71963b8a",
+    "f7d55b023579873c40681d0bd6f6a2b699bcfe008a89a17cb5029703d73436fe",
+    "59eea5afb6653e8614304a76b18e73657af9832d4a3163264cd0e9cb183beaa8",
+    "50822712df2d2c316b888971ad602cf135e7b5a9e8a748fd15b4db84457f4ead",
+    "fb380b90aeabf9d86c701533b102c915612b9c5823ae6351cc903621ac904b9d",
+    "27a039cc0a98d9d3b0d0a692e62bd802331d3e0a82f0a8e26b90a780aea217a3",
+    "40e6d0e32274436f6102f4288393019278a6e96e0280526cfb3e59f47b309ade",
+    "bb035be5788e543035cea4b5cf8e48f638a1f0fe62d433b516a5af5d5cc565a2",
+    "413745af8327658802423a5bf9b2a642ed96daca52c206e65a8dfed8d9724fd8",
+    "1dde46ee805c43cae4a993432ba601c23f83ecc8c2f858613d591196c0f83078",
+    "5efe92bc5cc80f42574264f45ecf1e2a027d612ae0cf195c4aebd98897b2de7e",
+    "4ca06d5494777f277ba98c8b67e8c0b98b4c190bc5ee73f09547623d7ef13f21",
+    "0ab6f44f0b6e2fe8747b9a99811af2092b69bb07ea31f33486a3e08c476cc920",
+    "e1e4319572f0541382a404b26217e9ba64fb5a15707586b2ed02f5877b18ada8",
+    "99dda5839d053ec6017e43ac0ba8e1ada6eba02edf2ec35fde5cffb978745e2d",
+    "6be5487c8230e918abcef92428a6969a7aea9d23264db5302b615d61b733497a",
+    "d7ed2ebda7f9b1cc737168b2be10a3f963fb9a1cc7ba5a602438c1f3f7835427",
+    "1299cf350aaa275bb4fcb23c8e6462ba4ef9506ab6fb045836ea381faa9a8e71",
+    "096fa59979c9507961864acdb4ce25e016a16a065863ffb51b749b49a2bdbd90",
+    "81687280a5a98b676b4a789b6eef05a5d9faa4faae2a8961e33e6c0014a306d1",
+    "92cf81a562980850adcb6c146d421b0e7d409fc1207784868560bc41b2073cc6",
+    "f7f556bd5117ec8110cad223fa9d1090f09e1bec0cdfb309ca765c9498e53806",
+    "d6f2dd79a100dd234ee9a6e22fc74f58006ff5625f51fc7b3409f04a6453a916",
+    "38a24ce6adc0cc19c6f665d55d6d4e0eec5b6e7d8065f2c412b15f97d874118f",
+    "f6df25c31485f7fbb32c04aca503b2263b344d115c2fbf1fd301d166fe03a553",
+    "4e758c9cf16aa64dd80ac19cab1ceef51caa150af4670bbec2d0657beeb841c3",
+    "653d20effba3911dae7a6dd71803d0df8989c58708464a0bf8b08aef2bba24dd",
+    "112acea332ef310b503e91509377ae623edd001ce4043eef176204f977215f64",
+    "da04534dd0ebd9ab6d9d95005f1256f333a68d9955a69f68cd9328ba966e4b61",
+    "bf7fbf9b6235d6c3c491f25b6847e99e9fe52c9bca986f3c75f6d38cade676c9",
+    "bfc2c07adcde13a73736359ee14e75cd31886369b66c321790ab2401d497fe51",
+    "45f3ae7b06a514c285d38bbc34dfa77d36ccec9cec08748f6561746d84c87726",
+    "ed09de2654c4d5e194a09e61a71b06704f44c7e1e19103bfa205c65417e8f0fc",
+    "261f296e42c193e55b42917f25841ea85683ac0cdfb6d301a6f30eb7dc2fbeab",
+    "6009ff4f76c225dd34e0b73f8341f7b74ffd8ebade3873814b712f225ae4e13e",
+    "5ab3e0a8d442f5b6ed9da19f2b3db5dcfda2dbb780359d82c6fa5e5bfa05bafe",
+    "c76470cbf34c0b2e69c49d12684fbf0f0e16b55da853cc3a213e631ec3cdc694",
+    "d21a37b11fb49cb396839e9120816292fc1e2e2ef12dc0d77b571173ca1e1adc",
+    "3fbade9285ee42b4e1304e23c4af76b8465e779d150d1701c19a738be08bee34",
+    "5d76be758f9a58049052c58ddfe981fbe1113e913849e920bedefa711e4ab376",
+    "e4605b66c0faea4205617ba42db1dd1d67e44cc23c27b492f5d2eae0cc407451",
+    "5c85a4f9da15d77390c731b35ab9b13ac5f0fad841ec9337673f224d83591ef5",
+    "9997f2056f112ca93536649b33960993e82f2a7e98a983e87236f7731faabab7",
+    "c1fe01afe932039d499bf6b086288e4cb36e3554cd1f8cbcf66e113c67626c2e",
+    "6beab08f80bc10679cbef1b566d437896a64d3010d3b733f0556475d27e9d017",
+    "11c8d0b702ef7805a3fc52456df0d6b615e711c48dac5ff61392bb2d43a083db",
+    "3e939919ac664536b74978da249b55db970d0b8bb803ed96ba85a70ed672309b",
+    "3d189488cd173b54899d4911f8f9cfda3d03ba5d994c3a33984c2088348a904b",
+    "d696643a19062632b12b9fbbe4ce06b2faf72e79d5ec8b8bac3897e8bbd11af0",
+    "65bfc4ff2987d6dab6f1c450ecd1a29e4c518146a5ca2b5989297f63e6c79680",
+    "9c87d077250ae3d42d3949935093e6f3de1ce1816f970e183daebd8655f4470d",
+    "8e41e2965d590d836559e1250b3f75bdd07cc2622ba1bf925904d31d7484fd0f"
+  ],
+  "populationWeightSha256": "584b196b8be12762e043a4838fca6cc7567dc068ea83f04bf1c54d474af2e711",
+  "worldStateHex": "0xe3ccbd27",
+  "nextEvolutionStateHex": "0xfb3d3d8b",
+  "externalControllerStateHex": "0x4cd29c09",
+  "baselineStateHex": [
+    "0xa64a5ff6",
+    "0x4d4b305b",
+    "0xa1337498",
+    "0x521de8fd",
+    "0xa45b01fa",
+    "0x6f6762df",
+    "0xa92dba9c",
+    "0xd59fdb81",
+    "0x9f54cdfe",
+    "0x5df5fa63"
+  ]
+}

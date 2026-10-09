@@ -1,0 +1,208 @@
+{
+  "schema": "slither-stage4-inference-cross-path-comparison",
+  "version": 2,
+  "scenario": "P2",
+  "fixture": {
+    "fixtureVersion": 1,
+    "fixtureClass": "source-shaped deterministic synthetic numeric data",
+    "scenario": "P2",
+    "description": "55 differently weighted synthetic population brains, v3/32-bin input shape, five-layer 256-wide MLP, GRU-96, Dense-2",
+    "populationCount": 55,
+    "inputSize": 147,
+    "totalParametersPerBrain": 402914,
+    "recurrentFloatsPerBrain": 96,
+    "outputFloatsPerBrain": 2,
+    "graphLayoutSha256": "cfea1501a6bd543555cdae468bd7391956b4ac1590967a11d406eb967778630b",
+    "weightsSha256": "652bea894a2512dd145342a9c37a2d86443969e524975173a78431693692b952",
+    "observationsSha256": "b4b6d3c0ccb83a93065404c3a23ca908f188648ac30d636c93cd295562d85887",
+    "initialRecurrentSha256": "d7340c94a30e053e7b1e40361cb25cb8a67e2783fea0650f38b810d7f93b9f06",
+    "packedWeightBytes": 88641080,
+    "observationBytes": 32340,
+    "recurrentBytes": 21120,
+    "stagingBytes": 21560,
+    "scratchBytes": 6868,
+    "warmupPasses": 10,
+    "measuredPasses": 60,
+    "actualFreshOrEvolvedGenomes": false,
+    "actualDeliveredSensorObservations": false
+  },
+  "sourceIdentity": {
+    "nativeSourceSha256": "6fbe621157cfd737d0bd941ea95331a7f2eddafb1b36412e9dd843ed08c728d4",
+    "currentRuntimeCommit": "69997a0ad7b605f47d8f83860378ace02dd4c307",
+    "targetTriple": "x86_64-unknown-linux-gnu"
+  },
+  "environmentIdentity": {
+    "declaration": "owner-target-vm",
+    "platform": "linux",
+    "architecture": "x64",
+    "hostname": "oxygen",
+    "logicalCpuCount": 8,
+    "ownerTargetVmValidated": true
+  },
+  "sources": {
+    "rustSse2": {
+      "file": "rust-sse2-p2.json",
+      "sha256": "82c3433c82b870ae2594b2859b988a58cb8291b69394b89c915d804d4fb1a344"
+    },
+    "rustScalar": {
+      "file": "rust-scalar-p2.json",
+      "sha256": "c127935b2a6487e962ab6267e6dbb34a8b8066145e6344600beb3b821996778a"
+    },
+    "currentJs": {
+      "file": "typescript-js-p2.json",
+      "sha256": "6b2c2204e4c8bb3d9b94cfc4371ef43f7b3a0946ae158c626ea21c2d92c49de5"
+    },
+    "currentCountOneNative": {
+      "file": "typescript-count-one-native-p2.json",
+      "sha256": "eaa71b3cacb89cdff39310884e6dd9dee03945d637c03afd1bcfb9fa42682293"
+    }
+  },
+  "comparisons": {
+    "rustSse2VsRustScalar": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 2.2351741790771484e-8,
+        "maxDifferenceIndex": 14,
+        "leftValueAtMax": 0.051375456154346466,
+        "rightValueAtMax": 0.051375433802604675,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 9.685754776000977e-8,
+        "maxDifferenceIndex": 534,
+        "leftValueAtMax": 0.09447605162858963,
+        "rightValueAtMax": 0.09447614848613739,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustSse2VsJs": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.1175870895385742e-8,
+        "maxDifferenceIndex": 12,
+        "leftValueAtMax": 0.04696555435657501,
+        "rightValueAtMax": 0.04696556553244591,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 4.470348358154297e-8,
+        "maxDifferenceIndex": 1060,
+        "leftValueAtMax": 0.09991615265607834,
+        "rightValueAtMax": 0.09991610795259476,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustSse2VsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 0,
+        "maxDifferenceIndex": 0,
+        "leftValueAtMax": -0.0093468576669693,
+        "rightValueAtMax": -0.0093468576669693,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 0,
+        "maxDifferenceIndex": 0,
+        "leftValueAtMax": 0.01800021529197693,
+        "rightValueAtMax": 0.01800021529197693,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustScalarVsJs": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 2.2351741790771484e-8,
+        "maxDifferenceIndex": 14,
+        "leftValueAtMax": 0.051375433802604675,
+        "rightValueAtMax": 0.051375456154346466,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 8.195638656616211e-8,
+        "maxDifferenceIndex": 534,
+        "leftValueAtMax": 0.09447614848613739,
+        "rightValueAtMax": 0.09447606652975082,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "rustScalarVsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 2.2351741790771484e-8,
+        "maxDifferenceIndex": 14,
+        "leftValueAtMax": 0.051375433802604675,
+        "rightValueAtMax": 0.051375456154346466,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 9.685754776000977e-8,
+        "maxDifferenceIndex": 534,
+        "leftValueAtMax": 0.09447614848613739,
+        "rightValueAtMax": 0.09447605162858963,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    },
+    "jsVsCountOneNative": {
+      "outputs": {
+        "count": 110,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 1.1175870895385742e-8,
+        "maxDifferenceIndex": 12,
+        "leftValueAtMax": 0.04696556553244591,
+        "rightValueAtMax": 0.04696555435657501,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      },
+      "recurrent": {
+        "count": 5280,
+        "absoluteTolerance": 0.0001,
+        "maxAbsoluteDifference": 4.470348358154297e-8,
+        "maxDifferenceIndex": 1060,
+        "leftValueAtMax": 0.09991610795259476,
+        "rightValueAtMax": 0.09991615265607834,
+        "outsideTolerance": 0,
+        "firstFailureIndex": null
+      }
+    }
+  },
+  "command": [
+    "/home/james/.nvm/versions/node/v24.12.0/bin/node",
+    "/tmp/slither-stage4-simd-69997a0-20260811/repo/scripts/stage4/compare-inference-reports.ts",
+    "--rust",
+    "/tmp/slither-stage4-simd-69997a0-20260811/evidence/rust-sse2-p2.json",
+    "--scalar-rust",
+    "/tmp/slither-stage4-simd-69997a0-20260811/evidence/rust-scalar-p2.json",
+    "--js",
+    "/tmp/slither-stage4-simd-69997a0-20260811/evidence/typescript-js-p2.json",
+    "--native",
+    "/tmp/slither-stage4-simd-69997a0-20260811/evidence/typescript-count-one-native-p2.json",
+    "--output",
+    "/tmp/slither-stage4-simd-69997a0-20260811/evidence/cross-path-p2.json"
+  ]
+}

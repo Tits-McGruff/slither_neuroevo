@@ -1,0 +1,468 @@
+{
+  "schema": "slither-stage2-behavior-baseline",
+  "version": 1,
+  "evidenceClass": "new reproducible fixture",
+  "source": {
+    "commit": "6949ae362785c0d034bfd13b1bd442e286b891ce",
+    "dirty": false
+  },
+  "environment": {
+    "capturedAt": "2026-07-28T16:57:41.805Z",
+    "platform": "win32",
+    "architecture": "x64",
+    "osType": "Windows_NT",
+    "osRelease": "10.0.26200",
+    "locale": "en-AU",
+    "node": "v24.12.0",
+    "v8": "13.6.233.17-node.37"
+  },
+  "fixture": {
+    "classification": "preserve except for defects separately identified by correction fixtures",
+    "seed": 1511506142,
+    "scenario": {
+      "name": "P0",
+      "description": "55 evolved snakes, 10 baseline bots, default graph, 3,500 pellets",
+      "settings": {
+        "snakeCount": 55,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "pelletCountTarget": 3500,
+      "bubbleBins": 16,
+      "baselineBotCount": 10,
+      "graphSpec": null,
+      "denseLongBodies": false
+    },
+    "runId": "stage2-behavior-p0"
+  },
+  "configurationAndGraph": {
+    "architectureKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "graphOrder": [
+      "input",
+      "mlp",
+      "gru",
+      "head"
+    ],
+    "parameterCount": 13458,
+    "recurrentStateFloats": 16,
+    "nodes": [
+      {
+        "id": "input",
+        "type": "Input",
+        "inputSize": 83,
+        "outputSize": 83,
+        "paramOffset": 0,
+        "paramLength": 0,
+        "inputs": []
+      },
+      {
+        "id": "mlp",
+        "type": "MLP",
+        "inputSize": 83,
+        "outputSize": 64,
+        "paramOffset": 0,
+        "paramLength": 9536,
+        "inputs": [
+          {
+            "fromId": "input",
+            "fromPort": 0
+          }
+        ],
+        "hiddenSizes": [
+          64
+        ]
+      },
+      {
+        "id": "gru",
+        "type": "GRU",
+        "inputSize": 64,
+        "outputSize": 16,
+        "paramOffset": 9536,
+        "paramLength": 3888,
+        "inputs": [
+          {
+            "fromId": "mlp",
+            "fromPort": 0
+          }
+        ],
+        "hiddenSize": 16
+      },
+      {
+        "id": "head",
+        "type": "Dense",
+        "inputSize": 16,
+        "outputSize": 2,
+        "paramOffset": 13424,
+        "paramLength": 34,
+        "inputs": [
+          {
+            "fromId": "gru",
+            "fromPort": 0
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "nodeId": "head"
+      }
+    ]
+  },
+  "rngAtConstructedBoundary": {
+    "version": 1,
+    "seed": 1511506142,
+    "world": {
+      "algorithm": "xorshift32",
+      "version": 1,
+      "stateHex": "0x323d27ee",
+      "gaussianAlgorithm": "box-muller-polar",
+      "gaussianVersion": 1,
+      "gaussianSpareValid": false,
+      "gaussianSpareHex": null
+    },
+    "evolution": {
+      "algorithm": "xorshift32",
+      "version": 1,
+      "stateHex": "0xae2a110d",
+      "gaussianAlgorithm": "box-muller-polar",
+      "gaussianVersion": 1,
+      "gaussianSpareValid": false,
+      "gaussianSpareHex": null
+    },
+    "observer": {
+      "algorithm": "xorshift32",
+      "version": 1,
+      "stateHex": "0xa880e2eb",
+      "gaussianAlgorithm": "box-muller-polar",
+      "gaussianVersion": 1,
+      "gaussianSpareValid": false,
+      "gaussianSpareHex": null
+    },
+    "baselines": [
+      {
+        "slot": 0,
+        "seed": 3017577897,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x8fab6c27",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 1,
+        "seed": 3926747460,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0xbe454cdd",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 2,
+        "seed": 2936659207,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x553c42af",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 3,
+        "seed": 3845828770,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x697c0276",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 4,
+        "seed": 1911120677,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0xaed879e9",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 5,
+        "seed": 3425496768,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0xd2c0319d",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 6,
+        "seed": 1850990339,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x2a36e707",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 7,
+        "seed": 3930528286,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x27b7b2c6",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 8,
+        "seed": 496683937,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x89ce9457",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      },
+      {
+        "slot": 9,
+        "seed": 2174876476,
+        "rng": {
+          "algorithm": "xorshift32",
+          "version": 1,
+          "stateHex": "0x6eef5524",
+          "gaussianAlgorithm": "box-muller-polar",
+          "gaussianVersion": 1,
+          "gaussianSpareValid": false,
+          "gaussianSpareHex": null
+        }
+      }
+    ]
+  },
+  "populationAtConstructedBoundary": {
+    "populationCount": 55,
+    "weightsPerGenome": 13458,
+    "totalWeightCount": 740190,
+    "rawWeightBytes": 2960760,
+    "rawSha256": "d693cc8054da692c89c56debd8858f5ae94e763fb74cb493ff2f61b3d682b959",
+    "architectureKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "parameterCount": 13458
+  },
+  "initialWorld": {
+    "digestVersion": 3,
+    "digest": "771058e1cd496bba79c36fff8383f1a0687fceb560cf8a4ce5bb2f59fca088f0",
+    "entryCount": 16897,
+    "frameBytes": 74712,
+    "frameSha256": "0f6e851813841ac89b18345f4f21be7d6071fdc0c79fafdeb6071b84d14f8368"
+  },
+  "firstDeliveredObservationCandidate": {
+    "snakeId": 1,
+    "layoutVersion": "v3",
+    "length": 83,
+    "words": [
+      "0xbef4bccc",
+      "0xbf60dc16",
+      "0xbf800000",
+      "0xbf800000",
+      "0xbf800000",
+      "0xbeae147b",
+      "0xbf800000",
+      "0xbf800000",
+      "0x00000000",
+      "0xbf7fbe77",
+      "0xbf800000",
+      "0xbeaaaaab",
+      "0x3eae213c",
+      "0x3f728d7d",
+      "0x3f49f19e",
+      "0xbf1d5614",
+      "0x3ee96996",
+      "0x3ee96996",
+      "0xbf800000",
+      "0x3f002b71",
+      "0x3f12dda6",
+      "0x3f00d46c",
+      "0x3ef45861",
+      "0x3f02cbb7",
+      "0x3f15a13b",
+      "0x3ea9ef50",
+      "0x3f08a394",
+      "0x3f2e0b3a",
+      "0x3f23ec27",
+      "0x3f10127a",
+      "0x3e07474b",
+      "0x3f2e9a0c",
+      "0x3f04a336",
+      "0x3ee99dbe",
+      "0x3f08c9c7",
+      "0x3f3709fc",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f595f25",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0xbee30839",
+      "0x3f3ca3d5",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f3709fc",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f595f25",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0x3f800000",
+      "0xbee30839",
+      "0x3f800000"
+    ],
+    "sha256": "a7df4ec827b4047d61321de864dc92c6aad00e46cc5a0d24c70a02bdd2f02579"
+  },
+  "heterogeneousBrainSequence": [
+    {
+      "index": 0,
+      "inputSha256": "a7df4ec827b4047d61321de864dc92c6aad00e46cc5a0d24c70a02bdd2f02579",
+      "outputWords": [
+        "0xbe17beb5",
+        "0x3efafcbf"
+      ],
+      "outputSha256": "4e8de562813e94dc73227c812c249dbab846d0aed9d74ada7b2fabc1aa945558"
+    },
+    {
+      "index": 1,
+      "inputSha256": "39b8906c8c7a64561957c07a7bcc4043e9a34af3a3c72b035fef03af3efa36f9",
+      "outputWords": [
+        "0xbe5502fb",
+        "0x3f0d3621"
+      ],
+      "outputSha256": "7f299911b6a1fbc5e18003291e7df1b2b554a8f426ce7f2ce73b6e888ad18e29"
+    },
+    {
+      "index": 2,
+      "inputSha256": "1b04d3b402dd0e2ab398d075449fadd6774313a683954e7ef4c390d8dddcce8c",
+      "outputWords": [
+        "0xbe74a51b",
+        "0x3f0dda8a"
+      ],
+      "outputSha256": "0b2c903b8fe765108b6e6618f52e50c995df39b6c7f1dc63cb080fe504b9e588"
+    },
+    {
+      "index": 3,
+      "inputSha256": "c89256f22c62c002ee62c655d981618570bbd03a731edbbfae753b2d3b6aea0f",
+      "outputWords": [
+        "0xbe84e1aa",
+        "0x3f084783"
+      ],
+      "outputSha256": "9270496663a3e898d251de5fe52259a4ea3f58f9cde549baa34fc02deee8ea3a"
+    }
+  ],
+  "afterOneCompleteStep": {
+    "tick": 1,
+    "digest": "7ddb9bc0b6ac35d8a8a155b42012baef7e6bd1f3a1b91aa5f134472899ce40e2",
+    "entryCount": 16901,
+    "frameBytes": 74656,
+    "frameSha256": "3b6123e0683f361143a61307a9bb48cf5681cc6fa7c2fa207954ab34487f3384"
+  },
+  "runStartCheckpointIdentity": {
+    "metadataHash": "v1-1ac7df8c",
+    "boundaryKind": "run-start",
+    "generation": 1,
+    "simulationStep": 0,
+    "configHash": "v1-6b5cfd54",
+    "graphKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+    "populationCount": 55
+  },
+  "generationBoundary": {
+    "metadataHash": "v1-481a3e33",
+    "boundaryKind": "generation",
+    "generation": 2,
+    "simulationStep": 1,
+    "history": [
+      {
+        "gen": 1,
+        "best": 1326.5868584910984,
+        "avg": 676.7471262341049,
+        "min": 0,
+        "speciesCount": 55,
+        "topSpeciesSize": 1,
+        "avgWeight": 0.2592668969826816,
+        "weightVariance": 0.028527613863757628
+      }
+    ],
+    "population": {
+      "populationCount": 55,
+      "weightsPerGenome": 13458,
+      "totalWeightCount": 740190,
+      "rawWeightBytes": 2960760,
+      "rawSha256": "b9120ce65f268b0050821d50f9b6e5c2443ed5811f0216eb2b5ae252e7eafd7a",
+      "architectureKey": "graph|out:2|nodes:gru:GRU:64x16;head:Dense:16x2;input:Input:83;mlp:MLP:83x64x64|edges:gru->head:0:0;input->mlp:0:0;mlp->gru:0:0|outs:head:0",
+      "parameterCount": 13458
+    },
+    "worldDigest": "b3444b61771ae7bd77bdd476518c73d2ef0c499f6b795466b40af06e6bb5c4aa"
+  }
+}

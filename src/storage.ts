@@ -1,24 +1,16 @@
 // storage.ts
-// Handles persistence of the simulation state (population, generation) to
-// localStorage and file export/import.
+// Handles browser-local UI preferences and population file export/import.
 
-import { Genome } from './mlp.ts';
 import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
 import type { GraphSpec } from './brains/graph/schema.ts';
 import type { GenomeJSON, HallOfFameEntry } from './protocol/messages.ts';
 
-/** Local storage key for population persistence. */
+/** Legacy local population key retained only so Clear All removes old data. */
 const STORAGE_KEY = 'slither_neuroevo_pop';
 /** Local storage key for baseline bot settings persistence. */
 const BASELINE_BOT_SETTINGS_KEY = 'slither_neuroevo_baseline_bot_settings';
 /** Schema version for baseline bot settings persistence. */
 const BASELINE_BOT_SETTINGS_VERSION = 1;
-
-/** Payload stored in localStorage for population persistence. */
-export interface PopulationStoragePayload {
-  generation: number;
-  genomes: GenomeJSON[];
-}
 
 /** Baseline bot settings persisted locally. */
 export interface BaselineBotSettings {
@@ -33,8 +25,12 @@ interface BaselineBotSettingsPayload extends BaselineBotSettings {
   version: number;
 }
 
-/** Payload stored in export files, optionally including HoF. */
-export interface PopulationFilePayload extends PopulationStoragePayload {
+/** Population-transfer file assembled by the browser, optionally including HoF. */
+export interface PopulationFilePayload {
+  /** Exported generation number. */
+  generation: number;
+  /** Exported population genomes. */
+  genomes: GenomeJSON[];
   /** Optional architecture key for snapshot compatibility. */
   archKey?: string;
   /** Optional server configuration hash for snapshot imports. */
@@ -49,9 +45,6 @@ export interface PopulationFilePayload extends PopulationStoragePayload {
   updates?: SettingsUpdate[];
   hof?: HallOfFameEntry[];
 }
-
-/** Genome type alias for storage helpers. */
-type GenomeLike = Genome;
 
 /**
  * Simple IndexedDB wrapper for large data persistence fallback.
@@ -319,53 +312,6 @@ export function loadBaselineBotSettings(): BaselineBotSettings | null {
     return null;
   }
   return normalized;
-}
-
-/**
- * Saves a population provided as JSON objects.
- * @param generation - Current generation number.
- * @param genomes - Genome serializations.
- * @returns Promise resolving to true on success.
- */
-export async function savePopulationJSON(generation: number, genomes: GenomeJSON[]): Promise<boolean> {
-  const data: PopulationStoragePayload = { generation, genomes };
-  return await saveWithFallback(STORAGE_KEY, data);
-}
-
-/**
- * Saves the current population and generation to localStorage with IndexedDB fallback.
- * @param generation - Current generation number.
- * @param population - Genome instances to persist.
- */
-export async function savePopulation(generation: number, population: GenomeLike[]): Promise<boolean> {
-  const data: PopulationStoragePayload = {
-    generation: generation,
-    genomes: population.map(g => g.toJSON())
-  };
-  const ok = await saveWithFallback(STORAGE_KEY, data);
-  if (ok) {
-    console.log(`Saved generation ${generation} to storage.`);
-  }
-  return ok;
-}
-
-/**
- * Loads the population from localStorage with IndexedDB fallback.
- * @param arch - Neural network architecture definition (unused today).
- * @returns Population payload or null when unavailable.
- */
-export async function loadPopulation(
-  arch: unknown
-): Promise<{ generation: number; genomes: GenomeLike[] } | null> {
-  void arch;
-  const data = (await loadWithFallback(STORAGE_KEY)) as PopulationStoragePayload | null;
-  if (!data || !data.genomes || !Array.isArray(data.genomes)) return null;
-
-  const genomes = data.genomes.map((gData: GenomeJSON) => Genome.fromJSON(gData));
-  return {
-    generation: data.generation || 1,
-    genomes: genomes
-  };
 }
 
 /**

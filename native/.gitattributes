@@ -1,0 +1,12 @@
+# Normalize native source and metadata while keeping generated binaries binary.
+* text=auto
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.d.ts text eol=lf
+*.node binary
+
+# Generated napi-rs loader surfaces.
+index.js linguist-detectable=false
+index.d.ts linguist-detectable=false

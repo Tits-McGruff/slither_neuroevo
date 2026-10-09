@@ -2,8 +2,7 @@
 .vscode/
 dist/
 node_modules/
-wasm/target/
-src/brains/wasm/*.wasm
+yarn.lock
 
 markdown-rules/
 docs/feedback-from-outside-llms/
@@ -11,8 +10,11 @@ docs/feedback-from-outside-llms/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/codex-browser-fixture-*/
 
 server/config.toml
+server/systemd.env
+backups/
 
 docs/mermaid/
 docs/api/
@@ -23,3 +25,9 @@ serve.log
 
 server.pid
 dev.pid
+
+test_output.txt
+# Zip of shame artifacts
+zip_of_shame.tar.gz
+
+.clinic/

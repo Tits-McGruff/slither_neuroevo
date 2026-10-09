@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClientMessage } from './protocol.ts';
+import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
 import type { StatsMsg } from './protocol.ts';
 
 /** Test suite label for server protocol validation. */
@@ -7,8 +7,14 @@ const SUITE = 'server protocol';
 
 describe(SUITE, () => {
   it('accepts a valid hello message', () => {
-    const msg = parseClientMessage({ type: 'hello', clientType: 'ui', version: 1 });
+    const msg = parseClientMessage({ type: 'hello', clientType: 'ui', version: 2 });
     expect(msg?.type).toBe('hello');
+  });
+
+  it('describes Protocol 1 as explicitly incompatible', () => {
+    const hello = { type: 'hello', clientType: 'ui', version: 1 };
+    expect(parseClientMessage(hello)).toBeNull();
+    expect(getProtocolVersionError(hello)).toContain('server requires 2');
   });
 
   it('rejects hello with NaN version', () => {
@@ -29,6 +35,43 @@ describe(SUITE, () => {
       boost: 1
     });
     expect(msg?.type).toBe('action');
+  });
+
+  it('accepts a bounded opaque resume token on player join', () => {
+    expect(parseClientMessage({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: 'opaque-reclaim-token'
+    })).toEqual({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: 'opaque-reclaim-token'
+    });
+  });
+
+  it('accepts only a bounded replacement acknowledgement token', () => {
+    const join = { type: 'join', mode: 'spectator', rejoinToken: 'a'.repeat(32) };
+    expect(parseClientMessage(join)).toEqual(join);
+    for (const rejoinToken of ['', 'a'.repeat(31), 'a'.repeat(33), 'G'.repeat(32), 123, null]) {
+      expect(parseClientMessage({ ...join, rejoinToken })).toBeNull();
+    }
+  });
+
+  it('rejects an empty or oversized resume token', () => {
+    expect(parseClientMessage({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: ''
+    })).toBeNull();
+    expect(parseClientMessage({
+      type: 'join',
+      mode: 'player',
+      name: 'Ada',
+      resumeToken: 'x'.repeat(257)
+    })).toBeNull();
   });
 
   it('accepts a valid view message', () => {
@@ -103,6 +146,40 @@ describe(SUITE, () => {
     expect(msg).toBeNull();
   });
 
+  it('accepts strict Protocol 2 settings, God Mode, and New Run messages', () => {
+    expect(parseClientMessage({
+      type: 'settings',
+      requestId: 'settings-1',
+      updates: [{ path: 'simSpeed', value: 2.5 }]
+    })?.type).toBe('settings');
+    expect(parseClientMessage({
+      type: 'godMode',
+      requestId: 'god-1',
+      action: 'move',
+      snakeId: 7,
+      x: 12,
+      y: -4
+    })?.type).toBe('godMode');
+    expect(parseClientMessage({ type: 'newRun', requestId: 'run-1' })?.type).toBe('newRun');
+  });
+
+  it('rejects unknown fields and non-finite command coordinates', () => {
+    expect(parseClientMessage({
+      type: 'settings',
+      requestId: 'settings-1',
+      updates: [{ path: 'simSpeed', value: 2 }],
+      unexpected: true
+    })).toBeNull();
+    expect(parseClientMessage({
+      type: 'godMode',
+      requestId: 'god-1',
+      action: 'move',
+      snakeId: 7,
+      x: Number.NaN,
+      y: 0
+    })).toBeNull();
+  });
+
   it('stats requires total fields', () => {
     const stats: StatsMsg = {
       type: 'stats',
@@ -114,7 +191,19 @@ describe(SUITE, () => {
       aliveTotal: 3,
       baselineBotsAlive: 1,
       baselineBotsTotal: 1,
-      fps: 60
+      fps: 60,
+      collisionGrid: {
+        currentEntries: 10,
+        peakEntries: 12,
+        capacity: 100,
+        maxCapacity: 1000,
+        estimatedCapacityBytes: 1600,
+        rebuilds: 5,
+        growths: 0,
+        outOfBoundsEntries: 0,
+        admissionReason: 'test fixture',
+        faultReason: null
+      }
     };
     expect(stats.aliveTotal).toBe(3);
     // @ts-expect-error stats requires total fields

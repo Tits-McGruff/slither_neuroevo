@@ -1,0 +1,92 @@
+{
+  "sourceRevision": "255999c43a9b24726d23810310ec59601985bb09",
+  "nativeBuildIdentifier": "slither_native/0.1.0+255999c43a9b.9a7c6b662fd02ffb",
+  "nativeCodeUnchangedDuringMeasurement": true,
+  "scope": "Allocator attribution only: twenty-minute P1 with two real owner PyRL actors, a programmatic player attached about 211 seconds into the window, diagnostic preload and one explicit malloc_trim; Node inspector attached later for an isolate snapshot. This is not timing, RSS or full P7 acceptance.",
+  "trainerRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "trainerRoute": "ws://192.168.0.200:5180",
+  "probeSource": "scripts/stage7/malloc-probe.c",
+  "probeSourceSha256": "45403c86875a4a94aa1c451e61032a274861b46094a81dff5542c2ac38d7833a",
+  "pairedTrim": {
+    "before": {
+      "pid": 600743,
+      "wallSeconds": 1150.07533,
+      "unixMillis": 1790788873303.028,
+      "event": "beforeTrim",
+      "residentBytes": 227295232,
+      "arenaBytes": 86073344,
+      "allocatedArenaBytes": 32090928,
+      "freeArenaBytes": 53982416,
+      "mappedAllocationBytes": 9719808,
+      "mappedAllocationCount": 8,
+      "freeChunkCount": 1908,
+      "topReleasableBytes": 1540832
+    },
+    "after": {
+      "pid": 600743,
+      "wallSeconds": 1150.078783,
+      "unixMillis": 1790788873306.452,
+      "event": "afterTrim",
+      "residentBytes": 181243904,
+      "arenaBytes": 84533248,
+      "allocatedArenaBytes": 32091200,
+      "freeArenaBytes": 52442048,
+      "mappedAllocationBytes": 9719808,
+      "mappedAllocationCount": 8,
+      "freeChunkCount": 1932,
+      "topReleasableBytes": 736
+    },
+    "residentBytesReleased": 46051328,
+    "residentMiBReleased": 43.91796875,
+    "elapsedMilliseconds": 3.4530000000358996,
+    "allocatedArenaByteChange": 272,
+    "mappedAllocationByteChange": 0
+  },
+  "loadedWindow": {
+    "seconds": 1200.1356023229998,
+    "ratio": 0.991151886806975,
+    "dropped": "0",
+    "stepP99Ms": 24,
+    "trainerActions": 134084,
+    "meetsMeasuredGates": false
+  },
+  "playerScope": "The existing thirty-minute helper was bounded by the diagnostic server lifetime. Its report is correctly failed/incomplete when that server stopped; it is not an accepted lifecycle soak.",
+  "idleScope": "Separate five-minute P1 trace without trainer/player used as an allocation baseline.",
+  "interpretation": "The trim causally releases a substantial quantity of allocator-held free pages without reducing live allocation counters. It does not prove that allocator retention explains all RSS growth or that a periodic production release meets the RSS/timing gates.",
+  "nextAction": "Validate the completed-generation release in a normal thirty-minute P1 run with no preload, inspector or forced external trim.",
+  "reports": [
+    {
+      "file": "memory-profile-p1-window-255999c-20261001.json",
+      "sha256": "ae3b1260d3d709c65b69cb5615663fb6d302a81c2a4bcf758e5e443835224d96"
+    },
+    {
+      "file": "memory-profile-p1-malloc-255999c-20261001.jsonl",
+      "sha256": "c1979977713605bba2a4aa48bbd89b0a4faa14ff3354a4154d0d2d9141b1d8c5"
+    },
+    {
+      "file": "memory-profile-idle-p1-malloc-255999c-20261001.jsonl",
+      "sha256": "96314a367ff11d86cbff9ded756366cbc14303771ed918fa53702e74e61124ce"
+    },
+    {
+      "file": "memory-profile-p1-isolates-before-255999c-20261001.json",
+      "sha256": "f4a4243d63c15de5f4ffef96b60ddbf8cf6c82a2e4d4e1d756f5971a7f67d765"
+    },
+    {
+      "file": "memory-profile-p1-player-diagnostic-255999c-20261001.json",
+      "sha256": "bec28091e8933222b749e219f847949e19bca6c91b9a821f3e4e8298c32a37a0"
+    },
+    {
+      "file": "memory-profile-p1-handles-255999c-20261001.json",
+      "sha256": "c30dcf5c760ab55e3f116791185f8dd9bb6a9c470bf059ebf4948b150a2eb7a5"
+    },
+    {
+      "file": "memory-profile-p1-supervisor-255999c-20261001.sh",
+      "sha256": "3002446d8380061ad0a45b530d9fdd9e6c688cedca61cc07f49bb4258aa4ab5f"
+    },
+    {
+      "file": "memory-profile-p1-inspector-255999c-20261001.mjs",
+      "sha256": "f96eccb1f48e036bc5fbe7fbd47293103cf7afb415907383be24f95779bc24a4"
+    }
+  ],
+  "cleanup": "Disposable server, player and local trainer stopped; the owned checkout/build/database/trainer scratch is removed after source validation and verified report copies; ports 5174, 5180, 5181 and the diagnostic inspector 9229 remain closed."
+}

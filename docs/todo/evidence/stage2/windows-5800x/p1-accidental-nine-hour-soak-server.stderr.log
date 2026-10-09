@@ -1,0 +1,6600 @@
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.5576949077692293,
+  droppedSimulationSeconds: 2.9833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.45193957759072795,
+  droppedSimulationSeconds: 4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.4489472011828948,
+  droppedSimulationSeconds: 2.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.4655154133670691,
+  droppedSimulationSeconds: 1.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.49290912590932695,
+  droppedSimulationSeconds: 0.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.5233875903142297,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.5526684006410019,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9398928570863784,
+  droppedSimulationSeconds: 2.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9238740046016777,
+  droppedSimulationSeconds: 4.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9141063900004768,
+  droppedSimulationSeconds: 3.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9090319885561198,
+  droppedSimulationSeconds: 1.7166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9066144421720979,
+  droppedSimulationSeconds: 0.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9053282111340731,
+  droppedSimulationSeconds: 0.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9052480545440889,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467634480958632,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9385394116626105,
+  droppedSimulationSeconds: 4.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9332624551417686,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9295716999401625,
+  droppedSimulationSeconds: 2.216666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9274067440913989,
+  droppedSimulationSeconds: 1.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9259127819518469,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9249496791410123,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9245386018223269,
+  droppedSimulationSeconds: 0.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9244978318724311,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451349586717407,
+  droppedSimulationSeconds: 1.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9392573120777308,
+  droppedSimulationSeconds: 4.916666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9360296895862366,
+  droppedSimulationSeconds: 2.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9340122586047229,
+  droppedSimulationSeconds: 1.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9329274439632241,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9325022506082257,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9324917313136388,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945984012864099,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.942416736005865,
+  droppedSimulationSeconds: 3.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9401350391789737,
+  droppedSimulationSeconds: 2.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9388545867322153,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9381693167752221,
+  droppedSimulationSeconds: 0.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9381024105897735,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9493866455738584,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946300129671223,
+  droppedSimulationSeconds: 4.183333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443772285171745,
+  droppedSimulationSeconds: 2.6666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430075125145182,
+  droppedSimulationSeconds: 1.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9422420353154505,
+  droppedSimulationSeconds: 1.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9418391015485755,
+  droppedSimulationSeconds: 0.6666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9416915119189626,
+  droppedSimulationSeconds: 0.31666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9503350378456187,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477054994183526,
+  droppedSimulationSeconds: 4.266666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458261434105835,
+  droppedSimulationSeconds: 3.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447447252697694,
+  droppedSimulationSeconds: 1.8499999999999999,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439644324658033,
+  droppedSimulationSeconds: 1.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436002575828945,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94355173981717,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436063774371328,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506404789177021,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9483395221377078,
+  droppedSimulationSeconds: 4.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468052146723188,
+  droppedSimulationSeconds: 2.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460278890598062,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454824246605329,
+  droppedSimulationSeconds: 1.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452185083936333,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452109827497204,
+  droppedSimulationSeconds: 0.11666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513548609340676,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9493934019251171,
+  droppedSimulationSeconds: 4.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481934887314771,
+  droppedSimulationSeconds: 2.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473001413098485,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468196771152301,
+  droppedSimulationSeconds: 1.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465542062766007,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464213370198047,
+  droppedSimulationSeconds: 0.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951747635843211,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9501293591707772,
+  droppedSimulationSeconds: 3.933333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9490964563876242,
+  droppedSimulationSeconds: 2.5666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484828947394535,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481914930655879,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479722338833506,
+  droppedSimulationSeconds: 0.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479177938073119,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9522900793757476,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506694807060903,
+  droppedSimulationSeconds: 4.366666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495643267013056,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487216265834387,
+  droppedSimulationSeconds: 2.3333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482154389645396,
+  droppedSimulationSeconds: 1.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480151403011065,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478304872000316,
+  droppedSimulationSeconds: 0.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477748213723695,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9517996798966486,
+  droppedSimulationSeconds: 0.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950393830866639,
+  droppedSimulationSeconds: 4.183333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495132733463478,
+  droppedSimulationSeconds: 2.6666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489785512212772,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9485457793656706,
+  droppedSimulationSeconds: 1.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9483217143527741,
+  droppedSimulationSeconds: 0.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482896342406539,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.952108917938716,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506859452147869,
+  droppedSimulationSeconds: 4.616666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9497514667986018,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492092064798331,
+  droppedSimulationSeconds: 1.8333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.948912238494224,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487250717953849,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486790958820241,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9519806110341605,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507538428726856,
+  droppedSimulationSeconds: 4.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9500050164593332,
+  droppedSimulationSeconds: 2.683333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495645272436549,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492865534974708,
+  droppedSimulationSeconds: 1.0666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.949180320296771,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491493314235566,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9522642867014891,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510950891341049,
+  droppedSimulationSeconds: 4.416666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9504409053118927,
+  droppedSimulationSeconds: 2.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950026460182259,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9498563438960804,
+  droppedSimulationSeconds: 0.7333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9497591695522527,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9497324385534033,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9524842120168648,
+  droppedSimulationSeconds: 1.1666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9515122146965812,
+  droppedSimulationSeconds: 3.9499999999999997,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508387956773691,
+  droppedSimulationSeconds: 2.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950472150394209,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9501772521645354,
+  droppedSimulationSeconds: 1.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950028245254005,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9499673934257129,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.949972311313394,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9526625578348702,
+  droppedSimulationSeconds: 0.5333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951655603836047,
+  droppedSimulationSeconds: 4.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510460274855992,
+  droppedSimulationSeconds: 2.683333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506473677639845,
+  droppedSimulationSeconds: 1.7833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9504644506183025,
+  droppedSimulationSeconds: 0.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9503571261150091,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9503390648805651,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9526805505033612,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9518079010056101,
+  droppedSimulationSeconds: 4.016666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512142675351691,
+  droppedSimulationSeconds: 2.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508894181228271,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506487607970773,
+  droppedSimulationSeconds: 1.1833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9505225373630093,
+  droppedSimulationSeconds: 0.6666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9504937027686069,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9527410538590759,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9518940195857991,
+  droppedSimulationSeconds: 4.116666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513720484280616,
+  droppedSimulationSeconds: 2.5833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510924542049455,
+  droppedSimulationSeconds: 1.4333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508877339416254,
+  droppedSimulationSeconds: 1.0833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507934942391629,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508128604195927,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.952598264645874,
+  droppedSimulationSeconds: 1.1666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9517621318940124,
+  droppedSimulationSeconds: 4.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951261694975552,
+  droppedSimulationSeconds: 2.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508718957967487,
+  droppedSimulationSeconds: 2.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506629376592944,
+  droppedSimulationSeconds: 1.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9505611692799335,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9505109589282642,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9505258553739924,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9524842811584937,
+  droppedSimulationSeconds: 1.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9516908691230727,
+  droppedSimulationSeconds: 4.266666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512039691737441,
+  droppedSimulationSeconds: 2.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509444698580403,
+  droppedSimulationSeconds: 1.4666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507716543674828,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507047042717126,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506801083676932,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506701264166295,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9526245293356698,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9518602024580671,
+  droppedSimulationSeconds: 4.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513700390735689,
+  droppedSimulationSeconds: 2.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510180165937206,
+  droppedSimulationSeconds: 2.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508456825003593,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507516092017659,
+  droppedSimulationSeconds: 0.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507341534446498,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9525355726381631,
+  droppedSimulationSeconds: 1.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9518303204186168,
+  droppedSimulationSeconds: 4.166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513786634397954,
+  droppedSimulationSeconds: 2.716666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511102683262964,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509388446803788,
+  droppedSimulationSeconds: 1.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508627497516289,
+  droppedSimulationSeconds: 0.5333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9508635353628493,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9526371139257495,
+  droppedSimulationSeconds: 1.0833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9519945201806128,
+  droppedSimulationSeconds: 3.966666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951592544967877,
+  droppedSimulationSeconds: 2.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513692679618687,
+  droppedSimulationSeconds: 1.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512267608365571,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511343052836522,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511321614313233,
+  droppedSimulationSeconds: 0.11666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9528172050710795,
+  droppedSimulationSeconds: 1.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9521599162448061,
+  droppedSimulationSeconds: 4.233333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951714684478978,
+  droppedSimulationSeconds: 2.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514667231126819,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513195429063932,
+  droppedSimulationSeconds: 1.0333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512073734414787,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511777935948407,
+  droppedSimulationSeconds: 0.2833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.952772065168521,
+  droppedSimulationSeconds: 1.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9521296045338679,
+  droppedSimulationSeconds: 4.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9517073505974343,
+  droppedSimulationSeconds: 2.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514797693881026,
+  droppedSimulationSeconds: 1.5833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513212756451329,
+  droppedSimulationSeconds: 1.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512494201108921,
+  droppedSimulationSeconds: 0.5833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512152333008561,
+  droppedSimulationSeconds: 0.31666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511978787637526,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.95267131787259,
+  droppedSimulationSeconds: 1.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9520800516457074,
+  droppedSimulationSeconds: 4.133333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9516905703113788,
+  droppedSimulationSeconds: 2.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514835834194233,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513688425579135,
+  droppedSimulationSeconds: 0.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513383936099178,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513499060417627,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9527284461921021,
+  droppedSimulationSeconds: 1.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9521623501858165,
+  droppedSimulationSeconds: 4.116666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951813881365278,
+  droppedSimulationSeconds: 2.5666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9516147816614008,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514974106746146,
+  droppedSimulationSeconds: 0.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514482861293988,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514526834642101,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9526901670646383,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9521083022096595,
+  droppedSimulationSeconds: 4.366666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9517066358903961,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514396973948055,
+  droppedSimulationSeconds: 2.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512514690965959,
+  droppedSimulationSeconds: 1.4833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511582180251071,
+  droppedSimulationSeconds: 0.7833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511072249846486,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510704899677368,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510671682587918,
+  droppedSimulationSeconds: 0.13333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9524308690748876,
+  droppedSimulationSeconds: 1.1666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9518619471977692,
+  droppedSimulationSeconds: 4.416666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9514731389827152,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512300662841652,
+  droppedSimulationSeconds: 1.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9510777337731571,
+  droppedSimulationSeconds: 1.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509864246491782,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509321041237454,
+  droppedSimulationSeconds: 0.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509268748417878,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9522007643575827,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9516739454448718,
+  droppedSimulationSeconds: 4.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9513165230761453,
+  droppedSimulationSeconds: 2.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9511060690764449,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509761777452967,
+  droppedSimulationSeconds: 1.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509282541830111,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509296089988422,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9521890075450997,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951600438093966,
+  droppedSimulationSeconds: 4.883333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.951210222303388,
+  droppedSimulationSeconds: 3.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509588536923177,
+  droppedSimulationSeconds: 2.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9507910228752039,
+  droppedSimulationSeconds: 1.4666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506935770165785,
+  droppedSimulationSeconds: 0.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506468406834251,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506416828645295,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9515069765801453,
+  droppedSimulationSeconds: 1.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9509783446944869,
+  droppedSimulationSeconds: 4.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506327005019519,
+  droppedSimulationSeconds: 3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9504280146202709,
+  droppedSimulationSeconds: 1.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9502918981091502,
+  droppedSimulationSeconds: 1.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950207672105405,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9501790002499232,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9501869709377189,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9512980022688199,
+  droppedSimulationSeconds: 2.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9506995545193275,
+  droppedSimulationSeconds: 5.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9503236133706721,
+  droppedSimulationSeconds: 3.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950029145284149,
+  droppedSimulationSeconds: 2.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9498428083362729,
+  droppedSimulationSeconds: 1.7166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9497010724016735,
+  droppedSimulationSeconds: 1.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495941263385381,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495292897841113,
+  droppedSimulationSeconds: 0.6666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495031559659034,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9494953429238774,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9505423120229639,
+  droppedSimulationSeconds: 2.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9499936926498371,
+  droppedSimulationSeconds: 4.966666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9496553735491899,
+  droppedSimulationSeconds: 3.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9494277594723373,
+  droppedSimulationSeconds: 2.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.949293692969997,
+  droppedSimulationSeconds: 1.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492118639477511,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491618734125714,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491365724555948,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950276474021703,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.949833204331264,
+  droppedSimulationSeconds: 4.166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495641283455208,
+  droppedSimulationSeconds: 2.5666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9493965867510002,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492961641949313,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492373682929711,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492158027795587,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9503197932091593,
+  droppedSimulationSeconds: 1.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9498553547193982,
+  droppedSimulationSeconds: 4.483333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495414852520732,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9493459571984211,
+  droppedSimulationSeconds: 1.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492301403833743,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491864475816245,
+  droppedSimulationSeconds: 0.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491784400763194,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.950264113676707,
+  droppedSimulationSeconds: 1.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9497588403158093,
+  droppedSimulationSeconds: 5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9494227043603805,
+  droppedSimulationSeconds: 3.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492070477179078,
+  droppedSimulationSeconds: 2.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.949086426130715,
+  droppedSimulationSeconds: 1.2833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9490234958158211,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489950440053851,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489930740244165,
+  droppedSimulationSeconds: 0.11666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9500449771863375,
+  droppedSimulationSeconds: 1.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9495866826149618,
+  droppedSimulationSeconds: 4.666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492798906637698,
+  droppedSimulationSeconds: 3.1666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9490536161153795,
+  droppedSimulationSeconds: 2.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489076970709683,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9488332577279089,
+  droppedSimulationSeconds: 0.85,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487965724410562,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9488020862830422,
+  droppedSimulationSeconds: 0.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9498197478492522,
+  droppedSimulationSeconds: 1.7833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9494270813171185,
+  droppedSimulationSeconds: 4.133333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491795750060522,
+  droppedSimulationSeconds: 2.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9490176554657643,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489214413159867,
+  droppedSimulationSeconds: 1.0833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9488768859472657,
+  droppedSimulationSeconds: 0.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9488547893675907,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9488447273636984,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9498374912274737,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9494221913380223,
+  droppedSimulationSeconds: 4.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491296681931953,
+  droppedSimulationSeconds: 3.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489355184372971,
+  droppedSimulationSeconds: 2.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487969098039235,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487197558485024,
+  droppedSimulationSeconds: 0.9166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486868486291244,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486847731496757,
+  droppedSimulationSeconds: 0.13333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9496778716845133,
+  droppedSimulationSeconds: 1.5333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9493052689779752,
+  droppedSimulationSeconds: 4.116666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9490694372492903,
+  droppedSimulationSeconds: 2.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489094844440225,
+  droppedSimulationSeconds: 1.8333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9488069387557042,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487440674147437,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487086263756066,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486954211735174,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487024879581453,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9496165112776855,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9491703643938816,
+  droppedSimulationSeconds: 5.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489009560541751,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487258921441901,
+  droppedSimulationSeconds: 2.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486071446717844,
+  droppedSimulationSeconds: 1.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9485309469443667,
+  droppedSimulationSeconds: 0.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484999561151605,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484936335932196,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484998654466992,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9492825382259263,
+  droppedSimulationSeconds: 1.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9489321205196483,
+  droppedSimulationSeconds: 4.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.948700548312037,
+  droppedSimulationSeconds: 2.716666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9485718711141905,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9485084682186365,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484710509885403,
+  droppedSimulationSeconds: 0.5333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94845891823863,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9493415511857927,
+  droppedSimulationSeconds: 2.216666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.948928156926445,
+  droppedSimulationSeconds: 4.866666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486610582964856,
+  droppedSimulationSeconds: 3.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484807390317082,
+  droppedSimulationSeconds: 2.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9483410536614453,
+  droppedSimulationSeconds: 1.7166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482603791024986,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482106054144757,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481886711572693,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94819462264607,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9490826866818384,
+  droppedSimulationSeconds: 1.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9486956604415323,
+  droppedSimulationSeconds: 4.683333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484361325043434,
+  droppedSimulationSeconds: 3.1666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482509396320683,
+  droppedSimulationSeconds: 2.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481364859616479,
+  droppedSimulationSeconds: 1.4666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480635967888615,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480292649926718,
+  droppedSimulationSeconds: 0.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480184677843067,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480162979744629,
+  droppedSimulationSeconds: 0.13333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.948904542960757,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9485357965422007,
+  droppedSimulationSeconds: 4.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482934437146611,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481272947248794,
+  droppedSimulationSeconds: 2.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480347916475953,
+  droppedSimulationSeconds: 1.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479784223159711,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479577015955883,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479648382982004,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.948828981680355,
+  droppedSimulationSeconds: 1.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484617356846016,
+  droppedSimulationSeconds: 4.633333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482120338248471,
+  droppedSimulationSeconds: 3.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480512376303832,
+  droppedSimulationSeconds: 2.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479606293906723,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947910686251064,
+  droppedSimulationSeconds: 0.7333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478783690254046,
+  droppedSimulationSeconds: 0.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947863632478329,
+  droppedSimulationSeconds: 0.2833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478701813163714,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9487289150153776,
+  droppedSimulationSeconds: 1.4833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9483615053886175,
+  droppedSimulationSeconds: 4.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481053450916298,
+  droppedSimulationSeconds: 3.3333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479255260375897,
+  droppedSimulationSeconds: 2.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478052028254066,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477146863172174,
+  droppedSimulationSeconds: 1.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476667048409793,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476519899615913,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476476673787265,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9484703971816681,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9481075448651551,
+  droppedSimulationSeconds: 4.783333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478580844068669,
+  droppedSimulationSeconds: 3.3333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476951304425789,
+  droppedSimulationSeconds: 2.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475809549879046,
+  droppedSimulationSeconds: 1.5833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475131382772166,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474812857444982,
+  droppedSimulationSeconds: 0.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474707717062905,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9483001859396797,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479819416378676,
+  droppedSimulationSeconds: 4.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477514806719459,
+  droppedSimulationSeconds: 3.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475874987156255,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474901990377832,
+  droppedSimulationSeconds: 1.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474339409224999,
+  droppedSimulationSeconds: 0.85,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474097269696566,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474049597684873,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482168503269522,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478864541314935,
+  droppedSimulationSeconds: 4.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476777620842992,
+  droppedSimulationSeconds: 2.9166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947544049924109,
+  droppedSimulationSeconds: 1.9166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947474750734748,
+  droppedSimulationSeconds: 1.0333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474401850033903,
+  droppedSimulationSeconds: 0.5833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474309329499053,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9482353839680654,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479145593249162,
+  droppedSimulationSeconds: 4.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947689852397797,
+  droppedSimulationSeconds: 3.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475419796879732,
+  droppedSimulationSeconds: 2.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474399179332853,
+  droppedSimulationSeconds: 1.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473804225101702,
+  droppedSimulationSeconds: 0.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473433773855076,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473265726934416,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473242043589696,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473299182275854,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9480896754631939,
+  droppedSimulationSeconds: 1.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477748559878336,
+  droppedSimulationSeconds: 4.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475777446137507,
+  droppedSimulationSeconds: 2.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474408831333827,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473540942461128,
+  droppedSimulationSeconds: 1.3166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473022689119915,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947268135990669,
+  droppedSimulationSeconds: 0.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472548869433147,
+  droppedSimulationSeconds: 0.2833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472497910854365,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9479925944862487,
+  droppedSimulationSeconds: 1.9166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476768748357213,
+  droppedSimulationSeconds: 4.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474372761438078,
+  droppedSimulationSeconds: 3.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472791549069698,
+  droppedSimulationSeconds: 2.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471678765912891,
+  droppedSimulationSeconds: 1.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470953676788582,
+  droppedSimulationSeconds: 1.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470510882709534,
+  droppedSimulationSeconds: 0.7333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470322237028771,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470357144245142,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477598858295737,
+  droppedSimulationSeconds: 2.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474694084642941,
+  droppedSimulationSeconds: 4.316666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472829032449721,
+  droppedSimulationSeconds: 2.8166666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471667179531268,
+  droppedSimulationSeconds: 1.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470903314424207,
+  droppedSimulationSeconds: 1.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470584331680156,
+  droppedSimulationSeconds: 0.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470459501154578,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470437617942614,
+  droppedSimulationSeconds: 0.13333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477889378910274,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475091491323997,
+  droppedSimulationSeconds: 4.233333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473212804650811,
+  droppedSimulationSeconds: 2.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472106726714372,
+  droppedSimulationSeconds: 1.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471472555484208,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470988135053177,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470717235149005,
+  droppedSimulationSeconds: 0.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470650376561451,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947063299689436,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470688374104659,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477795566121022,
+  droppedSimulationSeconds: 1.7166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947490630483906,
+  droppedSimulationSeconds: 4.466666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473037790007514,
+  droppedSimulationSeconds: 2.9166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472020226306639,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471434529725636,
+  droppedSimulationSeconds: 0.9833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471211342949037,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471129981958084,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471180333636289,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478409106007346,
+  droppedSimulationSeconds: 1.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475652556762829,
+  droppedSimulationSeconds: 4.333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473766393168391,
+  droppedSimulationSeconds: 3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472509597092093,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471693233840872,
+  droppedSimulationSeconds: 1.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471136600348293,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470897544913159,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94707909030749,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470764844789487,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470798297359572,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9477531795209999,
+  droppedSimulationSeconds: 1.9166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474901840679789,
+  droppedSimulationSeconds: 4.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473248361525877,
+  droppedSimulationSeconds: 2.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472301934395487,
+  droppedSimulationSeconds: 1.5833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471715753345117,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471498153330457,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471518527047725,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94782126835143,
+  droppedSimulationSeconds: 2.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475578466450507,
+  droppedSimulationSeconds: 4.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473804505214218,
+  droppedSimulationSeconds: 2.933333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472562290159589,
+  droppedSimulationSeconds: 2.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471826458109235,
+  droppedSimulationSeconds: 1.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471488797126505,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471333190652069,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471368937964485,
+  droppedSimulationSeconds: 0.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9478107510545618,
+  droppedSimulationSeconds: 1.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9475368545546566,
+  droppedSimulationSeconds: 4.516666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473461010649497,
+  droppedSimulationSeconds: 3.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9472122872215665,
+  droppedSimulationSeconds: 2.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471152011984321,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470368156393866,
+  droppedSimulationSeconds: 1.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470006735028755,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9469911661750975,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9469925431270719,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9476500851177674,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473708760484983,
+  droppedSimulationSeconds: 4.683333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471688312459731,
+  droppedSimulationSeconds: 3.4166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.947028687540762,
+  droppedSimulationSeconds: 2.4166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9469349034564726,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468684014856623,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946823652648976,
+  droppedSimulationSeconds: 0.85,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468012080959644,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467960249697779,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9474620820911788,
+  droppedSimulationSeconds: 1.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471919545469873,
+  droppedSimulationSeconds: 4.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9469983165904172,
+  droppedSimulationSeconds: 3.3333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468690995017865,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467765795883684,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94672046437573,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466964610734331,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466892178775651,
+  droppedSimulationSeconds: 0.23333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9473192637549318,
+  droppedSimulationSeconds: 2.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9470520877819346,
+  droppedSimulationSeconds: 4.616666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468682538064374,
+  droppedSimulationSeconds: 3.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467515159743476,
+  droppedSimulationSeconds: 2.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466778851544629,
+  droppedSimulationSeconds: 1.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466317311488469,
+  droppedSimulationSeconds: 0.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466060096133525,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465921089955796,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465892235394189,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471665892782608,
+  droppedSimulationSeconds: 2.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9469103303984777,
+  droppedSimulationSeconds: 4.516666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467438186794742,
+  droppedSimulationSeconds: 2.966666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466345354342656,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465597308204133,
+  droppedSimulationSeconds: 1.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465243235721864,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465050383191348,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464925647780559,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464895068378786,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9471152343621101,
+  droppedSimulationSeconds: 1.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468510318876006,
+  droppedSimulationSeconds: 4.733333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466766655738074,
+  droppedSimulationSeconds: 3.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465551261444363,
+  droppedSimulationSeconds: 2.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464685322029166,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464178964798934,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946387691629237,
+  droppedSimulationSeconds: 0.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463772194955702,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463779612292058,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463807610559216,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9469739692379618,
+  droppedSimulationSeconds: 2.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467081201908695,
+  droppedSimulationSeconds: 4.816666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465169106137047,
+  droppedSimulationSeconds: 3.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464048787223649,
+  droppedSimulationSeconds: 2.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463280357943086,
+  droppedSimulationSeconds: 1.4666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462827560059782,
+  droppedSimulationSeconds: 0.9166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462637375040795,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462525092671271,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946250656692902,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468537211925904,
+  droppedSimulationSeconds: 1.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466158072341287,
+  droppedSimulationSeconds: 4.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464510503755785,
+  droppedSimulationSeconds: 3.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463522462082231,
+  droppedSimulationSeconds: 1.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462915158487482,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946251682478481,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462256528273607,
+  droppedSimulationSeconds: 0.5833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462107962945074,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462079107986082,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9468151564217002,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465750323884975,
+  droppedSimulationSeconds: 4.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464163976886723,
+  droppedSimulationSeconds: 3.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463101146885766,
+  droppedSimulationSeconds: 2.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946239983915989,
+  droppedSimulationSeconds: 1.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461958385182105,
+  droppedSimulationSeconds: 0.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461752235078775,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461701646174713,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9467681401538657,
+  droppedSimulationSeconds: 1.7833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946516164649956,
+  droppedSimulationSeconds: 4.783333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463384508263939,
+  droppedSimulationSeconds: 3.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462136287043411,
+  droppedSimulationSeconds: 2.433333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461451645777016,
+  droppedSimulationSeconds: 1.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460990265392939,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460710012764196,
+  droppedSimulationSeconds: 0.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460594645783894,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460619633449838,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9466275980034737,
+  droppedSimulationSeconds: 2.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463865869652026,
+  droppedSimulationSeconds: 4.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462299020902006,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461331840053826,
+  droppedSimulationSeconds: 1.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460657818862263,
+  droppedSimulationSeconds: 1.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460269613984097,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460050476708951,
+  droppedSimulationSeconds: 0.5333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459955526332758,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459964123614328,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9465613499113436,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463226352288774,
+  droppedSimulationSeconds: 4.666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461601927179211,
+  droppedSimulationSeconds: 3.216666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460538172001662,
+  droppedSimulationSeconds: 2.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459778039615817,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459353218442812,
+  droppedSimulationSeconds: 0.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459122631119209,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459008767999134,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458981828785326,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464779234572865,
+  droppedSimulationSeconds: 1.5833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462470312440606,
+  droppedSimulationSeconds: 4.583333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460945893867121,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459953250209561,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945928025706986,
+  droppedSimulationSeconds: 1.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458841555650808,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458591674297946,
+  droppedSimulationSeconds: 0.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458502934848052,
+  droppedSimulationSeconds: 0.2833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458511954553134,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9464161679960742,
+  droppedSimulationSeconds: 1.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462037040256778,
+  droppedSimulationSeconds: 4.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460528528239325,
+  droppedSimulationSeconds: 3.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459623702644371,
+  droppedSimulationSeconds: 1.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459039799597385,
+  droppedSimulationSeconds: 1.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945866798317422,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458449184003743,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458354254874268,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458320336169851,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458362860232851,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463928041333994,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461742746098075,
+  droppedSimulationSeconds: 4.466666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.946025407782718,
+  droppedSimulationSeconds: 3.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459235376060464,
+  droppedSimulationSeconds: 2.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458570353306955,
+  droppedSimulationSeconds: 1.4333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458116992926572,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457827762471994,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457693259140628,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945765381960205,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9463028563328431,
+  droppedSimulationSeconds: 2.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460699043761003,
+  droppedSimulationSeconds: 4.816666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459257330546674,
+  droppedSimulationSeconds: 3.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458324168229443,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457670359357533,
+  droppedSimulationSeconds: 1.4333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457310950079937,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457099683302352,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457067406786966,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457111690210492,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462680037605294,
+  droppedSimulationSeconds: 1.4833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9460677505299296,
+  droppedSimulationSeconds: 4.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459212147343061,
+  droppedSimulationSeconds: 3.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458162506389372,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457500130232284,
+  droppedSimulationSeconds: 1.4666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457071717919951,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456788660913671,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456672787847142,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9462117521429778,
+  droppedSimulationSeconds: 1.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459981312823698,
+  droppedSimulationSeconds: 4.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458627957431944,
+  droppedSimulationSeconds: 2.933333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457718344856029,
+  droppedSimulationSeconds: 1.9833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457175015187005,
+  droppedSimulationSeconds: 1.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456897593385232,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456750776812238,
+  droppedSimulationSeconds: 0.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456776450689723,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9461513165005717,
+  droppedSimulationSeconds: 1.7833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459296695124267,
+  droppedSimulationSeconds: 4.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457742538659745,
+  droppedSimulationSeconds: 3.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456629161842378,
+  droppedSimulationSeconds: 2.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455771600849986,
+  droppedSimulationSeconds: 1.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455249379823133,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454936622928404,
+  droppedSimulationSeconds: 0.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454762558279644,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454699403065995,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454714792672968,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459969262593032,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458020527409067,
+  droppedSimulationSeconds: 4.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456783801450089,
+  droppedSimulationSeconds: 2.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455965847833327,
+  droppedSimulationSeconds: 1.8499999999999999,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455387691339392,
+  droppedSimulationSeconds: 1.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455016756276472,
+  droppedSimulationSeconds: 0.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454808370531096,
+  droppedSimulationSeconds: 0.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945474536635048,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454759584961163,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459928963497166,
+  droppedSimulationSeconds: 1.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457984958454578,
+  droppedSimulationSeconds: 4.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456666497237357,
+  droppedSimulationSeconds: 2.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945574934840827,
+  droppedSimulationSeconds: 2.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455136659676573,
+  droppedSimulationSeconds: 1.4333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454726333728984,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454389781901676,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945417839421951,
+  droppedSimulationSeconds: 0.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454082428019459,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945408913022584,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459279870577724,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9457425836278492,
+  droppedSimulationSeconds: 4.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456173959821094,
+  droppedSimulationSeconds: 2.8333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455319201708895,
+  droppedSimulationSeconds: 1.9833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945475781332205,
+  droppedSimulationSeconds: 1.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945437545634978,
+  droppedSimulationSeconds: 0.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454145171426599,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453986721937296,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453918032151978,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453920842517965,
+  droppedSimulationSeconds: 0.11666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9459022230191826,
+  droppedSimulationSeconds: 1.5833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456952706839876,
+  droppedSimulationSeconds: 4.666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945549022977225,
+  droppedSimulationSeconds: 3.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454514382784306,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453947470605103,
+  droppedSimulationSeconds: 1.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453636042453765,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453509952841844,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453550967470709,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9458549058733118,
+  droppedSimulationSeconds: 1.9166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456735732598609,
+  droppedSimulationSeconds: 4.166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455705358329907,
+  droppedSimulationSeconds: 2.4166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454964506175378,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454508093816422,
+  droppedSimulationSeconds: 1.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454235968085345,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454117139640879,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454140823283317,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945896531991678,
+  droppedSimulationSeconds: 2.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456864803230078,
+  droppedSimulationSeconds: 4.85,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455301842797714,
+  droppedSimulationSeconds: 3.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945418850079925,
+  droppedSimulationSeconds: 2.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453497944912331,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453109777813428,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452893654759181,
+  droppedSimulationSeconds: 0.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452816102800307,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9456333193333905,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454452926933758,
+  droppedSimulationSeconds: 4.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453151685658566,
+  droppedSimulationSeconds: 3.0666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452263689997638,
+  droppedSimulationSeconds: 2.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451684729602315,
+  droppedSimulationSeconds: 1.4333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451292587333406,
+  droppedSimulationSeconds: 1.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945103255343495,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945089493635196,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450857457563376,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450892654884449,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455705222587063,
+  droppedSimulationSeconds: 1.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453799284147604,
+  droppedSimulationSeconds: 4.516666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452532277827246,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451676267632012,
+  droppedSimulationSeconds: 2.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451027959879376,
+  droppedSimulationSeconds: 1.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450608995943691,
+  droppedSimulationSeconds: 1.0833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450369841624261,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450238216784437,
+  droppedSimulationSeconds: 0.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945022171273235,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9455073785692141,
+  droppedSimulationSeconds: 1.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9453160550506161,
+  droppedSimulationSeconds: 4.583333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451844321095482,
+  droppedSimulationSeconds: 3.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450932637367965,
+  droppedSimulationSeconds: 2.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945026037519338,
+  droppedSimulationSeconds: 1.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449829900937896,
+  droppedSimulationSeconds: 1.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449571616808932,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449431540844567,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449418855893803,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454251173414353,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452465143937718,
+  droppedSimulationSeconds: 4.333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945129783551377,
+  droppedSimulationSeconds: 2.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450447018603804,
+  droppedSimulationSeconds: 2.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449938462948092,
+  droppedSimulationSeconds: 1.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449666302501907,
+  droppedSimulationSeconds: 0.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449513560733184,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449484678571355,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9454049046455426,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9451964113456612,
+  droppedSimulationSeconds: 5.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450502686844866,
+  droppedSimulationSeconds: 3.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449532722371533,
+  droppedSimulationSeconds: 2.433333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9448884067828375,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944840660601332,
+  droppedSimulationSeconds: 1.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9448083290778962,
+  droppedSimulationSeconds: 0.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447856572572125,
+  droppedSimulationSeconds: 0.6666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447774382865373,
+  droppedSimulationSeconds: 0.31666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9452466873040215,
+  droppedSimulationSeconds: 1.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9450511201298983,
+  droppedSimulationSeconds: 4.833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449099484411575,
+  droppedSimulationSeconds: 3.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944813202816715,
+  droppedSimulationSeconds: 2.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447421540949585,
+  droppedSimulationSeconds: 1.8333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944693055567819,
+  droppedSimulationSeconds: 1.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446635372678972,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446484402890121,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446400015901699,
+  droppedSimulationSeconds: 0.31666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446339715512923,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446306436645618,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446310811051342,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446350323558607,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.945073850065969,
+  droppedSimulationSeconds: 1.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9448768586164363,
+  droppedSimulationSeconds: 4.933333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447324920357999,
+  droppedSimulationSeconds: 3.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446263357943764,
+  droppedSimulationSeconds: 2.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445611241674927,
+  droppedSimulationSeconds: 1.7166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445134522316306,
+  droppedSimulationSeconds: 1.2833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444812196761151,
+  droppedSimulationSeconds: 0.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444613849884109,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444517549149065,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444488019910318,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444511689543565,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444552417876566,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449059359179102,
+  droppedSimulationSeconds: 1.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447286735311093,
+  droppedSimulationSeconds: 4.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446160271805224,
+  droppedSimulationSeconds: 2.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445443726095644,
+  droppedSimulationSeconds: 1.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944497322856009,
+  droppedSimulationSeconds: 1.2833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444685742800407,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94444843358313,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444426525424368,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444457723858718,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444500403426507,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9449083721711838,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944729328323107,
+  droppedSimulationSeconds: 4.583333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446082420258185,
+  droppedSimulationSeconds: 3.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445269245945099,
+  droppedSimulationSeconds: 2.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444661105881594,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444228697411589,
+  droppedSimulationSeconds: 1.1833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443950606669549,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443805796639174,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443770907694744,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9448334896102708,
+  droppedSimulationSeconds: 1.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446630953462946,
+  droppedSimulationSeconds: 4.416666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944545562876319,
+  droppedSimulationSeconds: 3.0833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444727528856484,
+  droppedSimulationSeconds: 1.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444292686919936,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944403988345614,
+  droppedSimulationSeconds: 0.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443893536322469,
+  droppedSimulationSeconds: 0.48333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944379915441451,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443816210536452,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9448336076379784,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446545340983942,
+  droppedSimulationSeconds: 4.683333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445381060390126,
+  droppedSimulationSeconds: 3.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444566727001056,
+  droppedSimulationSeconds: 2.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944395968588548,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443512402943,
+  droppedSimulationSeconds: 1.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443211793394017,
+  droppedSimulationSeconds: 0.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443064876374744,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944304129010009,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447375108196536,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445575329219704,
+  droppedSimulationSeconds: 4.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444401375918324,
+  droppedSimulationSeconds: 3.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443669408350326,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443132400147157,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94428211535361,
+  droppedSimulationSeconds: 0.9166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442629239150299,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442524777306014,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442501468687315,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944694567696745,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944527884578809,
+  droppedSimulationSeconds: 4.466666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444204887189592,
+  droppedSimulationSeconds: 2.9166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443529839564606,
+  droppedSimulationSeconds: 1.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443129131284179,
+  droppedSimulationSeconds: 1.1666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442904441991642,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442830342580534,
+  droppedSimulationSeconds: 0.31666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442848599982914,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9447179072050617,
+  droppedSimulationSeconds: 1.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445518951012362,
+  droppedSimulationSeconds: 4.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444371859162622,
+  droppedSimulationSeconds: 3.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443584692144806,
+  droppedSimulationSeconds: 2.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443039565804615,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442637990277888,
+  droppedSimulationSeconds: 1.1666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442335856653667,
+  droppedSimulationSeconds: 0.9166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442176185609816,
+  droppedSimulationSeconds: 0.5333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944210351203473,
+  droppedSimulationSeconds: 0.31666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9446396582084498,
+  droppedSimulationSeconds: 1.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444611911816496,
+  droppedSimulationSeconds: 4.866666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944334750003773,
+  droppedSimulationSeconds: 3.466666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442485788678792,
+  droppedSimulationSeconds: 2.4166666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441881154995467,
+  droppedSimulationSeconds: 1.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441498206872689,
+  droppedSimulationSeconds: 1.1333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441261407463091,
+  droppedSimulationSeconds: 0.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441163298704479,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441149309429685,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441156698960093,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9445227007800681,
+  droppedSimulationSeconds: 2.216666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944358395705594,
+  droppedSimulationSeconds: 4.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442504381258712,
+  droppedSimulationSeconds: 3.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441803671109321,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441291342936033,
+  droppedSimulationSeconds: 1.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440964563711003,
+  droppedSimulationSeconds: 0.9833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440775552216357,
+  droppedSimulationSeconds: 0.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440680367575955,
+  droppedSimulationSeconds: 0.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440651353385066,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440648555297738,
+  droppedSimulationSeconds: 0.13333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9444831540737085,
+  droppedSimulationSeconds: 1.7833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443057656276651,
+  droppedSimulationSeconds: 4.933333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441768951396359,
+  droppedSimulationSeconds: 3.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440949398691012,
+  droppedSimulationSeconds: 2.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440398132336693,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440081530978994,
+  droppedSimulationSeconds: 0.9833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439900388377668,
+  droppedSimulationSeconds: 0.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943978014383623,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439760418590488,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439781480100656,
+  droppedSimulationSeconds: 0.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443866085205271,
+  droppedSimulationSeconds: 1.9833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442255789878481,
+  droppedSimulationSeconds: 4.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944108203835334,
+  droppedSimulationSeconds: 3.3333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440257036348324,
+  droppedSimulationSeconds: 2.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439748239183883,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439392633100304,
+  droppedSimulationSeconds: 1.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439195536132484,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439146636882465,
+  droppedSimulationSeconds: 0.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9443375156542707,
+  droppedSimulationSeconds: 1.7166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441808558277919,
+  droppedSimulationSeconds: 4.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440628386299537,
+  droppedSimulationSeconds: 3.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439816745986415,
+  droppedSimulationSeconds: 2.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439242372315122,
+  droppedSimulationSeconds: 1.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438817247680653,
+  droppedSimulationSeconds: 1.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943857085807902,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438447027653697,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438411894282066,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438426912551042,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9442439269554195,
+  droppedSimulationSeconds: 1.9833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440839013907746,
+  droppedSimulationSeconds: 4.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439696348438065,
+  droppedSimulationSeconds: 3.3166666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438910004771347,
+  droppedSimulationSeconds: 2.3166666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438397992555475,
+  droppedSimulationSeconds: 1.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438010813953305,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437763373505752,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437662233376287,
+  droppedSimulationSeconds: 0.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437673890721039,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.944170497082208,
+  droppedSimulationSeconds: 1.9666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440098577018884,
+  droppedSimulationSeconds: 4.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439065181100629,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438395952213452,
+  droppedSimulationSeconds: 2.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437890639803033,
+  droppedSimulationSeconds: 1.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437538579279662,
+  droppedSimulationSeconds: 1.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437236378233189,
+  droppedSimulationSeconds: 0.9666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437031787444936,
+  droppedSimulationSeconds: 0.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943692837195515,
+  droppedSimulationSeconds: 0.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436915571353484,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436944570304241,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441004704530331,
+  droppedSimulationSeconds: 1.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439406509018301,
+  droppedSimulationSeconds: 4.666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438317336718341,
+  droppedSimulationSeconds: 3.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437547251643076,
+  droppedSimulationSeconds: 2.3166666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437055600936581,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436809051158169,
+  droppedSimulationSeconds: 0.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436725438020742,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943673003462068,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9440808450466037,
+  droppedSimulationSeconds: 1.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943938510412651,
+  droppedSimulationSeconds: 4.216666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438377764885146,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437689401549811,
+  droppedSimulationSeconds: 2.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437223187191045,
+  droppedSimulationSeconds: 1.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436996716168661,
+  droppedSimulationSeconds: 0.7833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943689934746212,
+  droppedSimulationSeconds: 0.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436936011112472,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9441042821662344,
+  droppedSimulationSeconds: 1.5333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439523652408905,
+  droppedSimulationSeconds: 4.533333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438402480968453,
+  droppedSimulationSeconds: 3.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437718076675392,
+  droppedSimulationSeconds: 2.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437206321211301,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436828855556638,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436528024628942,
+  droppedSimulationSeconds: 0.9833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436408729190294,
+  droppedSimulationSeconds: 0.4666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436394334932763,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94404168136944,
+  droppedSimulationSeconds: 1.5833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438883853216455,
+  droppedSimulationSeconds: 4.616666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437740943037726,
+  droppedSimulationSeconds: 3.466666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436968710772453,
+  droppedSimulationSeconds: 2.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436460903197657,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436062877855512,
+  droppedSimulationSeconds: 1.2833333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435863138111552,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435750236813707,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435740713121494,
+  droppedSimulationSeconds: 0.13333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943959313498721,
+  droppedSimulationSeconds: 2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438027858512955,
+  droppedSimulationSeconds: 4.75,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436925735603213,
+  droppedSimulationSeconds: 3.3833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436199210883,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435730682759113,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435419043903468,
+  droppedSimulationSeconds: 1.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435285395114632,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435261121522636,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435281083528531,
+  droppedSimulationSeconds: 0.06666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439184274509093,
+  droppedSimulationSeconds: 1.7333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437817786247523,
+  droppedSimulationSeconds: 4.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436950694946743,
+  droppedSimulationSeconds: 2.716666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436330002125413,
+  droppedSimulationSeconds: 1.9666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435934956558956,
+  droppedSimulationSeconds: 1.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435690169270419,
+  droppedSimulationSeconds: 0.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435559729354243,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435551671615954,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439494717521563,
+  droppedSimulationSeconds: 1.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943812501404967,
+  droppedSimulationSeconds: 4.25,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437158739729804,
+  droppedSimulationSeconds: 3.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436441811966833,
+  droppedSimulationSeconds: 2.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435898841655237,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435539619129226,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435320839885765,
+  droppedSimulationSeconds: 0.7833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435212104724637,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435186556995212,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9439004925677337,
+  droppedSimulationSeconds: 1.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9437501904213293,
+  droppedSimulationSeconds: 4.683333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436415117706837,
+  droppedSimulationSeconds: 3.433333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943564907742855,
+  droppedSimulationSeconds: 2.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943510494062803,
+  droppedSimulationSeconds: 1.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943472859988927,
+  droppedSimulationSeconds: 1.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434529592114458,
+  droppedSimulationSeconds: 0.7333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434459747268701,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434449741777483,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9438234720051403,
+  droppedSimulationSeconds: 1.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436746279828985,
+  droppedSimulationSeconds: 4.683333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435688966684788,
+  droppedSimulationSeconds: 3.3666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434970434683689,
+  droppedSimulationSeconds: 2.3166666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434459030082041,
+  droppedSimulationSeconds: 1.7,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434131941308733,
+  droppedSimulationSeconds: 1.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433915340487676,
+  droppedSimulationSeconds: 0.7833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433813120870338,
+  droppedSimulationSeconds: 0.43333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433786779831,
+  droppedSimulationSeconds: 0.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433817049991681,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943745724768513,
+  droppedSimulationSeconds: 2.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435944855303808,
+  droppedSimulationSeconds: 4.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434856398652341,
+  droppedSimulationSeconds: 3.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434079426718534,
+  droppedSimulationSeconds: 2.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433511893566847,
+  droppedSimulationSeconds: 1.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433152497408305,
+  droppedSimulationSeconds: 1.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432905256495807,
+  droppedSimulationSeconds: 0.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432771210964821,
+  droppedSimulationSeconds: 0.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432746944363141,
+  droppedSimulationSeconds: 0.18333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432768778900374,
+  droppedSimulationSeconds: 0.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432804237584145,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436437538901735,
+  droppedSimulationSeconds: 1.8666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943499487068807,
+  droppedSimulationSeconds: 4.633333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943400089591516,
+  droppedSimulationSeconds: 3.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943334040938036,
+  droppedSimulationSeconds: 2.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432928326809085,
+  droppedSimulationSeconds: 1.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432638985973977,
+  droppedSimulationSeconds: 1.0333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432455108943357,
+  droppedSimulationSeconds: 0.6833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432425958766272,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432435603942523,
+  droppedSimulationSeconds: 0.08333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432471303461608,
+  droppedSimulationSeconds: 0.016666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9436100090775138,
+  droppedSimulationSeconds: 1.9166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9434780828444465,
+  droppedSimulationSeconds: 4.283333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433814864724741,
+  droppedSimulationSeconds: 3.1666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433110690355543,
+  droppedSimulationSeconds: 2.3333333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432655258726393,
+  droppedSimulationSeconds: 1.5666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432307753496861,
+  droppedSimulationSeconds: 1.2166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943204795155444,
+  droppedSimulationSeconds: 0.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431903892156989,
+  droppedSimulationSeconds: 0.5833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431822456749718,
+  droppedSimulationSeconds: 0.36666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431810786624069,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9435376572859364,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943384715116615,
+  droppedSimulationSeconds: 4.983333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432694012626356,
+  droppedSimulationSeconds: 3.783333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431876089589242,
+  droppedSimulationSeconds: 2.716666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431294716155995,
+  droppedSimulationSeconds: 1.9666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430862535104334,
+  droppedSimulationSeconds: 1.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430603809958182,
+  droppedSimulationSeconds: 0.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430455141741211,
+  droppedSimulationSeconds: 0.5833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430385882924336,
+  droppedSimulationSeconds: 0.35,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430409171834818,
+  droppedSimulationSeconds: 0.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433955982942633,
+  droppedSimulationSeconds: 2.033333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432560962747022,
+  droppedSimulationSeconds: 4.583333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431591273457551,
+  droppedSimulationSeconds: 3.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94309505105981,
+  droppedSimulationSeconds: 2.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430466271659774,
+  droppedSimulationSeconds: 1.6666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430195384698895,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430010212447976,
+  droppedSimulationSeconds: 0.7166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429889828655679,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429847259884833,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429865379759856,
+  droppedSimulationSeconds: 0.05,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9433450284800264,
+  droppedSimulationSeconds: 1.8333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432058540424005,
+  droppedSimulationSeconds: 4.616666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431108825881523,
+  droppedSimulationSeconds: 3.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430477175406531,
+  droppedSimulationSeconds: 2.1666666666666665,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430012905989574,
+  droppedSimulationSeconds: 1.6333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429727637819624,
+  droppedSimulationSeconds: 1.0333333333333332,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429563341378858,
+  droppedSimulationSeconds: 0.6666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429504355681119,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429531316486671,
+  droppedSimulationSeconds: 0.03333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.943312827748122,
+  droppedSimulationSeconds: 1.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431646854968463,
+  droppedSimulationSeconds: 4.95,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430529019432714,
+  droppedSimulationSeconds: 3.7666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429706343717585,
+  droppedSimulationSeconds: 2.8166666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429125981169219,
+  droppedSimulationSeconds: 2.0166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428714698861341,
+  droppedSimulationSeconds: 1.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.942841086566233,
+  droppedSimulationSeconds: 1.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428202954438567,
+  droppedSimulationSeconds: 0.8,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428118811290316,
+  droppedSimulationSeconds: 0.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428107985873098,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428118293872976,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431701892446733,
+  droppedSimulationSeconds: 1.55,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430398444753705,
+  droppedSimulationSeconds: 4.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429589607339082,
+  droppedSimulationSeconds: 2.783333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429038779858502,
+  droppedSimulationSeconds: 1.9333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428730219691064,
+  droppedSimulationSeconds: 1.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.942856731229176,
+  droppedSimulationSeconds: 0.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428484883770928,
+  droppedSimulationSeconds: 0.4,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428430397825898,
+  droppedSimulationSeconds: 0.3,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428433322894352,
+  droppedSimulationSeconds: 0.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9432074761016367,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430721506741597,
+  droppedSimulationSeconds: 4.6,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429682940209999,
+  droppedSimulationSeconds: 3.5666666666666664,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428928377156774,
+  droppedSimulationSeconds: 2.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428416820421718,
+  droppedSimulationSeconds: 1.8166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428086056238422,
+  droppedSimulationSeconds: 1.2333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427871323484533,
+  droppedSimulationSeconds: 0.8333333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427771513478574,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427727253163118,
+  droppedSimulationSeconds: 0.26666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427710687684299,
+  droppedSimulationSeconds: 0.16666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9431249227278281,
+  droppedSimulationSeconds: 1.65,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429944846697746,
+  droppedSimulationSeconds: 4.483333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429048789277782,
+  droppedSimulationSeconds: 3.1166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.942840701098299,
+  droppedSimulationSeconds: 2.2666666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427990001924133,
+  droppedSimulationSeconds: 1.5166666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427726173617378,
+  droppedSimulationSeconds: 1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427580241980512,
+  droppedSimulationSeconds: 0.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427494017795954,
+  droppedSimulationSeconds: 0.4166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427481492893774,
+  droppedSimulationSeconds: 0.15,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9430874806425428,
+  droppedSimulationSeconds: 2.183333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429463049746456,
+  droppedSimulationSeconds: 4.866666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428463321377243,
+  droppedSimulationSeconds: 3.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427724637651975,
+  droppedSimulationSeconds: 2.6166666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9427171514053814,
+  droppedSimulationSeconds: 1.9833333333333334,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9426774894259788,
+  droppedSimulationSeconds: 1.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9426488425972807,
+  droppedSimulationSeconds: 1.1,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9426289216778008,
+  droppedSimulationSeconds: 0.7833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9426192200807053,
+  droppedSimulationSeconds: 0.45,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9426164378828282,
+  droppedSimulationSeconds: 0.21666666666666667,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9429600251630194,
+  droppedSimulationSeconds: 1.8333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9428054884175421,
+  droppedSimulationSeconds: 5.366666666666666,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.94269511588896,
+  droppedSimulationSeconds: 3.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9426224784669816,
+  droppedSimulationSeconds: 2.5833333333333335,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9425702555069085,
+  droppedSimulationSeconds: 1.9,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9425386010812904,
+  droppedSimulationSeconds: 1.2,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9425163563677403,
+  droppedSimulationSeconds: 0.8833333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9425051091290017,
+  droppedSimulationSeconds: 0.5,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9424987157964871,
+  droppedSimulationSeconds: 0.3333333333333333,
+  maxStepsPerPump: 120
+}
+[scheduler.debt_dropped] {
+  requestedMultiplier: 1,
+  achievedMultiplier: 0.9424993502090186,
+  droppedSimulationSeconds: 0.11666666666666667,
+  maxStepsPerPump: 120
+}

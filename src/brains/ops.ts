@@ -1,7 +1,30 @@
 /** Low-level neural network primitives and parameter layouts used by brains. */
 
 import { clamp } from '../utils.ts';
-import { requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBridge.ts';
+import { unseededRandom, type RandomSource } from '../rng.ts';
+import {
+  assertInferenceBackendReady,
+  requireGruKernel,
+  requireLstmKernel,
+  requireRruKernel
+} from './nativeBridge.ts';
+import {
+  gruParamCount,
+  headParamCount,
+  lstmParamCount,
+  mlpParamCount,
+  rruParamCount
+} from './parameterCounts.ts';
+import type { InferenceBackend } from './types.ts';
+
+/** Re-export pure layout helpers for existing runtime and test imports. */
+export {
+  gruParamCount,
+  headParamCount,
+  lstmParamCount,
+  mlpParamCount,
+  rruParamCount
+} from './parameterCounts.ts';
 
 /**
  * Sigmoid activation function.
@@ -10,61 +33,6 @@ import { requireGruKernel, requireLstmKernel, requireRruKernel } from './wasmBri
  */
 export function sigmoid(x: number): number {
   return 1 / (1 + Math.exp(-x));
-}
-
-/**
- * Compute parameter count for an MLP with the given layer sizes.
- * @param layerSizes - Layer sizes including input and output.
- * @returns Total parameter count.
- */
-export function mlpParamCount(layerSizes: number[]): number {
-  let n = 0;
-  for (let l = 0; l < layerSizes.length - 1; l++) {
-    const ins = layerSizes[l]!;
-    const outs = layerSizes[l + 1]!;
-    n += outs * ins + outs;
-  }
-  return n;
-}
-
-/**
- * Compute parameter count for a GRU layer.
- * @param inSize - Input size.
- * @param hiddenSize - Hidden size.
- * @returns Total parameter count.
- */
-export function gruParamCount(inSize: number, hiddenSize: number): number {
-  return 3 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-/**
- * Compute parameter count for an LSTM layer.
- * @param inSize - Input size.
- * @param hiddenSize - Hidden size.
- * @returns Total parameter count.
- */
-export function lstmParamCount(inSize: number, hiddenSize: number): number {
-  return 4 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-/**
- * Compute parameter count for an RRU layer.
- * @param inSize - Input size.
- * @param hiddenSize - Hidden size.
- * @returns Total parameter count.
- */
-export function rruParamCount(inSize: number, hiddenSize: number): number {
-  return 2 * hiddenSize * (inSize + hiddenSize + 1);
-}
-
-/**
- * Compute parameter count for a dense head.
- * @param hiddenSize - Input size.
- * @param outSize - Output size.
- * @returns Total parameter count.
- */
-export function headParamCount(hiddenSize: number, outSize: number): number {
-  return outSize * hiddenSize + outSize;
 }
 
 /** Simple feed-forward MLP with tanh activations. */
@@ -84,15 +52,20 @@ export class MLP {
    * Create an MLP instance with optional weights.
    * @param layerSizes - Layer sizes including input and output.
    * @param weights - Optional weight buffer.
+   * @param rng - Random source used only when weights are omitted.
    */
-  constructor(layerSizes: number[], weights: Float32Array | null = null) {
+  constructor(
+    layerSizes: number[],
+    weights: Float32Array | null = null,
+    rng: RandomSource = unseededRandom
+  ) {
     this.layerSizes = layerSizes.slice();
     this.key = this.layerSizes.join("x");
     this.paramCount = mlpParamCount(this.layerSizes);
     this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
     if (!weights) {
       for (let i = 0; i < this.paramCount; i++) {
-        this.w[i] = (Math.random() * 2 - 1) * 0.6;
+        this.w[i] = (rng() * 2 - 1) * 0.6;
       }
     }
     this._bufs = [];
@@ -179,6 +152,8 @@ export class MLP {
 
 /** Gated recurrent unit implementation with configurable bias init. */
 export class GRU {
+  /** Immutable math backend selected before construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Input vector size. */
   inSize: number;
   /** Hidden state size. */
@@ -202,13 +177,19 @@ export class GRU {
    * @param hiddenSize - Hidden state size.
    * @param weights - Optional weight buffer.
    * @param initUpdateBias - Initial update gate bias.
+   * @param rng - Random source used only when weights are omitted.
+   * @param inferenceBackend - Immutable math backend for recurrent steps.
    */
   constructor(
     inSize: number,
     hiddenSize: number,
     weights: Float32Array | null = null,
-    initUpdateBias = -0.7
+    initUpdateBias = -0.7,
+    rng: RandomSource = unseededRandom,
+    inferenceBackend: InferenceBackend = 'js'
   ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = gruParamCount(inSize, hiddenSize);
@@ -219,11 +200,11 @@ export class GRU {
       const Wsz = H * I;
       const Usz = H * H;
       let idx = 0;
-      for (let i = 0; i < 3 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      for (let i = 0; i < 3 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      for (let j = 0; j < H; j++) this.w[idx++] = initUpdateBias + (Math.random() * 2 - 1) * 0.10;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10;
+      for (let i = 0; i < 3 * Wsz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.35;
+      for (let i = 0; i < 3 * Usz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.18;
+      for (let j = 0; j < H; j++) this.w[idx++] = initUpdateBias + (rng() * 2 - 1) * 0.10;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10;
     }
     this.h = new Float32Array(hiddenSize);
     this._z = new Float32Array(hiddenSize);
@@ -238,10 +219,14 @@ export class GRU {
 
   /**
    * Advance the GRU by one timestep.
+   * Uses the immutable backend selected at construction.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    if (this.inferenceBackend === 'js') {
+      return this.stepReference(x);
+    }
     const kernel = requireGruKernel();
     kernel.stepBatch(
       this.w,
@@ -307,7 +292,9 @@ export class GRU {
     for (let j = 0; j < H; j++) {
       let sumH = 0;
       const whRow = Wh + j * I;
-      for (let i = 0; i < I; i++) sumH += (this.w[whRow + i] ?? 0) * (x[i] ?? 0);
+      for (let i = 0; i < I; i++) {
+        sumH += (this.w[whRow + i] ?? 0) * (x[i] ?? 0);
+      }
       const uhRow = Uh + j * H;
       for (let k = 0; k < H; k++) {
         const rVal = this._r[k] ?? 0;
@@ -326,6 +313,8 @@ export class GRU {
 
 /** Long short-term memory implementation. */
 export class LSTM {
+  /** Immutable math backend selected before construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Input vector size. */
   inSize: number;
   /** Hidden state size. */
@@ -349,8 +338,19 @@ export class LSTM {
    * @param hiddenSize - Hidden state size.
    * @param weights - Optional weight buffer.
    * @param initForgetBias - Initial forget gate bias.
+   * @param rng - Random source used only when weights are omitted.
+   * @param inferenceBackend - Immutable math backend for recurrent steps.
    */
-  constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initForgetBias = 0.6) {
+  constructor(
+    inSize: number,
+    hiddenSize: number,
+    weights: Float32Array | null = null,
+    initForgetBias = 0.6,
+    rng: RandomSource = unseededRandom,
+    inferenceBackend: InferenceBackend = 'js'
+  ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = lstmParamCount(inSize, hiddenSize);
@@ -361,12 +361,12 @@ export class LSTM {
       const Wsz = H * I;
       const Usz = H * H;
       let idx = 0;
-      for (let i = 0; i < 4 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      for (let i = 0; i < 4 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bi
-      for (let j = 0; j < H; j++) this.w[idx++] = initForgetBias + (Math.random() * 2 - 1) * 0.10; // bf
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bo
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bg
+      for (let i = 0; i < 4 * Wsz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.35;
+      for (let i = 0; i < 4 * Usz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.18;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bi
+      for (let j = 0; j < H; j++) this.w[idx++] = initForgetBias + (rng() * 2 - 1) * 0.10; // bf
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bo
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bg
     }
     this.h = new Float32Array(hiddenSize);
     this.c = new Float32Array(hiddenSize);
@@ -382,10 +382,14 @@ export class LSTM {
 
   /**
    * Advance the LSTM by one timestep.
+   * Uses the immutable backend selected at construction.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    if (this.inferenceBackend === 'js') {
+      return this.stepReference(x);
+    }
     const kernel = requireLstmKernel();
     kernel.stepBatch(
       this.w,
@@ -475,6 +479,8 @@ export class LSTM {
 
 /** Minimal recurrent unit with reset gate. */
 export class RRU {
+  /** Immutable math backend selected before construction. */
+  readonly inferenceBackend: InferenceBackend;
   /** Input vector size. */
   inSize: number;
   /** Hidden state size. */
@@ -494,8 +500,19 @@ export class RRU {
    * @param hiddenSize - Hidden state size.
    * @param weights - Optional weight buffer.
    * @param initGateBias - Initial reset gate bias.
+   * @param rng - Random source used only when weights are omitted.
+   * @param inferenceBackend - Immutable math backend for recurrent steps.
    */
-  constructor(inSize: number, hiddenSize: number, weights: Float32Array | null = null, initGateBias = 0.1) {
+  constructor(
+    inSize: number,
+    hiddenSize: number,
+    weights: Float32Array | null = null,
+    initGateBias = 0.1,
+    rng: RandomSource = unseededRandom,
+    inferenceBackend: InferenceBackend = 'js'
+  ) {
+    assertInferenceBackendReady(inferenceBackend);
+    this.inferenceBackend = inferenceBackend;
     this.inSize = inSize;
     this.hiddenSize = hiddenSize;
     this.paramCount = rruParamCount(inSize, hiddenSize);
@@ -506,10 +523,10 @@ export class RRU {
       const Wsz = H * I;
       const Usz = H * H;
       let idx = 0;
-      for (let i = 0; i < 2 * Wsz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.35;
-      for (let i = 0; i < 2 * Usz; i++) this.w[idx++] = (Math.random() * 2 - 1) * 0.18;
-      for (let j = 0; j < H; j++) this.w[idx++] = (Math.random() * 2 - 1) * 0.10; // bc
-      for (let j = 0; j < H; j++) this.w[idx++] = initGateBias + (Math.random() * 2 - 1) * 0.10; // br
+      for (let i = 0; i < 2 * Wsz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.35;
+      for (let i = 0; i < 2 * Usz; i++) this.w[idx++] = (rng() * 2 - 1) * 0.18;
+      for (let j = 0; j < H; j++) this.w[idx++] = (rng() * 2 - 1) * 0.10; // bc
+      for (let j = 0; j < H; j++) this.w[idx++] = initGateBias + (rng() * 2 - 1) * 0.10; // br
     }
     this.h = new Float32Array(hiddenSize);
     this._hPrev = new Float32Array(hiddenSize);
@@ -522,10 +539,14 @@ export class RRU {
 
   /**
    * Advance the RRU by one timestep.
+   * Uses the immutable backend selected at construction.
    * @param x - Input vector.
    * @returns Updated hidden state.
    */
   step(x: Float32Array): Float32Array {
+    if (this.inferenceBackend === 'js') {
+      return this.stepReference(x);
+    }
     const kernel = requireRruKernel();
     kernel.stepBatch(
       this.w,
@@ -606,14 +627,20 @@ export class DenseHead {
    * @param inSize - Input size.
    * @param outSize - Output size.
    * @param weights - Optional weight buffer.
+   * @param rng - Random source used only when weights are omitted.
    */
-  constructor(inSize: number, outSize: number, weights: Float32Array | null = null) {
+  constructor(
+    inSize: number,
+    outSize: number,
+    weights: Float32Array | null = null,
+    rng: RandomSource = unseededRandom
+  ) {
     this.inSize = inSize;
     this.outSize = outSize;
     this.paramCount = headParamCount(inSize, outSize);
     this.w = weights ? weights.slice() : new Float32Array(this.paramCount);
     if (!weights) {
-      for (let i = 0; i < this.w.length; i++) this.w[i] = clamp((Math.random() * 2 - 1) * 0.45, -5, 5);
+      for (let i = 0; i < this.w.length; i++) this.w[i] = clamp((rng() * 2 - 1) * 0.45, -5, 5);
     }
     this._out = new Float32Array(outSize);
   }

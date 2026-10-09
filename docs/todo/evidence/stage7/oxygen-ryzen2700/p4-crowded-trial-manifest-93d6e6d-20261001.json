@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "93d6e6d36f71e4589cc61426b8d36efb707059ce",
+  "nativeSourceSha256": "a28612bee216f397a5208c72dd6112de82ad44905007faf29b6d1051fc646b72",
+  "nativeBuildIdentifier": "slither_native/0.1.0+93d6e6d36f71.571f4cc5ab024c11",
+  "buildClass": "production",
+  "targetTriple": "x86_64-unknown-linux-gnu",
+  "hostLoadReport": "carbon-host-load-20261001.json",
+  "earlyExitValidation": {
+    "report": "p4-crowded-early-exit-93d6e6d-20261001.json",
+    "reportSha256": "a9aee216545a39eed593186999d386f13daf84cca1327c499a47b97a0f6176b9",
+    "executedRunnerSha256": "9ad2530dca23e017bda3a75d85b46db3b86489e631a309c93df30e0bbcaf5a44",
+    "wallSeconds": 27.654664816,
+    "frames": 233,
+    "peakInArenaCollisionSegments": 139603,
+    "outsideArenaPointsAtPeak": 0,
+    "reachedRequiredBodySegments": false,
+    "stopReason": "first-generation-survivors-cannot-reach-in-arena-boundary",
+    "healthyBeforeOrderlyServerClose": true
+  },
+  "trial": {
+    "executedRunnerSha256": "acba921d7086cf74d46a0a2a0df9702b48158f2e45cfae7042f8080a6d46506c",
+    "settings": { "population": 300, "worldRadius": 10000, "initialBodyPoints": 5, "maximumBodyPointsPerSnake": 1000, "baseSpeed": 650, "requestedSimSpeed": 1, "pelletTarget": 25000, "foodValue": 8, "growthPerFood": 10, "headSkip": 30 },
+    "retainedSamples": [
+      { "wallSeconds": 0.018555423, "alive": 300, "bodySegments": 1200, "inArenaCollisionSegments": 0, "outsideArenaPoints": 0 },
+      { "wallSeconds": 5.032227528, "alive": 281, "bodySegments": 78195, "inArenaCollisionSegments": 70421, "outsideArenaPoints": 0 },
+      { "wallSeconds": 15.217962245, "alive": 244, "bodySegments": 122560, "inArenaCollisionSegments": 115559, "outsideArenaPoints": 0 },
+      { "wallSeconds": 30.346873426, "alive": 204, "bodySegments": 145864, "inArenaCollisionSegments": 139948, "outsideArenaPoints": 0 },
+      { "wallSeconds": 35.440809893, "alive": 193, "bodySegments": 146148, "inArenaCollisionSegments": 140551, "outsideArenaPoints": 0 },
+      { "wallSeconds": 60.790194261, "alive": 154, "bodySegments": 139633, "inArenaCollisionSegments": 135167, "outsideArenaPoints": 0 },
+      { "wallSeconds": 228.994672872, "alive": 107, "bodySegments": 105863, "inArenaCollisionSegments": 102760, "outsideArenaPoints": 0 },
+      { "wallSeconds": 472.870894567, "alive": 84, "bodySegments": 83916, "inArenaCollisionSegments": 81480, "outsideArenaPoints": 0 }
+    ],
+    "finalHealth": "p4-crowded-trial-final-health-93d6e6d-20261001.json",
+    "screenshot": "p4-crowded-trial-93d6e6d-20261001.png",
+    "result": "Does not qualify P4. The corrected geometry stays inside the arena in these samples, but ordinary deaths make the first-generation >200k in-arena collision target unreachable by 30.35 seconds. At 204 survivors, even every body at its 1000-point cap yields at most 197880 collision segments after the 30-point head skip. The task-owned process was stopped with targeted SIGTERM after saving healthy counters; no complete capacity-run report or successful hold is claimed."
+  },
+  "scope": "Fixture qualification and a failed capacity trial, not a performance acceptance result. Native code and production geometry were unchanged. The old off-arena preparation fixture remains diagnostic only. The runner now audits geometry and ends this impossible first-generation hold early; a sustainable >200k in-arena workload remains open."
+}

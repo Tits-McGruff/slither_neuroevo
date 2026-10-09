@@ -1,0 +1,19 @@
+X [ERROR] Cannot read directory "../../..": Access is denied.
+
+X [ERROR] Could not resolve "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\vite.config.ts"
+
+[31mfailed to load config from C:\Users\jlow8\source\repos\slither_neuroevo\vite.config.ts[39m
+[31merror when starting dev server:
+Error: Build failed with 2 errors:
+error: Cannot read directory "../../..": Access is denied.
+error: Could not resolve "C:\\Users\\jlow8\\source\\repos\\slither_neuroevo\\vite.config.ts"
+    at failureErrorWithLog (C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:1467:15)
+    at C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:926:25
+    at runOnEndCallbacks (C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:1307:45)
+    at buildResponseToResult (C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:924:7)
+    at C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:951:16
+    at responseCallbacks.<computed> (C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:603:9)
+    at handleIncomingPacket (C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:658:12)
+    at Socket.readFromStdout (C:\Users\jlow8\source\repos\slither_neuroevo\node_modules\esbuild\lib\main.js:581:7)
+    at Socket.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:559:12)[39m

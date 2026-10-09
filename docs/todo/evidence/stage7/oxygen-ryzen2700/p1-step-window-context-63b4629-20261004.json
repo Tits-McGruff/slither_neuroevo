@@ -1,0 +1,76 @@
+{
+  "sourceRevision": "63b46297d00cc19be0aaa2fd99ca710b54613258",
+  "nativeBuildIdentifier": "slither_native/0.1.0+63b46297d00c.62e68d86759551d3",
+  "scope": "600-second evolved P1 timing window, five Rust workers, two real trainer actors and one programmatic player. This is not another thirty-minute memory soak, browser rendering, reconnect or archive-overlap gate.",
+  "reports": [
+    {
+      "file": "p1-step-window-loaded-63b4629-20261004.json",
+      "sha256": "fc4dad0b8414669889ddde415e09afcdb260814a31b5ddbeb23e6633d1f70698",
+      "remoteDigestMatched": true
+    },
+    {
+      "file": "p1-step-window-player-63b4629-20261004.json",
+      "sha256": "5acc48bd0c49c73676db247cef91f86111d9c61ab0a0b70d1b199c4228147bdd"
+    }
+  ],
+  "trainer": {
+    "sourceRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+    "workingTree": "clean",
+    "actors": 2,
+    "trainDevice": "cpu",
+    "inferDevice": "cpu",
+    "networkHidden": 256,
+    "networkLayers": 2,
+    "torchThreads": 1,
+    "ompThreads": 1,
+    "mklThreads": 1,
+    "checkpointScope": "task-owned separate directory, removed after explicit cancellation",
+    "supervisorSha256": "fc2eed366302891b645b84d6a5c317ea8fa6f86bf2c9e62dc253f32e326373d5"
+  },
+  "player": {
+    "rateHz": 30,
+    "turn": 0.5,
+    "boost": 0,
+    "supervisorSha256": "5a614cc135868a30c295b4fa78fc8f823d0703f936bdc68e7832d9c0b35d40c9",
+    "rendering": false,
+    "reconnects": false
+  },
+  "server": {
+    "supervisorSha256": "3070c13929d7ade0bdc2f2a78c0b186405e13233cc2ae5c14350c43e099fc177",
+    "resume": "latest",
+    "fixturePreparation": "Committed realtime-workload.ts creates actual P1 then warms through generation one before resuming generation two; real trainer applied actions before sampler began.",
+    "taskRoot": "/srv/tablebases/codex-slither-step-window",
+    "ownerProductionTouched": false
+  },
+  "analysis": {
+    "steps": 35765,
+    "above16667Micros": 403,
+    "above16667Percent": 1.1267999440794072,
+    "ordinarySlowSteps": 393,
+    "terminalSteps": 10,
+    "ordinarySlowControlMicros": 5280001,
+    "ordinarySlowSensingMicros": 3445960,
+    "ordinarySlowInferenceMicros": 906586,
+    "ordinarySlowWorldMicros": 3085749,
+    "ordinarySlowOtherMicros": 378704,
+    "terminalComputeMicros": 2234088,
+    "terminalEvolutionMicros": 2139840,
+    "terminalSummaryMicros": 1724304,
+    "terminalReproductionMicros": 387129,
+    "interpretation": "Ordinary slow steps alone exceed one percent, so excluding generation-ending computation would still fail. Sensing and world work dominate ordinary slow-step wall attribution; inference is a smaller share. Counters give attribution, not causal proof of host contention."
+  },
+  "hostContext": {
+    "scope": "Read-only point snapshots before/after measurement, not synchronized continuous CPU evidence or proof that Plex caused the failed percentile.",
+    "carbonBefore": "2026-10-04T03:59:39Z\n 14:59:39 up 15 days, 12:13,  1 user,  load average: 6.23, 5.63, 5.90\ntop - 14:59:39 up 15 days, 12:13,  1 user,  load average: 6.23, 5.63, 5.90\nTasks: 821 total, 4 running, 816 sleep, 1 d-sleep, 0 stopped, 0 zombie\n%Cpu(s): 27.5 us, 26.8 sy,  0.0 ni, 42.7 id,  1.4 wa,  0.0 hi,  1.6 si,  0.0 st \nMiB Mem :  64224.8 total,   3195.9 free,  48870.7 used,  31858.5 buff/cache     \nMiB Swap:      0.0 total,      0.0 free,      0.0 used.  15354.2 avail Mem \n\n    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n1013091 nobody    20   0 1979836 650620  10468 S 185.5   1.0     42,52 qbittorrent-nox\n3970679 nobody    20   0  739000 178076  11572 R  98.9   0.3   4:49.98 Plex Transcoder\n 343027 root      20   0   16.7g  13.8g  13708 S  94.8  22.0     15,56 qemu-system-x86\n  20370 root      20   0       0      0      0 R  90.7   0.0     37,24 mdunraidd0\n3042430 root      20   0  189256  15588   4604 S  61.8   0.0  57:00.85 apps.plugin\n2650668 nobody    20   0 4108684 710636  10640 S  45.3   1.1 288:47.60 Sonarr\n  21364 root      20   0  773560 273236   1604 S  28.9   0.4    6d+23h shfs\n2570545 nobody    20   0  261.4g 273880  88024 S  24.7   0.4  16:41.99 Radarr\n3041237 201       20   0 1158944 186240  19028 S  20.6   0.3  40:15.93 netdata\n3978938 root      20   0    6632   5028   2900 R  16.5   0.0   0:00.07 top\n    209 root      20   0       0      0      0 R  12.4   0.0     24,32 kswapd0\n",
+    "oxygenBefore": "2026-10-04T03:59:37Z\n 14:59:37 up 4 days, 2 min,  3 users,  load average: 0.73, 0.31, 0.31\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   716759040 13875773440    52826112  2568740864 16058589184\nSwap:     8589930496           0  8589930496\nFilesystem                    1B-blocks         Used    Available Use% Mounted on\n/dev/mapper/oxygen--vg-srv 399603867648 210370904064 172601872384  55% /srv\n",
+    "carbonAfter": "2026-10-04T04:10:42Z\n 15:10:42 up 15 days, 12:24,  1 user,  load average: 10.27, 8.55, 7.09\ntop - 15:10:42 up 15 days, 12:24,  1 user,  load average: 10.27, 8.55, 7.09\nTasks: 830 total, 4 running, 825 sleep, 1 d-sleep, 0 stopped, 0 zombie\n%Cpu(s): 26.3 us, 20.3 sy,  0.0 ni, 50.0 id,  1.9 wa,  0.0 hi,  1.4 si,  0.0 st \nMiB Mem :  64224.8 total,   4635.5 free,  44909.2 used,  29824.9 buff/cache     \nMiB Swap:      0.0 total,      0.0 free,      0.0 used.  19315.6 avail Mem \n\n    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND\n 343027 root      20   0   16.7g  13.8g  13708 S 115.6  22.0     16,07 qemu-system-x86\n3995830 nobody    20   0  170048  25832  12232 S 103.2   0.0   1:32.25 Plex Transcoder\n1013091 nobody    20   0 1979836 651540  11388 S  99.1   1.0     43,03 qbittorrent-nox\n3970679 nobody    20   0  738948 175688   9148 R  94.9   0.3  15:56.55 Plex Transcoder\n3995802 nobody    20   0  500828 324936  31596 R  94.9   0.5   1:32.83 Plex Media Scan\n  20370 root      20   0       0      0      0 R  90.8   0.0     37,32 mdunraidd0\n3042430 root      20   0  189256  15752   4768 S  37.1   0.0  58:20.24 apps.plugin\n3041237 201       20   0 1147452 180660  15884 S  20.6   0.3  41:07.81 netdata\n  17469 root      20   0       0      0      0 D  12.4   0.0 277:11.79 mdrecoveryd\n  21364 root      20   0  773556 273232   1604 S  12.4   0.4    6d+23h shfs\n3998577 root      20   0    6632   5064   2932 R  12.4   0.0   0:00.06 top\n",
+    "oxygenAfter": "2026-10-04T04:10:42Z\n 15:10:42 up 4 days, 13 min,  3 users,  load average: 0.76, 0.63, 0.52\n               total        used        free      shared  buff/cache   available\nMem:     16775348224   764018688 13758291968    52871168  2640146432 16011329536\nSwap:     8589930496           0  8589930496\nFilesystem                    1B-blocks         Used    Available Use% Mounted on\n/dev/mapper/oxygen--vg-srv 399603867648 210439348224 172533428224  55% /srv\nfc4dad0b8414669889ddde415e09afcdb260814a31b5ddbeb23e6633d1f70698  /srv/tablebases/codex-slither-step-window/p1/loaded-window.json\n"
+  },
+  "lifecycle": {
+    "trainerExitCode": 0,
+    "playerExitCode": 0,
+    "serverExitCode": 0,
+    "allStoppedBeforeCleanup": true
+  },
+  "nextAction": "Compare four and six workers from equivalent evolved P1 boundaries under real trainer/player load before selecting another sensing/world optimization. Preserve workload, physics, sensors and thresholds."
+}

@@ -1,23 +1,69 @@
+import type {
+  RustImportBranchNotice,
+  RustLegacyConversionNotice,
+  RustRecoveryNotice
+} from '../protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../protocol/messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
+import { RUNTIME_SERVER_URL_META } from '../protocol/browserRouting.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
-import type { CoreSettings, SettingsUpdate } from '../protocol/settings.ts';
+import type { SpatialHashDiagnostics } from '../spatialHash.ts';
+import type {
+  CoreSettings,
+  LiveSettingsUpdate,
+  SettingsUpdate
+} from '../protocol/settings.ts';
 
-/** Default WebSocket URL injected at build time. */
-declare const __SLITHER_DEFAULT_WS_URL__: string | undefined;
-/** Server port injected at build time. */
-declare const __SLITHER_SERVER_PORT__: number | undefined;
+/** Protocol version implemented by this browser transport. */
+export const WS_PROTOCOL_VERSION = 2;
+
+/** Inference-path fields displayed or diagnosed by the browser. */
+export interface WelcomeInferenceMode {
+  /** Requested math backend. */
+  requestedBackend: string;
+  /** Currently executing math backend. */
+  activeBackend: string;
+  /** Whether worker-thread inference was requested. */
+  requestedMt: boolean;
+  /** Number of active inference workers. */
+  activeWorkerCount: number;
+}
 
 /** Welcome message payload from the server. */
 export interface WelcomeMsg {
   type: 'welcome';
+  protocolVersion: number;
   sessionId: string;
   tickRate: number;
   worldSeed: number;
-  cfgHash: string;
+  runId: string;
+  /** Durable recovery provenance when startup selected a retained branch. */
+  recovery?: RustRecoveryNotice;
+  /** Durable provenance when an older imported checkpoint starts a fresh lineage. */
+  importBranch?: RustImportBranchNotice;
+  /** Honest population-only provenance when startup converted an old SQLite checkpoint. */
+  legacyConversion?: RustLegacyConversionNotice;
+  configRevision: number;
+  configHash: string;
+  settings: {
+    core: CoreSettings;
+    updates: SettingsUpdate[];
+  };
+  /** Active source graph when the authority can provide it exactly. */
+  graphSpec?: GraphSpec;
+  inferenceMode: WelcomeInferenceMode;
   sensorSpec: SensorSpec;
   serializerVersion: number;
   frameByteLength: number;
+  /** Optional server features whose UI must stay hidden on older/reference runtimes. */
+  capabilities?: {
+    /** Whether the exact current managed checkpoint can be pinned. */
+    checkpointPinning: boolean;
+    /** Whether direct archive download is available. */
+    archiveExport: boolean;
+    /** Whether the selected archive can be uploaded unchanged. */
+    archiveImport?: boolean;
+  };
 }
 
 /** Stats message payload from the server. */
@@ -32,6 +78,7 @@ export interface StatsMsg {
   baselineBotsAlive: number;
   baselineBotsTotal: number;
   fps: number;
+  collisionGrid?: SpatialHashDiagnostics;
   fitnessData?: FitnessData;
   fitnessHistory?: FitnessHistoryEntry[];
   viz?: VizData;
@@ -52,6 +99,16 @@ export interface AssignMsg {
   type: 'assign';
   snakeId: number;
   controller: 'player' | 'bot';
+  resumeToken: string;
+  reclaimed?: boolean;
+}
+
+/** Explicit controller-lease reclaim result. */
+export interface ReclaimResultMsg {
+  type: 'reclaimResult';
+  reclaimed: boolean;
+  reason: 'reclaimed' | 'expired' | 'invalid' | 'ambiguous' | 'snake-unavailable';
+  snakeId?: number;
 }
 
 /** Sensor message payload for controlled snakes. */
@@ -69,6 +126,80 @@ export interface ErrorMsg {
   message: string;
 }
 
+/** Authoritative result for one live-settings request. */
+export interface SettingsAppliedMsg {
+  /** Message discriminator. */
+  type: 'settingsApplied';
+  /** Original client request id. */
+  requestId: string;
+  /** Whether the full request was applied. */
+  applied: boolean;
+  /** Authoritative normalized patch. */
+  updates: LiveSettingsUpdate[];
+  /** Current monotonic config revision. */
+  configRevision: number;
+  /** Current canonical config hash. */
+  configHash: string;
+  /** Accepted global command sequence. */
+  sequence?: number;
+  /** Fixed step that first observed the update. */
+  step?: number;
+  /** Rejection reason. */
+  reason?: string;
+}
+
+/** Authoritative result for one God Mode request. */
+export interface GodModeResultMsg {
+  /** Message discriminator. */
+  type: 'godModeResult';
+  /** Original client request id. */
+  requestId: string;
+  /** Requested mutation. */
+  action: 'kill' | 'move';
+  /** Target snake id. */
+  snakeId: number;
+  /** Whether the mutation was applied. */
+  applied: boolean;
+  /** Rejection reason. */
+  reason?: string;
+  /** Actual authoritative X after a move. */
+  x?: number;
+  /** Actual authoritative Y after a move. */
+  y?: number;
+  /** Number of normal death pellets added by a kill. */
+  pelletsDropped?: number;
+}
+
+/** Protocol 2 result for an explicit New Run request. */
+export interface NewRunResultMsg {
+  /** Message discriminator. */
+  type: 'newRunResult';
+  /** Original client request id. */
+  requestId: string;
+  /** Whether a durably checkpointed new run started. */
+  applied: boolean;
+  /** New seed on future success. */
+  worldSeed?: number;
+  /** New run id on future success. */
+  runId?: string;
+  /** Explicit rejection or unavailability reason. */
+  reason?: string;
+}
+
+/** Reliable notice that the live socket now points at a different authority. */
+export interface StateReplacedMsg {
+  /** Message discriminator. */
+  type: 'stateReplaced';
+  /** Echoed by joins to acknowledge this exact replacement. */
+  rejoinToken: string;
+  /** Replacement operation that completed. */
+  reason: 'import' | 'reset' | 'newRun';
+  /** Exact replacement checkpoint identity. */
+  checkpointId: string;
+  /** Complete current server state used before sending a new join. */
+  welcome: WelcomeMsg;
+}
+
 /** Reset request payload sent to the server. */
 export interface ResetMsg {
   type: 'reset';
@@ -84,7 +215,12 @@ export interface WsClientCallbacks {
   onFrame: (buffer: ArrayBuffer) => void;
   onStats: (msg: StatsMsg) => void;
   onAssign?: (msg: AssignMsg) => void;
+  onReclaimResult?: (msg: ReclaimResultMsg) => void;
   onSensors?: (msg: SensorsMsg) => void;
+  onSettingsApplied?: (msg: SettingsAppliedMsg) => void;
+  onGodModeResult?: (msg: GodModeResultMsg) => void;
+  onNewRunResult?: (msg: NewRunResultMsg) => void;
+  onStateReplaced?: (msg: StateReplacedMsg) => void;
   onError?: (msg: ErrorMsg) => void;
 }
 
@@ -92,20 +228,94 @@ export interface WsClientCallbacks {
 export interface WsClient {
   connect: (url: string) => void;
   disconnect: () => void;
-  sendJoin: (mode: 'spectator' | 'player', name?: string) => void;
+  sendJoin: (mode: 'spectator' | 'player', name?: string, resumeToken?: string) => void;
   sendAction: (tick: number, snakeId: number, turn: number, boost: number) => void;
   sendView: (payload: { viewW?: number; viewH?: number; mode?: 'overview' | 'follow' | 'toggle' }) => void;
   sendViz: (enabled: boolean) => void;
   sendReset: (settings: CoreSettings, updates: SettingsUpdate[], graphSpec?: GraphSpec | null) => void;
+  sendSettings: (requestId: string, updates: LiveSettingsUpdate[]) => void;
+  sendGodModeKill: (requestId: string, snakeId: number) => void;
+  sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number) => void;
+  sendNewRun: (requestId: string) => void;
   isConnected: () => boolean;
 }
 
-/** Default server URL used when none is configured. */
 /** Build-time server URL from Vite when configured. */
 const INJECTED_SERVER_URL =
-  typeof __SLITHER_DEFAULT_WS_URL__ === 'string' ? __SLITHER_DEFAULT_WS_URL__ : '';
+  typeof import.meta.env.SLITHER_DEFAULT_WS_URL === 'string'
+    ? import.meta.env.SLITHER_DEFAULT_WS_URL
+    : '';
 /** Default server URL used when no runtime host is available. */
 export const DEFAULT_SERVER_URL = 'ws://localhost:5174';
+
+/**
+ * Format the concise server identity shown in the browser status pill.
+ * @param worldSeed - Active authoritative run seed.
+ * @param inferenceMode - Active math backend and worker count from welcome.
+ * @returns Human-readable server, seed, and inference-mode label.
+ */
+export function formatServerRuntimeStatus(
+  worldSeed: number,
+  inferenceMode: WelcomeInferenceMode
+): string {
+  const seed = Number.isFinite(worldSeed) ? worldSeed >>> 0 : 0;
+  const backend = inferenceMode.activeBackend.trim() || 'unknown';
+  const workerCount = Number.isFinite(inferenceMode.activeWorkerCount)
+    ? Math.max(0, Math.floor(inferenceMode.activeWorkerCount))
+    : 0;
+  const threading = workerCount > 0 ? `MT×${workerCount}` : 'single-thread';
+  return `Server · seed ${seed} · ${backend} ${threading}`;
+}
+
+/**
+ * Format complete recovery provenance for the browser status tooltip.
+ * @param recovery - Durable branch notice supplied by the Rust server.
+ * @returns Plain recovery identity and abandoned-generation description.
+ */
+export function formatRecoveryRuntimeStatus(recovery: RustRecoveryNotice): string {
+  const generation = BigInt(`0x${recovery.recoveredGeneration}`).toString(10);
+  if (recovery.explicitResume) {
+    return `Selected retained checkpoint ${recovery.recoveredCheckpointId} at generation ${generation} from run ${recovery.failedRunId} into branch ${recovery.branchRunId}. Later source history remains preserved.`;
+  }
+  const continuation = recovery.compatibleBuild
+    ? ' Compatible application-build continuation; exact replay ends at the source checkpoint.'
+    : '';
+  const loss = recovery.lostCompletedGenerations
+    ? `abandoned completed generations ${BigInt(`0x${recovery.lostCompletedGenerations.from}`).toString(10)} through ${BigInt(`0x${recovery.lostCompletedGenerations.through}`).toString(10)}`
+    : 'no completed generations were lost';
+  return `Recovered checkpoint ${recovery.recoveredCheckpointId} at generation ${generation} from failed run ${recovery.failedRunId} into branch ${recovery.branchRunId}; failed checkpoint ${recovery.failedCheckpointId}; ${loss}.${continuation}`;
+}
+
+/**
+ * Format the source of an exact archive imported as a new branch.
+ * @param branch - Durable import-branch notice supplied by the Rust server.
+ * @returns Plain source and destination lineage identity.
+ */
+export function formatImportBranchRuntimeStatus(branch: RustImportBranchNotice): string {
+  const generation = BigInt(`0x${branch.sourceGeneration}`).toString(10);
+  return `Imported checkpoint ${branch.sourceCheckpointId} at generation ${generation} from run ${branch.sourceRunId} into branch ${branch.branchRunId}.`;
+}
+
+/**
+ * Format the limits of a run started from an older SQLite population.
+ * @param conversion - Population-only source supplied by the Rust server.
+ * @returns Plain source identity and exact-resume warning.
+ */
+export function formatLegacyConversionRuntimeStatus(
+  conversion: RustLegacyConversionNotice
+): string {
+  const source = conversion.sourceFormat === 'typescript-v2'
+    ? 'TypeScript v2'
+    : conversion.sourceFormat === 'legacy-gzip'
+      ? 'legacy gzip'
+      : conversion.sourceFormat === 'browser-json'
+        ? 'browser JSON'
+        : 'legacy JSON';
+  const boundary = conversion.sourceSnapshotId !== undefined ? ` snapshot ${conversion.sourceSnapshotId}`
+    : conversion.sourceGeneration ? ` generation ${BigInt(`0x${conversion.sourceGeneration}`).toString()}` : '';
+  const seed = conversion.sourceSeed === undefined ? '' : ` Source seed: ${conversion.sourceSeed}.`;
+  return `Started from ${source}${boundary}. The population was converted, but this is a new run rather than an exact continuation.${seed}`;
+}
 
 /**
  * Format a host for URL usage, adding brackets for IPv6 literals.
@@ -119,14 +329,18 @@ function formatHostForUrl(host: string): string {
 
 /**
  * Resolve the default server URL from injected config and runtime location.
+ * @param configuredUrl - Build-time configured server URL, if any.
  * @returns Default WebSocket URL when no explicit override is provided.
  */
-export function getDefaultServerUrl(): string {
-  const injected = INJECTED_SERVER_URL.trim();
+export function getDefaultServerUrl(configuredUrl = INJECTED_SERVER_URL): string {
+  const runtime = getRuntimeServerUrl();
+  if (runtime) return runtime;
+  const injected = configuredUrl.trim();
   if (injected) return injected;
+  const configuredPort = import.meta.env.SLITHER_SERVER_PORT;
   const port =
-    typeof __SLITHER_SERVER_PORT__ === 'number' && Number.isFinite(__SLITHER_SERVER_PORT__)
-      ? __SLITHER_SERVER_PORT__
+    typeof configuredPort === 'number' && Number.isFinite(configuredPort)
+      ? configuredPort
       : 5174;
   if (typeof window !== 'undefined' && window.location) {
     const host = window.location.hostname || '';
@@ -137,13 +351,25 @@ export function getDefaultServerUrl(): string {
   }
   return DEFAULT_SERVER_URL;
 }
+/** Read process routing supplied with a production page, independently of its bundle build. */
+function getRuntimeServerUrl(): string | null {
+  if (typeof document === 'undefined') return null;
+  const meta = document.querySelector?.<HTMLMetaElement>(`meta[name="${RUNTIME_SERVER_URL_META}"]`);
+  if (!meta) return null;
+  const configured = meta.content.trim();
+  if (configured) return configured;
+  if (typeof window === 'undefined' || !window.location?.host) return null;
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${protocol}://${window.location.host}`;
+}
+
 /** Handshake timeout in milliseconds before forcing reconnect. */
 const HANDSHAKE_TIMEOUT_MS = 1500;
 /** Local storage key for persisting the server URL. */
 const STORAGE_KEY = 'slither_server_url';
 
 /**
- * Resolve the server URL from query params, local storage, or runtime defaults.
+ * Resolve the server URL from query params, served runtime routing, storage, or build defaults.
  * @param defaultUrl - Fallback URL when none is provided.
  * @returns Resolved WebSocket URL.
  */
@@ -152,6 +378,9 @@ export function resolveServerUrl(defaultUrl = getDefaultServerUrl()): string {
   const params = new URLSearchParams(search || '');
   const paramUrl = params.get('server');
   if (paramUrl) return paramUrl;
+  // Cached successful defaults must not override a changed service configuration.
+  const runtime = getRuntimeServerUrl();
+  if (runtime) return runtime;
   let stored: string | null = null;
   try {
     stored = localStorage.getItem(STORAGE_KEY);
@@ -195,7 +424,11 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     socket.binaryType = 'arraybuffer';
     socket.onopen = () => {
       connected = false;
-      socket?.send(JSON.stringify({ type: 'hello', clientType: 'ui', version: 1 }));
+      socket?.send(JSON.stringify({
+        type: 'hello',
+        clientType: 'ui',
+        version: WS_PROTOCOL_VERSION
+      }));
       clearHandshakeTimer();
       handshakeTimer = setTimeout(() => {
         if (connected || !socket) return;
@@ -228,9 +461,22 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     clearHandshakeTimer();
   };
 
-  const sendJoin = (mode: 'spectator' | 'player', name?: string): void => {
+  /** Latest observed replacement; forgotten when a new transport receives its welcome. */
+  let rejoinToken: string | undefined;
+
+  const sendJoin = (
+    mode: 'spectator' | 'player',
+    name?: string,
+    resumeToken?: string
+  ): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
-    const payload = name ? { type: 'join', mode, name } : { type: 'join', mode };
+    const payload = {
+      type: 'join',
+      mode,
+      ...(name ? { name } : {}),
+      ...(resumeToken ? { resumeToken } : {}),
+      ...(rejoinToken ? { rejoinToken } : {})
+    };
     socket.send(JSON.stringify(payload));
   };
 
@@ -259,6 +505,35 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     const payload: ResetMsg = { type: 'reset', settings, updates };
     if (graphSpec !== undefined) payload.graphSpec = graphSpec;
     socket.send(JSON.stringify(payload));
+  };
+
+  /** Send one atomic authoritative live-settings request. */
+  const sendSettings = (requestId: string, updates: LiveSettingsUpdate[]): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'settings', requestId, updates }));
+  };
+
+  /** Send one authoritative God Mode kill request. */
+  const sendGodModeKill = (requestId: string, snakeId: number): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'kill', snakeId }));
+  };
+
+  /** Send one authoritative God Mode move request. */
+  const sendGodModeMove = (
+    requestId: string,
+    snakeId: number,
+    x: number,
+    y: number
+  ): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'move', snakeId, x, y }));
+  };
+
+  /** Send a Protocol 2 New Run request. */
+  const sendNewRun = (requestId: string): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'newRun', requestId }));
   };
 
   const isConnected = (): boolean => connected;
@@ -296,6 +571,15 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     if (typeof msg['type'] !== 'string') return;
     switch (msg['type']) {
       case 'welcome':
+        if (msg['protocolVersion'] !== WS_PROTOCOL_VERSION) {
+          callbacks.onError?.({
+            type: 'error',
+            message: `Protocol mismatch: server reported ${String(msg['protocolVersion'])}, client requires ${WS_PROTOCOL_VERSION}`
+          });
+          socket?.close();
+          return;
+        }
+        rejoinToken = undefined;
         connected = true;
         clearHandshakeTimer();
         callbacks.onConnected(msg as unknown as WelcomeMsg);
@@ -306,8 +590,24 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
       case 'assign':
         callbacks.onAssign?.(msg as unknown as AssignMsg);
         return;
+      case 'reclaimResult':
+        callbacks.onReclaimResult?.(msg as unknown as ReclaimResultMsg);
+        return;
       case 'sensors':
         callbacks.onSensors?.(msg as unknown as SensorsMsg);
+        return;
+      case 'settingsApplied':
+        callbacks.onSettingsApplied?.(msg as unknown as SettingsAppliedMsg);
+        return;
+      case 'godModeResult':
+        callbacks.onGodModeResult?.(msg as unknown as GodModeResultMsg);
+        return;
+      case 'newRunResult':
+        callbacks.onNewRunResult?.(msg as unknown as NewRunResultMsg);
+        return;
+      case 'stateReplaced':
+        rejoinToken = typeof msg['rejoinToken'] === 'string' ? msg['rejoinToken'] : undefined;
+        callbacks.onStateReplaced?.(msg as unknown as StateReplacedMsg);
         return;
       case 'error':
         callbacks.onError?.(msg as unknown as ErrorMsg);
@@ -325,6 +625,10 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     sendView,
     sendViz,
     sendReset,
+    sendSettings,
+    sendGodModeKill,
+    sendGodModeMove,
+    sendNewRun,
     isConnected
   };
 }

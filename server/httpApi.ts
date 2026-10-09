@@ -1,10 +1,20 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { once } from 'node:events';
 import type { World } from '../src/world.ts';
 import type { GenomeJSON, HallOfFameEntry, PopulationImportData } from '../src/protocol/messages.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { validateSnapshotPayload, type Persistence, type PopulationSnapshotPayload } from './persistence.ts';
-import { buildCoreSettingsSnapshot, buildSettingsUpdatesSnapshot } from './settingsSnapshot.ts';
 import type { Logger } from './logger.ts';
+import type { InferenceModeRecord } from './inferenceMode.ts';
+import type { SchedulerDiagnostics, SimulationRunIdentity } from '../src/sim/SimCore.ts';
+import type { AuthoritativeWorldLoadDiagnostics, SimulationFaultStatus } from './simServer.ts';
+import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
+import type { WsOutboundDiagnostics } from './wsHub.ts';
+import { readJsonBody } from './readJsonBody.ts';
+import { admitBrowserRequest, createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
+import { DEFAULT_CONFIG } from './config.ts';
+
+export { readJsonBody } from './readJsonBody.ts';
 
 /** Hard limit for incoming request bodies to avoid memory pressure. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -14,22 +24,36 @@ const MAX_RESURRECT_WEIGHTS = 2_000_000;
 /** Dependencies injected into the HTTP API handler. */
 export interface HttpApiDeps {
   /** Returns the current server status for health checks. */
-  getStatus: () => { tick: number; clients: number };
+  getStatus: () => {
+    tick: number;
+    clients: number;
+    outbound: WsOutboundDiagnostics;
+    inferenceMode: InferenceModeRecord;
+    scheduler: SchedulerDiagnostics;
+    collisionGrid: SpatialHashDiagnostics;
+    worldLoad: AuthoritativeWorldLoadDiagnostics;
+    fault: SimulationFaultStatus;
+    run: SimulationRunIdentity;
+    configRevision: number;
+    configHash: string;
+  };
   /** Returns the current world instance, or null if not ready. */
   getWorld: () => World | null;
   /** Imports a population snapshot into the active world. */
-  importPopulation: (data: PopulationImportData) => {
+  importPopulation: (data: PopulationImportData) => Promise<{
     ok: boolean;
     reason?: string;
     used?: number;
     total?: number;
-  };
+  }>;
   /** Persistence adapter for snapshots and graph presets. */
   persistence: Persistence;
-  /** Hash of the active server configuration. */
-  cfgHash: string;
-  /** Seed used to initialize the world. */
-  worldSeed: number;
+  /** Persist the active population through the typed non-resumable export path. */
+  savePopulationExport: () => number;
+  /** Returns the hash of the active server configuration. */
+  getConfigHash: () => string;
+  /** Returns the active world seed. */
+  getWorldSeed: () => number;
   /** Optional logger for error reporting. */
   logger?: Logger | undefined;
 }
@@ -37,64 +61,17 @@ export interface HttpApiDeps {
 /**
  * Builds the HTTP handler that serves API requests and health checks.
  * @param deps - API dependencies and persistence adapters.
+ * @param browserOrigins - Shared policy for the configured UI and built server UI.
  * @returns Request handler function.
  */
-export function createHttpHandler(deps: HttpApiDeps): (req: IncomingMessage, res: ServerResponse) => void {
+export function createHttpHandler(
+  deps: HttpApiDeps,
+  browserOrigins: BrowserOriginPolicy = createBrowserOriginPolicy(DEFAULT_CONFIG)
+): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
+    if (!admitBrowserRequest(req, res, browserOrigins)) return;
     void handleRequest(req, res, deps);
   };
-}
-
-/**
- * Check if a given origin corresponds to a LAN or local environment.
- * @param origin - Origin header to check.
- * @returns True if the origin is on the LAN.
- */
-function isLanOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    const { hostname } = new URL(origin);
-    // Localhost and loopback
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
-
-    // Check for IPv4 private ranges:
-    // 10.0.0.0 - 10.255.255.255
-    // 172.16.0.0 - 172.31.255.255 (also allowing all 172.x for common container/VM bridges)
-    // 192.168.0.0 - 192.168.255.255
-    const parts = hostname.split('.').map(Number);
-    if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
-      if (parts[0] === 10) return true;
-      if (parts[0] === 172) return true;
-      if (parts[0] === 192 && parts[1] === 168) return true;
-    }
-
-    // Hostnames without dots are typically local network machine names
-    if (!hostname.includes('.')) return true;
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Adds CORS headers for browser clients.
- * @param req - Incoming request.
- * @param res - Server response.
- */
-function applyCors(req: IncomingMessage, res: ServerResponse): void {
-  const origin = req.headers.origin;
-  if (origin && isLanOrigin(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Vary', 'Origin');
-  } else {
-    // If not a whitelisted LAN origin, default to allow-all (*) for non-credentialed requests
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
-  res.setHeader('Access-Control-Max-Age', '86400');
 }
 
 /**
@@ -109,19 +86,12 @@ async function handleRequest(
   deps: HttpApiDeps
 ): Promise<void> {
   try {
-    applyCors(req, res);
-    if (req.method === 'OPTIONS') {
-      res.statusCode = 204;
-      res.end();
-      return;
-    }
     await routeRequest(req, res, deps);
   } catch (err) {
     const message = (err as Error).message || 'internal server error';
     deps.logger?.error('http', `Request error: ${message}`);
     // If headers haven't been sent yet, we can send a 500.
     if (!res.headersSent) {
-      applyCors(req, res); // Ensure CORS headers are present even on error path
       sendJson(res, 500, { ok: false, message });
     } else {
       res.end();
@@ -182,19 +152,13 @@ async function routeRequest(
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (req.method === 'GET' && url.pathname === '/health') {
     const status = deps.getStatus();
-    sendJson(res, 200, { ok: true, tick: status.tick, clients: status.clients });
+    sendJson(res, 200, { ok: true, ...status });
     return;
   }
 
   if (req.method === 'POST' && url.pathname === '/api/save') {
-    const world = deps.getWorld();
-    if (!world) {
-      sendJson(res, 503, { ok: false, message: 'world not ready' });
-      return;
-    }
     try {
-      const snapshot = buildSnapshotPayload(world, deps.cfgHash, deps.worldSeed);
-      const snapshotId = deps.persistence.saveSnapshot(snapshot);
+      const snapshotId = deps.savePopulationExport();
       sendJson(res, 200, { ok: true, snapshotId });
     } catch (err) {
       sendJson(res, 500, { ok: false, message: (err as Error).message });
@@ -203,12 +167,12 @@ async function routeRequest(
   }
 
   if (req.method === 'GET' && url.pathname === '/api/export/latest') {
-    const snapshot = deps.persistence.loadLatestSnapshot();
-    if (!snapshot) {
+    const snapshotId = deps.persistence.getLatestSnapshotId();
+    if (snapshotId === null) {
       sendJson(res, 404, { ok: false, message: 'no snapshots' });
       return;
     }
-    sendJson(res, 200, snapshot);
+    await sendJsonChunks(res, deps.persistence.exportSnapshotJsonChunks(snapshotId));
     return;
   }
 
@@ -227,7 +191,7 @@ async function routeRequest(
       sendJson(res, 400, { ok: false, message: (err as Error).message });
       return;
     }
-    if (payload.cfgHash !== deps.cfgHash && !force) {
+    if (payload.cfgHash !== deps.getConfigHash() && !force) {
       sendJson(res, 409, {
         ok: false,
         message: 'cfgHash mismatch; pass force=true to override'
@@ -239,12 +203,20 @@ async function routeRequest(
       archKey: payload.archKey,
       genomes: payload.genomes
     };
-    const result = deps.importPopulation(importData);
+    const result = await deps.importPopulation(importData);
     if (!result.ok) {
       sendJson(res, 400, { ok: false, message: result.reason ?? 'import failed' });
       return;
     }
-    sendJson(res, 200, { ok: true, used: result.used ?? 0, total: result.total ?? 0 });
+    sendJson(res, 200, {
+      ok: true,
+      used: result.used ?? 0,
+      total: result.total ?? 0,
+      importedWorldSeed: payload.worldSeed,
+      activeWorldSeed: deps.getWorldSeed(),
+      seedApplied: false,
+      seedDisposition: 'metadata-only; active run seed is unchanged'
+    });
     return;
   }
 
@@ -374,25 +346,22 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 }
 
 /**
- * Reads a JSON payload with a strict size limit.
- * @param req - Incoming request.
- * @param limitBytes - Maximum allowed payload size.
- * @returns Parsed JSON payload.
+ * Write a JSON chunk iterable while honoring Node response backpressure.
+ * @param res - HTTP response receiving the export.
+ * @param chunks - Incremental JSON chunks bounded to one genome at a time.
  */
-async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer);
-    total += buf.length;
-    if (total > limitBytes) {
-      throw new Error('payload too large');
-    }
-    chunks.push(buf);
+async function sendJsonChunks(res: ServerResponse, chunks: Iterable<string>): Promise<void> {
+  const iterator = chunks[Symbol.iterator]();
+  const first = iterator.next();
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json');
+  let next = first;
+  while (!next.done) {
+    if (res.destroyed) throw new Error('export client disconnected');
+    if (!res.write(next.value)) await once(res, 'drain');
+    next = iterator.next();
   }
-  const text = Buffer.concat(chunks).toString('utf8');
-  if (!text) return {};
-  return JSON.parse(text) as unknown;
+  res.end();
 }
 
 /**
@@ -406,28 +375,4 @@ function extractPayload(body: unknown): PopulationSnapshotPayload {
     if (payload) return payload;
   }
   return body as PopulationSnapshotPayload;
-}
-
-/**
- * Builds a snapshot payload from the active world and config metadata.
- * @param world - World instance used for export.
- * @param cfgHash - Active configuration hash.
- * @param worldSeed - Seed used for world initialization.
- * @returns Snapshot payload to persist.
- */
-function buildSnapshotPayload(
-  world: World,
-  cfgHash: string,
-  worldSeed: number
-): PopulationSnapshotPayload {
-  const exportData = world.exportPopulation();
-  const settings = buildCoreSettingsSnapshot(world);
-  const updates = buildSettingsUpdatesSnapshot();
-  return {
-    ...exportData,
-    cfgHash,
-    worldSeed,
-    settings,
-    updates
-  };
 }

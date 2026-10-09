@@ -1,0 +1,73 @@
+{
+  "schema": "stage5-typescript-spawn-fixtures-v1",
+  "evidenceClass": "current-source execution",
+  "sourceRevision": "6bfcb24",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "purpose": "spawn formula and RNG ordering reference, not performance evidence"
+  },
+  "source": {
+    "constructor": "src/snake.ts::Snake.constructor",
+    "body": "src/snake.ts::Snake._initBody",
+    "rng": "src/rng.ts::StatefulRng",
+    "configuration": "src/config.ts::CFG_DEFAULT",
+    "extractor": "scripts/stage5/generate-spawn-fixtures.ts",
+    "runner": "node ./node_modules/tsx/dist/cli.mjs scripts/stage5/generate-spawn-fixtures.ts"
+  },
+  "fixture": {
+    "seed": 23294,
+    "drawOrder": [
+      "polarAngle",
+      "sqrtAreaRadius",
+      "heading"
+    ],
+    "settings": {
+      "worldRadius": 3500,
+      "spawnRadiusFraction": 0.6,
+      "snakeSpacing": 7.5,
+      "snakeStartLen": 5
+    },
+    "head": [
+      -641.6840791863026,
+      620.8077876463423
+    ],
+    "direction": 3.7992566105848318,
+    "body": [
+      [
+        -641.6840791863026,
+        620.8077876463423
+      ],
+      [
+        -635.7484116213261,
+        625.3923105831467
+      ],
+      [
+        -629.8127440563496,
+        629.9768335199511
+      ],
+      [
+        -623.8770764913731,
+        634.5613564567556
+      ],
+      [
+        -617.9414089263967,
+        639.14587939356
+      ]
+    ],
+    "rngAfterThreeDraws": {
+      "algorithm": "xorshift32",
+      "version": 1,
+      "stateHex": "0x9acbaf14",
+      "gaussianAlgorithm": "box-muller-polar",
+      "gaussianVersion": 1,
+      "gaussianSpareValid": false,
+      "gaussianSpareHex": null
+    }
+  },
+  "interpretation": {
+    "preserve": "three uniform draws, area-uniform 60-percent-radius head, heading, iterative head-to-tail body construction and RNG continuation",
+    "correct": "blind admission is replaced by complete-body wall/obstacle checks, stable request order and bounded deterministic fallback",
+    "notPerformanceEvidence": true
+  }
+}

@@ -1,0 +1,4483 @@
+{
+  "source": {
+    "formatVersion": 2,
+    "boundaryVersion": 1,
+    "boundaryKind": "run-start",
+    "resumable": true,
+    "generation": 1,
+    "simulationStep": 0,
+    "worldSeed": 1511506142,
+    "runId": "dense-world-capacity-source",
+    "configHash": "dense-world-capacity-fixture",
+    "configRevision": 1,
+    "archKey": "graph|out:2|nodes:input:Input:83;output:Dense:83x2|edges:input->output:0:0|outs:output:0",
+    "graphSpec": {
+      "type": "graph",
+      "nodes": [
+        {
+          "id": "input",
+          "type": "Input",
+          "outputSize": 83
+        },
+        {
+          "id": "output",
+          "type": "Dense",
+          "inputSize": 83,
+          "outputSize": 2
+        }
+      ],
+      "edges": [
+        {
+          "from": "input",
+          "to": "output"
+        }
+      ],
+      "outputs": [
+        {
+          "nodeId": "output"
+        }
+      ],
+      "outputSize": 2
+    },
+    "populationCount": 300,
+    "settings": {
+      "snakeCount": 300,
+      "simSpeed": 1
+    },
+    "updates": [
+      {
+        "path": "generationSeconds",
+        "value": 480
+      },
+      {
+        "path": "observer.earlyEndMinSeconds",
+        "value": 50
+      },
+      {
+        "path": "observer.earlyEndAliveThreshold",
+        "value": 1
+      },
+      {
+        "path": "worldRadius",
+        "value": 10000
+      },
+      {
+        "path": "pelletCountTarget",
+        "value": 25000
+      },
+      {
+        "path": "pelletSpawnPerSecond",
+        "value": 3500
+      },
+      {
+        "path": "foodValue",
+        "value": 8
+      },
+      {
+        "path": "growPerFood",
+        "value": 10
+      },
+      {
+        "path": "baselineBots.count",
+        "value": 0
+      },
+      {
+        "path": "snakeBaseSpeed",
+        "value": 650
+      },
+      {
+        "path": "snakeBoostSpeed",
+        "value": 650
+      },
+      {
+        "path": "snakeTurnRate",
+        "value": 14
+      },
+      {
+        "path": "snakeRadius",
+        "value": 3
+      },
+      {
+        "path": "snakeRadiusMax",
+        "value": 4
+      },
+      {
+        "path": "snakeThicknessScale",
+        "value": 0
+      },
+      {
+        "path": "snakeSpacing",
+        "value": 3
+      },
+      {
+        "path": "snakeStartLen",
+        "value": 140
+      },
+      {
+        "path": "snakeMaxLen",
+        "value": 5000
+      },
+      {
+        "path": "snakeSizeSpeedPenalty",
+        "value": 0
+      },
+      {
+        "path": "snakeBoostSizePenalty",
+        "value": 0
+      },
+      {
+        "path": "collision.skipSegments",
+        "value": 30
+      },
+      {
+        "path": "collision.hitScale",
+        "value": 0.45
+      },
+      {
+        "path": "boost.pointsCostPerSecond",
+        "value": 0
+      },
+      {
+        "path": "boost.lenLossPerPoint",
+        "value": 0
+      }
+    ],
+    "rng": {},
+    "allocators": {},
+    "bestFitnessEver": 0,
+    "fitnessHistory": [],
+    "lastHofEntry": null
+  },
+  "frames": 982,
+  "packetTypes": {
+    "welcome": 1,
+    "stats": 982
+  },
+  "healthSamples": [
+    {
+      "wallSeconds": 10.040585221,
+      "completedStep": "000000000000005a",
+      "outbound": {
+        "connections": 1,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6297,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 10.036141716000001,
+        "authoritativeSteps": 90,
+        "simulatedSeconds": 1.5,
+        "simulatedWallRatio": 0.1494598265395797,
+        "step": {
+          "samples": 90,
+          "meanMs": 109.44503333333334,
+          "p95Ms": 192,
+          "p99Ms": 256,
+          "maxMs": 199.824,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 294776832,
+          "heapUsedBytes": 13335208,
+          "externalBytes": 32317892,
+          "maxRssBytes": 302903296,
+          "eventLoopDelayMeanMs": 10.271621119999999,
+          "eventLoopDelayP95Ms": 11.034623,
+          "eventLoopDelayP99Ms": 12.771327,
+          "eventLoopDelayMaxMs": 25.690111
+        },
+        "frame": {
+          "latestBytes": 1582916,
+          "maximumObservedBytes": 1582916
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 20.026085039999998,
+      "completedStep": "0000000000000094",
+      "outbound": {
+        "connections": 1,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6297,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 20.028274356,
+        "authoritativeSteps": 148,
+        "simulatedSeconds": 2.466666666666667,
+        "simulatedWallRatio": 0.12315922095044156,
+        "step": {
+          "samples": 148,
+          "meanMs": 133.57087837837838,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 208.68,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 311406592,
+          "heapUsedBytes": 13704216,
+          "externalBytes": 36143053,
+          "maxRssBytes": 328368128,
+          "eventLoopDelayMeanMs": 10.313236057731958,
+          "eventLoopDelayP95Ms": 11.149311,
+          "eventLoopDelayP99Ms": 14.712831,
+          "eventLoopDelayMaxMs": 25.690111
+        },
+        "frame": {
+          "latestBytes": 1912448,
+          "maximumObservedBytes": 1912448
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 30.022045663,
+      "completedStep": "00000000000000c6",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 30.025973782,
+        "authoritativeSteps": 198,
+        "simulatedSeconds": 3.3,
+        "simulatedWallRatio": 0.10990484518368183,
+        "step": {
+          "samples": 198,
+          "meanMs": 149.71417676767678,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 242.2,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 352698368,
+          "heapUsedBytes": 13823512,
+          "externalBytes": 36436713,
+          "maxRssBytes": 352698368,
+          "eventLoopDelayMeanMs": 10.318370508940854,
+          "eventLoopDelayP95Ms": 11.223039,
+          "eventLoopDelayP99Ms": 14.794751,
+          "eventLoopDelayMaxMs": 25.690111
+        },
+        "frame": {
+          "latestBytes": 2059240,
+          "maximumObservedBytes": 2059240
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 40.026271402000006,
+      "completedStep": "00000000000000f8",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 40.029929292,
+        "authoritativeSteps": 248,
+        "simulatedSeconds": 4.133333333333333,
+        "simulatedWallRatio": 0.10325607380374219,
+        "step": {
+          "samples": 248,
+          "meanMs": 160.25671370967743,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 267.078,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 357085184,
+          "heapUsedBytes": 13684112,
+          "externalBytes": 36514653,
+          "maxRssBytes": 366465024,
+          "eventLoopDelayMeanMs": 10.325061499870968,
+          "eventLoopDelayP95Ms": 11.223039,
+          "eventLoopDelayP99Ms": 15.097855,
+          "eventLoopDelayMaxMs": 25.690111
+        },
+        "frame": {
+          "latestBytes": 2130964,
+          "maximumObservedBytes": 2130964
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 50.04210023500001,
+      "completedStep": "0000000000000126",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 50.034595522000004,
+        "authoritativeSteps": 294,
+        "simulatedSeconds": 4.9,
+        "simulatedWallRatio": 0.097932239660966,
+        "step": {
+          "samples": 294,
+          "meanMs": 169.07252040816326,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 267.078,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 362856448,
+          "heapUsedBytes": 14005832,
+          "externalBytes": 43276756,
+          "maxRssBytes": 373075968,
+          "eventLoopDelayMeanMs": 10.333215312396694,
+          "eventLoopDelayP95Ms": 11.280383,
+          "eventLoopDelayP99Ms": 15.482879,
+          "eventLoopDelayMaxMs": 26.148863
+        },
+        "frame": {
+          "latestBytes": 2219800,
+          "maximumObservedBytes": 2219800
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 60.04401648,
+      "completedStep": "0000000000000152",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 60.046259252000006,
+        "authoritativeSteps": 338,
+        "simulatedSeconds": 5.633333333333333,
+        "simulatedWallRatio": 0.0938165574926418,
+        "step": {
+          "samples": 338,
+          "meanMs": 176.44659171597633,
+          "p95Ms": 256,
+          "p99Ms": 256,
+          "maxMs": 267.078,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 367828992,
+          "heapUsedBytes": 13800064,
+          "externalBytes": 36866997,
+          "maxRssBytes": 376381440,
+          "eventLoopDelayMeanMs": 10.335658211124503,
+          "eventLoopDelayP95Ms": 11.280383,
+          "eventLoopDelayP99Ms": 15.482879,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2274368,
+          "maximumObservedBytes": 2286244
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 70.029886006,
+      "completedStep": "0000000000000179",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 70.033303936,
+        "authoritativeSteps": 377,
+        "simulatedSeconds": 6.283333333333333,
+        "simulatedWallRatio": 0.08971921900293843,
+        "step": {
+          "samples": 377,
+          "meanMs": 184.0327320954907,
+          "p95Ms": 256,
+          "p99Ms": 324.503,
+          "maxMs": 324.503,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 362782720,
+          "heapUsedBytes": 13758016,
+          "externalBytes": 32318036,
+          "maxRssBytes": 381063168,
+          "eventLoopDelayMeanMs": 10.341343631314624,
+          "eventLoopDelayP95Ms": 11.370495,
+          "eventLoopDelayP99Ms": 15.523839,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2364508,
+          "maximumObservedBytes": 2374520
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 80.027350734,
+      "completedStep": "00000000000001a0",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 80.030147942,
+        "authoritativeSteps": 416,
+        "simulatedSeconds": 6.933333333333334,
+        "simulatedWallRatio": 0.08663401869952941,
+        "step": {
+          "samples": 416,
+          "meanMs": 190.59047836538463,
+          "p95Ms": 324.503,
+          "p99Ms": 324.503,
+          "maxMs": 324.503,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 371019776,
+          "heapUsedBytes": 14002872,
+          "externalBytes": 37090405,
+          "maxRssBytes": 381063168,
+          "eventLoopDelayMeanMs": 10.345196338246703,
+          "eventLoopDelayP95Ms": 11.386879,
+          "eventLoopDelayP99Ms": 15.532031,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2386072,
+          "maximumObservedBytes": 2390780
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 90.03869647299999,
+      "completedStep": "00000000000001c8",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": true,
+          "ownedBytes": "0000000000000068",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 90.036932592,
+        "authoritativeSteps": 456,
+        "simulatedSeconds": 7.6,
+        "simulatedWallRatio": 0.08440980585643894,
+        "step": {
+          "samples": 456,
+          "meanMs": 196.22048684210526,
+          "p95Ms": 324.503,
+          "p99Ms": 324.503,
+          "maxMs": 324.503,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 368037888,
+          "heapUsedBytes": 13842096,
+          "externalBytes": 32318036,
+          "maxRssBytes": 393273344,
+          "eventLoopDelayMeanMs": 10.35496646957322,
+          "eventLoopDelayP95Ms": 11.436031,
+          "eventLoopDelayP99Ms": 15.761407,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2421380,
+          "maximumObservedBytes": 2435232
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 100.03717841699999,
+      "completedStep": "00000000000001ef",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 100.03951986099999,
+        "authoritativeSteps": 495,
+        "simulatedSeconds": 8.25,
+        "simulatedWallRatio": 0.08246740899459505,
+        "step": {
+          "samples": 495,
+          "meanMs": 200.47431313131312,
+          "p95Ms": 359.047,
+          "p99Ms": 359.047,
+          "maxMs": 359.047,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 372297728,
+          "heapUsedBytes": 13862464,
+          "externalBytes": 32318036,
+          "maxRssBytes": 393273344,
+          "eventLoopDelayMeanMs": 10.358238913007456,
+          "eventLoopDelayP95Ms": 11.444223,
+          "eventLoopDelayP99Ms": 15.982591,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2421456,
+          "maximumObservedBytes": 2456192
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 110.030965594,
+      "completedStep": "0000000000000219",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 110.034170752,
+        "authoritativeSteps": 537,
+        "simulatedSeconds": 8.95,
+        "simulatedWallRatio": 0.08133836915236009,
+        "step": {
+          "samples": 537,
+          "meanMs": 203.52043389199255,
+          "p95Ms": 359.047,
+          "p99Ms": 359.047,
+          "maxMs": 359.047,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 382803968,
+          "heapUsedBytes": 13932576,
+          "externalBytes": 32318036,
+          "maxRssBytes": 393273344,
+          "eventLoopDelayMeanMs": 10.3561940694719,
+          "eventLoopDelayP95Ms": 11.427839,
+          "eventLoopDelayP99Ms": 15.990783,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2407196,
+          "maximumObservedBytes": 2468852
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 120.030834252,
+      "completedStep": "0000000000000242",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 120.034138469,
+        "authoritativeSteps": 578,
+        "simulatedSeconds": 9.633333333333333,
+        "simulatedWallRatio": 0.08025494626948346,
+        "step": {
+          "samples": 578,
+          "meanMs": 206.09918166089966,
+          "p95Ms": 359.047,
+          "p99Ms": 359.047,
+          "maxMs": 359.047,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 369745920,
+          "heapUsedBytes": 13979296,
+          "externalBytes": 36773852,
+          "maxRssBytes": 393273344,
+          "eventLoopDelayMeanMs": 10.35405333379346,
+          "eventLoopDelayP95Ms": 11.419647,
+          "eventLoopDelayP99Ms": 15.982591,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2457172,
+          "maximumObservedBytes": 2468852
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 130.034446547,
+      "completedStep": "0000000000000269",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 130.0387233,
+        "authoritativeSteps": 617,
+        "simulatedSeconds": 10.283333333333333,
+        "simulatedWallRatio": 0.07907900871657769,
+        "step": {
+          "samples": 617,
+          "meanMs": 209.32843598055106,
+          "p95Ms": 359.047,
+          "p99Ms": 359.047,
+          "maxMs": 359.047,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 372850688,
+          "heapUsedBytes": 13934840,
+          "externalBytes": 32318036,
+          "maxRssBytes": 393273344,
+          "eventLoopDelayMeanMs": 10.359216738108518,
+          "eventLoopDelayP95Ms": 11.452415,
+          "eventLoopDelayP99Ms": 15.990783,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2500460,
+          "maximumObservedBytes": 2500460
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 140.044356173,
+      "completedStep": "000000000000028f",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 140.04723585999997,
+        "authoritativeSteps": 655,
+        "simulatedSeconds": 10.916666666666666,
+        "simulatedWallRatio": 0.07794989026116626,
+        "step": {
+          "samples": 655,
+          "meanMs": 212.4615786259542,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 379572224,
+          "heapUsedBytes": 13945792,
+          "externalBytes": 37298174,
+          "maxRssBytes": 393273344,
+          "eventLoopDelayMeanMs": 10.360238436108029,
+          "eventLoopDelayP95Ms": 11.427839,
+          "eventLoopDelayP99Ms": 16.064511,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2489956,
+          "maximumObservedBytes": 2508124
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 150.034808074,
+      "completedStep": "00000000000002b4",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 150.036905085,
+        "authoritativeSteps": 692,
+        "simulatedSeconds": 11.533333333333333,
+        "simulatedWallRatio": 0.07686997626883456,
+        "step": {
+          "samples": 692,
+          "meanMs": 215.31459104046243,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 394231808,
+          "heapUsedBytes": 14186568,
+          "externalBytes": 42318984,
+          "maxRssBytes": 394231808,
+          "eventLoopDelayMeanMs": 10.363811256373058,
+          "eventLoopDelayP95Ms": 11.419647,
+          "eventLoopDelayP99Ms": 16.211967,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2500124,
+          "maximumObservedBytes": 2515216
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 160.03571609,
+      "completedStep": "00000000000002db",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 160.03843590099999,
+        "authoritativeSteps": 731,
+        "simulatedSeconds": 12.183333333333334,
+        "simulatedWallRatio": 0.07612754564078571,
+        "step": {
+          "samples": 731,
+          "meanMs": 217.33833242134062,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 400797696,
+          "heapUsedBytes": 13945248,
+          "externalBytes": 32318036,
+          "maxRssBytes": 401047552,
+          "eventLoopDelayMeanMs": 10.361174394198393,
+          "eventLoopDelayP95Ms": 11.419647,
+          "eventLoopDelayP99Ms": 16.113663,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2466920,
+          "maximumObservedBytes": 2533760
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 170.03710626100002,
+      "completedStep": "0000000000000303",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 170.039668845,
+        "authoritativeSteps": 771,
+        "simulatedSeconds": 12.85,
+        "simulatedWallRatio": 0.07557060118550009,
+        "step": {
+          "samples": 771,
+          "meanMs": 218.92374708171207,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 420409344,
+          "heapUsedBytes": 13935432,
+          "externalBytes": 32318036,
+          "maxRssBytes": 420544512,
+          "eventLoopDelayMeanMs": 10.363714180798537,
+          "eventLoopDelayP95Ms": 11.419647,
+          "eventLoopDelayP99Ms": 16.244735,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2422868,
+          "maximumObservedBytes": 2533760
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 180.02970720599998,
+      "completedStep": "000000000000032b",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 180.033790752,
+        "authoritativeSteps": 811,
+        "simulatedSeconds": 13.516666666666666,
+        "simulatedWallRatio": 0.075078498376375,
+        "step": {
+          "samples": 811,
+          "meanMs": 220.48863871763257,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 421838848,
+          "heapUsedBytes": 13945064,
+          "externalBytes": 32318036,
+          "maxRssBytes": 421982208,
+          "eventLoopDelayMeanMs": 10.361679940136993,
+          "eventLoopDelayP95Ms": 11.378687,
+          "eventLoopDelayP99Ms": 16.293887,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2449504,
+          "maximumObservedBytes": 2533760
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 190.03785090699998,
+      "completedStep": "0000000000000352",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 190.041210362,
+        "authoritativeSteps": 850,
+        "simulatedSeconds": 14.166666666666666,
+        "simulatedWallRatio": 0.07454523489763769,
+        "step": {
+          "samples": 850,
+          "meanMs": 222.1207882352941,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 395575296,
+          "heapUsedBytes": 13982648,
+          "externalBytes": 32318036,
+          "maxRssBytes": 422625280,
+          "eventLoopDelayMeanMs": 10.359839375422528,
+          "eventLoopDelayP95Ms": 11.345919,
+          "eventLoopDelayP99Ms": 16.359423,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2488764,
+          "maximumObservedBytes": 2533760
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 200.02970387599999,
+      "completedStep": "0000000000000377",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 200.033244441,
+        "authoritativeSteps": 887,
+        "simulatedSeconds": 14.783333333333333,
+        "simulatedWallRatio": 0.07390438211731197,
+        "step": {
+          "samples": 887,
+          "meanMs": 223.88664712514094,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 403775488,
+          "heapUsedBytes": 14149976,
+          "externalBytes": 37343902,
+          "maxRssBytes": 423518208,
+          "eventLoopDelayMeanMs": 10.361771435913376,
+          "eventLoopDelayP95Ms": 11.378687,
+          "eventLoopDelayP99Ms": 16.441343,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2512820,
+          "maximumObservedBytes": 2533760
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 210.03114946899998,
+      "completedStep": "000000000000039d",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 210.03454520900002,
+        "authoritativeSteps": 925,
+        "simulatedSeconds": 15.416666666666666,
+        "simulatedWallRatio": 0.07340062393700966,
+        "step": {
+          "samples": 925,
+          "meanMs": 225.43494486486486,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 407121920,
+          "heapUsedBytes": 14050968,
+          "externalBytes": 32318036,
+          "maxRssBytes": 426946560,
+          "eventLoopDelayMeanMs": 10.361848926781132,
+          "eventLoopDelayP95Ms": 11.378687,
+          "eventLoopDelayP99Ms": 16.465919,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2548580,
+          "maximumObservedBytes": 2548580
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    },
+    {
+      "wallSeconds": 220.03494785299998,
+      "completedStep": "00000000000003c5",
+      "outbound": {
+        "connections": 2,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6298,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "0000000000000000",
+          "highWaterCommands": "0000000000000000",
+          "highWaterOwnedBytes": "0000000000000000",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "0000000000000002",
+          "highWaterOwnedBytes": "0000000000000068",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "0000000000000001",
+          "highWaterReliableOwnedBytes": "0000000000000000",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "telemetry": {
+        "uptimeSeconds": 220.039159875,
+        "authoritativeSteps": 965,
+        "simulatedSeconds": 16.083333333333332,
+        "simulatedWallRatio": 0.07309305008467568,
+        "step": {
+          "samples": 965,
+          "meanMs": 226.45927668393782,
+          "p95Ms": 369.776,
+          "p99Ms": 369.776,
+          "maxMs": 369.776,
+          "percentilesAreUpperBounds": true
+        },
+        "process": {
+          "rssBytes": 406196224,
+          "heapUsedBytes": 13987072,
+          "externalBytes": 32318036,
+          "maxRssBytes": 426946560,
+          "eventLoopDelayMeanMs": 10.363076591022562,
+          "eventLoopDelayP95Ms": 11.386879,
+          "eventLoopDelayP99Ms": 16.498687,
+          "eventLoopDelayMaxMs": 29.458431
+        },
+        "frame": {
+          "latestBytes": 2470120,
+          "maximumObservedBytes": 2550748
+        },
+        "checkpointBarrier": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "playerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "trainerAction": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerLifecycle": {
+          "samples": 0,
+          "meanMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "controllerActivity": {
+          "player": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          },
+          "trainer": {
+            "freshAssignments": 0,
+            "successfulReclaims": 0,
+            "appliedActions": 0,
+            "appliedDisconnects": 0
+          }
+        }
+      }
+    }
+  ],
+  "wallSeconds": 224.29958272800002,
+  "welcome": {
+    "type": "welcome",
+    "protocolVersion": 2,
+    "serializerVersion": 1,
+    "sessionId": "c6351e12-9b13-496c-bdb3-db0ba20a1e92",
+    "tickRate": 60,
+    "worldSeed": 1511506142,
+    "runId": "fb5ad14f-93b8-4a52-98fc-0ebd83bf971e",
+    "configHash": "sha256:e3ec074ae2d7da74d311f290d83f238e12f8cc1f171887481b7000a2fbefab76",
+    "configRevision": 1,
+    "frameByteLength": 845632,
+    "graphSpec": {
+      "edges": [
+        {
+          "from": "input",
+          "to": "output"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "outputSize": 83,
+          "type": "Input"
+        },
+        {
+          "id": "output",
+          "inputSize": 83,
+          "outputSize": 2,
+          "type": "Dense"
+        }
+      ],
+      "outputSize": 2,
+      "outputs": [
+        {
+          "nodeId": "output"
+        }
+      ],
+      "type": "graph"
+    },
+    "capabilities": {
+      "checkpointPinning": true,
+      "archiveExport": true,
+      "archiveImport": true
+    },
+    "settings": {
+      "core": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "updates": [
+        {
+          "path": "worldRadius",
+          "value": 10000
+        },
+        {
+          "path": "pelletCountTarget",
+          "value": 25000
+        },
+        {
+          "path": "pelletSpawnPerSecond",
+          "value": 3500
+        },
+        {
+          "path": "foodValue",
+          "value": 8
+        },
+        {
+          "path": "growPerFood",
+          "value": 10
+        },
+        {
+          "path": "foodSpawn.edgeFalloffEnabled",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFadeStart",
+          "value": 0.35
+        },
+        {
+          "path": "foodSpawn.edgeFadePower",
+          "value": 2.6
+        },
+        {
+          "path": "foodSpawn.filamentPower",
+          "value": 4.2
+        },
+        {
+          "path": "foodSpawn.warpFreq",
+          "value": 0.0013
+        },
+        {
+          "path": "foodSpawn.warpScale",
+          "value": 0.08
+        },
+        {
+          "path": "foodSpawn.freqLarge",
+          "value": 0.0026
+        },
+        {
+          "path": "foodSpawn.freqMedium",
+          "value": 0.0042
+        },
+        {
+          "path": "foodSpawn.freqSmall",
+          "value": 0.0068
+        },
+        {
+          "path": "foodSpawn.dustStrength",
+          "value": 0.35
+        },
+        {
+          "path": "sense.layoutVersion",
+          "value": 3
+        },
+        {
+          "path": "sense.bubbleBins",
+          "value": 16
+        },
+        {
+          "path": "sense.rNearBase",
+          "value": 520
+        },
+        {
+          "path": "sense.rNearScale",
+          "value": 260
+        },
+        {
+          "path": "sense.rNearMin",
+          "value": 420
+        },
+        {
+          "path": "sense.rNearMax",
+          "value": 1100
+        },
+        {
+          "path": "sense.rFarBase",
+          "value": 1200
+        },
+        {
+          "path": "sense.rFarScale",
+          "value": 520
+        },
+        {
+          "path": "sense.rFarMin",
+          "value": 900
+        },
+        {
+          "path": "sense.rFarMax",
+          "value": 2400
+        },
+        {
+          "path": "sense.foodKBase",
+          "value": 4
+        },
+        {
+          "path": "sense.maxPelletChecks",
+          "value": 900
+        },
+        {
+          "path": "sense.maxSegmentChecks",
+          "value": 2200
+        },
+        {
+          "path": "baselineBots.count",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.seed",
+          "value": 1
+        },
+        {
+          "path": "baselineBots.randomizeSeedPerGen",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.respawnDelay",
+          "value": 20
+        },
+        {
+          "path": "snakeBaseSpeed",
+          "value": 650
+        },
+        {
+          "path": "snakeBoostSpeed",
+          "value": 650
+        },
+        {
+          "path": "snakeTurnRate",
+          "value": 14
+        },
+        {
+          "path": "snakeRadius",
+          "value": 3
+        },
+        {
+          "path": "snakeRadiusMax",
+          "value": 4
+        },
+        {
+          "path": "snakeThicknessScale",
+          "value": 0
+        },
+        {
+          "path": "snakeThicknessLogDiv",
+          "value": 30
+        },
+        {
+          "path": "snakeSpacing",
+          "value": 3
+        },
+        {
+          "path": "snakeStartLen",
+          "value": 140
+        },
+        {
+          "path": "snakeMaxLen",
+          "value": 5000
+        },
+        {
+          "path": "snakeMinLen",
+          "value": 4
+        },
+        {
+          "path": "snakeSizeSpeedPenalty",
+          "value": 0
+        },
+        {
+          "path": "snakeBoostSizePenalty",
+          "value": 0
+        },
+        {
+          "path": "boost.minPointsToBoost",
+          "value": 1.2
+        },
+        {
+          "path": "boost.pointsCostPerSecond",
+          "value": 0
+        },
+        {
+          "path": "boost.pointsCostSizeFactor",
+          "value": 1.1
+        },
+        {
+          "path": "boost.lenLossPerPoint",
+          "value": 0
+        },
+        {
+          "path": "boost.pelletValueFactor",
+          "value": 0.65
+        },
+        {
+          "path": "boost.pelletJitter",
+          "value": 10
+        },
+        {
+          "path": "collision.substepMaxDt",
+          "value": 0.006
+        },
+        {
+          "path": "collision.skipSegments",
+          "value": 30
+        },
+        {
+          "path": "collision.hitScale",
+          "value": 0.45
+        },
+        {
+          "path": "collision.cellSize",
+          "value": 70
+        },
+        {
+          "path": "collision.neighborRange",
+          "value": 1
+        },
+        {
+          "path": "generationSeconds",
+          "value": 480
+        },
+        {
+          "path": "eliteFrac",
+          "value": 0.12
+        },
+        {
+          "path": "mutationRate",
+          "value": 0.03
+        },
+        {
+          "path": "mutationStd",
+          "value": 0.35
+        },
+        {
+          "path": "crossoverRate",
+          "value": 0.85
+        },
+        {
+          "path": "observer.earlyEndMinSeconds",
+          "value": 50
+        },
+        {
+          "path": "observer.earlyEndAliveThreshold",
+          "value": 1
+        },
+        {
+          "path": "reward.pointsPerFood",
+          "value": 20
+        },
+        {
+          "path": "reward.pointsPerKill",
+          "value": 400
+        },
+        {
+          "path": "reward.pointsPerSecondAlive",
+          "value": 0.6
+        },
+        {
+          "path": "reward.fitnessSurvivalPerSecond",
+          "value": 0.7
+        },
+        {
+          "path": "reward.fitnessFood",
+          "value": 80
+        },
+        {
+          "path": "reward.fitnessLengthPerSegment",
+          "value": 100
+        },
+        {
+          "path": "reward.fitnessKill",
+          "value": 400
+        },
+        {
+          "path": "reward.fitnessPointsNorm",
+          "value": 42
+        },
+        {
+          "path": "reward.fitnessTopPointsBonus",
+          "value": 600
+        },
+        {
+          "path": "brain.controlDt",
+          "value": 0.016666666666666666
+        },
+        {
+          "path": "brain.gruMutationRate",
+          "value": 0.025
+        },
+        {
+          "path": "brain.gruMutationStd",
+          "value": 0.22
+        },
+        {
+          "path": "brain.gruCrossoverMode",
+          "value": 1
+        },
+        {
+          "path": "brain.gruInitUpdateBias",
+          "value": -0.7
+        },
+        {
+          "path": "brain.lstmInitForgetBias",
+          "value": 0.6
+        },
+        {
+          "path": "brain.rruInitGateBias",
+          "value": 0.1
+        }
+      ]
+    },
+    "sensorSpec": {
+      "sensorCount": 83,
+      "order": [
+        "heading_sin",
+        "heading_cos",
+        "size_norm",
+        "boost_margin",
+        "points_pct",
+        "speed_norm",
+        "boost_state",
+        "points_norm",
+        "points_delta_norm",
+        "length_norm",
+        "boost_points_frac",
+        "boost_cost_norm",
+        "wall_dist_norm",
+        "nearest_food_dist_norm",
+        "nearest_food_dir_sin",
+        "nearest_food_dir_cos",
+        "nearest_body_dist_norm",
+        "nearest_head_dist_norm",
+        "age_norm",
+        "food_0",
+        "food_1",
+        "food_2",
+        "food_3",
+        "food_4",
+        "food_5",
+        "food_6",
+        "food_7",
+        "food_8",
+        "food_9",
+        "food_10",
+        "food_11",
+        "food_12",
+        "food_13",
+        "food_14",
+        "food_15",
+        "hazard_0",
+        "hazard_1",
+        "hazard_2",
+        "hazard_3",
+        "hazard_4",
+        "hazard_5",
+        "hazard_6",
+        "hazard_7",
+        "hazard_8",
+        "hazard_9",
+        "hazard_10",
+        "hazard_11",
+        "hazard_12",
+        "hazard_13",
+        "hazard_14",
+        "hazard_15",
+        "wall_0",
+        "wall_1",
+        "wall_2",
+        "wall_3",
+        "wall_4",
+        "wall_5",
+        "wall_6",
+        "wall_7",
+        "wall_8",
+        "wall_9",
+        "wall_10",
+        "wall_11",
+        "wall_12",
+        "wall_13",
+        "wall_14",
+        "wall_15",
+        "head_0",
+        "head_1",
+        "head_2",
+        "head_3",
+        "head_4",
+        "head_5",
+        "head_6",
+        "head_7",
+        "head_8",
+        "head_9",
+        "head_10",
+        "head_11",
+        "head_12",
+        "head_13",
+        "head_14",
+        "head_15"
+      ],
+      "layoutVersion": "v3"
+    },
+    "inferenceMode": {
+      "requestedBackend": "native",
+      "activeBackend": "native",
+      "requestedMt": true,
+      "activeWorkerCount": 6,
+      "poolEpoch": null,
+      "weightEpoch": null,
+      "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000002000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000006f75747075740153000000000000000200000000000000010000000000000002000000000000000000000000000000000000000000000000a80000000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000010000000000000006000000000000006f75747075740000000000000000a80000000000000000000000000000000200000000000000",
+      "parameterCount": 168,
+      "seed": 1511506142,
+      "nativeAddonStatus": "ready",
+      "nativeAddonBuildIdentifier": "slither_native/0.1.0+83402fa253fe.e55a6c17df710abc"
+    },
+    "legacyConversion": {
+      "sourceSnapshotId": 1,
+      "sourceFormat": "typescript-v2",
+      "completeness": "population-only",
+      "exactContinuation": false
+    }
+  },
+  "peak": {
+    "generation": 1,
+    "alive": 111,
+    "bodyPoints": 255903,
+    "bodySegments": 255792,
+    "longestBody": 5000,
+    "pellets": 24997,
+    "bytes": 2550748,
+    "inArenaCollisionSegments": 248149,
+    "outsideArenaPoints": 4424
+  },
+  "samples": [
+    {
+      "generation": 1,
+      "alive": 300,
+      "bodyPoints": 42000,
+      "bodySegments": 41700,
+      "longestBody": 140,
+      "pellets": 25000,
+      "bytes": 845632,
+      "inArenaCollisionSegments": 33000,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 0.025659566999999925
+    },
+    {
+      "generation": 1,
+      "alive": 285,
+      "bodyPoints": 103918,
+      "bodySegments": 103633,
+      "longestBody": 860,
+      "pellets": 24985,
+      "bytes": 1340196,
+      "inArenaCollisionSegments": 95368,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 5.111463445
+    },
+    {
+      "generation": 1,
+      "alive": 275,
+      "bodyPoints": 136278,
+      "bodySegments": 136003,
+      "longestBody": 1100,
+      "pellets": 24987,
+      "bytes": 1598796,
+      "inArenaCollisionSegments": 128028,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 10.230501282
+    },
+    {
+      "generation": 1,
+      "alive": 263,
+      "bodyPoints": 158928,
+      "bodySegments": 158665,
+      "longestBody": 1260,
+      "pellets": 24996,
+      "bytes": 1779792,
+      "inArenaCollisionSegments": 151038,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 15.396241826999997
+    },
+    {
+      "generation": 1,
+      "alive": 260,
+      "bodyPoints": 177228,
+      "bodySegments": 176968,
+      "longestBody": 1500,
+      "pellets": 24993,
+      "bytes": 1926036,
+      "inArenaCollisionSegments": 169428,
+      "outsideArenaPoints": 0,
+      "wallSeconds": 20.495587398
+    },
+    {
+      "generation": 1,
+      "alive": 248,
+      "bodyPoints": 187220,
+      "bodySegments": 186972,
+      "longestBody": 1820,
+      "pellets": 24990,
+      "bytes": 2005528,
+      "inArenaCollisionSegments": 179731,
+      "outsideArenaPoints": 49,
+      "wallSeconds": 25.701878802
+    },
+    {
+      "generation": 1,
+      "alive": 236,
+      "bodyPoints": 193940,
+      "bodySegments": 193704,
+      "longestBody": 1900,
+      "pellets": 24993,
+      "bytes": 2058964,
+      "inArenaCollisionSegments": 186783,
+      "outsideArenaPoints": 77,
+      "wallSeconds": 30.795463656
+    },
+    {
+      "generation": 1,
+      "alive": 227,
+      "bodyPoints": 199488,
+      "bodySegments": 199261,
+      "longestBody": 1980,
+      "pellets": 24997,
+      "bytes": 2103140,
+      "inArenaCollisionSegments": 192569,
+      "outsideArenaPoints": 109,
+      "wallSeconds": 35.985148018
+    },
+    {
+      "generation": 1,
+      "alive": 218,
+      "bodyPoints": 205428,
+      "bodySegments": 205210,
+      "longestBody": 1980,
+      "pellets": 25001,
+      "bytes": 2150452,
+      "inArenaCollisionSegments": 198817,
+      "outsideArenaPoints": 71,
+      "wallSeconds": 41.038606871000006
+    },
+    {
+      "generation": 1,
+      "alive": 211,
+      "bodyPoints": 209142,
+      "bodySegments": 208931,
+      "longestBody": 2300,
+      "pellets": 24994,
+      "bytes": 2179800,
+      "inArenaCollisionSegments": 202576,
+      "outsideArenaPoints": 236,
+      "wallSeconds": 46.066247637000004
+    },
+    {
+      "generation": 1,
+      "alive": 205,
+      "bodyPoints": 216346,
+      "bodySegments": 216141,
+      "longestBody": 2380,
+      "pellets": 24995,
+      "bytes": 2237260,
+      "inArenaCollisionSegments": 209765,
+      "outsideArenaPoints": 431,
+      "wallSeconds": 51.174915193000004
+    },
+    {
+      "generation": 1,
+      "alive": 197,
+      "bodyPoints": 218026,
+      "bodySegments": 217829,
+      "longestBody": 2460,
+      "pellets": 25003,
+      "bytes": 2250604,
+      "inArenaCollisionSegments": 211511,
+      "outsideArenaPoints": 605,
+      "wallSeconds": 56.359291324000004
+    },
+    {
+      "generation": 1,
+      "alive": 194,
+      "bodyPoints": 223341,
+      "bodySegments": 223147,
+      "longestBody": 2540,
+      "pellets": 24993,
+      "bytes": 2292828,
+      "inArenaCollisionSegments": 216840,
+      "outsideArenaPoints": 681,
+      "wallSeconds": 61.554246893000006
+    },
+    {
+      "generation": 1,
+      "alive": 191,
+      "bodyPoints": 229323,
+      "bodySegments": 229132,
+      "longestBody": 2540,
+      "pellets": 24999,
+      "bytes": 2340708,
+      "inArenaCollisionSegments": 222950,
+      "outsideArenaPoints": 643,
+      "wallSeconds": 66.654454269
+    },
+    {
+      "generation": 1,
+      "alive": 187,
+      "bodyPoints": 233528,
+      "bodySegments": 233341,
+      "longestBody": 2780,
+      "pellets": 24996,
+      "bytes": 2374160,
+      "inArenaCollisionSegments": 227297,
+      "outsideArenaPoints": 621,
+      "wallSeconds": 71.91652821
+    },
+    {
+      "generation": 1,
+      "alive": 182,
+      "bodyPoints": 232508,
+      "bodySegments": 232326,
+      "longestBody": 2940,
+      "pellets": 24999,
+      "bytes": 2365900,
+      "inArenaCollisionSegments": 226437,
+      "outsideArenaPoints": 611,
+      "wallSeconds": 77.00995239999999
+    },
+    {
+      "generation": 1,
+      "alive": 177,
+      "bodyPoints": 232725,
+      "bodySegments": 232548,
+      "longestBody": 3020,
+      "pellets": 25006,
+      "bytes": 2367616,
+      "inArenaCollisionSegments": 226806,
+      "outsideArenaPoints": 609,
+      "wallSeconds": 82.08364607099999
+    },
+    {
+      "generation": 1,
+      "alive": 174,
+      "bodyPoints": 238732,
+      "bodySegments": 238558,
+      "longestBody": 3100,
+      "pellets": 24997,
+      "bytes": 2415396,
+      "inArenaCollisionSegments": 232905,
+      "outsideArenaPoints": 607,
+      "wallSeconds": 87.34822281599999
+    },
+    {
+      "generation": 1,
+      "alive": 171,
+      "bodyPoints": 242618,
+      "bodySegments": 242447,
+      "longestBody": 3260,
+      "pellets": 24994,
+      "bytes": 2446328,
+      "inArenaCollisionSegments": 236829,
+      "outsideArenaPoints": 659,
+      "wallSeconds": 92.516530935
+    },
+    {
+      "generation": 1,
+      "alive": 166,
+      "bodyPoints": 239799,
+      "bodySegments": 239633,
+      "longestBody": 3260,
+      "pellets": 24997,
+      "bytes": 2423676,
+      "inArenaCollisionSegments": 234217,
+      "outsideArenaPoints": 602,
+      "wallSeconds": 97.52161931100001
+    },
+    {
+      "generation": 1,
+      "alive": 164,
+      "bodyPoints": 243294,
+      "bodySegments": 243130,
+      "longestBody": 3260,
+      "pellets": 24997,
+      "bytes": 2451572,
+      "inArenaCollisionSegments": 237852,
+      "outsideArenaPoints": 522,
+      "wallSeconds": 102.69386073
+    },
+    {
+      "generation": 1,
+      "alive": 160,
+      "bodyPoints": 241694,
+      "bodySegments": 241534,
+      "longestBody": 3340,
+      "pellets": 25005,
+      "bytes": 2438804,
+      "inArenaCollisionSegments": 236447,
+      "outsideArenaPoints": 447,
+      "wallSeconds": 107.81157564899999
+    },
+    {
+      "generation": 1,
+      "alive": 155,
+      "bodyPoints": 238335,
+      "bodySegments": 238180,
+      "longestBody": 3500,
+      "pellets": 24997,
+      "bytes": 2411612,
+      "inArenaCollisionSegments": 232985,
+      "outsideArenaPoints": 700,
+      "wallSeconds": 112.823871063
+    },
+    {
+      "generation": 1,
+      "alive": 153,
+      "bodyPoints": 242027,
+      "bodySegments": 241874,
+      "longestBody": 3740,
+      "pellets": 24994,
+      "bytes": 2441024,
+      "inArenaCollisionSegments": 236479,
+      "outsideArenaPoints": 958,
+      "wallSeconds": 117.893302716
+    },
+    {
+      "generation": 1,
+      "alive": 149,
+      "bodyPoints": 243969,
+      "bodySegments": 243820,
+      "longestBody": 3820,
+      "pellets": 24996,
+      "bytes": 2456472,
+      "inArenaCollisionSegments": 238336,
+      "outsideArenaPoints": 1163,
+      "wallSeconds": 122.912724569
+    },
+    {
+      "generation": 1,
+      "alive": 147,
+      "bodyPoints": 247883,
+      "bodySegments": 247736,
+      "longestBody": 3900,
+      "pellets": 24997,
+      "bytes": 2487740,
+      "inArenaCollisionSegments": 242288,
+      "outsideArenaPoints": 1185,
+      "wallSeconds": 128.106008263
+    },
+    {
+      "generation": 1,
+      "alive": 141,
+      "bodyPoints": 245031,
+      "bodySegments": 244890,
+      "longestBody": 3980,
+      "pellets": 24998,
+      "bytes": 2464752,
+      "inArenaCollisionSegments": 239590,
+      "outsideArenaPoints": 1211,
+      "wallSeconds": 133.225366702
+    },
+    {
+      "generation": 1,
+      "alive": 140,
+      "bodyPoints": 248789,
+      "bodySegments": 248649,
+      "longestBody": 4140,
+      "pellets": 24997,
+      "bytes": 2494764,
+      "inArenaCollisionSegments": 243135,
+      "outsideArenaPoints": 1454,
+      "wallSeconds": 138.227435401
+    },
+    {
+      "generation": 1,
+      "alive": 136,
+      "bodyPoints": 247100,
+      "bodySegments": 246964,
+      "longestBody": 4220,
+      "pellets": 25006,
+      "bytes": 2481304,
+      "inArenaCollisionSegments": 241442,
+      "outsideArenaPoints": 1578,
+      "wallSeconds": 143.24210516099998
+    },
+    {
+      "generation": 1,
+      "alive": 135,
+      "bodyPoints": 250563,
+      "bodySegments": 250428,
+      "longestBody": 4220,
+      "pellets": 24993,
+      "bytes": 2508716,
+      "inArenaCollisionSegments": 244693,
+      "outsideArenaPoints": 1820,
+      "wallSeconds": 148.283347897
+    },
+    {
+      "generation": 1,
+      "alive": 133,
+      "bodyPoints": 250129,
+      "bodySegments": 249996,
+      "longestBody": 4220,
+      "pellets": 25009,
+      "bytes": 2505500,
+      "inArenaCollisionSegments": 244358,
+      "outsideArenaPoints": 1781,
+      "wallSeconds": 153.495785431
+    },
+    {
+      "generation": 1,
+      "alive": 130,
+      "bodyPoints": 249973,
+      "bodySegments": 249843,
+      "longestBody": 4300,
+      "pellets": 25010,
+      "bytes": 2504176,
+      "inArenaCollisionSegments": 244030,
+      "outsideArenaPoints": 2043,
+      "wallSeconds": 158.58527900399997
+    },
+    {
+      "generation": 1,
+      "alive": 122,
+      "bodyPoints": 237535,
+      "bodySegments": 237413,
+      "longestBody": 4300,
+      "pellets": 25021,
+      "bytes": 2404636,
+      "inArenaCollisionSegments": 231843,
+      "outsideArenaPoints": 2032,
+      "wallSeconds": 163.853209435
+    },
+    {
+      "generation": 1,
+      "alive": 121,
+      "bodyPoints": 239313,
+      "bodySegments": 239192,
+      "longestBody": 4380,
+      "pellets": 24999,
+      "bytes": 2418388,
+      "inArenaCollisionSegments": 233154,
+      "outsideArenaPoints": 2529,
+      "wallSeconds": 169.088015888
+    },
+    {
+      "generation": 1,
+      "alive": 119,
+      "bodyPoints": 240753,
+      "bodySegments": 240634,
+      "longestBody": 4460,
+      "pellets": 25009,
+      "bytes": 2430044,
+      "inArenaCollisionSegments": 234305,
+      "outsideArenaPoints": 2878,
+      "wallSeconds": 174.119997243
+    },
+    {
+      "generation": 1,
+      "alive": 118,
+      "bodyPoints": 242657,
+      "bodySegments": 242539,
+      "longestBody": 4540,
+      "pellets": 24996,
+      "bytes": 2444984,
+      "inArenaCollisionSegments": 235961,
+      "outsideArenaPoints": 3156,
+      "wallSeconds": 179.17293464600002
+    },
+    {
+      "generation": 1,
+      "alive": 118,
+      "bodyPoints": 247854,
+      "bodySegments": 247736,
+      "longestBody": 4620,
+      "pellets": 24997,
+      "bytes": 2486580,
+      "inArenaCollisionSegments": 241091,
+      "outsideArenaPoints": 3223,
+      "wallSeconds": 184.246441835
+    },
+    {
+      "generation": 1,
+      "alive": 116,
+      "bodyPoints": 247645,
+      "bodySegments": 247529,
+      "longestBody": 4780,
+      "pellets": 25007,
+      "bytes": 2485044,
+      "inArenaCollisionSegments": 240604,
+      "outsideArenaPoints": 3561,
+      "wallSeconds": 189.446200938
+    },
+    {
+      "generation": 1,
+      "alive": 115,
+      "bodyPoints": 249385,
+      "bodySegments": 249270,
+      "longestBody": 4940,
+      "pellets": 25003,
+      "bytes": 2498852,
+      "inArenaCollisionSegments": 242019,
+      "outsideArenaPoints": 3916,
+      "wallSeconds": 194.454791151
+    },
+    {
+      "generation": 1,
+      "alive": 114,
+      "bodyPoints": 251065,
+      "bodySegments": 250951,
+      "longestBody": 5000,
+      "pellets": 24997,
+      "bytes": 2512140,
+      "inArenaCollisionSegments": 243623,
+      "outsideArenaPoints": 4022,
+      "wallSeconds": 199.538320091
+    },
+    {
+      "generation": 1,
+      "alive": 112,
+      "bodyPoints": 249748,
+      "bodySegments": 249636,
+      "longestBody": 5000,
+      "pellets": 24997,
+      "bytes": 2501540,
+      "inArenaCollisionSegments": 242491,
+      "outsideArenaPoints": 3897,
+      "wallSeconds": 204.792297004
+    },
+    {
+      "generation": 1,
+      "alive": 112,
+      "bodyPoints": 255643,
+      "bodySegments": 255531,
+      "longestBody": 5000,
+      "pellets": 24991,
+      "bytes": 2548580,
+      "inArenaCollisionSegments": 247851,
+      "outsideArenaPoints": 4432,
+      "wallSeconds": 209.805593937
+    },
+    {
+      "generation": 1,
+      "alive": 105,
+      "bodyPoints": 242265,
+      "bodySegments": 242160,
+      "longestBody": 5000,
+      "pellets": 25032,
+      "bytes": 2442152,
+      "inArenaCollisionSegments": 235376,
+      "outsideArenaPoints": 3739,
+      "wallSeconds": 214.83689802299997
+    },
+    {
+      "generation": 1,
+      "alive": 105,
+      "bodyPoints": 245846,
+      "bodySegments": 245741,
+      "longestBody": 5000,
+      "pellets": 24998,
+      "bytes": 2470120,
+      "inArenaCollisionSegments": 239059,
+      "outsideArenaPoints": 3637,
+      "wallSeconds": 219.87460480800002
+    }
+  ],
+  "reachedRequiredBodySegments": true,
+  "requiredSegmentScope": "both endpoints inside arena, after 30-point head skip",
+  "capacityHeldSeconds": 180.21920864599997,
+  "requiredHoldSeconds": 180,
+  "stopReason": "required-dense-hold-complete",
+  "host": "0.0.0.0",
+  "port": 5180,
+  "browserLan": true,
+  "mode": "browser-lan",
+  "health": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "fb5ad14f-93b8-4a52-98fc-0ebd83bf971e",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:e3ec074ae2d7da74d311f290d83f238e12f8cc1f171887481b7000a2fbefab76",
+    "startupCheckpointId": "b26abaf8e3fbe75da0197f966587a230644b9b354414feef51ef9ea0e447acb4",
+    "calculationWorkers": 6,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000001",
+    "generation": "0000000000000001",
+    "completedStep": "00000000000003d6",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "00000000000003d6",
+    "schedulerDroppedWallMicros": "000000000c5c6f0e",
+    "schedulerOverloaded": true,
+    "commandServiceBoundaries": "00000000000003d7",
+    "coordinatorWorkBytes": "0000000000000000",
+    "processedCommands": "0000000000000000",
+    "stepTimingSamples": "00000000000003d6",
+    "stepTimingTotalMicros": "000000000d49966c",
+    "stepTimingMaxMicros": "000000000005a470",
+    "stepTimingP95Micros": "000000000005a470",
+    "stepTimingP99Micros": "000000000005a470",
+    "slowStepSamples": "00000000000003d6",
+    "slowStepControlMicros": "0000000003076718",
+    "slowStepControlIndexMicros": "0000000002494d1b",
+    "slowStepControlNeuralMicros": "0000000000bd6b4c",
+    "slowStepControlSensingMicros": "0000000000ba02b6",
+    "slowStepControlInferenceMicros": "0000000000029d9e",
+    "slowStepWorldMicros": "000000000a16fd56",
+    "slowStepOtherMicros": "00000000002b31fe",
+    "nativeBuildIdentifier": "slither_native/0.1.0+83402fa253fe.e55a6c17df710abc",
+    "telemetry": {
+      "uptimeSeconds": 224.31876865700002,
+      "authoritativeSteps": 982,
+      "simulatedSeconds": 16.366666666666667,
+      "simulatedWallRatio": 0.07296164634218598,
+      "step": {
+        "samples": 982,
+        "meanMs": 227.01267209775966,
+        "p95Ms": 369.776,
+        "p99Ms": 369.776,
+        "maxMs": 369.776,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 411750400,
+        "heapUsedBytes": 14767752,
+        "externalBytes": 57098284,
+        "maxRssBytes": 426946560,
+        "eventLoopDelayMeanMs": 10.362559056779856,
+        "eventLoopDelayP95Ms": 11.403263,
+        "eventLoopDelayP99Ms": 16.465919,
+        "eventLoopDelayMaxMs": 29.458431
+      },
+      "frame": {
+        "latestBytes": 2481384,
+        "maximumObservedBytes": 2550748
+      },
+      "checkpointBarrier": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "playerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "trainerAction": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "controllerLifecycle": {
+        "samples": 0,
+        "meanMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 0,
+          "successfulReclaims": 0,
+          "appliedActions": 0,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "0000000000000000",
+        "highWaterCommands": "0000000000000000",
+        "highWaterOwnedBytes": "0000000000000000",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "0000000000000002",
+        "highWaterOwnedBytes": "0000000000000068",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "0000000000000001",
+        "highWaterReliableOwnedBytes": "0000000000000000",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 1,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 6298,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "fb5ad14f-93b8-4a52-98fc-0ebd83bf971e",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "000000000000be00",
+      "protectedAutomaticStoredByteCount": "000000000000be00",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "000000000000be00",
+          "decodedByteCount": "000000000003a2e0",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 1,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "recent": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "323584",
+        "walBytes": "271952",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "114",
+        "freelistPageCount": "0",
+        "usedPageBytes": "466944"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "172732772352",
+        "operatingReserveBytes": "1073741824"
+      }
+    },
+    "legacyConversion": {
+      "sourceSnapshotId": 1,
+      "sourceFormat": "typescript-v2",
+      "completeness": "population-only",
+      "exactContinuation": false
+    }
+  },
+  "scope": "Crowded-world preparation through supported 300-snake, 140-point initial bodies, 10000-radius arena, 5000-point maximum bodies, 650-speed movement and 1x requested simulation. Normal production sensing, collisions and deaths. Every observed frame audits actual in-arena collision segments after the 30-point head skip; only those segments qualify the hold. No body injection or hooks addon. Host contention and observation overhead must be accounted for; this report alone does not qualify browser drawing or final P4 acceptance."
+}

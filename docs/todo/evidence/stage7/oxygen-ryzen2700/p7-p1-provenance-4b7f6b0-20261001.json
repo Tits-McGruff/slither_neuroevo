@@ -1,0 +1,22 @@
+{
+  "sourceRevision": "4b7f6b09d73f3bee97ab25bd8ec8b4892d348659",
+  "trainerRevision": "7240da036df6f4cfb606b1f20d6dc1c3561399a2",
+  "clientScope": "Two real PyRL actors and one programmatic reconnecting player; normal production addon, no diagnostic instrumentation or extra clients.",
+  "completeP7Acceptance": false,
+  "playerStoppedSeconds": 720.541884966,
+  "failedConnection": 25,
+  "requestedSnakeId": 4365,
+  "returnedSnakeId": 4682,
+  "playerFailure": "successful reclaim changed the requested snake",
+  "correlation": "Both successful reclaimResult and assign identify 4682. The token rotates. The request used the most recently delivered identity 4365 and its token fingerprint. Generation 13 was the latest client observation before the failure; a completed generation replacement raced reconnect.",
+  "serverWindowScope": "Stopped after the player failure and correlation inspection. The 774.89-second window is incomplete; it does not establish thirty-minute RSS acceptance. Its final three health observation failures were caused by the deliberate owned server stop.",
+  "sourceDiagnosis": "Replacement send failure preserved the predecessor token on a fresh snake. A focused real-server transport test reproduces the same successful different-snake reclaim.",
+  "sourceReportSha256": {
+    "p7-p1-player-4b7f6b0-20261001.json": "1329d99d90f8b7cda5044af39416b6169fc65d93b18ff221c311c73ab24709dc",
+    "p7-p1-window-4b7f6b0-20261001.json": "ec3d772803f5f15d58bd37e6ccae40f69bf962622a46c34aef67e4fccc6aeaba",
+    "p7-p1-interruption-health-4b7f6b0-20261001.json": "50f3b64a9e2b1beb09ab477cfff7ddfa1a4cb497bd7a5dedb6439a43aae38845",
+    "p7-p1-supervisor-4b7f6b0-20261001.sh": "cd1f5e4877570dff498161e2ae4381047399f23ddb9f56e449a003023d358468",
+    "p7-p1-runner-4b7f6b0-20261001.py": "26d706c91579338bcca0d35b94cbff9eebd1374620f7977991632180d0963024"
+  },
+  "cleanup": "Remote reports matched copied SHA256 hashes. Owned server/player/monitor/trainer processes are stopped. The remote checkout/addon/build/database and local runner/checkpoints were removed; the owner game service remains inactive."
+}

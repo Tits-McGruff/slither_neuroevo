@@ -1,0 +1,952 @@
+//! Durable fresh-run checkpoint and authority-activation barrier.
+//!
+//! A generation-one/step-zero candidate is admitted and kept private here. It
+//! can publish one immutable managed checkpoint, but it cannot construct or
+//! expose running authority until the SQLite metadata/current-pointer worker
+//! echoes that exact complete descriptor. Retry reuses the same admitted
+//! boundary and descriptor; JavaScript never supplies transition chronology or
+//! authoritative population data.
+
+use super::checkpoint::{
+    publish_checkpoint, restore_committed_checkpoint, CheckpointDescriptor, CheckpointError,
+    CheckpointLimits, CheckpointOperationId,
+};
+use super::frame_v1::{
+    pack_authoritative_frame_v1_into, FrameV1Error, FrameV1Metadata, FrameV1ViewDescriptor,
+};
+use super::generation_start::{
+    GenerationStartConfig, GenerationStartError, GenerationStartWorkspace,
+};
+use super::graph::{GraphBundle, GraphLimits, GraphNodeKind, GraphSpec};
+use super::running_loop::{RunningAuthorityLoop, RunningAuthorityLoopError};
+use super::running_step::{RunningStepCoordinator, RunningStepError, RunningStepProgress};
+use super::scheduler::{
+    FixedStepScheduler, FixedStepSchedulerPolicy, SchedulerError, SchedulerReadiness,
+    SchedulerServiceMode,
+};
+use super::state::{
+    AuthoritativeState, AuthorityPhase, GenerationBoundaryKind, RunStartPublication,
+    StateAdmissionPolicy, StateCandidate, StateError,
+};
+use super::step_config::RunningStepWorkLimits;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::path::Path;
+use std::sync::Arc;
+
+/// First fresh-run persistence and activation contract.
+pub const RUN_START_TRANSITION_VERSION: u32 = 1;
+
+/// Opaque process-local proof created only after exact persistence acknowledgement.
+pub(crate) struct RunStartPersistenceProof {
+    source_address: usize,
+    world_epoch: u64,
+    restored_checkpoint: bool,
+}
+
+impl RunStartPersistenceProof {
+    fn new(authority: &AuthoritativeState, restored_checkpoint: bool) -> Self {
+        Self {
+            source_address: std::ptr::from_ref(authority.state()).addr(),
+            world_epoch: authority.world_epoch(),
+            restored_checkpoint,
+        }
+    }
+
+    pub(crate) fn matches(&self, source_address: usize, world_epoch: u64) -> bool {
+        self.source_address == source_address && self.world_epoch == world_epoch
+    }
+
+    pub(crate) const fn restores_checkpoint(&self) -> bool {
+        self.restored_checkpoint
+    }
+}
+
+/// One admitted fresh run retained until durability authorizes activation.
+#[derive(Debug)]
+pub struct PendingRunStartTransition {
+    authority: AuthoritativeState,
+    admission_policy: StateAdmissionPolicy,
+    checkpoint_limits: CheckpointLimits,
+    graph_limits: GraphLimits,
+    work_limits: RunningStepWorkLimits,
+    generation_start: GenerationStartWorkspace,
+    checkpoint_descriptor: Option<CheckpointDescriptor>,
+    persistence_acknowledged: bool,
+    authority_published: bool,
+    first_scheduled_step_attempted: bool,
+    first_scheduled_frame_published: bool,
+    restored_checkpoint: bool,
+    compatible_recovery_branch_required: bool,
+}
+
+impl PendingRunStartTransition {
+    /// Select non-gameplay calculation threads before this authority becomes runnable.
+    pub(crate) fn configure_calculation_workers(
+        &mut self,
+        workers: usize,
+    ) -> Result<(), &'static str> {
+        if self.authority_published {
+            return Err("calculation workers cannot change after authority publication");
+        }
+        if !(1..=7).contains(&workers) {
+            return Err("calculation workers must be from 1 to 7");
+        }
+        self.work_limits.calculation_workers = workers;
+        Ok(())
+    }
+
+    /// Admit one complete generation-one boundary without making it runnable.
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit(
+        candidate: StateCandidate,
+        graph: Arc<GraphBundle>,
+        admission_policy: StateAdmissionPolicy,
+        checkpoint_limits: CheckpointLimits,
+        graph_limits: GraphLimits,
+        work_limits: RunningStepWorkLimits,
+    ) -> Result<Self, RunStartTransitionError> {
+        if candidate.phase != AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart)
+            || candidate.generation.generation != 1
+            || candidate.generation.completed_step != 0
+            || candidate.generation.population_epoch != 1
+        {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        let authority = AuthoritativeState::validate_and_own(candidate, graph, &admission_policy)?;
+        Ok(Self {
+            authority,
+            admission_policy,
+            checkpoint_limits,
+            graph_limits,
+            work_limits,
+            generation_start: GenerationStartWorkspace::new(),
+            checkpoint_descriptor: None,
+            persistence_acknowledged: false,
+            authority_published: false,
+            first_scheduled_step_attempted: false,
+            first_scheduled_frame_published: false,
+            restored_checkpoint: false,
+            compatible_recovery_branch_required: false,
+        })
+    }
+
+    /// Retain the exact file selected by the metadata worker without evolving,
+    /// publishing a new checkpoint, or exposing running authority. The same
+    /// staged generation construction and rollback path handles initial spawn.
+    pub fn restore_committed(
+        managed_directory: &Path,
+        descriptor: &CheckpointDescriptor,
+        admission_policy: StateAdmissionPolicy,
+        checkpoint_limits: CheckpointLimits,
+        graph_limits: GraphLimits,
+        work_limits: RunningStepWorkLimits,
+    ) -> Result<Self, RunStartTransitionError> {
+        let compatible_recovery_branch_required = !admission_policy.require_exact_build_identity;
+        let restored = restore_committed_checkpoint(
+            managed_directory,
+            descriptor,
+            &checkpoint_limits,
+            &graph_limits,
+            &admission_policy,
+        )?;
+        Ok(Self {
+            authority: restored.state,
+            admission_policy,
+            checkpoint_limits,
+            graph_limits,
+            work_limits,
+            generation_start: GenerationStartWorkspace::new(),
+            checkpoint_descriptor: Some(descriptor.clone()),
+            persistence_acknowledged: true,
+            authority_published: false,
+            first_scheduled_step_attempted: false,
+            first_scheduled_frame_published: false,
+            restored_checkpoint: true,
+            compatible_recovery_branch_required,
+        })
+    }
+
+    /// Retain an already decoded and admitted import candidate behind the same
+    /// durability barrier as an ordinary startup restore.
+    pub(crate) fn restore_validated_import(
+        restored: super::checkpoint::RestoredCheckpoint,
+        descriptor: CheckpointDescriptor,
+        admission_policy: StateAdmissionPolicy,
+        checkpoint_limits: CheckpointLimits,
+        graph_limits: GraphLimits,
+        work_limits: RunningStepWorkLimits,
+    ) -> Result<Self, RunStartTransitionError> {
+        if restored.content.run_id != descriptor.run_id
+            || restored.content.logical_root_sha256 != descriptor.logical_root_sha256
+            || restored.content.generation_hex != descriptor.generation_hex
+            || restored.content.completed_step_hex != descriptor.completed_step_hex
+        {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        Ok(Self {
+            authority: restored.state,
+            admission_policy,
+            checkpoint_limits,
+            graph_limits,
+            work_limits,
+            generation_start: GenerationStartWorkspace::new(),
+            checkpoint_descriptor: Some(descriptor),
+            persistence_acknowledged: false,
+            authority_published: false,
+            first_scheduled_step_attempted: false,
+            first_scheduled_frame_published: false,
+            restored_checkpoint: true,
+            compatible_recovery_branch_required: false,
+        })
+    }
+
+    /// Verify the committed source before moving a private candidate to a branch.
+    pub fn validate_recovery_source(
+        &self,
+        descriptor: &CheckpointDescriptor,
+        branch_run_id: &str,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        if !self.restored_checkpoint
+            || branch_run_id.is_empty()
+            || branch_run_id.len() > 256
+            || branch_run_id.contains('\0')
+            || branch_run_id == self.authority.state().identity.run_id
+        {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        let retained = self
+            .checkpoint_descriptor
+            .as_ref()
+            .ok_or(RunStartTransitionError::CheckpointNotPublished)?;
+        if let Some(field) = retained.first_mismatch(descriptor) {
+            return Err(RunStartTransitionError::PersistenceAcknowledgementMismatch { field });
+        }
+        Ok(())
+    }
+
+    /// Bind an already validated retained boundary to a committed recovery branch.
+    /// The caller supplies this only after the worker's FULL provenance/current
+    /// transaction. The immutable source descriptor stays unchanged by digest.
+    pub fn into_committed_recovery_branch(
+        mut self,
+        branch_run_id: String,
+    ) -> Result<Self, RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        if !self.restored_checkpoint {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        self.authority = self
+            .authority
+            .into_recovery_branch(branch_run_id, &self.admission_policy)?;
+        self.admission_policy.require_exact_build_identity = true;
+        self.compatible_recovery_branch_required = false;
+        Ok(self)
+    }
+
+    /// Publish or exactly retry the immutable run-start file.
+    ///
+    /// The transition epoch is the Rust-allocated process-local world
+    /// incarnation. It is used only as a nonzero handoff correlation token;
+    /// generation and completed-step values remain the persistent chronology.
+    pub fn publish_checkpoint(
+        &mut self,
+        managed_directory: &Path,
+        operation_id: CheckpointOperationId,
+    ) -> Result<CheckpointDescriptor, RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        if let Some(descriptor) = &self.checkpoint_descriptor {
+            if descriptor.operation_id == operation_id {
+                return Ok(descriptor.clone());
+            }
+            return Err(RunStartTransitionError::CheckpointAlreadyPublished {
+                operation_id: descriptor.operation_id.as_str().to_owned(),
+            });
+        }
+        let descriptor = publish_checkpoint(
+            managed_directory,
+            operation_id,
+            self.authority.world_epoch(),
+            self.authority.checkpoint_boundary()?,
+            &self.checkpoint_limits,
+            &self.graph_limits,
+            &self.admission_policy,
+        )?;
+        self.checkpoint_descriptor = Some(descriptor.clone());
+        Ok(descriptor)
+    }
+
+    /// Retain only the exact descriptor committed by the SQLite worker.
+    pub fn acknowledge_persistence(
+        &mut self,
+        committed: &CheckpointDescriptor,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        let expected = self
+            .checkpoint_descriptor
+            .as_ref()
+            .ok_or(RunStartTransitionError::CheckpointNotPublished)?;
+        if let Some(field) = expected.first_mismatch(committed) {
+            return Err(RunStartTransitionError::PersistenceAcknowledgementMismatch { field });
+        }
+        self.persistence_acknowledged = true;
+        Ok(())
+    }
+
+    /// Accept an exact imported content record after SQLite either inserted it
+    /// or idempotently reused its earlier local publication correlation.
+    pub(crate) fn acknowledge_import_persistence(
+        &mut self,
+        committed: &CheckpointDescriptor,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published || !self.restored_checkpoint {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        let expected = self
+            .checkpoint_descriptor
+            .as_ref()
+            .ok_or(RunStartTransitionError::CheckpointNotPublished)?;
+        if let Some(field) = expected.first_content_mismatch(committed) {
+            return Err(RunStartTransitionError::PersistenceAcknowledgementMismatch { field });
+        }
+        self.checkpoint_descriptor = Some(committed.clone());
+        self.persistence_acknowledged = true;
+        Ok(())
+    }
+
+    /// Accept the exact durable descriptor for either a newly constructed run
+    /// or a previously restored import candidate.
+    pub(crate) fn acknowledge_replacement_persistence(
+        &mut self,
+        committed: &CheckpointDescriptor,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.restored_checkpoint {
+            self.acknowledge_import_persistence(committed)
+        } else {
+            self.acknowledge_persistence(committed)
+        }
+    }
+
+    /// Construct and atomically activate the running world after exact durability.
+    ///
+    /// A construction or state-admission failure leaves the durable boundary and
+    /// acknowledgement retained for an explicit deterministic retry.
+    pub fn publish_running_authority(
+        &mut self,
+    ) -> Result<RunStartPublication, RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        if !self.persistence_acknowledged {
+            return Err(RunStartTransitionError::PersistenceNotAcknowledged);
+        }
+        if self.compatible_recovery_branch_required {
+            return Err(RunStartTransitionError::CompatibleRecoveryBranchNotCommitted);
+        }
+        let config = GenerationStartConfig::from_work_limits(self.work_limits);
+        if !self
+            .generation_start
+            .retains(self.authority.state(), config)
+        {
+            let _prepared = self
+                .generation_start
+                .prepare(self.authority.state(), config)?;
+        }
+        let persistence_proof =
+            RunStartPersistenceProof::new(&self.authority, self.restored_checkpoint);
+        let publication = self.generation_start.publish_initial_run_start(
+            &mut self.authority,
+            config,
+            &persistence_proof,
+        )?;
+        self.authority_published = true;
+        Ok(publication)
+    }
+
+    /// Pack the first neutral-view browser frame only after running publication.
+    ///
+    /// This keeps the authoritative state private while allowing the coarse
+    /// experimental adapter to transfer one replaceable display payload.
+    pub fn pack_initial_frame_v1(
+        &self,
+        output: &mut Vec<u8>,
+    ) -> Result<FrameV1Metadata, RunStartTransitionError> {
+        if !self.authority_published {
+            return Err(RunStartTransitionError::AuthorityNotPublished);
+        }
+        Ok(pack_authoritative_frame_v1_into(
+            &self.authority,
+            FrameV1ViewDescriptor::default(),
+            output,
+        )?)
+    }
+
+    /// Execute exactly one Rust-scheduled fixed step and pack its resulting frame.
+    ///
+    /// This is the bounded forward bridge used by the experimental fixed-P0
+    /// session before the continuous background runtime is connected. The
+    /// caller supplies no clock, scheduler debt, controls, world data, IDs, or
+    /// statistics. Rust derives the smallest whole-millisecond service boundary
+    /// that makes one admitted fixed delta due, executes the complete running
+    /// coordinator, commits the exact scheduler ticket, and then packs frame v1.
+    ///
+    /// Once execution begins the operation is permanently single-use. That
+    /// prevents an unexpected delivery/generation branch or a post-publication
+    /// frame failure from being retried as a second hidden authoritative step.
+    pub fn publish_first_scheduled_frame_v1(
+        &mut self,
+        output: &mut Vec<u8>,
+    ) -> Result<FrameV1Metadata, RunStartTransitionError> {
+        if !self.authority_published {
+            return Err(RunStartTransitionError::AuthorityNotPublished);
+        }
+        if self.first_scheduled_step_attempted {
+            return Err(RunStartTransitionError::FirstScheduledStepAlreadyAttempted);
+        }
+        self.first_scheduled_step_attempted = true;
+
+        let mut coordinator = RunningStepCoordinator::try_new(&self.authority, self.work_limits)?;
+        let mut scheduler = FixedStepScheduler::try_new(
+            &self.authority,
+            FixedStepSchedulerPolicy::provisional_defaults(),
+        )?;
+        scheduler.reset_wall_clock(&self.authority, 0)?;
+        let service_wall_ms = first_step_service_wall_ms(&self.authority)?;
+        let readiness = scheduler.service_after_command_drain(
+            &self.authority,
+            service_wall_ms,
+            SchedulerServiceMode::Background,
+        )?;
+        if !matches!(readiness, SchedulerReadiness::StepDue { .. }) {
+            return Err(RunStartTransitionError::FirstScheduledStepNotDue);
+        }
+        let step = scheduler.prepare_due_step(&self.authority)?;
+        let publication = match coordinator
+            .advance_nonterminal(&mut self.authority, step.running_step_inputs())?
+        {
+            RunningStepProgress::Published(outcome) => outcome.publication,
+            RunningStepProgress::ExternalDeliveryPending(batch) => {
+                return Err(
+                    RunStartTransitionError::UnexpectedFirstStepExternalDelivery {
+                        remaining: batch.remaining(),
+                    },
+                );
+            }
+            RunningStepProgress::GenerationTransitionPending(_) => {
+                return Err(RunStartTransitionError::UnexpectedFirstStepGenerationTransition);
+            }
+        };
+        scheduler.commit_step(&self.authority, step, publication)?;
+        let metadata = pack_authoritative_frame_v1_into(
+            &self.authority,
+            FrameV1ViewDescriptor::default(),
+            output,
+        )?;
+        self.first_scheduled_frame_published = true;
+        Ok(metadata)
+    }
+
+    /// Consume an activated step-zero authority into its retained Rust loop.
+    ///
+    /// This is the future background-thread handoff. The experimental one-shot
+    /// step and the retained loop are deliberately exclusive so two scheduler
+    /// owners can never advance the same authority incarnation.
+    pub fn into_running_loop(
+        self,
+        policy: FixedStepSchedulerPolicy,
+        wall_origin_ms: u64,
+    ) -> Result<RunningAuthorityLoop, RunStartLoopHandoffError> {
+        if !self.authority_published {
+            return Err(RunStartLoopHandoffError::new(
+                self,
+                RunStartTransitionError::AuthorityNotPublished,
+            ));
+        }
+        if self.first_scheduled_step_attempted {
+            return Err(RunStartLoopHandoffError::new(
+                self,
+                RunStartTransitionError::ExperimentalStepAlreadyOwnsAuthority,
+            ));
+        }
+        let prepared = match RunningAuthorityLoop::prepare(
+            &self.authority,
+            self.work_limits,
+            policy,
+            wall_origin_ms,
+            &self.checkpoint_limits,
+            &self.graph_limits,
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return Err(RunStartLoopHandoffError::new(
+                    self,
+                    RunStartTransitionError::from(error),
+                ))
+            }
+        };
+        Ok(RunningAuthorityLoop::from_prepared(
+            self.authority,
+            prepared,
+        ))
+    }
+
+    /// Exact Rust-owned transition correlation token.
+    #[must_use]
+    pub const fn transition_epoch(&self) -> u64 {
+        self.authority.world_epoch()
+    }
+
+    /// Current generation, exposed only as bounded scalar proof.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.authority.state().generation.generation
+    }
+
+    /// Current completed-step count, exposed only as bounded scalar proof.
+    #[must_use]
+    pub fn completed_step(&self) -> u64 {
+        self.authority.state().generation.completed_step
+    }
+
+    /// Whether the immutable descriptor has published.
+    #[must_use]
+    pub const fn checkpoint_published(&self) -> bool {
+        self.checkpoint_descriptor.is_some()
+    }
+
+    /// Whether the exact SQLite commit acknowledgement is retained.
+    #[must_use]
+    pub const fn persistence_acknowledged(&self) -> bool {
+        self.persistence_acknowledged
+    }
+
+    /// Whether the collision-safe running authority is now active.
+    #[must_use]
+    pub const fn authority_published(&self) -> bool {
+        self.authority_published
+    }
+
+    /// Whether the one experimental scheduled-step attempt has started.
+    #[must_use]
+    pub const fn first_scheduled_step_attempted(&self) -> bool {
+        self.first_scheduled_step_attempted
+    }
+
+    /// Whether that exact step also produced its post-publication frame.
+    #[must_use]
+    pub const fn first_scheduled_frame_published(&self) -> bool {
+        self.first_scheduled_frame_published
+    }
+
+    /// Current authoritative snake count as bounded activation proof.
+    #[must_use]
+    pub fn snake_count(&self) -> usize {
+        self.authority.state().world.snakes.len()
+    }
+
+    /// Current authoritative pellet count as bounded activation proof.
+    #[must_use]
+    pub fn pellet_count(&self) -> usize {
+        self.authority.state().world.pellets.len()
+    }
+
+    /// Bounded immutable welcome/configuration metadata, without touching game
+    /// arrays or packing a frame. Capture before transferring this authority.
+    pub fn startup_metadata_json(&self) -> Result<String, String> {
+        use super::state::NormalizedSettingValue;
+        let state = self.authority.state();
+        let strings = [
+            state.identity.run_id.as_str(),
+            state.identity.config_hash.as_str(),
+            state.config.graph_architecture_key.as_str(),
+            state.identity.math_backend.as_str(),
+        ];
+        let mut bound = Some(1024usize + super::legacy_origin::MAX_LEGACY_ORIGIN_BYTES);
+        for value in strings {
+            bound = bound.and_then(|total| {
+                value
+                    .len()
+                    .checked_mul(6)
+                    .and_then(|bytes| total.checked_add(bytes))
+            });
+        }
+        for setting in &state.config.settings {
+            let text = match &setting.value {
+                NormalizedSettingValue::Text(value) => value.len(),
+                _ => 0,
+            };
+            bound = bound.and_then(|total| {
+                setting
+                    .path
+                    .len()
+                    .checked_add(text)
+                    .and_then(|bytes| bytes.checked_mul(6))
+                    .and_then(|bytes| bytes.checked_add(128))
+                    .and_then(|bytes| total.checked_add(bytes))
+            });
+        }
+        if bound.is_none_or(|bytes| bytes > 1024 * 1024) {
+            return Err("startup metadata exceeds one MiB".into());
+        }
+        let settings = state
+            .config
+            .settings
+            .iter()
+            .map(|setting| {
+                let value = match &setting.value {
+                    NormalizedSettingValue::Bool(value) => serde_json::json!(value),
+                    NormalizedSettingValue::Integer(value) => serde_json::json!(value),
+                    NormalizedSettingValue::Float(value) => serde_json::json!(value),
+                    NormalizedSettingValue::Text(value) => serde_json::json!(value),
+                };
+                serde_json::json!({ "path": setting.path, "value": value })
+            })
+            .collect::<Vec<_>>();
+        let graph_spec = graph_spec_metadata(self.authority.graph_spec());
+        let metadata = serde_json::json!({
+            "runId": state.identity.run_id,
+            "seed": state.identity.seed,
+            "legacyConversion": state.identity.legacy_conversion,
+            "configRevision": format!("{:016x}", state.identity.config_revision),
+            "configHash": state.identity.config_hash,
+            "fixedStepSeconds": state.config.fixed_step_seconds,
+            "maximumFrameBytes": self.authority.memory_estimate().frame_bytes,
+            "graphKey": state.config.graph_architecture_key,
+            "graphSpec": graph_spec,
+            "parameterCount": self.authority.graph().total_parameters,
+            "mathBackend": state.identity.math_backend,
+            "serializerVersion": state.versions.serializer,
+            "sensorVersion": state.versions.sensor,
+            "settings": settings,
+        })
+        .to_string();
+        if metadata.len() > 1024 * 1024 {
+            return Err("startup metadata exceeds one MiB".into());
+        }
+        Ok(metadata)
+    }
+}
+
+/// Encode the Rust-admitted source graph into the current browser schema.
+fn graph_spec_metadata(spec: &GraphSpec) -> serde_json::Value {
+    let nodes = spec
+        .nodes
+        .iter()
+        .map(|node| match &node.kind {
+            GraphNodeKind::Input { output_size } => {
+                serde_json::json!({ "id": node.id, "type": "Input", "outputSize": output_size })
+            }
+            GraphNodeKind::Dense {
+                input_size,
+                output_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "Dense", "inputSize": input_size, "outputSize": output_size
+            }),
+            GraphNodeKind::Mlp {
+                input_size,
+                hidden_sizes,
+                output_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "MLP", "inputSize": input_size,
+                "hiddenSizes": hidden_sizes, "outputSize": output_size
+            }),
+            GraphNodeKind::Gru {
+                input_size,
+                hidden_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "GRU", "inputSize": input_size, "hiddenSize": hidden_size
+            }),
+            GraphNodeKind::Lstm {
+                input_size,
+                hidden_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "LSTM", "inputSize": input_size, "hiddenSize": hidden_size
+            }),
+            GraphNodeKind::Rru {
+                input_size,
+                hidden_size,
+            } => serde_json::json!({
+                "id": node.id, "type": "RRU", "inputSize": input_size, "hiddenSize": hidden_size
+            }),
+            GraphNodeKind::Concat => serde_json::json!({ "id": node.id, "type": "Concat" }),
+            GraphNodeKind::Split { output_sizes } => serde_json::json!({
+                "id": node.id, "type": "Split", "outputSizes": output_sizes
+            }),
+        })
+        .collect::<Vec<_>>();
+    let edges = spec
+        .edges
+        .iter()
+        .map(|edge| {
+            let mut encoded = serde_json::json!({ "from": edge.from, "to": edge.to });
+            if let Some(port) = edge.from_port {
+                encoded["fromPort"] = serde_json::json!(port);
+            }
+            if let Some(port) = edge.to_port {
+                encoded["toPort"] = serde_json::json!(port);
+            }
+            encoded
+        })
+        .collect::<Vec<_>>();
+    let outputs = spec
+        .outputs
+        .iter()
+        .map(|output| {
+            let mut encoded = serde_json::json!({ "nodeId": output.node_id });
+            if let Some(port) = output.port {
+                encoded["port"] = serde_json::json!(port);
+            }
+            encoded
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "type": "graph", "nodes": nodes, "edges": edges,
+        "outputs": outputs, "outputSize": spec.output_size
+    })
+}
+
+/// Recoverable failure before run-start authority moves into the retained loop.
+#[derive(Debug)]
+pub struct RunStartLoopHandoffError {
+    transition: Box<PendingRunStartTransition>,
+    error: RunStartTransitionError,
+}
+
+impl RunStartLoopHandoffError {
+    fn new(transition: PendingRunStartTransition, error: RunStartTransitionError) -> Self {
+        Self {
+            transition: Box::new(transition),
+            error,
+        }
+    }
+
+    /// Inspect the failed precondition or construction error.
+    #[must_use]
+    pub const fn error(&self) -> &RunStartTransitionError {
+        &self.error
+    }
+
+    /// Recover the exact unchanged run-start transition for retry or shutdown.
+    #[must_use]
+    pub fn into_transition(self) -> PendingRunStartTransition {
+        *self.transition
+    }
+
+    /// Recover both the exact transition and its bounded failure.
+    #[must_use]
+    pub fn into_parts(self) -> (PendingRunStartTransition, RunStartTransitionError) {
+        (*self.transition, self.error)
+    }
+}
+
+impl Display for RunStartLoopHandoffError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "run-start loop handoff failed: {}", self.error)
+    }
+}
+
+impl Error for RunStartLoopHandoffError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+/// Failure before a fresh run becomes running authority.
+#[derive(Debug)]
+pub enum RunStartTransitionError {
+    /// The candidate is not generation one at the exact run-start boundary.
+    InvalidBoundary,
+    /// Complete state admission or publication failed.
+    State(Box<StateError>),
+    /// Managed checkpoint publication failed.
+    Checkpoint(Box<CheckpointError>),
+    /// Collision-safe initial-world construction failed.
+    GenerationStart(Box<GenerationStartError>),
+    /// Direct frame-v1 packing failed after activation.
+    Frame(Box<FrameV1Error>),
+    /// One immutable file is already correlated with another operation.
+    CheckpointAlreadyPublished { operation_id: String },
+    /// SQLite acknowledgement arrived before immutable publication.
+    CheckpointNotPublished,
+    /// The worker did not echo the complete published descriptor.
+    PersistenceAcknowledgementMismatch { field: &'static str },
+    /// Running construction was requested before SQLite commit success.
+    PersistenceNotAcknowledged,
+    /// Compatible cross-build state was not yet rebound by a durable branch.
+    CompatibleRecoveryBranchNotCommitted,
+    /// A second activation or persistence mutation was attempted.
+    AuthorityAlreadyPublished,
+    /// Display publication was attempted before running authority existed.
+    AuthorityNotPublished,
+    /// The bounded first scheduled-step bridge was already consumed.
+    FirstScheduledStepAlreadyAttempted,
+    /// The one-shot experiment already created a different scheduler owner.
+    ExperimentalStepAlreadyOwnsAuthority,
+    /// Rust's internally derived service boundary did not make one step due.
+    FirstScheduledStepNotDue,
+    /// Fixed-P0 unexpectedly required a Node delivery on its first step.
+    UnexpectedFirstStepExternalDelivery { remaining: usize },
+    /// Fixed-P0 unexpectedly reached a generation boundary on its first step.
+    UnexpectedFirstStepGenerationTransition,
+    /// Complete running-step construction or publication failed.
+    RunningStep(Box<RunningStepError>),
+    /// Rust-owned fixed-step scheduling failed.
+    Scheduler(Box<SchedulerError>),
+    /// Retained running-authority loop construction failed.
+    RunningLoop(Box<RunningAuthorityLoopError>),
+}
+
+impl Display for RunStartTransitionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidBoundary => write!(
+                formatter,
+                "run-start transition requires generation one at completed step zero"
+            ),
+            Self::State(error) => write!(formatter, "run-start state failed: {error}"),
+            Self::Checkpoint(error) => write!(formatter, "run-start checkpoint failed: {error}"),
+            Self::GenerationStart(error) => {
+                write!(formatter, "run-start world construction failed: {error}")
+            }
+            Self::Frame(error) => write!(formatter, "run-start frame-v1 packing failed: {error}"),
+            Self::CheckpointAlreadyPublished { operation_id } => write!(
+                formatter,
+                "run-start checkpoint is already bound to operation {operation_id}"
+            ),
+            Self::CheckpointNotPublished => write!(
+                formatter,
+                "run-start persistence cannot be acknowledged before checkpoint publication"
+            ),
+            Self::PersistenceAcknowledgementMismatch { field } => write!(
+                formatter,
+                "run-start persistence acknowledgement mismatched {field}"
+            ),
+            Self::PersistenceNotAcknowledged => write!(
+                formatter,
+                "run-start activation requires a successful persistence acknowledgement"
+            ),
+            Self::CompatibleRecoveryBranchNotCommitted => write!(
+                formatter,
+                "compatible checkpoint activation requires a committed recovery branch"
+            ),
+            Self::AuthorityAlreadyPublished => {
+                write!(formatter, "run-start authority has already been published")
+            }
+            Self::AuthorityNotPublished => {
+                write!(
+                    formatter,
+                    "run-start frame-v1 requires published running authority"
+                )
+            }
+            Self::FirstScheduledStepAlreadyAttempted => write!(
+                formatter,
+                "run-start first scheduled frame-v1 step has already been attempted"
+            ),
+            Self::ExperimentalStepAlreadyOwnsAuthority => write!(
+                formatter,
+                "run-start one-shot scheduled step already owns this authority handoff"
+            ),
+            Self::FirstScheduledStepNotDue => write!(
+                formatter,
+                "run-start internally derived scheduler boundary did not make one step due"
+            ),
+            Self::UnexpectedFirstStepExternalDelivery { remaining } => write!(
+                formatter,
+                "run-start fixed-P0 first step unexpectedly requires {remaining} external deliveries"
+            ),
+            Self::UnexpectedFirstStepGenerationTransition => write!(
+                formatter,
+                "run-start fixed-P0 first step unexpectedly reached a generation transition"
+            ),
+            Self::RunningStep(error) => {
+                write!(formatter, "run-start first scheduled step failed: {error}")
+            }
+            Self::Scheduler(error) => {
+                write!(formatter, "run-start first scheduled step scheduler failed: {error}")
+            }
+            Self::RunningLoop(error) => {
+                write!(formatter, "run-start retained running loop failed: {error}")
+            }
+        }
+    }
+}
+
+impl Error for RunStartTransitionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::State(error) => Some(error),
+            Self::Checkpoint(error) => Some(error),
+            Self::GenerationStart(error) => Some(error),
+            Self::Frame(error) => Some(error),
+            Self::RunningStep(error) => Some(error),
+            Self::Scheduler(error) => Some(error),
+            Self::RunningLoop(error) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+impl From<StateError> for RunStartTransitionError {
+    fn from(error: StateError) -> Self {
+        Self::State(Box::new(error))
+    }
+}
+
+impl From<CheckpointError> for RunStartTransitionError {
+    fn from(error: CheckpointError) -> Self {
+        Self::Checkpoint(Box::new(error))
+    }
+}
+
+impl From<GenerationStartError> for RunStartTransitionError {
+    fn from(error: GenerationStartError) -> Self {
+        Self::GenerationStart(Box::new(error))
+    }
+}
+
+impl From<FrameV1Error> for RunStartTransitionError {
+    fn from(error: FrameV1Error) -> Self {
+        Self::Frame(Box::new(error))
+    }
+}
+
+impl From<RunningStepError> for RunStartTransitionError {
+    fn from(error: RunningStepError) -> Self {
+        Self::RunningStep(Box::new(error))
+    }
+}
+
+impl From<SchedulerError> for RunStartTransitionError {
+    fn from(error: SchedulerError) -> Self {
+        Self::Scheduler(Box::new(error))
+    }
+}
+
+impl From<RunningAuthorityLoopError> for RunStartTransitionError {
+    fn from(error: RunningAuthorityLoopError) -> Self {
+        Self::RunningLoop(Box::new(error))
+    }
+}
+
+/// Derive the smallest positive whole-millisecond boundary that requests one step.
+fn first_step_service_wall_ms(
+    authority: &AuthoritativeState,
+) -> Result<u64, RunStartTransitionError> {
+    let state = authority.state();
+    let required_wall_seconds = state.config.fixed_step_seconds / state.config.requested_sim_speed;
+    let required_wall_ms = (required_wall_seconds * 1_000.0).ceil();
+    if !required_wall_ms.is_finite() || required_wall_ms < 1.0 || required_wall_ms > u64::MAX as f64
+    {
+        return Err(RunStartTransitionError::FirstScheduledStepNotDue);
+    }
+    Ok(required_wall_ms as u64)
+}

@@ -1,0 +1,3454 @@
+{
+  "scenario": "P1",
+  "rustWorkers": 5,
+  "sourceRevision": "63b46297d00cc19be0aaa2fd99ca710b54613258",
+  "measurementSources": {
+    "./loaded-runtime-window.ts": "ac0b640553e0cfe25252fa2d506314a925f0dc8d9d013bb3c847c167d3c47f6d",
+    "./archive-overlap-summary.ts": "3f8b0acf207cbee8703a7eb585a7d6b692718cad9e4ceca503028a5aa8b7ec0e",
+    "./generation-window-summary.ts": "7e960b7a3e0d5414e36e2cb6d242b73190e0a27dd30745d8d97e7f6ea747ac51",
+    "./rss-soak-summary.ts": "7335cac0c626ee6fe59d2831f5dd14297130281d61c8daccf84ab6cb7c1dc19a",
+    "./queue-soak-summary.ts": "0d851d6fef61bf9edd2d6f2c4e5188c6b3a620930697852204d9452e376e93a9",
+    "./step-window-summary.ts": "52107cdd790adab5545e77c73ace9689848b6c9dc54c5686a4dc9f0a5773df03"
+  },
+  "startedAtUtc": "2026-10-04T04:00:04.043Z",
+  "requestedSeconds": 600,
+  "wallSeconds": 600.236488228,
+  "measuredScope": "Production server with two independent real PyRL actors; connected-player timings are server receipt-to-application measurements. Browser rendering requires separate evidence.",
+  "histogramScope": "stepWindow subtracts exact consistent step-computation bucket prefixes inside the same initial/final HTTP brackets, including generation-ending evolution/preparation computations. Persistence waits have a separate barrier clock; terminal phase attribution is also reported separately. Other native/interface histogram fields remain process-lifetime diagnostics, including pre-window trainer warm-up.",
+  "clockScope": "Counter clocks bracket the complete initial/final HTTP reads. Acceptance uses the longest possible duration and lowest possible progress; minimum duration must cover the request. Generation intervals use last-old/first-new request brackets. Resource timestamps are response-receipt offsets from the initial reply; request brackets bound the health observations, not internal diagnostic sampling times. No sample is retimed after a failure or sampler shutdown.",
+  "counterClockBrackets": {
+    "initial": {
+      "beforeMs": 300.71984,
+      "afterMs": 346.656265
+    },
+    "final": {
+      "beforeMs": 600535.393497,
+      "afterMs": 600537.208068
+    }
+  },
+  "progressWindow": {
+    "deltaSteps": "35765",
+    "minimumWallSeconds": 600.188737232,
+    "maximumWallSeconds": 600.236488228,
+    "minimumSimulatedWallRatio": 0.993080802356872,
+    "maximumSimulatedWallRatio": 0.9931598118325241
+  },
+  "healthLatencyScope": "Sampler-to-server route; loopback only if URL is loopback.",
+  "workloadWelcome": {
+    "type": "welcome",
+    "protocolVersion": 2,
+    "serializerVersion": 1,
+    "sessionId": "60884c26-5a16-42c0-aa54-125c9b6a8612",
+    "tickRate": 60,
+    "worldSeed": 1511506142,
+    "runId": "5ce1f8fa-a442-4cbf-a27f-710f522f9fb3",
+    "configHash": "sha256:cf32f71860113794f464db9898657d83af38ca9b1cbc7bd5d6c944cf65b37f97",
+    "configRevision": 1,
+    "frameByteLength": 79064,
+    "graphSpec": {
+      "edges": [
+        {
+          "from": "input",
+          "to": "mlp"
+        },
+        {
+          "from": "mlp",
+          "to": "gru"
+        },
+        {
+          "from": "gru",
+          "to": "head"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "outputSize": 83,
+          "type": "Input"
+        },
+        {
+          "hiddenSizes": [
+            64
+          ],
+          "id": "mlp",
+          "inputSize": 83,
+          "outputSize": 64,
+          "type": "MLP"
+        },
+        {
+          "hiddenSize": 16,
+          "id": "gru",
+          "inputSize": 64,
+          "type": "GRU"
+        },
+        {
+          "id": "head",
+          "inputSize": 16,
+          "outputSize": 2,
+          "type": "Dense"
+        }
+      ],
+      "outputSize": 2,
+      "outputs": [
+        {
+          "nodeId": "head"
+        }
+      ],
+      "type": "graph"
+    },
+    "capabilities": {
+      "checkpointPinning": true,
+      "archiveExport": true,
+      "archiveImport": true
+    },
+    "settings": {
+      "core": {
+        "snakeCount": 300,
+        "simSpeed": 1,
+        "hiddenLayers": 2,
+        "neurons1": 64,
+        "neurons2": 64,
+        "neurons3": 64,
+        "neurons4": 48,
+        "neurons5": 32
+      },
+      "updates": [
+        {
+          "path": "worldRadius",
+          "value": 3500
+        },
+        {
+          "path": "pelletCountTarget",
+          "value": 3500
+        },
+        {
+          "path": "pelletSpawnPerSecond",
+          "value": 170
+        },
+        {
+          "path": "foodValue",
+          "value": 1
+        },
+        {
+          "path": "growPerFood",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFalloffEnabled",
+          "value": 1
+        },
+        {
+          "path": "foodSpawn.edgeFadeStart",
+          "value": 0.35
+        },
+        {
+          "path": "foodSpawn.edgeFadePower",
+          "value": 2.6
+        },
+        {
+          "path": "foodSpawn.filamentPower",
+          "value": 4.2
+        },
+        {
+          "path": "foodSpawn.warpFreq",
+          "value": 0.0013
+        },
+        {
+          "path": "foodSpawn.warpScale",
+          "value": 0.08
+        },
+        {
+          "path": "foodSpawn.freqLarge",
+          "value": 0.0026
+        },
+        {
+          "path": "foodSpawn.freqMedium",
+          "value": 0.0042
+        },
+        {
+          "path": "foodSpawn.freqSmall",
+          "value": 0.0068
+        },
+        {
+          "path": "foodSpawn.dustStrength",
+          "value": 0.35
+        },
+        {
+          "path": "sense.layoutVersion",
+          "value": 3
+        },
+        {
+          "path": "sense.bubbleBins",
+          "value": 16
+        },
+        {
+          "path": "sense.rNearBase",
+          "value": 520
+        },
+        {
+          "path": "sense.rNearScale",
+          "value": 260
+        },
+        {
+          "path": "sense.rNearMin",
+          "value": 420
+        },
+        {
+          "path": "sense.rNearMax",
+          "value": 1100
+        },
+        {
+          "path": "sense.rFarBase",
+          "value": 1200
+        },
+        {
+          "path": "sense.rFarScale",
+          "value": 520
+        },
+        {
+          "path": "sense.rFarMin",
+          "value": 900
+        },
+        {
+          "path": "sense.rFarMax",
+          "value": 2400
+        },
+        {
+          "path": "sense.foodKBase",
+          "value": 4
+        },
+        {
+          "path": "sense.maxPelletChecks",
+          "value": 900
+        },
+        {
+          "path": "sense.maxSegmentChecks",
+          "value": 2200
+        },
+        {
+          "path": "baselineBots.count",
+          "value": 10
+        },
+        {
+          "path": "baselineBots.seed",
+          "value": 1
+        },
+        {
+          "path": "baselineBots.randomizeSeedPerGen",
+          "value": 0
+        },
+        {
+          "path": "baselineBots.respawnDelay",
+          "value": 20
+        },
+        {
+          "path": "snakeBaseSpeed",
+          "value": 165
+        },
+        {
+          "path": "snakeBoostSpeed",
+          "value": 500
+        },
+        {
+          "path": "snakeTurnRate",
+          "value": 3.2
+        },
+        {
+          "path": "snakeRadius",
+          "value": 9
+        },
+        {
+          "path": "snakeRadiusMax",
+          "value": 18
+        },
+        {
+          "path": "snakeThicknessScale",
+          "value": 2.9
+        },
+        {
+          "path": "snakeThicknessLogDiv",
+          "value": 30
+        },
+        {
+          "path": "snakeSpacing",
+          "value": 7.5
+        },
+        {
+          "path": "snakeStartLen",
+          "value": 5
+        },
+        {
+          "path": "snakeMaxLen",
+          "value": 10000
+        },
+        {
+          "path": "snakeMinLen",
+          "value": 4
+        },
+        {
+          "path": "snakeSizeSpeedPenalty",
+          "value": 0.18
+        },
+        {
+          "path": "snakeBoostSizePenalty",
+          "value": 0.28
+        },
+        {
+          "path": "boost.minPointsToBoost",
+          "value": 1.2
+        },
+        {
+          "path": "boost.pointsCostPerSecond",
+          "value": 7
+        },
+        {
+          "path": "boost.pointsCostSizeFactor",
+          "value": 1.1
+        },
+        {
+          "path": "boost.lenLossPerPoint",
+          "value": 0.16
+        },
+        {
+          "path": "boost.pelletValueFactor",
+          "value": 0.65
+        },
+        {
+          "path": "boost.pelletJitter",
+          "value": 10
+        },
+        {
+          "path": "collision.substepMaxDt",
+          "value": 0.006
+        },
+        {
+          "path": "collision.skipSegments",
+          "value": 0
+        },
+        {
+          "path": "collision.hitScale",
+          "value": 0.82
+        },
+        {
+          "path": "collision.cellSize",
+          "value": 70
+        },
+        {
+          "path": "collision.neighborRange",
+          "value": 1
+        },
+        {
+          "path": "generationSeconds",
+          "value": 60
+        },
+        {
+          "path": "eliteFrac",
+          "value": 0.12
+        },
+        {
+          "path": "mutationRate",
+          "value": 0.03
+        },
+        {
+          "path": "mutationStd",
+          "value": 0.35
+        },
+        {
+          "path": "crossoverRate",
+          "value": 0.85
+        },
+        {
+          "path": "observer.earlyEndMinSeconds",
+          "value": 8
+        },
+        {
+          "path": "observer.earlyEndAliveThreshold",
+          "value": 2
+        },
+        {
+          "path": "reward.pointsPerFood",
+          "value": 20
+        },
+        {
+          "path": "reward.pointsPerKill",
+          "value": 400
+        },
+        {
+          "path": "reward.pointsPerSecondAlive",
+          "value": 0.6
+        },
+        {
+          "path": "reward.fitnessSurvivalPerSecond",
+          "value": 0.7
+        },
+        {
+          "path": "reward.fitnessFood",
+          "value": 80
+        },
+        {
+          "path": "reward.fitnessLengthPerSegment",
+          "value": 100
+        },
+        {
+          "path": "reward.fitnessKill",
+          "value": 400
+        },
+        {
+          "path": "reward.fitnessPointsNorm",
+          "value": 42
+        },
+        {
+          "path": "reward.fitnessTopPointsBonus",
+          "value": 600
+        },
+        {
+          "path": "brain.controlDt",
+          "value": 0.016666666666666666
+        },
+        {
+          "path": "brain.gruMutationRate",
+          "value": 0.025
+        },
+        {
+          "path": "brain.gruMutationStd",
+          "value": 0.22
+        },
+        {
+          "path": "brain.gruCrossoverMode",
+          "value": 1
+        },
+        {
+          "path": "brain.gruInitUpdateBias",
+          "value": -0.7
+        },
+        {
+          "path": "brain.lstmInitForgetBias",
+          "value": 0.6
+        },
+        {
+          "path": "brain.rruInitGateBias",
+          "value": 0.1
+        }
+      ]
+    },
+    "sensorSpec": {
+      "sensorCount": 83,
+      "order": [
+        "heading_sin",
+        "heading_cos",
+        "size_norm",
+        "boost_margin",
+        "points_pct",
+        "speed_norm",
+        "boost_state",
+        "points_norm",
+        "points_delta_norm",
+        "length_norm",
+        "boost_points_frac",
+        "boost_cost_norm",
+        "wall_dist_norm",
+        "nearest_food_dist_norm",
+        "nearest_food_dir_sin",
+        "nearest_food_dir_cos",
+        "nearest_body_dist_norm",
+        "nearest_head_dist_norm",
+        "age_norm",
+        "food_0",
+        "food_1",
+        "food_2",
+        "food_3",
+        "food_4",
+        "food_5",
+        "food_6",
+        "food_7",
+        "food_8",
+        "food_9",
+        "food_10",
+        "food_11",
+        "food_12",
+        "food_13",
+        "food_14",
+        "food_15",
+        "hazard_0",
+        "hazard_1",
+        "hazard_2",
+        "hazard_3",
+        "hazard_4",
+        "hazard_5",
+        "hazard_6",
+        "hazard_7",
+        "hazard_8",
+        "hazard_9",
+        "hazard_10",
+        "hazard_11",
+        "hazard_12",
+        "hazard_13",
+        "hazard_14",
+        "hazard_15",
+        "wall_0",
+        "wall_1",
+        "wall_2",
+        "wall_3",
+        "wall_4",
+        "wall_5",
+        "wall_6",
+        "wall_7",
+        "wall_8",
+        "wall_9",
+        "wall_10",
+        "wall_11",
+        "wall_12",
+        "wall_13",
+        "wall_14",
+        "wall_15",
+        "head_0",
+        "head_1",
+        "head_2",
+        "head_3",
+        "head_4",
+        "head_5",
+        "head_6",
+        "head_7",
+        "head_8",
+        "head_9",
+        "head_10",
+        "head_11",
+        "head_12",
+        "head_13",
+        "head_14",
+        "head_15"
+      ],
+      "layoutVersion": "v3"
+    },
+    "inferenceMode": {
+      "requestedBackend": "native",
+      "activeBackend": "native",
+      "requestedMt": true,
+      "activeWorkerCount": 5,
+      "poolEpoch": null,
+      "weightEpoch": null,
+      "graphKey": "slither-graph-layout-v1:hex:736c69746865722d6e6575726f65766f2f67726170682d6c61796f75742f7631000100000004000000000000000500000000000000696e70757400530000000000000053000000000000000100000000000000530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000006d6c7002530000000000000040000000000000000100000000000000400000000000000001000000000000004000000000000000000000000000000000402500000000000000000000000000000001000000000000000500000000000000696e70757400000000000000000000000000000000030000000000000067727503400000000000000010000000000000000100000000000000100000000000000000000000000000000110000000000000004025000000000000300f0000000000000100000000000000001000000000000000010000000000000003000000000000006d6c700000000000000000000000000000000004000000000000006865616401100000000000000002000000000000000100000000000000020000000000000000000000000000000070340000000000002200000000000000000000000000000000010000000000000003000000000000006772750000000000000000000000000000000001000000000000000400000000000000686561640000000000000000923400000000000010000000000000000200000000000000",
+      "parameterCount": 13458,
+      "seed": 1511506142,
+      "nativeAddonStatus": "ready",
+      "nativeAddonBuildIdentifier": "slither_native/0.1.0+63b46297d00c.62e68d86759551d3"
+    }
+  },
+  "initialHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "5ce1f8fa-a442-4cbf-a27f-710f522f9fb3",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:cf32f71860113794f464db9898657d83af38ca9b1cbc7bd5d6c944cf65b37f97",
+    "startupCheckpointId": "09d3f5de50c3e13fb3e10e5b8f652524a787aec49960990c03155a16e9b25e5f",
+    "calculationWorkers": 5,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "0000000000000002",
+    "generation": "0000000000000003",
+    "completedStep": "00000000000027c1",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "00000000000019b0",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "000000000000616b",
+    "coordinatorWorkBytes": "0000000003dc6357",
+    "processedCommands": "0000000000005f8a",
+    "stepTimingSamples": "00000000000019b0",
+    "stepTimingTotalMicros": "0000000002e3f7f2",
+    "stepTimingMaxMicros": "00000000000348cc",
+    "stepTimingP95Micros": "0000000000003e80",
+    "stepTimingP99Micros": "0000000000003e80",
+    "stepTimingHistogramConsistent": true,
+    "slowStepSamples": "000000000000002a",
+    "slowStepControlMicros": "0000000000092506",
+    "slowStepControlIndexMicros": "0000000000006eeb",
+    "slowStepControlNeuralMicros": "000000000007986b",
+    "slowStepControlSensingMicros": "0000000000063dfd",
+    "slowStepControlInferenceMicros": "0000000000015111",
+    "slowStepWorldMicros": "000000000004e7b1",
+    "slowStepOtherMicros": "0000000000009235",
+    "terminalStepSamples": "0000000000000001",
+    "terminalStepTotalMicros": "00000000000348cc",
+    "terminalStepMaxMicros": "00000000000348cc",
+    "terminalStepControlMicros": "00000000000008d0",
+    "terminalStepWorldMicros": "0000000000000dc7",
+    "terminalStepPreparationMicros": "00000000000326e6",
+    "terminalStepEvolutionMicros": "0000000000032699",
+    "terminalStepEvolutionSummaryMicros": "0000000000027c27",
+    "terminalStepEvolutionReproductionMicros": "000000000000a030",
+    "terminalStepAdmissionMicros": "0000000000000aa4",
+    "terminalStepOtherMicros": "00000000000000ab",
+    "stepTimingBucketUpperMicros": [
+      "0000000000000064",
+      "00000000000000c8",
+      "000000000000012c",
+      "0000000000000190",
+      "00000000000001f4",
+      "00000000000002ee",
+      "00000000000003e8",
+      "00000000000005dc",
+      "00000000000007d0",
+      "0000000000000bb8",
+      "0000000000000fa0",
+      "0000000000001770",
+      "0000000000001f40",
+      "0000000000002ee0",
+      "0000000000003e80",
+      "000000000000411b",
+      "0000000000005dc0",
+      "0000000000007d00",
+      "000000000000bb80",
+      "000000000000fa00",
+      "0000000000017700",
+      "000000000001f400",
+      "000000000002ee00",
+      "000000000003e800",
+      "ffffffffffffffff"
+    ],
+    "stepTimingBucketCounts": [
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "00000000000006d0",
+      "0000000000000d34",
+      "000000000000043a",
+      "0000000000000139",
+      "000000000000000e",
+      "0000000000000024",
+      "0000000000000002",
+      "0000000000000003",
+      "0000000000000000",
+      "0000000000000001",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000001",
+      "0000000000000000"
+    ],
+    "nativeBuildIdentifier": "slither_native/0.1.0+63b46297d00c.62e68d86759551d3",
+    "telemetry": {
+      "uptimeSeconds": 110.01960699099999,
+      "authoritativeSteps": 6576,
+      "simulatedSeconds": 109.6,
+      "simulatedWallRatio": 0.9961860708061399,
+      "step": {
+        "samples": 6576,
+        "meanMs": 7.374479622871046,
+        "p95Ms": 16,
+        "p99Ms": 16,
+        "maxMs": 215.244,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 149913600,
+        "heapUsedBytes": 20811920,
+        "externalBytes": 32260109,
+        "maxRssBytes": 188362752,
+        "eventLoopDelayMeanMs": 10.166028965619223,
+        "eventLoopDelayP95Ms": 10.870783,
+        "eventLoopDelayP99Ms": 11.780095,
+        "eventLoopDelayMaxMs": 15.818751
+      },
+      "frame": {
+        "latestBytes": 79064,
+        "maximumObservedBytes": 92628
+      },
+      "checkpointBarrier": {
+        "samples": 1,
+        "meanMs": 179.83146500000294,
+        "p95Ms": 250,
+        "maxMs": 179.83146500000294
+      },
+      "playerAction": {
+        "samples": 1910,
+        "meanMs": 1.21435642931941,
+        "p95Ms": 8,
+        "maxMs": 50.181069999998726
+      },
+      "trainerAction": {
+        "samples": 9100,
+        "meanMs": 0.6650364413187232,
+        "p95Ms": 0.5,
+        "maxMs": 95.80131700000493
+      },
+      "controllerLifecycle": {
+        "samples": 3,
+        "meanMs": 6.339310000000599,
+        "p95Ms": 16,
+        "maxMs": 9.11132699999871
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 1910,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 9100,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "000000000000000b",
+        "highWaterCommands": "000000000000000b",
+        "highWaterOwnedBytes": "0000000000000397",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "000000000000000b",
+        "highWaterOwnedBytes": "0000000000000e28",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "000000000000000a",
+        "highWaterReliableOwnedBytes": "0000000000000dc0",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 3,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 6845,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "5ce1f8fa-a442-4cbf-a27f-710f522f9fb3",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "000000000294f200",
+      "protectedAutomaticStoredByteCount": "0000000001c4e000",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000cf3400",
+          "decodedByteCount": "0000000000f74ddd",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 2,
+          "storedByteCount": "00000000019f5800",
+          "decodedByteCount": "0000000001ee9bba",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 2,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 2
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2d",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 0,
+      "deletedStoredByteCount": "0000000000000000"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "82432",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "37",
+        "freelistPageCount": "0",
+        "usedPageBytes": "151552"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "172601872384",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "finalHealth": {
+    "ok": true,
+    "authority": "rust",
+    "runId": "5ce1f8fa-a442-4cbf-a27f-710f522f9fb3",
+    "seed": 1511506142,
+    "configRevision": 1,
+    "configHash": "sha256:cf32f71860113794f464db9898657d83af38ca9b1cbc7bd5d6c944cf65b37f97",
+    "startupCheckpointId": "09d3f5de50c3e13fb3e10e5b8f652524a787aec49960990c03155a16e9b25e5f",
+    "calculationWorkers": 5,
+    "lifecycle": "running",
+    "loopState": "ready",
+    "worldEpoch": "000000000000000c",
+    "generation": "000000000000000d",
+    "completedStep": "000000000000b376",
+    "generationCheckpointPublished": false,
+    "generationPersistenceAcknowledged": false,
+    "pendingExternalDeliveries": "0000000000000000",
+    "schedulerCompletedSteps": "000000000000a565",
+    "schedulerDroppedWallMicros": "0000000000000000",
+    "schedulerOverloaded": false,
+    "commandServiceBoundaries": "000000000002cb73",
+    "coordinatorWorkBytes": "000000002a7844ee",
+    "processedCommands": "000000000003526d",
+    "stepTimingSamples": "000000000000a565",
+    "stepTimingTotalMicros": "00000000131ed0ab",
+    "stepTimingMaxMicros": "000000000003ac2f",
+    "stepTimingP95Micros": "0000000000003e80",
+    "stepTimingP99Micros": "0000000000005dc0",
+    "stepTimingHistogramConsistent": true,
+    "slowStepSamples": "00000000000001b3",
+    "slowStepControlMicros": "000000000059b607",
+    "slowStepControlIndexMicros": "000000000004b2b4",
+    "slowStepControlNeuralMicros": "00000000004a9176",
+    "slowStepControlSensingMicros": "00000000003ad2c5",
+    "slowStepControlInferenceMicros": "00000000000f266b",
+    "slowStepWorldMicros": "000000000033fd66",
+    "slowStepOtherMicros": "0000000000065985",
+    "terminalStepSamples": "000000000000000b",
+    "terminalStepTotalMicros": "0000000000255fb4",
+    "terminalStepMaxMicros": "000000000003ac2f",
+    "terminalStepControlMicros": "0000000000007230",
+    "terminalStepWorldMicros": "0000000000009c5d",
+    "terminalStepPreparationMicros": "000000000023d192",
+    "terminalStepEvolutionMicros": "000000000023cd59",
+    "terminalStepEvolutionSummaryMicros": "00000000001ccbb7",
+    "terminalStepEvolutionReproductionMicros": "0000000000068869",
+    "terminalStepAdmissionMicros": "0000000000007712",
+    "terminalStepOtherMicros": "0000000000000883",
+    "stepTimingBucketUpperMicros": [
+      "0000000000000064",
+      "00000000000000c8",
+      "000000000000012c",
+      "0000000000000190",
+      "00000000000001f4",
+      "00000000000002ee",
+      "00000000000003e8",
+      "00000000000005dc",
+      "00000000000007d0",
+      "0000000000000bb8",
+      "0000000000000fa0",
+      "0000000000001770",
+      "0000000000001f40",
+      "0000000000002ee0",
+      "0000000000003e80",
+      "000000000000411b",
+      "0000000000005dc0",
+      "0000000000007d00",
+      "000000000000bb80",
+      "000000000000fa00",
+      "0000000000017700",
+      "000000000001f400",
+      "000000000002ee00",
+      "000000000003e800",
+      "ffffffffffffffff"
+    ],
+    "stepTimingBucketCounts": [
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "0000000000000000",
+      "000000000000276f",
+      "00000000000053d6",
+      "000000000000207a",
+      "0000000000000769",
+      "000000000000007f",
+      "000000000000015d",
+      "000000000000002a",
+      "000000000000001f",
+      "0000000000000008",
+      "0000000000000005",
+      "0000000000000000",
+      "0000000000000000",
+      "000000000000000b",
+      "0000000000000000"
+    ],
+    "nativeBuildIdentifier": "slither_native/0.1.0+63b46297d00c.62e68d86759551d3",
+    "telemetry": {
+      "uptimeSeconds": 710.2192076619999,
+      "authoritativeSteps": 42341,
+      "simulatedSeconds": 705.6833333333333,
+      "simulatedWallRatio": 0.9936134164216729,
+      "step": {
+        "samples": 42341,
+        "meanMs": 7.576264211993103,
+        "p95Ms": 16,
+        "p99Ms": 24,
+        "maxMs": 240.687,
+        "percentilesAreUpperBounds": true
+      },
+      "process": {
+        "rssBytes": 158498816,
+        "heapUsedBytes": 23427872,
+        "externalBytes": 32432547,
+        "maxRssBytes": 188362752,
+        "eventLoopDelayMeanMs": 10.168442333428784,
+        "eventLoopDelayP95Ms": 10.895359,
+        "eventLoopDelayP99Ms": 11.812863,
+        "eventLoopDelayMaxMs": 25.362431
+      },
+      "frame": {
+        "latestBytes": 78812,
+        "maximumObservedBytes": 92628
+      },
+      "checkpointBarrier": {
+        "samples": 11,
+        "meanMs": 190.1696101818108,
+        "p95Ms": 250,
+        "maxMs": 211.96724999998696
+      },
+      "playerAction": {
+        "samples": 18803,
+        "meanMs": 1.2240649077803734,
+        "p95Ms": 8,
+        "maxMs": 56.484502999985125
+      },
+      "trainerAction": {
+        "samples": 78020,
+        "meanMs": 0.7267072401562064,
+        "p95Ms": 2,
+        "maxMs": 95.80131700000493
+      },
+      "controllerLifecycle": {
+        "samples": 3,
+        "meanMs": 6.339310000000599,
+        "p95Ms": 16,
+        "maxMs": 9.11132699999871
+      },
+      "controllerActivity": {
+        "player": {
+          "freshAssignments": 1,
+          "successfulReclaims": 0,
+          "appliedActions": 18803,
+          "appliedDisconnects": 0
+        },
+        "trainer": {
+          "freshAssignments": 2,
+          "successfulReclaims": 0,
+          "appliedActions": 78020,
+          "appliedDisconnects": 0
+        }
+      }
+    },
+    "nativeQueues": {
+      "inbound": {
+        "batches": "0000000000000000",
+        "commands": "0000000000000000",
+        "ownedBytes": "0000000000000000",
+        "highWaterBatches": "000000000000000d",
+        "highWaterCommands": "000000000000000d",
+        "highWaterOwnedBytes": "0000000000000397",
+        "maxBatches": "0000000000000040",
+        "maxCommands": "0000000000000040",
+        "maxOwnedBytes": "0000000000400000",
+        "maxBatchCommands": "0000000000000001",
+        "maxBatchOwnedBytes": "0000000000100000",
+        "rejections": "0000000000000000",
+        "faultDiscardedCommands": "0000000000000000"
+      },
+      "output": {
+        "reliable": "0000000000000000",
+        "reliableOwnedBytes": "0000000000000000",
+        "discrete": "0000000000000000",
+        "discreteOwnedBytes": "0000000000000000",
+        "frames": "0000000000000000",
+        "hasStats": false,
+        "ownedBytes": "0000000000000000",
+        "highWaterCount": "000000000000000c",
+        "highWaterOwnedBytes": "0000000000000f94",
+        "maxReliable": "0000000000000020",
+        "highWaterReliable": "000000000000000b",
+        "highWaterReliableOwnedBytes": "0000000000000f2c",
+        "highWaterDiscrete": "0000000000000000",
+        "highWaterDiscreteOwnedBytes": "0000000000000000",
+        "highWaterFrames": "0000000000000000",
+        "highWaterFrameOwnedBytes": "0000000000000000",
+        "highWaterStats": "0000000000000001",
+        "highWaterStatsOwnedBytes": "0000000000000068",
+        "maxReliableOwnedBytes": "0000000001000000",
+        "maxDiscrete": "0000000000000004",
+        "maxDiscreteOwnedBytes": "0000000000100000",
+        "maxFrames": "0000000000000004",
+        "maxOwnedBytes": "0000000002000000",
+        "maxEventOwnedBytes": "0000000000100000",
+        "capacityWaits": "0000000000000000",
+        "priorityOverflows": "0000000000000000",
+        "hasReservedFault": false,
+        "statsReplacements": "0000000000000000",
+        "frameReplacements": "0000000000000000",
+        "staleStats": "0000000000000000",
+        "staleFrames": "0000000000000000",
+        "statsRejections": "0000000000000000",
+        "frameRejections": "0000000000000000",
+        "statsEvictions": "0000000000000000",
+        "frameEvictions": "0000000000000000"
+      }
+    },
+    "outbound": {
+      "connections": 3,
+      "reliableQueuedMessages": 0,
+      "reliableQueuedBytes": 0,
+      "pendingFrames": 0,
+      "replacedFrames": 0,
+      "reliableFailures": 0,
+      "highWaterReliableMessagesPerConnection": 1,
+      "highWaterReliableBytesPerConnection": 6845,
+      "maxReliableMessagesPerConnection": 1024,
+      "maxReliableBytesPerConnection": 4194304,
+      "maxConnections": 64
+    },
+    "archiveWork": null,
+    "retention": {
+      "schemaVersion": 1,
+      "activeRunId": "5ce1f8fa-a442-4cbf-a27f-710f522f9fb3",
+      "automaticByteCap": "0000000100000000",
+      "automaticStoredByteCount": "00000000068e4400",
+      "protectedAutomaticStoredByteCount": "0000000001bf7200",
+      "pinnedStoredByteCount": "0000000000000000",
+      "retained": {
+        "latest": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000cc1600",
+          "decodedByteCount": "0000000000f74df3",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "recent": {
+          "checkpointCount": 7,
+          "storedByteCount": "00000000059bc800",
+          "decodedByteCount": "0000000006c32179",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 7,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 7
+          }
+        },
+        "milestone": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        },
+        "priorRunAnchor": {
+          "checkpointCount": 1,
+          "storedByteCount": "0000000000266600",
+          "decodedByteCount": "00000000002d6e2d",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 1,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 1
+          }
+        },
+        "pinned": {
+          "checkpointCount": 0,
+          "storedByteCount": "0000000000000000",
+          "decodedByteCount": "0000000000000000",
+          "encodings": {
+            "rawWeights": 0,
+            "shuffledZstdWeights": 0,
+            "rawRecurrent": 0,
+            "shuffledZstdRecurrent": 0
+          }
+        }
+      },
+      "plannedPrune": {
+        "checkpointCount": 0,
+        "storedByteCount": "0000000000000000",
+        "decodedByteCount": "0000000000000000",
+        "encodings": {
+          "rawWeights": 0,
+          "shuffledZstdWeights": 0,
+          "rawRecurrent": 0,
+          "shuffledZstdRecurrent": 0
+        }
+      }
+    },
+    "retentionCleanup": {
+      "deletedCheckpointCount": 1,
+      "deletedStoredByteCount": "0000000000ce2c00"
+    },
+    "storage": {
+      "schemaVersion": 1,
+      "sqlite": {
+        "databaseBytes": "151552",
+        "walBytes": "1001192",
+        "shmBytes": "32768",
+        "pageSizeBytes": "4096",
+        "pageCount": "44",
+        "freelistPageCount": "0",
+        "usedPageBytes": "180224"
+      },
+      "managed": {
+        "temporaryBytes": "0",
+        "temporaryQuotaBytes": "9663676416",
+        "freeBytes": "172533743616",
+        "operatingReserveBytes": "1073741824"
+      }
+    }
+  },
+  "deltaSteps": "35765",
+  "simulatedWallRatio": 0.993080802356872,
+  "droppedWallMicros": "0",
+  "overloadedDuringSamples": false,
+  "trainerAppliedActionsDelta": 68920,
+  "transitions": [
+    {
+      "generation": "0000000000000004",
+      "beforeMs": 10904.676205,
+      "afterMs": 11409.13251,
+      "wallSeconds": 11.062476245
+    },
+    {
+      "generation": "0000000000000005",
+      "beforeMs": 71188.047354,
+      "afterMs": 71692.559652,
+      "wallSeconds": 71.34590338699999
+    },
+    {
+      "generation": "0000000000000006",
+      "beforeMs": 131953.350542,
+      "afterMs": 132457.827008,
+      "wallSeconds": 132.111170743
+    },
+    {
+      "generation": "0000000000000007",
+      "beforeMs": 192220.77495,
+      "afterMs": 192724.881117,
+      "wallSeconds": 192.37822485200002
+    },
+    {
+      "generation": "0000000000000008",
+      "beforeMs": 252490.357477,
+      "afterMs": 253004.509022,
+      "wallSeconds": 252.65785275700003
+    },
+    {
+      "generation": "0000000000000009",
+      "beforeMs": 313266.98899,
+      "afterMs": 313770.934824,
+      "wallSeconds": 313.424278559
+    },
+    {
+      "generation": "000000000000000a",
+      "beforeMs": 373547.121224,
+      "afterMs": 374052.509844,
+      "wallSeconds": 373.705853579
+    },
+    {
+      "generation": "000000000000000b",
+      "beforeMs": 433808.250885,
+      "afterMs": 434312.921743,
+      "wallSeconds": 433.96626547799997
+    },
+    {
+      "generation": "000000000000000c",
+      "beforeMs": 494575.107602,
+      "afterMs": 495079.198977,
+      "wallSeconds": 494.732542712
+    },
+    {
+      "generation": "000000000000000d",
+      "beforeMs": 554850.070502,
+      "afterMs": 555354.116035,
+      "wallSeconds": 555.00745977
+    }
+  ],
+  "generationIntervalBounds": [
+    {
+      "minimumSeconds": 59.778914844,
+      "maximumSeconds": 60.787883447
+    },
+    {
+      "minimumSeconds": 60.26079089,
+      "maximumSeconds": 61.269779654
+    },
+    {
+      "minimumSeconds": 59.762947942,
+      "maximumSeconds": 60.771530575000014
+    },
+    {
+      "minimumSeconds": 59.76547636,
+      "maximumSeconds": 60.78373407200002
+    },
+    {
+      "minimumSeconds": 60.26247996799997,
+      "maximumSeconds": 61.28057734699998
+    },
+    {
+      "minimumSeconds": 59.77618640000001,
+      "maximumSeconds": 60.785520854000005
+    },
+    {
+      "minimumSeconds": 59.755741041,
+      "maximumSeconds": 60.76580051899998
+    },
+    {
+      "minimumSeconds": 60.26218585900002,
+      "maximumSeconds": 61.27094809200003
+    },
+    {
+      "minimumSeconds": 59.770871525000025,
+      "maximumSeconds": 60.77900843299995
+    }
+  ],
+  "generationIntervalsSeconds": [
+    60.787883447,
+    61.269779654,
+    60.771530575000014,
+    60.78373407200002,
+    61.28057734699998,
+    60.785520854000005,
+    60.76580051899998,
+    61.27094809200003,
+    60.77900843299995
+  ],
+  "observationFailures": [],
+  "resourceSamples": [
+    {
+      "wallSeconds": 0,
+      "rssBytes": 149913600,
+      "beforeMs": 300.71984,
+      "afterMs": 346.656265,
+      "heapUsedBytes": 20811920,
+      "externalBytes": 32260109,
+      "trainerAppliedActions": 9100,
+      "generation": "0000000000000003",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000b",
+          "highWaterCommands": "000000000000000b",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000b",
+          "highWaterOwnedBytes": "0000000000000e28",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000a",
+          "highWaterReliableOwnedBytes": "0000000000000dc0",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "82432",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "37",
+          "freelistPageCount": "0",
+          "usedPageBytes": "151552"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172601872384",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "43315712",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 30.15021274,
+      "rssBytes": 144822272,
+      "beforeMs": 30494.996395,
+      "afterMs": 30496.869005,
+      "heapUsedBytes": 16560688,
+      "externalBytes": 32129743,
+      "trainerAppliedActions": 12524,
+      "generation": "0000000000000004",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "173072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172588154880",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "56888320",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 60.29607038100001,
+      "rssBytes": 149303296,
+      "beforeMs": 60641.0893,
+      "afterMs": 60642.726646,
+      "heapUsedBytes": 19156944,
+      "externalBytes": 32206521,
+      "trainerAppliedActions": 16060,
+      "generation": "0000000000000004",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "173072",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172588154880",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "56888320",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 90.425607227,
+      "rssBytes": 145633280,
+      "beforeMs": 90770.101254,
+      "afterMs": 90772.263492,
+      "heapUsedBytes": 21737104,
+      "externalBytes": 32291801,
+      "trainerAppliedActions": 19494,
+      "generation": "0000000000000005",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "255472",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172574507008",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "70400000",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 120.050500373,
+      "rssBytes": 147357696,
+      "beforeMs": 120395.496146,
+      "afterMs": 120397.156638,
+      "heapUsedBytes": 17885224,
+      "externalBytes": 32110439,
+      "trainerAppliedActions": 22969,
+      "generation": "0000000000000005",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "255472",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "38",
+          "freelistPageCount": "0",
+          "usedPageBytes": "155648"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172574507008",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "70400000",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 150.191968594,
+      "rssBytes": 152985600,
+      "beforeMs": 150536.190999,
+      "afterMs": 150538.624859,
+      "heapUsedBytes": 17399568,
+      "externalBytes": 32180311,
+      "trainerAppliedActions": 26429,
+      "generation": "0000000000000006",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "346112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172560928768",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "83832320",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 180.319702726,
+      "rssBytes": 152625152,
+      "beforeMs": 180664.443386,
+      "afterMs": 180666.358991,
+      "heapUsedBytes": 20115656,
+      "externalBytes": 32266385,
+      "trainerAppliedActions": 29915,
+      "generation": "0000000000000006",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "346112",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172560928768",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "83832320",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 210.45197858,
+      "rssBytes": 137453568,
+      "beforeMs": 210796.85607,
+      "afterMs": 210798.634845,
+      "heapUsedBytes": 15757824,
+      "externalBytes": 32072870,
+      "trainerAppliedActions": 33386,
+      "generation": "0000000000000007",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000001",
+          "reliableOwnedBytes": "00000000000007b4",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": true,
+          "ownedBytes": "000000000000081c",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "428512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172547264512",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "97358336",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 240.08211196800002,
+      "rssBytes": 145723392,
+      "beforeMs": 240426.799987,
+      "afterMs": 240428.768233,
+      "heapUsedBytes": 17530504,
+      "externalBytes": 32148040,
+      "trainerAppliedActions": 36856,
+      "generation": "0000000000000007",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "428512",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "39",
+          "freelistPageCount": "0",
+          "usedPageBytes": "159744"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172547264512",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "97358336",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 270.243667468,
+      "rssBytes": 146247680,
+      "beforeMs": 270588.226912,
+      "afterMs": 270590.323733,
+      "heapUsedBytes": 17908152,
+      "externalBytes": 32227979,
+      "trainerAppliedActions": 40314,
+      "generation": "0000000000000008",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "519152",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533620736",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110858752",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 300.366924315,
+      "rssBytes": 148316160,
+      "beforeMs": 300711.842311,
+      "afterMs": 300713.58058,
+      "heapUsedBytes": 19177888,
+      "externalBytes": 32310642,
+      "trainerAppliedActions": 43837,
+      "generation": "0000000000000008",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "519152",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533620736",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110858752",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 330.001201152,
+      "rssBytes": 146976768,
+      "beforeMs": 330345.359065,
+      "afterMs": 330347.857417,
+      "heapUsedBytes": 21898104,
+      "externalBytes": 32388877,
+      "trainerAppliedActions": 47203,
+      "generation": "0000000000000009",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "609792",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533727232",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110610432",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 360.13539445600003,
+      "rssBytes": 154972160,
+      "beforeMs": 360480.290898,
+      "afterMs": 360482.050721,
+      "heapUsedBytes": 15442552,
+      "externalBytes": 32114999,
+      "trainerAppliedActions": 50646,
+      "generation": "0000000000000009",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "609792",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "40",
+          "freelistPageCount": "0",
+          "usedPageBytes": "163840"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533727232",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110610432",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 390.285660706,
+      "rssBytes": 154705920,
+      "beforeMs": 390630.382512,
+      "afterMs": 390632.316971,
+      "heapUsedBytes": 21763464,
+      "externalBytes": 32202895,
+      "trainerAppliedActions": 54049,
+      "generation": "000000000000000a",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "708672",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533710848",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110471680",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 420.412503081,
+      "rssBytes": 154333184,
+      "beforeMs": 420757.680071,
+      "afterMs": 420759.159346,
+      "heapUsedBytes": 22868256,
+      "externalBytes": 32285420,
+      "trainerAppliedActions": 57547,
+      "generation": "000000000000000a",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "708672",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533710848",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110471680",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 450.036204547,
+      "rssBytes": 152797184,
+      "beforeMs": 450380.855185,
+      "afterMs": 450382.860812,
+      "heapUsedBytes": 18143056,
+      "externalBytes": 32352269,
+      "trainerAppliedActions": 60899,
+      "generation": "000000000000000b",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "799312",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533776384",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110263808",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 480.17005165,
+      "rssBytes": 153976832,
+      "beforeMs": 480515.144798,
+      "afterMs": 480516.707915,
+      "heapUsedBytes": 14847608,
+      "externalBytes": 32100588,
+      "trainerAppliedActions": 64364,
+      "generation": "000000000000000b",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000c",
+          "highWaterCommands": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "799312",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "41",
+          "freelistPageCount": "0",
+          "usedPageBytes": "167936"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533776384",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110263808",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 510.296061575,
+      "rssBytes": 154771456,
+      "beforeMs": 510641.295449,
+      "afterMs": 510642.71784,
+      "heapUsedBytes": 21979032,
+      "externalBytes": 32198227,
+      "trainerAppliedActions": 67797,
+      "generation": "000000000000000c",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000d",
+          "highWaterCommands": "000000000000000d",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "898192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "42",
+          "freelistPageCount": "0",
+          "usedPageBytes": "172032"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533764096",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110123520",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 540.436419215,
+      "rssBytes": 157540352,
+      "beforeMs": 540780.989356,
+      "afterMs": 540783.07548,
+      "heapUsedBytes": 18072208,
+      "externalBytes": 32267636,
+      "trainerAppliedActions": 71271,
+      "generation": "000000000000000c",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000d",
+          "highWaterCommands": "000000000000000d",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "898192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "42",
+          "freelistPageCount": "0",
+          "usedPageBytes": "172032"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533764096",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "110123520",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 570.06558756,
+      "rssBytes": 153649152,
+      "beforeMs": 570410.319535,
+      "afterMs": 570412.243825,
+      "heapUsedBytes": 17753112,
+      "externalBytes": 32338522,
+      "trainerAppliedActions": 74605,
+      "generation": "000000000000000d",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000d",
+          "highWaterCommands": "000000000000000d",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1001192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "44",
+          "freelistPageCount": "0",
+          "usedPageBytes": "180224"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533743616",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109986816",
+      "automaticByteCap": "4294967296"
+    },
+    {
+      "wallSeconds": 600.1905518030001,
+      "rssBytes": 158498816,
+      "beforeMs": 600535.393497,
+      "afterMs": 600537.208068,
+      "heapUsedBytes": 23427872,
+      "externalBytes": 32432547,
+      "trainerAppliedActions": 78020,
+      "generation": "000000000000000d",
+      "nativeQueues": {
+        "inbound": {
+          "batches": "0000000000000000",
+          "commands": "0000000000000000",
+          "ownedBytes": "0000000000000000",
+          "highWaterBatches": "000000000000000d",
+          "highWaterCommands": "000000000000000d",
+          "highWaterOwnedBytes": "0000000000000397",
+          "maxBatches": "0000000000000040",
+          "maxCommands": "0000000000000040",
+          "maxOwnedBytes": "0000000000400000",
+          "maxBatchCommands": "0000000000000001",
+          "maxBatchOwnedBytes": "0000000000100000",
+          "rejections": "0000000000000000",
+          "faultDiscardedCommands": "0000000000000000"
+        },
+        "output": {
+          "reliable": "0000000000000000",
+          "reliableOwnedBytes": "0000000000000000",
+          "discrete": "0000000000000000",
+          "discreteOwnedBytes": "0000000000000000",
+          "frames": "0000000000000000",
+          "hasStats": false,
+          "ownedBytes": "0000000000000000",
+          "highWaterCount": "000000000000000c",
+          "highWaterOwnedBytes": "0000000000000f94",
+          "maxReliable": "0000000000000020",
+          "highWaterReliable": "000000000000000b",
+          "highWaterReliableOwnedBytes": "0000000000000f2c",
+          "highWaterDiscrete": "0000000000000000",
+          "highWaterDiscreteOwnedBytes": "0000000000000000",
+          "highWaterFrames": "0000000000000000",
+          "highWaterFrameOwnedBytes": "0000000000000000",
+          "highWaterStats": "0000000000000001",
+          "highWaterStatsOwnedBytes": "0000000000000068",
+          "maxReliableOwnedBytes": "0000000001000000",
+          "maxDiscrete": "0000000000000004",
+          "maxDiscreteOwnedBytes": "0000000000100000",
+          "maxFrames": "0000000000000004",
+          "maxOwnedBytes": "0000000002000000",
+          "maxEventOwnedBytes": "0000000000100000",
+          "capacityWaits": "0000000000000000",
+          "priorityOverflows": "0000000000000000",
+          "hasReservedFault": false,
+          "statsReplacements": "0000000000000000",
+          "frameReplacements": "0000000000000000",
+          "staleStats": "0000000000000000",
+          "staleFrames": "0000000000000000",
+          "statsRejections": "0000000000000000",
+          "frameRejections": "0000000000000000",
+          "statsEvictions": "0000000000000000",
+          "frameEvictions": "0000000000000000"
+        }
+      },
+      "outbound": {
+        "connections": 3,
+        "reliableQueuedMessages": 0,
+        "reliableQueuedBytes": 0,
+        "pendingFrames": 0,
+        "replacedFrames": 0,
+        "reliableFailures": 0,
+        "highWaterReliableMessagesPerConnection": 1,
+        "highWaterReliableBytesPerConnection": 6845,
+        "maxReliableMessagesPerConnection": 1024,
+        "maxReliableBytesPerConnection": 4194304,
+        "maxConnections": 64
+      },
+      "storage": {
+        "schemaVersion": 1,
+        "sqlite": {
+          "databaseBytes": "151552",
+          "walBytes": "1001192",
+          "shmBytes": "32768",
+          "pageSizeBytes": "4096",
+          "pageCount": "44",
+          "freelistPageCount": "0",
+          "usedPageBytes": "180224"
+        },
+        "managed": {
+          "temporaryBytes": "0",
+          "temporaryQuotaBytes": "9663676416",
+          "freeBytes": "172533743616",
+          "operatingReserveBytes": "1073741824"
+        }
+      },
+      "automaticStoredBytes": "109986816",
+      "automaticByteCap": "4294967296"
+    }
+  ],
+  "queueSoak": {
+    "inspectedSamples": 21,
+    "withinReportedLimits": true,
+    "inboundPeakCommands": "13",
+    "inboundPeakOwnedBytes": "919",
+    "outputPeakCount": "12",
+    "outputPeakOwnedBytes": "3988",
+    "outputPeakReliable": "11",
+    "outputPeakReliableOwnedBytes": "3884",
+    "outputPeakDiscrete": "0",
+    "outputPeakDiscreteOwnedBytes": "0",
+    "outputPeakFrames": "0",
+    "outputPeakFrameOwnedBytes": "0",
+    "outputPeakStats": "1",
+    "outputPeakStatsOwnedBytes": "104",
+    "websocketPeakMessagesPerConnection": 1,
+    "websocketPeakBytesPerConnection": 6845,
+    "inboundRejectionsDelta": "0",
+    "outputCapacityWaitsDelta": "0",
+    "faultDiscardedCommandsDelta": "0",
+    "priorityOverflowsDelta": "0",
+    "reliableFailuresDelta": 0,
+    "meetsQueueGate": true
+  },
+  "stepWindow": {
+    "samples": "35765",
+    "bucketUpperMicros": [
+      "0000000000000064",
+      "00000000000000c8",
+      "000000000000012c",
+      "0000000000000190",
+      "00000000000001f4",
+      "00000000000002ee",
+      "00000000000003e8",
+      "00000000000005dc",
+      "00000000000007d0",
+      "0000000000000bb8",
+      "0000000000000fa0",
+      "0000000000001770",
+      "0000000000001f40",
+      "0000000000002ee0",
+      "0000000000003e80",
+      "000000000000411b",
+      "0000000000005dc0",
+      "0000000000007d00",
+      "000000000000bb80",
+      "000000000000fa00",
+      "0000000000017700",
+      "000000000001f400",
+      "000000000002ee00",
+      "000000000003e800",
+      "ffffffffffffffff"
+    ],
+    "bucketCounts": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "8351",
+      "18082",
+      "7232",
+      "1584",
+      "113",
+      "313",
+      "40",
+      "28",
+      "8",
+      "4",
+      "0",
+      "0",
+      "10",
+      "0"
+    ],
+    "overflowSamples": "0",
+    "p50UpperMs": 8,
+    "p95UpperMs": 16,
+    "p99UpperMs": 24,
+    "meetsP0P1StepGate": false
+  },
+  "healthLatencyP95Ms": 3.3177660000510514,
+  "healthLatencyMaxMs": 12.025989999994636,
+  "meetsMeasuredGates": false
+}
