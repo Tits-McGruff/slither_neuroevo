@@ -394,6 +394,14 @@ function Pid-BelongsToRepo([int]$procId) {
 # Force kill if it does not exit quickly.
 # ============================================================
 
+# Native stderr must not abort the guarded retry and process-liveness checks in PS 5.1.
+function Invoke-Taskkill([int]$procId, [switch]$force) {
+  $ErrorActionPreference = 'Continue'
+  $killArguments = @('/PID', [string]$procId, '/T')
+  if ($force) { $killArguments = @('/F') + $killArguments }
+  & taskkill @killArguments *> $null
+}
+
 function Stop-PidTree([string]$name, [int]$procId) {
   if (-not (Process-Exists $procId)) { return $true }
 
@@ -404,7 +412,7 @@ function Stop-PidTree([string]$name, [int]$procId) {
   }
 
   Write-Info "Stopping $name PID $procId..."
-  & taskkill /PID $procId /T *> $null
+  Invoke-Taskkill $procId
 
   $stopped = $false
   for ($i=0; $i -lt 5; $i++) {
@@ -414,7 +422,7 @@ function Stop-PidTree([string]$name, [int]$procId) {
 
   if (-not $stopped) {
     Write-Info "$name did not exit, sending force kill..."
-    & taskkill /F /PID $procId /T *> $null
+    Invoke-Taskkill $procId -force
     for ($i=0; $i -lt 5; $i++) {
       if (-not (Process-Exists $procId)) { $stopped = $true; break }
       Start-Sleep -Seconds 1

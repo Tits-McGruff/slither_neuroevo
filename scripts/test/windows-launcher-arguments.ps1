@@ -28,3 +28,17 @@ try {
 } finally {
   foreach ($processId in $ownedProcessIds) { Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue }
 }
+
+# Reproduce native stderr from a failed polite taskkill without touching a real process.
+$env:PATH = "$FixtureDirectory;$env:PATH"
+$stubTaskkill = Join-Path $FixtureDirectory 'taskkill.cmd'
+if ((Get-Command taskkill).Source -ne $stubTaskkill) { throw 'Shutdown test did not select its owned taskkill stub.' }
+function Process-Exists([int]$procId) { return -not (Test-Path -LiteralPath (Join-Path $FixtureDirectory 'forced.flag')) }
+function Pid-BelongsToRepo([int]$procId) { return $true }
+function Start-Sleep { }
+if (-not (Stop-PidTree 'Shutdown fixture' 12345)) { throw 'Native stderr prevented the force-stop fallback.' }
+if ($ErrorActionPreference -ne 'Stop') { throw 'Shutdown changed the caller error policy.' }
+
+Remove-Item -LiteralPath (Join-Path $FixtureDirectory 'forced.flag')
+$env:SLITHER_STUB_FORCE_FAIL = '1'
+if (Stop-PidTree 'Unstoppable fixture' 12345) { throw 'Shutdown reported success while the process was still alive.' }
