@@ -29,6 +29,13 @@ const GRAPH: GraphSpec = {
   outputs: [{ nodeId: 'head' }]
 };
 
+/** Ordinary socket/control observations should remain prompt. */
+const OBSERVATION_TIMEOUT_MS = 5_000;
+/** Real generation, checkpoint and continuation work may be slower on shared Windows CI. */
+const CONTINUATION_TIMEOUT_MS = 30_000;
+/** Per-boundary guards catch stalls first; this only prevents Vitest from cutting off a healthy slow runner. */
+const TEST_TIMEOUT_MS = 180_000;
+
 /** A genuine FULL commit whose reply is held while its exact archive is examined. */
 interface HeldBoundary {
   /** Rust's actual published descriptor, with no reconstructed population. */
@@ -37,15 +44,16 @@ interface HeldBoundary {
   release(): void;
 }
 
-/** Wait for one explicit observation within the existing integration deadline. */
-async function observed<T>(read: () => T | undefined, phase = 'continuation boundary'): Promise<T> {
-  const deadline = performance.now() + 5000;
+/** Wait for one explicit observation, using a caller-selected deadlock guard for real work. */
+async function observed<T>(read: () => T | undefined, phase = 'continuation boundary',
+  timeoutMs = OBSERVATION_TIMEOUT_MS): Promise<T> {
+  const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
     const value = read();
     if (value !== undefined) return value;
     await new Promise<void>(done => setTimeout(done, 10));
   }
-  throw new Error(`${phase} was not observed within five seconds`);
+  throw new Error(`${phase} was not observed within ${timeoutMs / 1000} seconds`);
 }
 
 /** Read complete history and the archive's retained winners, excluding superseded duplicate tombstones. */
@@ -146,12 +154,12 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         const sourceRunId = (reset['welcome'] as { runId: string }).runId;
         viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
           rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
-        // Generation four requires three real transitions; apply the single-boundary deadline to each.
+        // Generation four requires three real transitions; give each one a CI-tolerant deadlock guard.
         for (let generation = 2; generation <= scenario.generation; generation++) {
           await observed(() => (committedGenerations.get(sourceRunId) ?? 1) >= generation ? true : undefined,
-            `source generation ${generation}`);
+            `source generation ${generation}`, CONTINUATION_TIMEOUT_MS);
         }
-        const original = await observed(() => selected);
+        const original = await observed(() => selected, 'source selected boundary', CONTINUATION_TIMEOUT_MS);
         expect(original.descriptor.runId).toBe(sourceRunId);
         const healthResponse = await fetch(`http://127.0.0.1:${source.port}/api/health`, {
           signal: AbortSignal.timeout(5000)
@@ -189,9 +197,11 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         expect(await imported.json()).toMatchObject({ ok: true, runId: original.descriptor.runId,
           generation: original.descriptor.generation, completedStep: original.descriptor.completedStep,
           checkpointId: original.descriptor.logicalRootSha256 });
-        const restored = await observed(() => restoredSuccessor);
+        const restored = await observed(() => restoredSuccessor,
+          'restored successor boundary', CONTINUATION_TIMEOUT_MS);
         original.release();
-        const direct = await observed(() => directSuccessor);
+        const direct = await observed(() => directSuccessor,
+          'direct successor boundary', CONTINUATION_TIMEOUT_MS);
         expect(restored.descriptor.logicalRootSha256).toBe(direct.descriptor.logicalRootSha256);
         expect(restored.descriptor.completedStep).toBe(direct.descriptor.completedStep);
         expect(restored.descriptor.graphLayoutSha256).toBe(direct.descriptor.graphLayoutSha256);
@@ -210,9 +220,11 @@ describeNetworkSuite('Rust archive exact continuation', () => {
           resume: 'latest', rustCalculationWorkers: scenario.workers });
         servers.push(restarted);
         expect(restarted.startupFault).toBeUndefined();
-        const afterRestart = await observed(() => restoredAfterRestart);
+        const afterRestart = await observed(() => restoredAfterRestart,
+          'restored post-restart boundary', CONTINUATION_TIMEOUT_MS);
         direct.release();
-        const uninterrupted = await observed(() => directAfterRestart);
+        const uninterrupted = await observed(() => directAfterRestart,
+          'direct post-restart boundary', CONTINUATION_TIMEOUT_MS);
         expect(afterRestart.descriptor.logicalRootSha256).toBe(uninterrupted.descriptor.logicalRootSha256);
         expect(afterRestart.descriptor.completedStep).toBe(uninterrupted.descriptor.completedStep);
         expect(records(targetPath, original.descriptor.runId)).toEqual(records(sourcePath, original.descriptor.runId));
@@ -224,6 +236,6 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         for (const server of servers.reverse()) await server.close();
         await rm(root, { recursive: true, force: true });
       }
-    }, 30_000
+    }, TEST_TIMEOUT_MS
   );
 });
