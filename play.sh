@@ -4,16 +4,10 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
 
-HOST="${SLITHER_HOST:-127.0.0.1}"
-PORT="${SLITHER_PORT:-5174}"
-DB_PATH="${SLITHER_DB_PATH:-./data/rust-authority.db}"
-START_MODE="${SLITHER_START_MODE:-auto}"
-RESUME_TARGET="${SLITHER_RESUME_TARGET:-latest}"
 PID_FILE="${SLITHER_PID_FILE:-server.pid}"
 PORT_FILE="${SLITHER_PORT_FILE:-server.port}"
 LOG_FILE="${SLITHER_LOG_FILE:-server.log}"
 BUILD_STAMP="node_modules/.slither-rust-server-build"
-MANAGED_DIR="${DB_PATH}.checkpoints"
 
 
 echo "========================================"
@@ -82,8 +76,6 @@ probe_url_host() {
   esac
 }
 
-HEALTH_URL="http://$(probe_url_host):${PORT}/api/health"
-
 wait_for_health() {
   _pid="$1"
   _url="$HEALTH_URL"
@@ -105,18 +97,14 @@ wait_for_health() {
 }
 
 start_server_process() {
-  _mode="$1"
   echo
   echo "[START] Rust-authoritative server"
+  echo "[INFO] Config: $CONFIG_PATH"
   echo "[INFO] Bind: $HOST:$PORT"
   echo "[INFO] Database: $DB_PATH"
-  echo "[INFO] Mode: $_mode"
+  echo "[INFO] Mode: $RESOLVED_RESUME"
   : >"$LOG_FILE"
-  if [ "$_mode" = "fresh" ]; then
-    nohup setsid npm run server -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --fresh </dev/null >"$LOG_FILE" 2>&1 &
-  else
-    nohup setsid npm run server -- --host "$HOST" --port "$PORT" --db-path "$DB_PATH" --input-hold-ms 500 --disconnect-grace-ms 30000 --checkpoint-every 1 --resume "$RESUME_TARGET" </dev/null >"$LOG_FILE" 2>&1 &
-  fi
+  nohup setsid npm run server -- "$@" </dev/null >"$LOG_FILE" 2>&1 &
   SERVER_PID=$!
   echo "$SERVER_PID" >"$PID_FILE"
   echo "$PORT" >"$PORT_FILE"
@@ -161,9 +149,15 @@ if [ "$need_install" -eq 1 ]; then
   fi
 fi
 
+# Resolve the same TOML/env/CLI configuration the Rust server will consume.
+# server/config.toml stays authoritative unless an explicit environment override is supplied.
+eval "$(node ./node_modules/tsx/dist/cli.mjs scripts/resolve-launcher-config.ts)"
+MANAGED_DIR="${DB_PATH}.checkpoints"
+HEALTH_URL="http://$(probe_url_host):${PORT}/api/health"
+
 need_build=0
 # Build-time routing is part of the cached browser output.
-BUILD_SETTINGS=$(printf 'port=%s\npublicWsUrl=%s\nconfig=%s\n' "$PORT" "${PUBLIC_WS_URL:-}" "${SERVER_CONFIG:-server/config.toml}")
+BUILD_SETTINGS=$(printf 'port=%s\npublicWsUrl=%s\nconfig=%s\n' "$PORT" "$RESOLVED_PUBLIC_WS_URL" "$CONFIG_PATH")
 if [ "${SLITHER_SKIP_BUILD:-0}" != "1" ]; then
   if [ ! -f dist/index.html ] || [ ! -f native/index.js ] || [ ! -f "$BUILD_STAMP" ]; then
     need_build=1
@@ -185,7 +179,7 @@ if [ "${SLITHER_SKIP_BUILD:-0}" != "1" ]; then
   fi
 
   if [ "$need_build" -eq 0 ]; then
-    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src native/Cargo.toml native/Cargo.lock native/src "${SERVER_CONFIG:-server/config.toml}"; do
+    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src native/Cargo.toml native/Cargo.lock native/src "$CONFIG_PATH" scripts/resolve-launcher-config.ts; do
       if [ -e "$_path" ] && find "$_path" -type f -newer "$BUILD_STAMP" -print -quit 2>/dev/null | grep -q .; then
         need_build=1
         break
@@ -215,32 +209,15 @@ rm -f "$PID_FILE" "$PORT_FILE"
 
 mkdir -p "$(dirname "$DB_PATH")"
 
-case "$START_MODE" in
-  auto)
-    if [ -e "$DB_PATH" ]; then
-      ACTIVE_MODE="resume"
-    else
-      ACTIVE_MODE="fresh"
-    fi
-    ;;
-  fresh|resume)
-    ACTIVE_MODE="$START_MODE"
-    ;;
-  *)
-    echo "[ERROR] SLITHER_START_MODE must be auto, fresh, or resume."
-    exit 1
-    ;;
-esac
-
 # Existing stores are classified by the server; fresh appends only to managed databases.
-if [ "$ACTIVE_MODE" = "fresh" ] && [ ! -e "$DB_PATH" ]; then
+if [ "$RESOLVED_RESUME" = "fresh" ] && [ ! -e "$DB_PATH" ]; then
   if [ -d "$MANAGED_DIR" ] && [ -n "$(ls -A "$MANAGED_DIR" 2>/dev/null || true)" ]; then
     echo "[ERROR] Fresh start requested but managed checkpoint directory is not empty: $MANAGED_DIR"
     exit 1
   fi
 fi
 
-start_server_process "$ACTIVE_MODE"
+start_server_process "$@"
 
 if ! wait_for_health "$SERVER_PID"; then
   print_start_failure
