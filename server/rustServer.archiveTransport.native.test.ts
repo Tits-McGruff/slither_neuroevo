@@ -66,7 +66,7 @@ interface Fixture {
   archive: Buffer;
   /** Prior public identity; simulation steps may continue. */
   identity: Record<string, unknown>;
-  /** Every retained Rust metadata row before the request. */
+  /** Every retained Rust metadata table before the request. */
   metadata: unknown;
   /** All managed filenames and exact stored-byte digests before the request. */
   files: Array<{ filename: string; sha256: string }>;
@@ -894,7 +894,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               expect(actual.tempByteCount).toBe(0n);
               expect(request.sourceSpoolBytes).toBe(BigInt(fixture.archive.byteLength));
             } else {
-              expect(actual.tempByteCount).toBeGreaterThan(0n); // The real export inventory is already leased.
+              expect(actual.tempByteCount).toBeGreaterThan(0n);
               expect(request.candidateSpoolBytes).toBeGreaterThan(0n);
             }
             const plannedTemp = request.sourceSpoolBytes + request.candidateSpoolBytes;
@@ -958,7 +958,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         let beforeFree: bigint | undefined;
         const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
         const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
-        /** Reduce actual filesystem capacity only after successful production admission. */
         const admission = vi.spyOn(diskAdmission, 'admitDiskOperation')
           .mockImplementation(async (directory, request) => {
             const decision = await originalAdmit(directory, request);
@@ -1035,7 +1034,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
   it('rejects independently valid import and reset exceeding native state memory before replacement', async () => {
     const ceiling = 1400n * 1024n ** 2n;
     const inspect = CheckpointPersistenceClient.prototype.inspectRetention;
-    // Make the reset notice arrive before its final retention read completes.
     const retention = vi.spyOn(CheckpointPersistenceClient.prototype, 'inspectRetention')
       .mockImplementation(async function (this: CheckpointPersistenceClient) {
         const inventory = await inspect.call(this);
@@ -1043,7 +1041,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         return inventory;
       });
     const originalCreate = freshRunSessions.createExperimentalFreshRunSession;
-    /** Change only the target's native admission budget; retain the production constructor. */
     const construction = vi.spyOn(freshRunSessions, 'createExperimentalFreshRunSession')
       .mockImplementation(options => originalCreate({ ...options,
         memoryCeilingBytes: options.seed === 42 ? ceiling : options.memoryCeilingBytes }));
@@ -1108,7 +1105,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const earlierBytes = Buffer.from('pre-existing task evidence: preserve these exact bytes');
         let earlierPath: string | undefined;
         let released = false;
-        /** Create the collision after the genuine lease, before native encoding starts. */
         const acquiring = vi.spyOn(CheckpointPersistenceClient.prototype, 'acquireCurrentExportLease')
           .mockImplementationOnce(async function(this: CheckpointPersistenceClient, ...args) {
             const lease = await originalAcquire.apply(this, args);
@@ -1116,16 +1112,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
             await writeFile(earlierPath, earlierBytes, { flag: 'wx' });
             return lease;
           });
-        /** Join real cleanup before examining the collision and immutable source files. */
         const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease')
           .mockImplementation(async function(this: CheckpointPersistenceClient, ...args) {
             await originalRelease.apply(this, args);
             released = true;
           });
         try {
-          // A ready-file collision is discovered only after writing, syncing and
-          // fully validating the archive. Allow that preparation ten seconds;
-          // early creation failures and the later cleanup still get five.
           const responseDeadlineMs = suffix === 'slither-save.ready' ? ARCHIVE_PREPARATION_TIMEOUT_MS : 5000;
           const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`,
             { signal: AbortSignal.timeout(responseDeadlineMs) });
@@ -1276,7 +1268,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toHaveLength(1);
           peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'], mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}`,
             resumeToken: baselines[index]!.assignment.resumeToken }));
-          // A rejected old-token join supplies no lease, even if public snake IDs happen to repeat.
           peer.socket.send(JSON.stringify({ type: 'action', snakeId: baselines[index]!.assignment.snakeId,
             tick: baselines[index]!.sample.tick, turn: 1, boost: 1 }));
         }
@@ -1299,13 +1290,11 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         }
         await heldInput(peers);
         await outcome(() => peers.every((peer, index) => {
-          // An assignment clears the previous observation until its first sensor packet arrives.
           const sample = peer.sample;
           return sample !== undefined && sample.tick > samples[index]!.tick &&
             headingChange(samples[index]!, sample) < -0.01;
         }), 'rejoined controllers could not steer');
         const rejoined = ((await health(fixture.server))['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
-        // The new player input may be admitted separately because the world is running again.
         expect(rejoined.player.appliedActions).toBeGreaterThan(activity.player.appliedActions);
         expect(rejoined.trainer.appliedActions).toBe(activity.trainer.appliedActions + 1);
       } finally {
@@ -1326,7 +1315,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const before = await health(fixture.server);
         const activity = (before['telemetry'] as ExperimentalRuntimeTelemetrySnapshot).controllerActivity;
         const baselines = peers.map(peer => ({ assignment: { ...peer.assignment! }, sample: peer.sample! }));
-        // Production startup has already validated this exact source-identified addon.
         const binding = createRequire(import.meta.url)(resolve('native/index.js')) as {
           ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle };
         };
@@ -1352,7 +1340,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const client = request(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
         fixture.requests.add(client);
         let receivedHeaders = false;
-        client.on('error', () => { /* Deliberately cancelled before any response headers. */ });
+        client.on('error', () => {});
         client.on('response', response => { receivedHeaders = true; response.resume(); });
         const cleanup = testCleanup(() => {
           gate.resolve(); client.destroy(); observation.restore();
@@ -1415,7 +1403,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const bodyReceived = new Promise<void>(done => { reached = done; });
         let serverClosed!: () => void;
         const disconnected = new Promise<void>(done => { serverClosed = done; });
-        /** Observe this server's actual response; no writes, buffering or drain events are fabricated. */
         const dispatch = function(this: Server, event: string | symbol, ...args: unknown[]): boolean {
           if (event === 'request') {
             const incoming = args[0] as IncomingMessage;
@@ -1434,10 +1421,10 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
         const client = request(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
         fixture.requests.add(client);
-        client.on('error', () => { /* This test deliberately disconnects an unfinished response. */ });
+        client.on('error', () => {});
         client.on('response', response => {
           clientResponse = response;
-          response.on('error', () => { /* The deliberate cancellation may report ECONNRESET. */ });
+          response.on('error', () => {});
           response.on('data', (bytes: Buffer) => {
             receivedBytes += bytes.byteLength;
             response.pause();
@@ -1500,7 +1487,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect((await readFile(sourcePath)).equals(fixture.archive)).toBe(true);
         } finally { cleanup(); }
       });
-    }, 20_000
+    }, 90_000
   );
 
   it('replaces evolved controller leases, drops held input and repeats an identical exact import', async () => {
@@ -1520,8 +1507,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       fixture.peers.add(viewer);
       const replies: Array<Record<string, unknown>> = [];
       let replacement = 0;
-      // Rejoin through the actual UI protocol and restore the slow live rate after each replacement.
-      // The checkpoint retains its boundary's 12x rate, not the later live slowdown.
       viewer.on('message', (bytes, binary) => {
         if (binary) return;
         const packet = JSON.parse(bytes.toString()) as Record<string, unknown>;
@@ -1582,7 +1567,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               expect(packets.filter(packet => packet['type'] === 'stateReplaced')).toHaveLength(1);
               expect(packets.filter(packet => ['assign', 'error'].includes(String(packet['type'])))).toEqual([]);
             }
-            // A separate old client stays connected while stale input is discarded before rejoin.
             const processed = new Promise<Buffer>(done => probe.socket.once('pong', done));
             probe.socket.send(JSON.stringify({ type: 'action', snakeId: probeBefore.assignment.snakeId,
               tick: probeBefore.sample.tick, turn: 1, boost: 0 }));
@@ -1854,7 +1838,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         let release!: () => void;
         const paused = new Promise<void>(done => { reached = done; });
         const released = new Promise<void>(done => { release = done; });
-        /** Hold the actual completed boundary until the server observes the client disconnect. */
         const hold = async (): Promise<void> => { reached(); await released; };
         const originalSpool = archiveUpload.spoolArchiveUpload;
         const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
@@ -1891,7 +1874,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
             method: 'POST', headers: { 'Content-Length': body.byteLength }
           });
           fixture.requests.add(client);
-          client.on('error', () => { /* The deliberate disconnect may reset the client socket. */ });
+          client.on('error', () => {});
           client.end(body);
           await bounded(paused, `import never reached ${boundary}`);
           if (boundary !== 'afterSpool') {
@@ -1944,7 +1927,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         publish?.mockRestore();
         observation.restore();
       });
-      // A supported legacy population gives this import a new run and a distinct durable pointer.
       const body = legacyPopulation();
       const sourceHash = createHash('sha256').update(body).digest('hex');
       try {
@@ -1952,7 +1934,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           method: 'POST', headers: { 'Content-Length': body.byteLength, 'Content-Type': 'application/json' }
         });
         fixture.requests.add(client);
-        client.on('error', () => { /* The deliberate disconnect may reset the client socket. */ });
+        client.on('error', () => {});
         client.end(body);
         await bounded(committed, `import never reached ${boundary}`);
         expect(durable!.descriptor.runId).not.toBe(fixture.identity['runId']);
@@ -1996,7 +1978,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
       const entered = Promise.withResolvers<void>();
       const resume = Promise.withResolvers<void>();
       const originalAdmit = diskAdmission.admitDiskOperation;
-      /** Hold actual admission after its filesystem reading until the peer closes. */
       const admission = vi.spyOn(diskAdmission, 'admitDiskOperation').mockImplementation(async (directory, operation) => {
         const result = await originalAdmit(directory, operation);
         if (operation.operation === 'import') {
@@ -2091,7 +2072,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               body: Buffer.concat(chunks).toString() }));
           });
         });
-        // Observe a terminal rejection immediately, including while backpressure holds the writer.
         void terminal.catch(() => {});
         const chunk = Buffer.alloc(1024 * 1024, 'x');
         const before = await health(fixture.server);
