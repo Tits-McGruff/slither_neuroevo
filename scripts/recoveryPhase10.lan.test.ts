@@ -159,9 +159,11 @@ describe(SUITE, () => {
     });
   });
 
-  it('keeps trusted-LAN discovery in the Windows launcher and Rust authority in the Debian launcher', () => {
+  it('keeps trusted-LAN discovery while making TOML authoritative in the Debian launchers', () => {
     const powershell = fs.readFileSync(path.resolve('scripts/slither.ps1'), 'utf8');
     const posix = fs.readFileSync(path.resolve('play.sh'), 'utf8');
+    const production = fs.readFileSync(path.resolve('scripts/run-production.sh'), 'utf8');
+    const resolver = fs.readFileSync(path.resolve('scripts/resolve-launcher-config.ts'), 'utf8');
     const shutdown = fs.readFileSync(path.resolve('shutdown.sh'), 'utf8');
 
     expect(powershell).toContain('publicWsUrl');
@@ -170,10 +172,22 @@ describe(SUITE, () => {
     expect(powershell).toContain('@napi-rs');
     expect(powershell).toContain('Get-NonLoopbackIPv4');
 
-    expect(posix).toContain('SLITHER_HOST:-127.0.0.1');
+    for (const launcher of [posix, production]) {
+      expect(launcher).toContain('scripts/resolve-launcher-config.ts');
+      expect(launcher).not.toContain('SLITHER_HOST:-127.0.0.1');
+      expect(launcher).not.toContain('--host "$HOST"');
+      expect(launcher).not.toContain('--port "$PORT"');
+      expect(launcher).not.toContain('--db-path "$DB_PATH"');
+      expect(launcher).not.toContain('--input-hold-ms 500');
+      expect(launcher).not.toContain('--disconnect-grace-ms 30000');
+      expect(launcher).not.toContain('--checkpoint-every 1');
+      expect(launcher).not.toMatch(/--(?:backend|mt)(?:[=\s]|$)/u);
+    }
+    expect(resolver).toContain("addValue('--host', env['SLITHER_HOST'])");
+    expect(resolver).toContain("addValue('--port', env['SLITHER_PORT'])");
+    expect(resolver).toContain("addValue('--db-path', env['SLITHER_DB_PATH'])");
     expect(posix).toContain('npm run build');
     expect(posix).toContain('npm run server');
-    expect(posix).not.toMatch(/--(?:backend|mt)(?:[=\s]|$)/u);
     expect(posix).toContain('hostname -I');
     expect(posix).toContain('[LAN] Browser:');
     expect(posix).toContain('[LAN] WebSocket:');
