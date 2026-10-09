@@ -5,6 +5,7 @@ import {
   BASELINE_BOT_SEED_HINT_ID,
   BASELINE_BOT_SEED_INPUT_ID,
   BASELINE_BOT_SEED_RANDOMIZE_ID,
+  BROWSER_CAMERA_SETTING_PATHS,
   applyValuesToSlidersFromCFG,
   setupSettingsUI,
   updateCFGFromUI
@@ -52,6 +53,7 @@ import type {
   RustRecoveryNotice
 } from './protocol/rustBackground.ts';
 import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
+import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './protocol/settingDefinitions.ts';
 import type {
   CoreSettings,
   LiveSettingPath,
@@ -349,6 +351,8 @@ const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
 const btnNewRun = document.getElementById('newRun') as HTMLButtonElement;
 /** Button to toggle the settings panel. */
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
+/** Button that restores the full-arena camera after manual navigation. */
+const btnFitArena = document.getElementById('fitArena') as HTMLButtonElement;
 /** Settings tab container element. */
 const settingsContainer = document.getElementById('settingsContainer') as HTMLElement;
 /** Baseline bot seed input element (rebuilt with settings UI). */
@@ -711,7 +715,7 @@ function readSettingsInputValue(input: HTMLInputElement): number | null {
 }
 
 /**
- * Collect slider updates under a root element.
+ * Collect authoritative slider updates under a root element, excluding local camera presentation.
  * @param root - Root element containing settings inputs.
  * @returns List of settings updates.
  */
@@ -719,6 +723,7 @@ function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
   const sliders = root.querySelectorAll<HTMLInputElement>('input[data-path]');
   const updates: SettingsUpdate[] = [];
   sliders.forEach(sl => {
+    if (BROWSER_CAMERA_SETTING_PATHS.has(sl.dataset['path']!)) return;
     const value = readSettingsInputValue(sl);
     if (value == null) return;
     updates.push({ path: sl.dataset['path']! as SettingsUpdate['path'], value });
@@ -1201,6 +1206,12 @@ let clientCamX = 0;
 let clientCamY = 0;
 /** Client-side camera zoom for overlays and input. */
 let clientZoom = 1;
+/** Whether local zoom/pan overrides the automatic overview or follow camera. */
+let manualCamera = false;
+/** Screen-space anchor and button for the current camera drag. */
+let cameraPan: { button: number; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null;
+/** Suppress snake selection from the click generated after a camera drag. */
+let suppressCanvasClick = false;
 
 /** Current visualization payload for the brain viz tab. */
 let currentVizData: VizData | null = null;
@@ -1226,6 +1237,7 @@ const proxyWorld: ProxyWorld = {
   // Helpers mimicking World for Settings UI/Persistence
   toggleViewMode: () => {
     if (wsClient && wsClient.isConnected()) {
+      resetManualCamera();
       proxyWorld.viewMode = proxyWorld.viewMode === 'overview' ? 'follow' : 'overview';
       wsClient.sendView({
         mode: proxyWorld.viewMode === 'overview' ? 'overview' : 'follow',
@@ -1343,6 +1355,7 @@ function enterSpectatorMode(): void {
     // Ignore storage failures in non-browser environments.
   }
   proxyWorld.viewMode = 'overview';
+  resetManualCamera();
   setJoinStatus('Spectating');
   updateJoinControls();
   wsClient.sendJoin('spectator');
@@ -1371,6 +1384,7 @@ function enterPlayerMode(): void {
   setJoinStatus('Joining...');
   updateJoinControls();
   proxyWorld.viewMode = 'follow';
+  resetManualCamera();
   wsClient.sendJoin('player', name, playerResumeToken || undefined);
   wsClient.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
 }
@@ -3382,28 +3396,59 @@ function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameS
   return first;
 }
 
-/**
- * Update client-side camera state when connected to the server.
- */
+/** Publish the same local camera used for drawing, steering, and God Mode selection. */
+function publishClientCamera(): void {
+  proxyWorld.cameraX = clientCamX;
+  proxyWorld.cameraY = clientCamY;
+  proxyWorld.zoom = clientZoom;
+}
+
+/** Restore automatic camera movement and cancel any unfinished camera drag. */
+function resetManualCamera(): void {
+  manualCamera = false;
+  cameraPan = null;
+  suppressCanvasClick = false;
+  canvas.style.cursor = isPlayerControlActive() ? '' : 'grab';
+}
+
+/** Fit the authoritative arena and presentation margins into the current viewport. */
+function arenaFitZoom(): number {
+  const radius = currentFrameBuffer?.[FRAME_HEADER_OFFSETS.worldRadius] ?? CFG.worldRadius;
+  const effectiveRadius = radius + CFG.observer.overviewExtraWorldMargin;
+  return clamp(Math.min(cssW, cssH) / (2 * effectiveRadius * CFG.observer.overviewPadding), 0.01, 2);
+}
+
+/** Return immediately to a centered overview without changing simulation state. */
+function fitArenaView(): void {
+  resetManualCamera();
+  proxyWorld.viewMode = 'overview';
+  clientCamX = 0;
+  clientCamY = 0;
+  clientZoom = arenaFitZoom();
+  publishClientCamera();
+  wsClient?.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
+}
+
+/** Update the automatic camera unless the user has taken control of the local view. */
 function updateClientCamera(): void {
   if (connectionMode !== 'server') return;
   const frame = currentFrameBuffer;
   if (!frame) return;
+  if (manualCamera) {
+    publishClientCamera();
+    return;
+  }
   const mode = proxyWorld.viewMode === 'follow' ? 'follow' : 'overview';
   if (mode === 'overview') {
     clientCamX = 0;
     clientCamY = 0;
-    const effectiveR = CFG.worldRadius + CFG.observer.overviewExtraWorldMargin;
-    const fit = Math.min(cssW, cssH) / (2 * effectiveR * CFG.observer.overviewPadding);
-    const targetZoom = clamp(fit, 0.01, 2.0);
+    const targetZoom = arenaFitZoom();
     if (CFG.observer.snapZoomOutInOverview && clientZoom > targetZoom) {
       clientZoom = targetZoom;
     } else {
       clientZoom = lerp(clientZoom, targetZoom, CFG.observer.zoomLerpOverview);
     }
-    proxyWorld.cameraX = clientCamX;
-    proxyWorld.cameraY = clientCamY;
-    proxyWorld.zoom = clientZoom;
+    publishClientCamera();
     return;
   }
 
@@ -3420,9 +3465,7 @@ function updateClientCamera(): void {
     clientCamY = 0;
     clientZoom = lerp(clientZoom, 0.95, 0.05);
   }
-  proxyWorld.cameraX = clientCamX;
-  proxyWorld.cameraY = clientCamY;
-  proxyWorld.zoom = clientZoom;
+  publishClientCamera();
 }
 
 /**
@@ -3604,6 +3647,7 @@ function refreshServerHallOfFame(clearExisting = true): void {
 
 wsClient = createWsClient({
   onConnected: (info) => {
+    resetManualCamera();
     storeServerUrl(serverUrl);
     reconnectDelayMs = 1000;
     serverCfgHash = info.configHash;
@@ -3767,6 +3811,7 @@ wsClient = createWsClient({
   },
   onAssign: (msg) => {
     playerSnakeId = msg.snakeId;
+    resetManualCamera();
     playerResumeToken = msg.resumeToken;
     resumePlayerAfterReconnect = true;
     try {
@@ -3858,6 +3903,7 @@ wsClient = createWsClient({
     playerActionPump.stop();
     authoritativeControls.dispose();
     playerSnakeId = null;
+    resetManualCamera();
     spectatorFollowSnakeId = null;
     playerSensorTick = 0;
     playerSensorMeta = null;
@@ -3929,6 +3975,10 @@ function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
   if (!path) return;
   const value = readSettingsInputValue(sliderEl);
   if (value == null) return;
+  if (BROWSER_CAMERA_SETTING_PATHS.has(path)) {
+    setByPath(CFG, path, normalizeSettingValue(SETTING_DEFINITION_BY_PATH.get(path)!, value));
+    return;
+  }
   if (!wsClient?.isConnected()) return;
   authoritativeControls.queueSetting(path, value);
 }
@@ -3984,9 +4034,15 @@ btnNewRun.addEventListener('click', () => {
 });
 // Toggle view mode
 btnToggle.addEventListener('click', () => proxyWorld.toggleViewMode());
+btnFitArena.addEventListener('click', fitArenaView);
 window.addEventListener('keydown', e => {
+  const target = e.target as HTMLElement | null;
+  if (target?.closest?.('input, textarea, select, [contenteditable]')) return;
   if (e.code === 'KeyV') {
     proxyWorld.toggleViewMode();
+  } else if (e.code === 'Home') {
+    e.preventDefault();
+    fitArenaView();
   }
 });
 
@@ -4005,7 +4061,7 @@ window.addEventListener('keydown', e => {
  * @returns Object containing absolute simulation world coordinates \{x, y\}.
  */
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-  // Retrieve camera state from the authoritative server frame.
+  // Use the local presentation camera, including manual zoom and panning.
   let camX = 0, camY = 0, zoom = 1;
   if (connectionMode === 'server') {
     camX = clientCamX;
@@ -4090,8 +4146,60 @@ function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSn
 // ============== START ANIMATION LOOP ==============
 requestAnimationFrame(frame);
 
+// Zoom around the pointer so the inspected world position stays under the cursor.
+canvas.addEventListener('wheel', e => {
+  if (connectionMode !== 'server' || !currentFrameBuffer || !Number.isFinite(e.deltaY)) return;
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const screenX = e.clientX - rect.left;
+  const screenY = e.clientY - rect.top;
+  const anchor = screenToWorld(screenX, screenY);
+  const pixels = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? cssH : 1);
+  clientZoom = clamp(clientZoom * Math.exp(clamp(-pixels * 0.0015, -4, 4)), 0.01, 4);
+  clientCamX = anchor.x - (screenX - cssW / 2) / clientZoom;
+  clientCamY = anchor.y - (screenY - cssH / 2) / clientZoom;
+  manualCamera = true;
+  publishClientCamera();
+}, { passive: false });
+
+/** Pan by CSS-pixel deltas, keeping the grabbed point fixed even outside the canvas. */
+function moveCameraPan(e: MouseEvent): boolean {
+  const pan = cameraPan;
+  if (!pan) return false;
+  if (!pan.moved && Math.hypot(e.clientX - pan.startX, e.clientY - pan.startY) < 3) return true;
+  pan.moved = true;
+  manualCamera = true;
+  clientCamX -= (e.clientX - pan.lastX) / clientZoom;
+  clientCamY -= (e.clientY - pan.lastY) / clientZoom;
+  pan.lastX = e.clientX;
+  pan.lastY = e.clientY;
+  canvas.style.cursor = 'grabbing';
+  publishClientCamera();
+  return true;
+}
+
+/** Finish a camera drag at its release point without selecting or moving a snake. */
+function finishCameraPan(e: MouseEvent): boolean {
+  if (!cameraPan || e.button !== cameraPan.button) return false;
+  moveCameraPan(e);
+  suppressCanvasClick = cameraPan.moved;
+  cameraPan = null;
+  canvas.style.cursor = isPlayerControlActive() ? '' : 'grab';
+  return true;
+}
+
+window.addEventListener('mousemove', moveCameraPan);
+window.addEventListener('blur', () => {
+  cameraPan = null;
+  canvas.style.cursor = isPlayerControlActive() ? '' : 'grab';
+});
+
 // Click to select snake
 canvas.addEventListener('click', (e) => {
+  if (suppressCanvasClick) {
+    suppressCanvasClick = false;
+    return;
+  }
   if (isPlayerControlActive()) return;
   const rect = canvas.getBoundingClientRect();
   const screenX = e.clientX - rect.left;
@@ -4127,8 +4235,16 @@ canvas.addEventListener('contextmenu', (e) => {
   if (snake && wsClient?.isConnected()) authoritativeControls.killSnake(snake.id);
 });
 
-// Drag to move snake (hold left mouse button)
+// Left-drag pans while spectating; Shift+left-drag moves a selected snake.
 canvas.addEventListener('mousedown', (e) => {
+  suppressCanvasClick = false;
+  if ((e.button === 1 || (e.button === 0 && !isPlayerControlActive() && !(e.shiftKey && selectedSnake))) &&
+      connectionMode === 'server' && currentFrameBuffer) {
+    e.preventDefault();
+    cameraPan = { button: e.button, startX: e.clientX, startY: e.clientY,
+      lastX: e.clientX, lastY: e.clientY, moved: false };
+    return;
+  }
   if (isPlayerControlActive()) {
     if (e.button === 0) boostHeld = true;
     const rect = canvas.getBoundingClientRect();
@@ -4136,12 +4252,13 @@ canvas.addEventListener('mousedown', (e) => {
     playerActionPump.requestImmediate();
     return;
   }
-  if (e.button === 0 && selectedSnake) {
+  if (e.button === 0 && e.shiftKey && selectedSnake) {
     isDragging = true;
   }
 });
 
 canvas.addEventListener('mousemove', (e) => {
+  if (moveCameraPan(e)) return;
   if (isPlayerControlActive()) {
     const rect = canvas.getBoundingClientRect();
     pointerScreen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -4164,6 +4281,7 @@ canvas.addEventListener('mousemove', (e) => {
  * @param e - Mouse-up event whose client coordinates define the final target.
  */
 function finishGodModeDrag(e: MouseEvent): void {
+  if (finishCameraPan(e)) return;
   if (isPlayerControlActive()) {
     if (e.button === 0) {
       boostHeld = false;

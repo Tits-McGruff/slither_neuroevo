@@ -1701,17 +1701,34 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
   }).deferred();
 }
 
-/** Add durable provenance for population-only conversions from older SQLite checkpoints. */
+/** Preserve conversion provenance independently of expiring prior-run resume pointers. */
 function initializeLegacyConversionSchema(database: ReturnType<typeof Database>): void {
-  database.exec(`
+  const createTable = `
     CREATE TABLE IF NOT EXISTS rust_legacy_conversions_v1 (
-      run_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_current(run_id),
+      run_id TEXT PRIMARY KEY NOT NULL,
       source_snapshot_id INTEGER NOT NULL CHECK(source_snapshot_id > 0),
       source_format TEXT NOT NULL CHECK(source_format IN ('typescript-v2', 'legacy-gzip', 'legacy-json')),
       completeness TEXT NOT NULL CHECK(completeness = 'population-only'),
       created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
     );
-  `);
+  `;
+  database.transaction(() => {
+    const foreignKeys = database.prepare('PRAGMA foreign_key_list(rust_legacy_conversions_v1)').all() as
+      Array<{ table: string; from: string; to: string }>;
+    if (foreignKeys.some(key => key.table === 'rust_checkpoint_v3_current' && key.from === 'run_id' && key.to === 'run_id')) {
+      // Conversion history has the same lifetime as compact checkpoint metadata,
+      // while retention intentionally detaches obsolete current pointers.
+      database.exec('ALTER TABLE rust_legacy_conversions_v1 RENAME TO rust_legacy_conversions_v1_old');
+      database.exec(createTable);
+      database.exec(`INSERT INTO rust_legacy_conversions_v1 (
+        run_id, source_snapshot_id, source_format, completeness, created_at_ms
+      ) SELECT run_id, source_snapshot_id, source_format, completeness, created_at_ms
+        FROM rust_legacy_conversions_v1_old;
+        DROP TABLE rust_legacy_conversions_v1_old;`);
+    } else {
+      database.exec(createTable);
+    }
+  }).immediate();
 }
 
 /** Read and strictly validate one run's legacy-conversion provenance. */

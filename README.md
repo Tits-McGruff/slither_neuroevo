@@ -550,10 +550,14 @@ production addon and rejects the test build.
 
 ## Controls
 
-- `V`: Toggle between Play and Spectate camera modes.
+- Mouse wheel: Zoom in or out around the pointer. Manual zoom and panning stay in place across frames.
+- Left click + drag while spectating: Pan around the arena, including when a snake is selected.
+- Middle click + drag: Pan in either spectator or player mode.
+- `Home` or **Fit arena**: Center the camera and fit the entire arena.
+- `V`: Return to automatic overview/follow camera movement and toggle between those views.
 - Left click: Select a snake (God Mode selection).
 - Right click: Kill the selected snake (God Mode).
-- Left click + drag: Move a selected snake (God Mode).
+- Shift + left click + drag: Move a selected snake (God Mode).
 - Mouse to steer, hold click to boost (when playing as a user snake).
 - **Settings lock**: Hides all sliders and controls inside the Settings tab; unlock to edit.
 - **Apply and reset**: Rebuild the world using reset-only settings. Reset keeps
@@ -688,14 +692,15 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Observer and camera
 
-- **Focus recheck seconds**: How often the focus snake is re-evaluated.
-- **Focus switch margin**: Higher values resist switching to a new leader.
 - **Early end min seconds**: Minimum time before early stop is allowed.
 - **Early end alive threshold**: Stop early when alive count drops below this.
 - **Overview padding**: Extra zoom-out in overview mode.
 - **Follow zoom lerp**: Camera smoothing in follow mode.
 - **Overview zoom lerp**: Camera smoothing in overview mode.
 - **Overview extra margin**: Extra radius beyond the arena in overview.
+
+The four camera controls apply immediately to the current browser view. Early
+end settings apply through the server.
 
 ### Rewards
 

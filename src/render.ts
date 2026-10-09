@@ -273,83 +273,6 @@ function renderBoostParticles(ctx: CanvasRenderingContext2D, dt: number, zoom: n
 }
 
 /**
- * Hash two integer coordinates into a deterministic 32-bit value.
- * @param x - Cell x coordinate.
- * @param y - Cell y coordinate.
- * @returns Unsigned 32-bit hash.
- */
-function hash2(x: number, y: number): number {
-  let h = (x * 374761393 + y * 668265263) | 0;
-  h ^= h >>> 13;
-  h = Math.imul(h, 1274126177);
-  return h >>> 0;
-}
-
-/**
- * Advance the hash to the next pseudo-random value.
- * @param h - Current hash value.
- * @returns Next hash value.
- */
-function nextRand(h: number): number {
-  h ^= h << 13;
-  h ^= h >>> 17;
-  h ^= h << 5;
-  return h >>> 0;
-}
-
-/**
- * Draw a starfield background aligned to the camera.
- * @param ctx - Canvas 2D context to draw into.
- * @param world - Camera state for positioning.
- * @param viewW - Viewport width in pixels.
- * @param viewH - Viewport height in pixels.
- */
-export function drawStarfield(
-  ctx: CanvasRenderingContext2D,
-  world: CameraState,
-  viewW: number,
-  viewH: number
-): void {
-  const cell = 240;
-  const halfWWorld = viewW / (2 * world.zoom);
-  const halfHWorld = viewH / (2 * world.zoom);
-  const left = world.cameraX - halfWWorld;
-  const right = world.cameraX + halfWWorld;
-  const top = world.cameraY - halfHWorld;
-  const bottom = world.cameraY + halfHWorld;
-
-  const minCx = Math.floor(left / cell);
-  const maxCx = Math.floor(right / cell);
-  const minCy = Math.floor(top / cell);
-  const maxCy = Math.floor(bottom / cell);
-
-  ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  for (let cy = minCy; cy <= maxCy; cy++) {
-    for (let cx = minCx; cx <= maxCx; cx++) {
-      let h = hash2(cx, cy);
-      if ((h & 1023) > 120) continue;
-      h = nextRand(h);
-      const ox = (h & 0xffff) / 0xffff;
-      h = nextRand(h);
-      const oy = (h & 0xffff) / 0xffff;
-      h = nextRand(h);
-      const size = 0.6 + ((h & 255) / 255) * 1.8;
-      h = nextRand(h);
-      const alpha = 0.35 + ((h & 255) / 255) * 0.45;
-
-      const px = (cx + ox) * cell;
-      const py = (cy + oy) * cell;
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(px, py, size, 0, TAU);
-      ctx.fill();
-    }
-  }
-  ctx.restore();
-}
-
-/**
  * Draw a grid centered on the origin using a cached pattern.
  * @param ctx - Canvas 2D context to draw into.
  * @param world - Camera state for positioning.
@@ -554,7 +477,7 @@ export function drawSnakeStruct(ctx: CanvasRenderingContext2D, s: SnakeStruct, z
  *    - Translates the origin to the screen center (viewW/2, viewH/2).
  *    - Scales by `zoom` and translates by `-cameraX, -cameraY` to move the world into view.
  * 3. Z-Ordering (Painter's Algorithm):
- *    - Background: Starfield and Grid.
+ *    - Background: Grid.
  *    - Arena: World boundary circle.
  *    - Infrastructure: Pellets.
  *    - Entities: Snakes (on top of food).
@@ -619,7 +542,6 @@ export function renderWorldStruct(
   ptr = FRAME_HEADER_FLOATS;
 
   // Layer 1: Environment
-  drawStarfield(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
   drawGrid(ctx, { zoom, cameraX: cX, cameraY: cY }, viewW, viewH);
 
   // Layer 2: World Boundaries
@@ -816,7 +738,6 @@ export function renderWorld(
   ctx.scale(world.zoom, world.zoom);
   ctx.translate(-world.cameraX, -world.cameraY);
 
-  drawStarfield(ctx, world, viewW, viewH);
   drawGrid(ctx, world, viewW, viewH);
 
   // Draw particles (before snakes/pellets or after? After usually looks better for additive, or before for transparency)

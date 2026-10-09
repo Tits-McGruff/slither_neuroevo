@@ -122,6 +122,14 @@ describe('settings.ts', () => {
     expect(paths).toContain('sense.foodKBase');
     expect(paths).toContain('sense.maxPelletChecks');
     expect(paths).not.toContain('sense.debug');
+    expect(paths).not.toContain('observer.focusRecheckSeconds');
+    expect(paths).not.toContain('observer.focusSwitchMargin');
+    expect(paths).toContain('observer.earlyEndMinSeconds');
+    expect(paths).toContain('observer.earlyEndAliveThreshold');
+    expect(paths).toContain('observer.overviewPadding');
+    expect(paths).toContain('observer.zoomLerpFollow');
+    expect(paths).toContain('observer.zoomLerpOverview');
+    expect(paths).toContain('observer.overviewExtraWorldMargin');
 
     const binsInput = inputs.find(input => input.dataset['path'] === 'sense.bubbleBins');
     const collisionCellInput = inputs.find(input => input.dataset['path'] === 'collision.cellSize');

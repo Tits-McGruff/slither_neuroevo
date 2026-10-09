@@ -1,4 +1,3 @@
-play.bat:
 @echo off
 setlocal
 

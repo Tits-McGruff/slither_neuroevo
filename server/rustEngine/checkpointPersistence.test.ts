@@ -1146,6 +1146,54 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(await budgeted.selectCurrent()).toEqual(descriptors.at(-1));
   });
 
+  it.each([false, true])('preserves converted-run provenance across repeated resets and expired pointers (old schema=%s)', async oldSchema => {
+    const fixture = createFixture();
+    const converted = createDescriptor(fixture.managedRoot);
+    const legacyConversion = { snapshotId: 17, sourceFormat: 'typescript-v2' as const, completeness: 'population-only' as const };
+    await fixture.client.commit(converted, null, true, legacyConversion);
+    await fixture.client.close();
+    const historical = new Database(fixture.databasePath);
+    let originalProvenance: unknown;
+    try {
+      originalProvenance = historical.prepare('SELECT * FROM rust_legacy_conversions_v1').get();
+      if (oldSchema) {
+        historical.exec(`
+          ALTER TABLE rust_legacy_conversions_v1 RENAME TO conversion_fixture;
+          CREATE TABLE rust_legacy_conversions_v1 (
+            run_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_current(run_id),
+            source_snapshot_id INTEGER NOT NULL CHECK(source_snapshot_id > 0),
+            source_format TEXT NOT NULL CHECK(source_format IN ('typescript-v2', 'legacy-gzip', 'legacy-json')),
+            completeness TEXT NOT NULL CHECK(completeness = 'population-only'),
+            created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
+          );
+          INSERT INTO rust_legacy_conversions_v1 SELECT * FROM conversion_fixture;
+          DROP TABLE conversion_fixture;
+        `);
+      }
+    } finally { historical.close(); }
+    const client = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly: true });
+    clients.push(client);
+    expect(await client.selectStartup()).toMatchObject({ descriptor: converted, legacyConversion });
+    let latest = converted;
+    for (let index = 1; index <= 4; index++) {
+      latest = createDescriptor(fixture.managedRoot, { runId: `reset-run-${index}`,
+        operationId: index.toString(16).padStart(32, '0') });
+      await client.commit(latest, null, true);
+      await client.applyRetention();
+    }
+    expect(await client.selectStartup()).toMatchObject({ descriptor: latest, legacyConversion: null });
+    expect(await client.selectCurrent(converted.runId)).toBeNull();
+    expect(existsSync(join(fixture.managedRoot, converted.relativeFilename))).toBe(false);
+    await client.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(inspect.prepare('SELECT * FROM rust_legacy_conversions_v1').get()).toEqual(originalProvenance);
+      expect(inspect.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_checkpoint_v3_metadata').get()).toEqual({ count: 5 });
+    } finally { inspect.close(); }
+  });
+
   it('detaches only expired prior-run pointers when pruning their checkpoint files', async () => {
     const fixture = createFixture();
     const descriptors: ManagedCheckpointDescriptor[] = [];

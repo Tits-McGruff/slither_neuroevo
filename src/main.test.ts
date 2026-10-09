@@ -85,6 +85,13 @@ function makeElement(id: string): SmokeElement {
     contains(token: string) { return classes.has(token); }
   } as unknown as DOMTokenList;
   const context = {
+    save() { },
+    restore() { },
+    translate() { },
+    scale() { },
+    getTransform() { return { a: 1 }; },
+    createPattern() { return null; },
+    fillRect() { },
     setTransform() { },
     clearRect() { },
     beginPath() { },
@@ -192,6 +199,8 @@ describe('main.ts startup smoke', () => {
   let windowListeners: Map<string, Array<(event: Event) => void>>;
   /** Temporary DOM elements created during the current startup import. */
   let createdElements: SmokeElement[];
+  /** Latest browser animation callback, advanced explicitly by camera tests. */
+  let animationFrame: FrameRequestCallback | null;
 
   beforeEach(() => {
     vi.resetModules();
@@ -199,6 +208,7 @@ describe('main.ts startup smoke', () => {
     activeSocket = null;
     elements = new Map<string, SmokeElement>();
     createdElements = [];
+    animationFrame = null;
     windowListeners = new Map<string, Array<(event: Event) => void>>();
     const getElement = (id: string): SmokeElement => {
       const existing = elements.get(id);
@@ -273,7 +283,10 @@ describe('main.ts startup smoke', () => {
     vi.stubGlobal('document', documentStub);
     vi.stubGlobal('window', windowStub);
     vi.stubGlobal('localStorage', makeStorage());
-    vi.stubGlobal('requestAnimationFrame', () => 0);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      animationFrame = callback;
+      return 0;
+    });
     vi.stubGlobal('WebSocket', StubWebSocket);
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
@@ -290,10 +303,183 @@ describe('main.ts startup smoke', () => {
     vi.unstubAllGlobals();
   });
 
+  /** Connect a spectator to a large arena with one selectable snake and a real binary frame. */
+  async function openCameraSession(): Promise<{ socket: StubSocketSurface; canvas: SmokeElement }> {
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
+      worldSeed: 42, runId: 'camera-run', configRevision: 1, configHash: 'cfg-camera',
+      settings: { core: { simSpeed: 1 }, updates: [
+        { path: 'worldRadius', value: 10000 }, { path: 'observer.overviewPadding', value: 1.25 },
+        { path: 'observer.overviewExtraWorldMargin', value: 0 }
+      ] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 80
+    }) });
+    socket.onmessage?.({ data: new Float32Array([
+      1, 1, 1, 10000, 0, 0, 1, 7, 9, 0, 200, 100, 0, 0, 2, 200, 100, 210, 100, 0
+    ]).buffer });
+    elements.get('joinSpectate')!.click();
+    elements.get('fitArena')!.click();
+    return { socket, canvas: elements.get('c')! };
+  }
+
+  /** Advance an actual rendering frame to catch automatic camera snap-back. */
+  function renderCameraFrame(): void {
+    if (!animationFrame) throw new Error('missing animation callback');
+    animationFrame(performance.now());
+  }
+
+  /** Build the mouse event surface consumed by camera and God Mode listeners. */
+  function cameraMouse(clientX: number, clientY: number, button = 0, shiftKey = false): Event {
+    return { clientX, clientY, button, shiftKey, preventDefault() {} } as unknown as Event;
+  }
+
+  it('zooms around the cursor and preserves the manual camera across rendering frames', async () => {
+    const { canvas, socket } = await openCameraSession();
+    const camera = window.currentWorld;
+    const originalZoom = camera.zoom;
+    const anchorX = camera.cameraX + 200 / camera.zoom;
+    const anchorY = camera.cameraY + 150 / camera.zoom;
+    const priorPackets = socket.sent.length;
+    const preventDefault = vi.fn();
+    canvas.dispatch('wheel', { clientX: 600, clientY: 450, deltaY: -200, deltaMode: 0, preventDefault } as unknown as Event);
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(camera.zoom).toBeGreaterThan(originalZoom);
+    expect(camera.cameraX + 200 / camera.zoom).toBeCloseTo(anchorX, 10);
+    expect(camera.cameraY + 150 / camera.zoom).toBeCloseTo(anchorY, 10);
+    const manual = { zoom: camera.zoom, x: camera.cameraX, y: camera.cameraY };
+    for (let index = 0; index < 3; index++) renderCameraFrame();
+    expect({ zoom: camera.zoom, x: camera.cameraX, y: camera.cameraY }).toEqual(manual);
+    expect(socket.sent.length).toBe(priorPackets);
+  });
+
+  it('pans to an outside release point and stops dragging after release or focus loss', async () => {
+    const { canvas, socket } = await openCameraSession();
+    const zoom = window.currentWorld.zoom;
+    const priorPackets = socket.sent.length;
+    canvas.dispatch('mousedown', cameraMouse(400, 300));
+    canvas.dispatch('mousemove', cameraMouse(480, 340));
+    expect(window.currentWorld.cameraX).toBeCloseTo(-80 / zoom);
+    expect(window.currentWorld.cameraY).toBeCloseTo(-40 / zoom);
+    for (const listener of windowListeners.get('mousemove') ?? []) listener(cameraMouse(900, 650));
+    for (const listener of windowListeners.get('mouseup') ?? []) listener(cameraMouse(1000, 700));
+    expect(window.currentWorld.cameraX).toBeCloseTo(-600 / zoom);
+    expect(window.currentWorld.cameraY).toBeCloseTo(-400 / zoom);
+    canvas.dispatch('click', cameraMouse(1000, 700));
+    canvas.dispatch('mousemove', cameraMouse(1100, 750));
+    renderCameraFrame();
+    expect(window.currentWorld.cameraX).toBeCloseTo(-600 / zoom);
+    expect(window.currentWorld.cameraY).toBeCloseTo(-400 / zoom);
+    expect(socket.sent.length).toBe(priorPackets);
+    canvas.dispatch('mousedown', cameraMouse(400, 300));
+    for (const listener of windowListeners.get('blur') ?? []) listener(new Event('blur'));
+    canvas.dispatch('mousemove', cameraMouse(500, 400));
+    expect(window.currentWorld.cameraX).toBeCloseTo(-600 / zoom);
+    expect(canvas.style['cursor']).toBe('grab');
+  });
+
+  it('bounds zoom and returns to automatic overview or follow with Home, Fit arena, and V', async () => {
+    const { canvas } = await openCameraSession();
+    for (let index = 0; index < 5; index++) {
+      canvas.dispatch('wheel', { clientX: 400, clientY: 300, deltaY: -1000000, deltaMode: 0, preventDefault() {} } as unknown as Event);
+    }
+    expect(window.currentWorld.zoom).toBe(4);
+    for (let index = 0; index < 5; index++) {
+      canvas.dispatch('wheel', { clientX: 400, clientY: 300, deltaY: 1000000, deltaMode: 0, preventDefault() {} } as unknown as Event);
+    }
+    expect(window.currentWorld.zoom).toBe(0.01);
+    elements.get('toggle')!.click();
+    renderCameraFrame();
+    expect(window.currentWorld.cameraX).toBe(200);
+    expect(window.currentWorld.cameraY).toBe(100);
+    expect(window.currentWorld.viewMode).toBe('follow');
+    for (const listener of windowListeners.get('keydown') ?? []) {
+      listener({ code: 'Home', preventDefault() {} } as unknown as Event);
+    }
+    expect(window.currentWorld.cameraX).toBe(0);
+    expect(window.currentWorld.cameraY).toBe(0);
+    expect(window.currentWorld.zoom).toBeCloseTo(600 / 25000);
+    expect(window.currentWorld.viewMode).toBe('overview');
+    renderCameraFrame();
+    expect(window.currentWorld.zoom).toBeCloseTo(600 / 25000);
+  });
+
+  it('pans even with a selected snake and reserves Shift-drag for God Mode movement', async () => {
+    vi.useFakeTimers();
+    const { canvas, socket } = await openCameraSession();
+    const zoom = window.currentWorld.zoom;
+    canvas.dispatch('click', cameraMouse(400 + 200 * zoom, 300 + 100 * zoom));
+    canvas.dispatch('mousedown', cameraMouse(400, 300));
+    canvas.dispatch('mousemove', cameraMouse(480, 340));
+    canvas.dispatch('mouseup', cameraMouse(480, 340));
+    canvas.dispatch('click', cameraMouse(480, 340));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'godMode')).toEqual([]);
+    elements.get('fitArena')!.click();
+    canvas.dispatch('mousedown', cameraMouse(400, 300, 0, true));
+    canvas.dispatch('mousemove', cameraMouse(500, 360, 0, true));
+    for (const listener of windowListeners.get('mouseup') ?? []) listener(cameraMouse(550, 390, 0, true));
+    const moves = socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'godMode');
+    expect(moves.at(-1)).toMatchObject({ action: 'move', snakeId: 7, x: 150 / zoom, y: 90 / zoom });
+  });
+
   it('attempts the resolved server connection when the entry module loads', async () => {
     await import('./main.ts');
 
     expect(connectedUrl).toBe('ws://localhost:5174');
+  });
+
+  it('keeps camera sliders local and submits the full authoritative panel through Apply and reset', async () => {
+    vi.useFakeTimers();
+    /** Expose the generated panel inputs to its event wiring and reset collector. */
+    const panelInputs = (): SmokeElement[] => createdElements.filter(element => element.dataset['path']);
+    for (const id of ['settingsContainer', 'settingsControls']) {
+      const panel = document.getElementById(id) as unknown as SmokeElement;
+      panel.querySelectorAll = panelInputs;
+    }
+    await import('./main.ts');
+    const socket = activeSocket;
+    if (!socket) throw new Error('missing browser WebSocket');
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'reset-session', tickRate: 60,
+      worldSeed: 42, runId: 'reset-run', configRevision: 1, configHash: 'cfg-reset',
+      settings: { core: { snakeCount: 12, simSpeed: 1, hiddenLayers: 1, neurons1: 8 }, updates: [] },
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 28
+    }) });
+    const { CFG } = await import('./config.ts');
+    for (const [path, value] of [
+      ['observer.overviewPadding', 1.5], ['observer.zoomLerpFollow', 0.15],
+      ['observer.zoomLerpOverview', 0.2], ['observer.overviewExtraWorldMargin', 400]
+    ] as const) {
+      const slider = panelInputs().find(element => element.dataset['path'] === path)!;
+      slider.value = String(value);
+      slider.dispatch('input', new Event('input'));
+      expect(CFG.observer[path.slice('observer.'.length) as keyof typeof CFG.observer]).toBe(value);
+    }
+    vi.advanceTimersByTime(100);
+    expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'settings')).toEqual([]);
+    const radius = panelInputs().find(element => element.dataset['path'] === 'worldRadius')!;
+    radius.value = '4200';
+    elements.get('apply')!.click();
+    const reset = socket.sent.map(payload => JSON.parse(payload)).find(packet => packet.type === 'reset');
+    expect(reset).toMatchObject({ settings: { snakeCount: 12 },
+      updates: expect.arrayContaining([{ path: 'worldRadius', value: 4200 }]),
+      graphSpec: { type: 'graph' } });
+    expect(reset.updates.length).toBeGreaterThan(60);
+    expect(reset.updates.filter((update: { path: string }) => update.path.startsWith('observer.')))
+      .toEqual(expect.arrayContaining([
+        { path: 'observer.earlyEndMinSeconds', value: CFG.observer.earlyEndMinSeconds },
+        { path: 'observer.earlyEndAliveThreshold', value: CFG.observer.earlyEndAliveThreshold }
+      ]));
+    expect(reset.updates.filter((update: { path: string }) => update.path.startsWith('observer.'))).toHaveLength(2);
   });
 
   it('restores an explicitly selected spectator session after reconnect', async () => {

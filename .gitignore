@@ -10,6 +10,7 @@ docs/feedback-from-outside-llms/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/*.db.checkpoints/
 data/codex-browser-fixture-*/
 
 server/config.toml

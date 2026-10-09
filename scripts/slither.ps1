@@ -278,11 +278,11 @@ function Process-Exists([int]$procId) {
 # perform the combined redirection, which works on all supported Windows builds.
 # ============================================================
 
-function Join-CmdArgs([string[]]$args) {
+function Join-CmdArgs([string[]]$arguments) {
   # Convert an argv array into a cmd.exe-safe string.
   # We quote arguments containing spaces or special characters so they survive cmd's parsing.
   $out = @()
-  foreach ($a in $args) {
+  foreach ($a in $arguments) {
     if ($null -eq $a) { continue }
     if ($a -match '[\s"&|<>^()]') {
       $escaped = $a -replace '"','\"'

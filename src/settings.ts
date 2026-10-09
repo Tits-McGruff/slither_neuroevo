@@ -28,11 +28,20 @@ type SettingSpec = SettingDefinition;
 
 /**
  * Pure shared definitions used to build the settings UI.
- * `sense.debug` belonged to the retired browser-owned sensor logger and is not
- * part of the authoritative Rust settings record. Rendering it would make the
- * reset collector submit an unsupported path and cause the whole reset to fail.
+ * The sensor logger and automatic focus controls belong to the retained
+ * reference World and have no counterpart in the active Rust runtime.
  */
-const SETTING_SPECS = SETTING_DEFINITIONS.filter(spec => spec.path !== 'sense.debug');
+const SETTING_SPECS = SETTING_DEFINITIONS.filter(spec =>
+  spec.path !== 'sense.debug' && spec.path !== 'observer.focusRecheckSeconds' &&
+  spec.path !== 'observer.focusSwitchMargin');
+
+/** Camera presentation values consumed by the browser, excluded from server commands. */
+export const BROWSER_CAMERA_SETTING_PATHS: ReadonlySet<string> = new Set([
+  'observer.overviewPadding',
+  'observer.zoomLerpFollow',
+  'observer.zoomLerpOverview',
+  'observer.overviewExtraWorldMargin'
+]);
 
 /**
  * Resolve the control type for a spec, defaulting to range sliders.

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -20,3 +20,20 @@ it('builds the browser for the runtime port and invalidates cached routing input
     ]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+it.runIf(process.platform === 'win32')('passes server and Vite arguments through the detached Windows launcher', () => {
+  const root = mkdtempSync(join(tmpdir(), 'slither-windows-launcher-'));
+  const workspace = join(root, 'workspace with spaces');
+  mkdirSync(workspace);
+  try {
+    // The local npm substitute captures argv and stays alive until startup has observed it.
+    writeFileSync(join(workspace, 'npm.cmd'), '@echo off\r\necho %*\r\nping -n 3 127.0.0.1 >nul\r\n');
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      resolve('scripts/test/windows-launcher-arguments.ps1'), '-LauncherPath', resolve('scripts/slither.ps1'),
+      '-FixtureDirectory', workspace], { encoding: 'utf8', timeout: 15_000 });
+    expect(result.error, `${result.stdout}\n${result.stderr}`).toBeUndefined();
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(readFileSync(join(workspace, 'server.log'), 'utf8').trim()).toBe('run server');
+    expect(readFileSync(join(workspace, 'dev.log'), 'utf8').trim()).toBe('run dev -- --force');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 20_000);
