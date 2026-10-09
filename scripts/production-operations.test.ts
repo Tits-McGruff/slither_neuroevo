@@ -22,33 +22,64 @@ const POSIX_SHELL = process.platform === 'win32'
   : '/bin/sh';
 
 describe('production service operations', () => {
-  it.each([{ name: 'manual launcher', source: LAUNCHER }, { name: 'foreground service', source: RUNNER }])('defaults $name to loopback while retaining explicit LAN binds', ({ source }) => {
-      const assignment = source.match(/^HOST=.*$/mu)?.[0];
-      expect(assignment).toBeDefined();
-      for (const requested of ['', '0.0.0.0', '192.168.1.25']) {
-        const result = spawnSync(POSIX_SHELL, ['-c', `set -eu
-unset SLITHER_HOST
-[ -z "$1" ] || SLITHER_HOST="$1"
-${assignment}
-printf '%s' "$HOST"
-`, 'launcher-bind', requested], { encoding: 'utf8', timeout: 5000 });
-        expect(result.error).toBeUndefined();
-        expect(result.status, result.stderr).toBe(0);
-        expect(result.stdout).toBe(requested || '127.0.0.1');
-      }
-    });
+  it('uses TOML deployment settings by default and keeps SLITHER_* as explicit overrides', () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-launcher-config-'));
+    const config = join(root, 'server.toml');
+    const database = join(root, 'owner database.db');
+    try {
+      writeFileSync(config, [
+        'host = "0.0.0.0"',
+        'port = 6123',
+        `dbPath = ${JSON.stringify(database.replaceAll('\\', '/'))}`,
+        'resume = "auto"'
+      ].join('\n')); 
+      const resolver = resolve('scripts/resolve-launcher-config.ts').replaceAll('\\', '/');
+      const tsx = resolve('node_modules/tsx/dist/cli.mjs').replaceAll('\\', '/');
+      const run = (overrides: NodeJS.ProcessEnv = {}) => spawnSync(POSIX_SHELL, ['-c', `set -eu
+eval "$(node "$1" "$2")"
+printf '%s\n%s\n%s\n%s\n' "$HOST" "$PORT" "$DB_PATH" "$RESOLVED_RESUME"
+`, 'launcher-config', tsx, resolver], {
+        encoding: 'utf8',
+        timeout: 5000,
+        env: {
+          ...process.env,
+          SERVER_CONFIG: config,
+          HOST: '', PORT: '', DB_PATH: '', SERVER_RESUME: '',
+          SLITHER_HOST: '', SLITHER_PORT: '', SLITHER_DB_PATH: '',
+          SLITHER_START_MODE: '', SLITHER_RESUME_TARGET: '',
+          ...overrides
+        }
+      });
 
-  it('keeps the copied service environment on loopback', () => {
-    const example = readFileSync(resolve('server/systemd.env.example'), 'utf8');
-    const assignment = example.match(/^SLITHER_HOST=.*$/mu)?.[0];
-    expect(assignment).toBeDefined();
-    const result = spawnSync(POSIX_SHELL, ['-c', `set -eu
-${assignment}
-printf '%s' "$SLITHER_HOST"
-`], { encoding: 'utf8', timeout: 5000 });
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe('127.0.0.1');
+      const base = run();
+      expect(base.error).toBeUndefined();
+      expect(base.status, base.stderr).toBe(0);
+      expect(base.stdout.trim().split('\n')).toEqual(['0.0.0.0', '6123', database.replaceAll('\\', '/'), 'auto']);
+
+      const overridden = run({
+        SLITHER_HOST: '192.168.1.25',
+        SLITHER_PORT: '7123',
+        SLITHER_DB_PATH: join(root, 'override.db').replaceAll('\\', '/'),
+        SLITHER_START_MODE: 'resume',
+        SLITHER_RESUME_TARGET: 'latest'
+      });
+      expect(overridden.error).toBeUndefined();
+      expect(overridden.status, overridden.stderr).toBe(0);
+      expect(overridden.stdout.trim().split('\n')).toEqual([
+        '192.168.1.25',
+        '7123',
+        join(root, 'override.db').replaceAll('\\', '/'),
+        'latest'
+      ]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it('leaves the copied service environment override-free by default', () => {
+    const example = readFileSync(resolve('server/systemd.env.example'), 'utf8');
+    expect(example).toContain('Normal deployment settings come from server/config.toml.');
+    expect(example).not.toMatch(/^SLITHER_(?:HOST|PORT|DB_PATH|START_MODE|RESUME_TARGET)=/mu);
+  });
+
   it.each([
     ['0.0.0.0', 'http://127.0.0.1:5174/api/health'],
     ['::', 'http://[::1]:5174/api/health'],
@@ -67,6 +98,7 @@ set -eu
 HOST="$1"
 EXPECTED_URL="$2"
 PORT=5174
+HEALTH_URL="$EXPECTED_URL"
 LOG_FILE=/dev/null
 ${LAUNCHER.slice(begin, end)}
 pid_is_running() { return 0; }
@@ -83,46 +115,24 @@ printf '%s' "$HEALTH_URL"
   });
 
   it('delegates fresh startup of an existing store to the server in both Unix launchers', () => {
-    const root = mkdtempSync(join(tmpdir(), 'slither-launcher-fresh-'));
-    const database = join(root, 'owner.db');
-    try {
-      writeFileSync(database, 'retained database');
-      const serviceStart = RUNNER.indexOf('case "$START_MODE" in');
-      const serviceEnd = RUNNER.indexOf('\necho "[START]', serviceStart);
-      const manualStart = LAUNCHER.indexOf('if [ "$ACTIVE_MODE" = "fresh" ] &&');
-      const manualEnd = LAUNCHER.indexOf('\nstart_server_process "$ACTIVE_MODE"', manualStart);
-      expect(serviceStart).toBeGreaterThan(0);
-      expect(serviceEnd).toBeGreaterThan(serviceStart);
-      expect(manualStart).toBeGreaterThan(0);
-      expect(manualEnd).toBeGreaterThan(manualStart);
-      for (const block of [RUNNER.slice(serviceStart, serviceEnd), LAUNCHER.slice(manualStart, manualEnd)]) {
-        const result = spawnSync(POSIX_SHELL, ['-c', `set -eu
-DB_PATH="$1"
-MANAGED_DIR="$DB_PATH.checkpoints"
-START_MODE=fresh
-ACTIVE_MODE=fresh
-RESUME_TARGET=latest
-fail() { echo "$*" >&2; exit 1; }
-${block}
-printf '%s' 'delegated fresh'
-`, 'fresh-launcher', database.replaceAll('\\', '/')], { encoding: 'utf8', timeout: 5000 });
-        expect(result.error).toBeUndefined();
-        expect(result.status, result.stderr).toBe(0);
-        expect(result.stdout).toBe('delegated fresh');
-      }
-      expect(readFileSync(database, 'utf8')).toBe('retained database');
-    } finally { rmSync(root, { recursive: true, force: true }); }
+    for (const source of [RUNNER, LAUNCHER]) {
+      expect(source).toContain('if [ "$RESOLVED_RESUME" = "fresh" ] && [ ! -e "$DB_PATH" ]');
+      expect(source).not.toMatch(/\b(?:rm|mv)\b[^\n]*\$DB_PATH/u);
+    }
   });
-  it('runs the Rust entry point in the foreground without rebuilding or falling back', () => {
-    expect(RUNNER).toContain('exec node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts');
-    expect(RUNNER).toContain('--resume "$RESUME_TARGET"');
-    expect(RUNNER).toContain('--fresh');
+
+  it('runs the Rust entry point without hard-coded deployment overrides', () => {
+    expect(RUNNER).toContain('scripts/resolve-launcher-config.ts');
+    expect(RUNNER).toContain('exec node ./node_modules/tsx/dist/cli.mjs server/rustServer.ts "$@"');
     expect(RUNNER).not.toMatch(/^\s*npm run build(?:\s|$)/mu);
     expect(RUNNER).not.toContain('server/index.ts');
+    expect(RUNNER).not.toContain('--host "$HOST"');
+    expect(RUNNER).not.toContain('--port "$PORT"');
+    expect(RUNNER).not.toContain('--db-path "$DB_PATH"');
+    expect(RUNNER).not.toContain('--input-hold-ms 500');
+    expect(RUNNER).not.toContain('--disconnect-grace-ms 30000');
+    expect(RUNNER).not.toContain('--checkpoint-every 1');
     expect(RUNNER).not.toMatch(/--(?:backend|mt)(?:[=\s]|$)/u);
-    expect(RUNNER).toContain('--input-hold-ms 500');
-    expect(RUNNER).toContain('--disconnect-grace-ms 30000');
-    expect(RUNNER).toContain('--checkpoint-every 1');
   });
 
   it('uses bounded restart policy and graceful termination', () => {
