@@ -835,9 +835,8 @@ fn validate_options(options: &Stage5StepEvidenceOptions) -> Result<(), String> {
             "dense-body-first-step requires P1, zero warmup and exactly one step".to_owned(),
         );
     }
-    if !(1..=7).contains(&options.calculation_workers) {
-        return Err("calculation workers must be from 1 to 7".to_owned());
-    }
+    super::calculation_workers::validate_calculation_workers(options.calculation_workers)
+        .map_err(|error| error.to_string())?;
     if options.measured_steps == 0 {
         return Err("measured steps must be positive".to_owned());
     }
@@ -1415,15 +1414,16 @@ mod tests {
             command: vec!["test".to_owned()],
         };
         let serial = run_stage5_step_evidence(options.clone(), || 0).unwrap();
+        let workers = 4.min(super::super::calculation_workers::available_calculation_workers());
         let parallel = run_stage5_step_evidence(
             Stage5StepEvidenceOptions {
-                calculation_workers: 4,
+                calculation_workers: workers,
                 ..options
             },
             || 0,
         )
         .unwrap();
-        assert_eq!(parallel.path.calculation_workers, 4);
+        assert_eq!(parallel.path.calculation_workers, workers);
         assert_eq!(
             parallel.result.final_world_sha256,
             serial.result.final_world_sha256

@@ -1,8 +1,10 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
-import { parseProductionCli, PRODUCTION_CLI_HELP } from './productionCli.ts';
+import { afterEach, expect, it, vi } from 'vitest';
+import { parseProductionCli, productionCliHelp, PRODUCTION_CLI_HELP } from './productionCli.ts';
+import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
+import { RUST_CALCULATION_WORKER_MAX, validateRustCalculationWorkers } from './rustWorkers.ts';
 
 /** Task-owned configuration roots, removed after each test. */
 const roots: string[] = [];
@@ -58,7 +60,57 @@ it('retains both value syntaxes, paths with spaces, and explicit CLI precedence'
   writeFileSync(config, 'port = 5174\nhost = "127.0.0.1"\n');
   const selected = parseProductionCli(['--config', config, '--port=6174', '--host', '192.168.1.25',
     '--db-path', '/owner/experiment with spaces.db', '--resume=latest', '--rust-workers', '6',
-    '--input-hold-ms', '500', '--disconnect-grace-ms=30000', '--checkpoint-every', '1', '--log=warn'], { PORT: '7174', DB_PATH: '/different.db' });
+    '--input-hold-ms', '500', '--disconnect-grace-ms=30000', '--checkpoint-every', '1', '--log=warn'], { PORT: '7174', DB_PATH: '/different.db' }, 16);
   expect(selected).toMatchObject({ port: 6174, host: '192.168.1.25', dbPath: '/owner/experiment with spaces.db',
     resume: 'latest', rustCalculationWorkers: 6, controllerInputHoldMs: 500, controllerDisconnectGraceMs: 30000, checkpointEveryGenerations: 1, logLevel: 'warn' });
+});
+
+it.each([1, 2, 8, 16, 32, 64])('uses the supplied %i-CPU manual range across TOML, environment, CLI and help', maximum => {
+  const { config } = fixture();
+  const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    for (let count = 1; count <= maximum; count++) {
+      expect(validateRustCalculationWorkers(count, maximum)).toBe(count);
+      expect(normalizeConfig({ rustCalculationWorkers: count }, undefined, maximum).rustCalculationWorkers).toBe(count);
+    }
+    for (const count of [0, -1, maximum + 1, 1.5, NaN, Infinity]) {
+      expect(() => validateRustCalculationWorkers(count, maximum)).toThrow(`1 to ${maximum}`);
+    }
+    writeFileSync(config, `rustCalculationWorkers = ${maximum}\n`);
+    expect(parseProductionCli([], { SERVER_CONFIG: config }, maximum)?.rustCalculationWorkers).toBe(maximum);
+    writeFileSync(config, 'rustCalculationWorkers = 1\n');
+    expect(parseProductionCli([], { SERVER_CONFIG: config, RUST_WORKERS: String(maximum) }, maximum)?.rustCalculationWorkers).toBe(maximum);
+    expect(parseProductionCli(['--rust-workers', String(maximum)], { SERVER_CONFIG: config, RUST_WORKERS: '1' }, maximum)?.rustCalculationWorkers).toBe(maximum);
+    writeFileSync(config, `rustCalculationWorkers = ${maximum + 1}\n`);
+    expect(parseProductionCli([], { SERVER_CONFIG: config }, maximum)?.rustCalculationWorkers).toBe(maximum);
+    expect(parseProductionCli(['--rust-workers', String(maximum + 1)], { SERVER_CONFIG: config }, maximum)?.rustCalculationWorkers).toBe(maximum);
+    expect(warnings.mock.calls.flat().join('\n')).toContain(`1..${maximum}`);
+    expect(productionCliHelp(maximum)).toContain(`Range: 1..${maximum} available logical CPUs`);
+    expect(normalizeConfig({}, undefined, maximum).rustCalculationWorkers).toBe(Math.min(5, maximum));
+    expect(normalizeConfig({ rustCalculationWorkers: 0 }, undefined, maximum).rustCalculationWorkers).toBe(1);
+  } finally { warnings.mockRestore(); }
+});
+
+it('keeps the five-worker default and the separate Node MT settings', () => {
+  expect(DEFAULT_CONFIG.rustCalculationWorkers).toBe(5);
+  expect(normalizeConfig({ mtEnabled: true, mtWorkers: 128 }, undefined, 32))
+    .toMatchObject({ rustCalculationWorkers: 5, mtEnabled: true, mtWorkers: 128 });
+  expect(PRODUCTION_CLI_HELP).toContain(`Range: 1..${RUST_CALCULATION_WORKER_MAX} available logical CPUs`);
+});
+
+it('bounds real-server fixture defaults and comparison counts on a two-CPU process', async () => {
+  vi.resetModules();
+  vi.doMock('./rustWorkers.ts', async () => ({
+    ...await vi.importActual<typeof import('./rustWorkers.ts')>('./rustWorkers.ts'),
+    RUST_CALCULATION_WORKER_MAX: 2
+  }));
+  try {
+    const fixtureConfig = await import('./test/rustConfig.ts');
+    expect(fixtureConfig.RUST_TEST_CONFIG.rustCalculationWorkers).toBe(2);
+    expect([1, 4, 5, 6].map(fixtureConfig.rustWorkersForTest)).toEqual([1, 2, 2, 2]);
+    expect(DEFAULT_CONFIG.rustCalculationWorkers).toBe(5);
+  } finally {
+    vi.doUnmock('./rustWorkers.ts');
+    vi.resetModules();
+  }
 });

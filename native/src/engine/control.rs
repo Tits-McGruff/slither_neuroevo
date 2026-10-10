@@ -10,6 +10,7 @@ use super::calculation::{
     CalculationBatchKey, CalculationCandidateIndex, CalculationError, CalculationExecutionBuffers,
     CalculationWorkUnit, CalculationWorkspace,
 };
+use super::calculation_workers::{validate_calculation_workers, CalculationWorkerCountError};
 use super::inference::{
     evaluate_heterogeneous_population, evaluate_heterogeneous_population_with_resets,
     publish_heterogeneous_recurrent, validate_heterogeneous_recurrent_commit,
@@ -33,8 +34,6 @@ use std::time::Instant;
 const CONTROLLER_OUTPUT_SIZE: usize = 2;
 /// Conservative admission allowance for each additional reusable sensor query scratch.
 const PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES: usize = 64 * 1024 * 1024;
-/// Keep calculation threads bounded below the target host's eight logical CPUs.
-const MAX_CALCULATION_WORKERS: usize = 7;
 
 /// Wall time around the two worker-pool phases in one neural batch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -198,11 +197,8 @@ impl NeuralControlPipeline {
         inference: &GraphExecutionPlan,
         calculation_workers: usize,
     ) -> Result<usize, NeuralControlError> {
-        if !(1..=MAX_CALCULATION_WORKERS).contains(&calculation_workers) {
-            return Err(NeuralControlError::InvalidCalculationWorkers(
-                calculation_workers,
-            ));
-        }
+        validate_calculation_workers(calculation_workers)
+            .map_err(NeuralControlError::InvalidCalculationWorkers)?;
         let workspace = CalculationWorkspace::<()>::required_bytes(
             max_work,
             calculation_workers,
@@ -981,7 +977,7 @@ impl NeuralControlPipeline {
 #[derive(Debug)]
 pub enum NeuralControlError {
     /// Requested calculation-thread count is outside the supported envelope.
-    InvalidCalculationWorkers(usize),
+    InvalidCalculationWorkers(CalculationWorkerCountError),
     /// The bounded persistent calculation pool could not start.
     WorkerPool(String),
     /// Canonical calculation-work failure.
@@ -1081,8 +1077,7 @@ impl From<InferenceError> for NeuralControlError {
 impl fmt::Display for NeuralControlError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidCalculationWorkers(count) => write!(formatter,
-                "calculation worker count {count} must be from 1 to {MAX_CALCULATION_WORKERS}"),
+            Self::InvalidCalculationWorkers(error) => write!(formatter, "{error}"),
             Self::WorkerPool(detail) => write!(formatter, "calculation worker pool failed: {detail}"),
             Self::Calculation(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),

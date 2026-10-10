@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import type { InferenceBackend } from '../src/brains/types.ts';
+import { RUST_CALCULATION_WORKER_MAX, validateRustCalculationWorkers } from './rustWorkers.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -35,7 +36,7 @@ export interface ServerConfig {
   mtEnabled: boolean;
   /** Requested worker count (0 for auto). */
   mtWorkers: number;
-  /** Rust calculation threads; independent of the old TypeScript MT pool. */
+  /** Rust calculation threads, from one through the process-available logical CPU count. */
   rustCalculationWorkers: number;
   /** Immutable neural math backend selected before brain construction. */
   inferenceBackend: InferenceBackend;
@@ -225,11 +226,13 @@ function checkpointBudgetMiB(value: unknown): number {
  * Normalize raw config input into a validated server config object.
  * @param input - Raw config data to normalize.
  * @param warn - Optional warning callback.
+ * @param rustWorkerMaximum - Detected Rust worker ceiling; injectable for tests.
  * @returns The normalized configuration object.
  */
 export function normalizeConfig(
   input: RawConfigInput,
-  warn?: (msg: string) => void
+  warn?: (msg: string) => void,
+  rustWorkerMaximum = RUST_CALCULATION_WORKER_MAX
 ): ServerConfig {
   const port = coerceInt('port', input.port, DEFAULT_CONFIG.port, 1, 65535, warn);
   const rawHost = typeof input.host === 'string' ? input.host : '';
@@ -349,8 +352,12 @@ export function normalizeConfig(
     }
   }
   const mtWorkers = coerceInt('mtWorkers', input.mtWorkers, DEFAULT_CONFIG.mtWorkers, 0, 128, warn);
+  const rustWorkerDefault = validateRustCalculationWorkers(
+    Math.min(DEFAULT_CONFIG.rustCalculationWorkers, rustWorkerMaximum), rustWorkerMaximum);
   const rustCalculationWorkers = coerceInt('rustCalculationWorkers', input.rustCalculationWorkers,
-    DEFAULT_CONFIG.rustCalculationWorkers, 1, 7, warn);
+    rustWorkerDefault,
+    1, rustWorkerMaximum,
+    warn ? message => warn(`${message} Valid Rust worker range: 1..${rustWorkerMaximum} (available logical CPUs).`) : undefined);
   let inferenceBackend = DEFAULT_CONFIG.inferenceBackend;
   const rawInferenceBackend =
     typeof input.inferenceBackend === 'string' ? input.inferenceBackend.trim().toLowerCase() : '';
@@ -487,9 +494,10 @@ function loadConfigFile(filePath: string, warn?: (msg: string) => void): RawConf
  * Parse config overrides from config file, env vars, and CLI args.
  * @param argv - CLI arguments array.
  * @param env - Environment variables map.
+ * @param rustWorkerMaximum - Detected Rust worker ceiling shared by all override paths.
  * @returns Normalized server config ready for runtime use.
  */
-export function parseConfig(argv: string[], env: Env): ServerConfig {
+export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_CALCULATION_WORKER_MAX): ServerConfig {
   const warn = (msg: string) => console.warn(`[config] ${msg}`);
   const configPath = resolveConfigPath(argv, env);
   const input: RawConfigInput = {
@@ -578,5 +586,5 @@ export function parseConfig(argv: string[], env: Env): ServerConfig {
   } else if (resumeRaw !== undefined) {
     input.resume = resumeRaw;
   }
-  return normalizeConfig(input, warn);
+  return normalizeConfig(input, warn, rustWorkerMaximum);
 }

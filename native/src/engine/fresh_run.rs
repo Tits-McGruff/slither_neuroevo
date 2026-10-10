@@ -8,7 +8,7 @@
 //! evolution stream, derives baseline streams, and returns a durability-gated
 //! [`PendingRunStartTransition`]. No running authority is exposed here.
 
-use super::checkpoint::CheckpointLimits;
+use super::checkpoint::{boundary_decoded_byte_count, CheckpointError, CheckpointLimits};
 use super::contract::ENGINE_CONTRACT_VERSION;
 use super::generation::{derive_baseline_rngs, GenerationTransitionError};
 use super::genome::{
@@ -378,6 +378,20 @@ fn prepare_stage6a_p0_boundary(
         recurrent_floats,
         &admission_policy,
     )?;
+    let decoded_bytes = boundary_decoded_byte_count(
+        &candidate,
+        graph.spec(),
+        graph.compiled(),
+        &checkpoint_limits,
+    )?;
+    if decoded_bytes > checkpoint_limits.max_total_decoded_bytes {
+        return Err(FreshRunError::CheckpointTooLarge {
+            decoded_bytes,
+            limit_bytes: checkpoint_limits.max_total_decoded_bytes,
+            population_count,
+            parameters_per_genome: graph.total_parameters,
+        });
+    }
     initialize_population_numeric(
         &mut candidate,
         graph.compiled(),
@@ -723,6 +737,9 @@ fn stage6a_p0_graph_limits() -> GraphLimits {
 }
 
 /// Managed-checkpoint ceilings for the current population and admitted custom graphs.
+/// The 512 MiB envelope admits P3's roughly 461 MiB raw weights and bounds decoded
+/// allocation and codec work. Raising it requires remeasuring memory and aligning
+/// Node's candidate/final-file disk reserves; the retention budget is independent.
 fn production_checkpoint_limits() -> CheckpointLimits {
     CheckpointLimits {
         max_archive_bytes: 512 * MIB_U64,
@@ -777,6 +794,15 @@ pub enum FreshRunError {
         context: &'static str,
         required: usize,
     },
+    /// Exact decoded checkpoint size exceeds the existing cap before numeric initialization.
+    CheckpointTooLarge {
+        decoded_bytes: u64,
+        limit_bytes: u64,
+        population_count: usize,
+        parameters_per_genome: usize,
+    },
+    /// Bounded metadata encoding failed during checkpoint-size admission.
+    Checkpoint(Box<CheckpointError>),
     /// The supplied or default graph failed strict compilation.
     Graph(Box<GraphError>),
     /// The complete state shell or final candidate failed admission.
@@ -813,6 +839,13 @@ impl Display for FreshRunError {
                 formatter,
                 "fresh-run allocation failed for {required} {context}"
             ),
+            Self::CheckpointTooLarge { decoded_bytes, limit_bytes, population_count, parameters_per_genome } => write!(
+                formatter,
+                "proposed population checkpoint needs {decoded_bytes} decoded bytes ({:.2} MiB) for {population_count} NPC snakes with {parameters_per_genome} parameters each; limit is {limit_bytes} bytes ({:.2} MiB). Reduce NPC snakes or brain size.",
+                *decoded_bytes as f64 / MIB_U64 as f64,
+                *limit_bytes as f64 / MIB_U64 as f64
+            ),
+            Self::Checkpoint(error) => write!(formatter, "fresh-run checkpoint sizing failed: {error}"),
             Self::Graph(error) => write!(formatter, "fresh-run graph failed: {error}"),
             Self::State(error) => write!(formatter, "fresh-run state failed: {error}"),
             Self::StepConfig(error) => {
@@ -831,6 +864,7 @@ impl Error for FreshRunError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Graph(error) => Some(error),
+            Self::Checkpoint(error) => Some(error),
             Self::State(error) => Some(error),
             Self::StepConfig(error) => Some(error),
             Self::Generation(error) => Some(error),
@@ -844,6 +878,12 @@ impl Error for FreshRunError {
 impl From<GraphError> for FreshRunError {
     fn from(error: GraphError) -> Self {
         Self::Graph(Box::new(error))
+    }
+}
+
+impl From<CheckpointError> for FreshRunError {
+    fn from(error: CheckpointError) -> Self {
+        Self::Checkpoint(Box::new(error))
     }
 }
 
@@ -919,6 +959,133 @@ mod tests {
         assert!(limits.max_numeric_candidate_bytes >= P3_RAW_WEIGHT_BYTES);
         assert!(limits.max_total_decoded_bytes >= P3_RAW_WEIGHT_BYTES);
         assert!(limits.max_archive_bytes >= P3_RAW_WEIGHT_BYTES);
+    }
+
+    #[test]
+    fn metadata_only_checkpoint_size_matches_published_recurrent_population() {
+        let managed = TestDirectory::create("predicted-size");
+        let prepared = prepare_stage6a_p0_boundary(
+            request(42),
+            &[FreshRunSettingUpdate {
+                path: "snakeCount".into(),
+                value: 3.0,
+            }],
+            typescript_default_graph_spec(),
+        )
+        .unwrap();
+        assert!(prepared.graph.total_state_size > 0);
+        let mut shell = prepared.candidate.clone();
+        for genome in &mut shell.population {
+            genome.weights = Box::new([]);
+        }
+        for brain in &mut shell.brains {
+            brain.recurrent = Box::new([]);
+        }
+        let predicted = boundary_decoded_byte_count(
+            &shell,
+            prepared.graph.spec(),
+            prepared.graph.compiled(),
+            &prepared.checkpoint_limits,
+        )
+        .unwrap();
+        let state = AuthoritativeState::validate_and_own(
+            prepared.candidate,
+            prepared.graph,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        let descriptor = crate::engine::checkpoint::publish_checkpoint(
+            managed.path(),
+            CheckpointOperationId::parse("42424242424242424242424242424242").unwrap(),
+            state.world_epoch(),
+            state.checkpoint_boundary().unwrap(),
+            &prepared.checkpoint_limits,
+            &prepared.graph_limits,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        assert_eq!(
+            predicted,
+            u64::from_str_radix(&descriptor.decoded_byte_count_hex, 16).unwrap()
+        );
+        assert!(
+            predicted
+                > 4 * 3 * (state.graph().total_parameters + state.graph().total_state_size) as u64
+        );
+    }
+
+    #[test]
+    fn oversized_population_rejects_before_numeric_initialization() {
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        let graph = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 83 },
+                },
+                GraphNodeSpec {
+                    id: "large".into(),
+                    kind: GraphNodeKind::Mlp {
+                        input_size: 83,
+                        hidden_sizes: vec![512, 512],
+                        output_size: 512,
+                    },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 512,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![
+                GraphEdge {
+                    from: "input".into(),
+                    to: "large".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+                GraphEdge {
+                    from: "large".into(),
+                    to: "head".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+            ],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let error = match prepare_stage6a_p0_boundary(
+            Stage6aP0FreshRunRequest {
+                memory_ceiling_bytes: 4 * 1024 * MIB,
+                ..request(42)
+            },
+            &[
+                FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 300.0,
+                },
+                FreshRunSettingUpdate {
+                    path: "baselineBots.count".into(),
+                    value: 0.0,
+                },
+            ],
+            graph,
+        ) {
+            Ok(_) => panic!("oversized population must reject before initialization"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, FreshRunError::CheckpointTooLarge {
+            decoded_bytes, limit_bytes: 536_870_912, population_count: 300,
+            parameters_per_genome: 569_346,
+        } if decoded_bytes > 300 * 569_346 * 4));
+        assert!(error
+            .to_string()
+            .contains("Reduce NPC snakes or brain size"));
     }
 
     /// Automatically removes one process-unique managed-checkpoint test root.

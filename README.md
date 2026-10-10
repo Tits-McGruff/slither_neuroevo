@@ -144,9 +144,16 @@ retain that population-only classification.
 ### Calculation workers
 
 The server defaults to five Rust calculation workers on new
-configurations. Use `--rust-workers N` (1–7, or `RUST_WORKERS=N`) to override its persistent worker pool;
-it parallelizes sensing and brain evaluation while keeping brain-state and
-physics commits ordered. This is separate from the reference server's
+configurations. Use `--rust-workers N` (or `RUST_WORKERS=N`) to override its
+persistent worker pool. It parallelizes sensing and brain evaluation while
+keeping brain-state and physics commits ordered.
+The manual range is 1 through the logical CPU/vCPU count available to the server
+process at startup: for example, 1–16 on a process with 16 available logical
+CPUs, or 1–32 with 32. The default remains five, bounded to the available count
+on smaller hosts; zero does not select an automatic mode. TOML
+`rustCalculationWorkers`, the environment override, and the CLI use the same
+detected maximum and retain their existing precedence and clamping behavior.
+This is separate from the reference server's
 `--mt-workers` option.
 
 ### World resource limits
@@ -159,6 +166,15 @@ corpse and boost pellets. State admission charges the declared world and frame
 storage before activation; exceeding a runtime resource ceiling rejects the
 complete step. Existing exact checkpoints retain their originally admitted
 limits. Apply and reset creates a new boundary with the current allowances.
+
+The decoded checkpoint payload is limited to **512 MiB**, including all NPC
+weights, recurrent state, and boundary metadata. Increasing NPC snakes and
+brain size together can exceed this limit even when each setting is valid on
+its own. Apply and reset checks the proposed size before initializing the
+population and shows any rejection beside the button, with the required size
+and limit. Reduce **NPC snakes** or the brain size and retry; the current run
+stays active when a proposed reset is rejected. This per-checkpoint limit is
+separate from the disk retention budget.
 
 ## Saves, storage, and diagnostics
 

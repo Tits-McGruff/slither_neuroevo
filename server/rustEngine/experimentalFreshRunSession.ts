@@ -1,4 +1,5 @@
 import { parseRecoveryBranchResult, type RecoveryBranchResult } from './recoveryProtocol.ts';
+import { validateRustCalculationWorkers } from '../rustWorkers.ts';
 import { managedCheckpointDescriptorsEqual, parseManagedCheckpointDescriptor,
   parseManagedImportBranchResult, type ManagedImportBranchResult } from './checkpointPersistenceProtocol.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
@@ -335,10 +336,7 @@ export class ExperimentalFreshRunSession {
       'memoryCeilingBytes'
     );
     const managedDirectory = validateManagedDirectory(options.managedDirectory);
-    const calculationWorkers = options.calculationWorkers ?? 1;
-    if (!Number.isInteger(calculationWorkers) || calculationWorkers < 1 || calculationWorkers > 7) {
-      throw new RangeError('Rust calculation workers must be from 1 to 7');
-    }
+    const calculationWorkers = validateRustCalculationWorkers(options.calculationWorkers ?? 1);
     this.managedDirectory = managedDirectory;
     this.native = validateFreshRunHandle(new binding.ExperimentalStage6aFreshRunSession(
       runId,

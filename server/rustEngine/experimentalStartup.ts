@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { validateRustCalculationWorkers } from '../rustWorkers.ts';
 import { existsSync } from 'node:fs';
 import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
 import type { RecoveryBranchResult, RecoveryScanCursor } from './recoveryProtocol.ts';
@@ -158,10 +159,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   // The constructor seed is unused by native restore; welcome comes only from its metadata.
   const seed = restoring ? 0 : (options.seed ?? randomBytes(4).readUInt32LE());
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) throw new RangeError('experimental seed must be a Uint32');
-  const calculationWorkers = options.calculationWorkers ?? 1;
-  if (!Number.isInteger(calculationWorkers) || calculationWorkers < 1 || calculationWorkers > 7) {
-    throw new RangeError('Rust calculation workers must be from 1 to 7');
-  }
+  const calculationWorkers = validateRustCalculationWorkers(options.calculationWorkers ?? 1);
   const checkpointBudgetMiB = options.checkpointBudgetMiB ??
     Number(OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap / (1024n * 1024n));
   if (!Number.isSafeInteger(checkpointBudgetMiB) || checkpointBudgetMiB < 1_280 || checkpointBudgetMiB > 65_536) {

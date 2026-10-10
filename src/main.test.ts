@@ -482,6 +482,33 @@ describe('main.ts startup smoke', () => {
     expect(reset.updates.filter((update: { path: string }) => update.path.startsWith('observer.'))).toHaveLength(2);
   });
 
+  it('shows rejected resets beside Apply and acknowledges a successful retry', async () => {
+    const { socket } = await openCameraSession();
+    const status = elements.get('resetStatus')!;
+    elements.get('apply')!.click();
+    expect(socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset')).toBeDefined();
+    expect(status.hidden).toBe(false);
+    expect(status.textContent).toContain('Checking settings');
+    socket.onmessage?.({ data: JSON.stringify({ type: 'error', message:
+      'reset failed: proposed population checkpoint needs 674.26 MiB; limit is 512.00 MiB. Reduce NPC snakes or brain size.' }) });
+    expect(status.textContent).toContain('Reduce NPC snakes or brain size');
+    expect(status.classList.contains('error')).toBe(true);
+    expect(elements.get('connectionStatus')?.textContent).toContain('seed 42');
+    elements.get('apply')!.click();
+    expect(status.textContent).toContain('Checking settings');
+    expect(status.classList.contains('error')).toBe(false);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'stateReplaced', reason: 'reset',
+      checkpointId: 'c'.repeat(64), welcome: {
+        type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
+        worldSeed: 42, runId: 'retry-run', configRevision: 2, configHash: 'cfg-retry',
+        settings: { core: { simSpeed: 1 }, updates: [] },
+        inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+        sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' }, serializerVersion: 1, frameByteLength: 28
+      } }) });
+    expect(status.textContent).toBe('Reset applied.');
+    expect(status.classList.contains('error')).toBe(false);
+  });
+
   it('restores an explicitly selected spectator session after reconnect', async () => {
     vi.useFakeTimers();
     await import('./main.ts');

@@ -326,6 +326,9 @@ canvas {
 .panel .meta.invalid {
   color: #f28c8c;
 }
+.panel .reset-status.error {
+  color: #ff9d9d;
+}
 .panel .preset-row {
   display: flex;
   gap: 8px;

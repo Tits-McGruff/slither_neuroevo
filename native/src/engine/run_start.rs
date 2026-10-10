@@ -7,6 +7,7 @@
 //! boundary and descriptor; JavaScript never supplies transition chronology or
 //! authoritative population data.
 
+use super::calculation_workers::validate_calculation_workers;
 use super::checkpoint::{
     publish_checkpoint, restore_committed_checkpoint, CheckpointDescriptor, CheckpointError,
     CheckpointLimits, CheckpointOperationId,
@@ -82,16 +83,11 @@ pub struct PendingRunStartTransition {
 
 impl PendingRunStartTransition {
     /// Select non-gameplay calculation threads before this authority becomes runnable.
-    pub(crate) fn configure_calculation_workers(
-        &mut self,
-        workers: usize,
-    ) -> Result<(), &'static str> {
+    pub(crate) fn configure_calculation_workers(&mut self, workers: usize) -> Result<(), String> {
         if self.authority_published {
-            return Err("calculation workers cannot change after authority publication");
+            return Err("calculation workers cannot change after authority publication".to_owned());
         }
-        if !(1..=7).contains(&workers) {
-            return Err("calculation workers must be from 1 to 7");
-        }
+        validate_calculation_workers(workers).map_err(|error| error.to_string())?;
         self.work_limits.calculation_workers = workers;
         Ok(())
     }

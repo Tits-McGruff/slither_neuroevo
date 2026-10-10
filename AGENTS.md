@@ -391,6 +391,13 @@ every slow or flaky matrix job.
   performance measurements and named stage/acceptance gates. Do not repeat a
   disposable Oxygen clone and full validation for an ordinary Windows-side
   micro-slice that has no Linux-specific behavior.
+- The owner explicitly authorizes agents to use Oxygen for repository testing.
+  This includes transferring project source, synthetic test fixtures and build
+  artifacts; running builds, tests and benchmarks; and cleaning up task-owned
+  test processes and files. Routine testing on Oxygen does not require repeated
+  permission. Use the connection configuration available locally. Do not publish
+  private SSH setup details, including addresses, account names, ports, key paths,
+  credentials or connection commands, in tracked repository files.
 - Reuse fresh evidence from the immediately preceding checkpoint when the
   current change cannot invalidate it. State the dependency instead of
   reproducing the same benchmark or compatibility run.

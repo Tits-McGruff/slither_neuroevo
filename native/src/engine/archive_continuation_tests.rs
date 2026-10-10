@@ -505,13 +505,21 @@ fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts(
     let successor = direct
         .publish_pending_generation_checkpoint(&source, operation(4))
         .unwrap();
-    for (workers, invert) in [(1, false), (4, false), (5, false), (6, false), (1, true)] {
-        let imported = fixture.directory(&format!("import-{workers}-{invert}"));
+    for (requested_workers, invert) in [
+        (1_usize, false),
+        (4, false),
+        (5, false),
+        (6, false),
+        (1, true),
+    ] {
+        let workers = requested_workers
+            .min(crate::engine::calculation_workers::available_calculation_workers());
+        let imported = fixture.directory(&format!("import-{requested_workers}-{invert}"));
         let mut restored = prepare_import_archive(
             &archive_path,
             &imported,
             &imported,
-            operation(10 + workers as u128 + u128::from(invert)).as_str(),
+            operation(10 + requested_workers as u128 + u128::from(invert)).as_str(),
             "unused-legacy-run",
             1,
             &limits,

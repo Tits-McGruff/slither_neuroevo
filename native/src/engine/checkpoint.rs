@@ -831,6 +831,50 @@ impl Drop for TemporaryArtifacts {
     }
 }
 
+/// Count a metadata-only boundary using the writer's encoders before allocating numeric roles.
+/// Fixed-width population records have the same size before and after recurrent initialization.
+pub(crate) fn boundary_decoded_byte_count(
+    state: &StateCandidate,
+    spec: &GraphSpec,
+    graph: &super::graph::CompiledGraph,
+    limits: &CheckpointLimits,
+) -> Result<u64, CheckpointError> {
+    validate_limits(limits)?;
+    let weight_bytes = usize_to_u64(state.population.len(), "population count")?
+        .checked_mul(usize_to_u64(graph.total_parameters, "parameter count")?)
+        .and_then(|count| count.checked_mul(size_of::<f32>() as u64))
+        .ok_or_else(|| {
+            CheckpointError::format("COUNT_OVERFLOW", "population weight bytes overflow")
+        })?;
+    let recurrent_bytes = usize_to_u64(state.brains.len(), "brain count")?
+        .checked_mul(usize_to_u64(graph.total_state_size, "recurrent count")?)
+        .and_then(|count| count.checked_mul(size_of::<f32>() as u64))
+        .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "recurrent bytes overflow"))?;
+    decoded_role_byte_count([
+        encode_state(state, limits)?.len() as u64,
+        encode_graph(spec, graph, limits)?.len() as u64,
+        encode_population_index(
+            state,
+            graph.total_parameters,
+            graph.total_state_size,
+            limits,
+        )?
+        .len() as u64,
+        weight_bytes,
+        recurrent_bytes,
+    ])
+}
+
+/// Sum exact logical role lengths with the same checked arithmetic at admission and publication.
+fn decoded_role_byte_count(lengths: [u64; LOGICAL_ROLE_COUNT]) -> Result<u64, CheckpointError> {
+    lengths
+        .into_iter()
+        .try_fold(0u64, |total, value| total.checked_add(value))
+        .ok_or_else(|| {
+            CheckpointError::format("COUNT_OVERFLOW", "preflight decoded-byte total overflows")
+        })
+}
+
 /// Publish one exact generation-boundary checkpoint as an immutable managed file.
 ///
 /// Ordinary publication deliberately performs no mandatory second full decode.
@@ -914,18 +958,13 @@ pub fn publish_checkpoint(
         limits.max_recurrent_floats,
         "recurrent state",
     )?;
-    let preflight_decoded_bytes = [
+    let preflight_decoded_bytes = decoded_role_byte_count([
         state_role.bytes.len() as u64,
         graph_role.bytes.len() as u64,
         population_role.bytes.len() as u64,
         weight_source.raw_bytes()?,
         recurrent_source.raw_bytes()?,
-    ]
-    .into_iter()
-    .try_fold(0u64, |total, value| total.checked_add(value))
-    .ok_or_else(|| {
-        CheckpointError::format("COUNT_OVERFLOW", "preflight decoded-byte total overflows")
-    })?;
+    ])?;
     if preflight_decoded_bytes > limits.max_total_decoded_bytes {
         return Err(CheckpointError::format(
             "DECODED_LIMIT",

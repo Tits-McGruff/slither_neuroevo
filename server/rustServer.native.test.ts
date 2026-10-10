@@ -9,13 +9,18 @@ import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
-import { DEFAULT_CONFIG, normalizeConfig, parseConfig } from './config.ts';
+import { normalizeConfig, parseConfig } from './config.ts';
+import { RUST_TEST_CONFIG as DEFAULT_CONFIG, rustWorkersForTest } from './test/rustConfig.ts';
 import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
 import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integration-probe.ts';
 import { measureTurnResponses } from '../scripts/stage7/lan-turn-response.ts';
 import { PlayerReconnectExchange } from '../scripts/stage7/player-reconnect-exchange.ts';
 import { startRustServer } from './rustServer.ts';
+/** Available parallel count for scenarios that characterize four Rust workers. */
+const PARALLEL_WORKERS = rustWorkersForTest(4);
+/** Browser metadata reports zero active pool workers when calculation is serial. */
+const ACTIVE_WORKERS = PARALLEL_WORKERS > 1 ? PARALLEL_WORKERS : 0;
 import { WsHub } from './wsHub.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
@@ -515,6 +520,51 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   }, 20_000);
 
+  it('rejects an oversized population without replacing the run and accepts a smaller retry', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-reset-size-'));
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1, dbPath: join(root, 'experiment.sqlite') });
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken }));
+      await until(viewer, () => viewer!.frames > 0);
+      const before = await healthUntil(server.port, health => health['lifecycle'] === 'running');
+      const files = (await readdir(`${join(root, 'experiment.sqlite')}.checkpoints`)).sort();
+      const graphSpec = { type: 'graph', nodes: [
+        { id: 'input', type: 'Input', outputSize: 83 },
+        { id: 'large', type: 'MLP', inputSize: 83, hiddenSizes: [512, 512], outputSize: 512 },
+        { id: 'head', type: 'Dense', inputSize: 512, outputSize: 2 }
+      ], edges: [{ from: 'input', to: 'large' }, { from: 'large', to: 'head' }],
+      outputs: [{ nodeId: 'head' }], outputSize: 2 };
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec, settings: { snakeCount: 300 },
+        updates: [{ path: 'baselineBots.count', value: 0 }] }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'error'));
+      expect(viewer.packets.find(packet => packet['type'] === 'error')).toMatchObject({ message:
+        expect.stringMatching(/reset failed:.*569346 parameters each.*512\.00 MiB.*Reduce NPC snakes or brain size/) });
+      const after = await healthUntil(server.port, health =>
+        BigInt(`0x${health['completedStep'] as string}`) > BigInt(`0x${before['completedStep'] as string}`));
+      expect(after).toMatchObject({ ok: true, lifecycle: 'running', runId: before['runId'],
+        startupCheckpointId: before['startupCheckpointId'] });
+      expect(viewer.packets.some(packet => packet['type'] === 'stateReplaced')).toBe(false);
+      expect((await readdir(`${join(root, 'experiment.sqlite')}.checkpoints`)).sort()).toEqual(files);
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 3, simSpeed: 0.1 },
+        updates: [{ path: 'baselineBots.count', value: 0 }] }));
+      const replaced = await replacementUntil(viewer, server.port, 'reset');
+      expect(replaced.runId).not.toBe(before['runId']);
+      expect(replaced.settings.core.snakeCount).toBe(3);
+      expect(viewer.packets.some(packet => packet['type'] === 'error')).toBe(false);
+    } finally {
+      viewer?.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it('admits 300 complete long initial bodies through the normal reset boundary', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-long-start-'));
     let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
@@ -861,7 +911,7 @@ describeNetworkSuite('Rust server real sockets', () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-legacy-import-'));
     const dbPath = join(root, 'experiment.sqlite');
     const server = await startRustServer({
-      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: 4
+      ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: PARALLEL_WORKERS
     });
     const peers: Peer[] = [];
     try {
@@ -869,13 +919,13 @@ describeNetworkSuite('Rust server real sockets', () => {
         runId: string; nativeBuildIdentifier: string; calculationWorkers: number;
       };
       expect(before.nativeBuildIdentifier).toMatch(/^slither_native\/[0-9A-Za-z.+-]+$/u);
-      expect(before.calculationWorkers).toBe(4);
+      expect(before.calculationWorkers).toBe(PARALLEL_WORKERS);
       const viewer = await connect(server.port, 'ui');
       peers.push(viewer);
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
         inferenceMode: { nativeAddonBuildIdentifier: before.nativeBuildIdentifier,
-          requestedMt: true, activeWorkerCount: 4 }
+          requestedMt: PARALLEL_WORKERS > 1, activeWorkerCount: ACTIVE_WORKERS }
       });
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
         rejoinToken: viewer.rejoinToken }));
@@ -918,7 +968,7 @@ describeNetworkSuite('Rust server real sockets', () => {
           legacyConversion: { version: 1, sourceFormat: 'browser-json', sourceRunId: 'browser-source-run',
             sourceGeneration: '0000000000000025', sourceSeed: 1_234_567,
             sourceSha256: createHash('sha256').update(legacyFile).digest('hex'), completeness: 'population-only', exactContinuation: false },
-          inferenceMode: { activeWorkerCount: 4 },
+          inferenceMode: { activeWorkerCount: ACTIVE_WORKERS },
           settings: {
             core: { snakeCount: 2, simSpeed: 3 },
             updates: expect.arrayContaining([{ path: 'baselineBots.count', value: 1 }])
@@ -1648,7 +1698,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const dbPath = join(root, 'experiment.sqlite');
       const managedDirectory = `${dbPath}.checkpoints`;
       const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
-        resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: 6 });
+        resume: 'fresh', seed: 41, dbPath, rustCalculationWorkers: rustWorkersForTest(6) });
       /** Observe server-side close even while the client refuses to drain buffered bytes. */
       const terminal = Promise.withResolvers<{ finished: boolean; elapsedSinceProgressMs: number }>();
       let observedExport = false;
@@ -2438,14 +2488,14 @@ describeNetworkSuite('Rust server real sockets', () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-server-'));
     const peers: Peer[] = [];
     const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
-      rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
+      rustCalculationWorkers: PARALLEL_WORKERS, dbPath: join(root, 'experiment.sqlite') });
     try {
       const viewer = await connect(server.port, 'ui'); peers.push(viewer);
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
         rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer.frames > 0 && viewer.packets.some(packet => packet['type'] === 'stats'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ protocolVersion: 2, worldSeed: 42,
-        sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: 4 } });
+        sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: ACTIVE_WORKERS } });
       viewer.socket.send(JSON.stringify({ type: 'viz', enabled: true }));
       await until(viewer, () => viewer.packets.some(packet => {
         const viz = packet['viz'] as { layers?: unknown[] } | undefined;
@@ -2531,7 +2581,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(health).toMatchObject({
         ok: true,
         authority: 'rust',
-        calculationWorkers: 4,
+        calculationWorkers: PARALLEL_WORKERS,
         seed: 42,
         nativeQueues: {
           inbound: { maxBatches: '0000000000000040', maxCommands: '0000000000000040',
@@ -2665,7 +2715,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const afterReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         runId: string; seed: number; startupCheckpointId: string;
       };
-      expect(afterReset).toMatchObject({ seed: beforeReset.seed, calculationWorkers: 4 });
+      expect(afterReset).toMatchObject({ seed: beforeReset.seed, calculationWorkers: PARALLEL_WORKERS });
       expect(afterReset.runId).not.toBe(beforeReset.runId);
       expect(afterReset.startupCheckpointId).not.toBe(beforeReset.startupCheckpointId);
 
@@ -2709,7 +2759,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         runId: string; seed: number; startupCheckpointId: string; configRevision: number; configHash: string;
       };
       expect(afterNewRun).toMatchObject({ runId: newRunResult?.['runId'], seed: newRunResult?.['worldSeed'],
-        calculationWorkers: 4 });
+        calculationWorkers: PARALLEL_WORKERS });
       expect(afterNewRun.runId).not.toBe(afterReset.runId);
       expect(afterNewRun).toMatchObject({ configRevision: 1, configHash: settingsApplied?.['configHash'] });
       const newRunNotice = viewer.packets.findLast(packet =>
@@ -2729,7 +2779,7 @@ describeNetworkSuite('Rust server real sockets', () => {
   it('keeps same-snake reclaim distinct from fresh joins after generation changes and failed successor sends', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-reclaim-generation-'));
     const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 91,
-      rustCalculationWorkers: 4, dbPath: join(root, 'experiment.sqlite') });
+      rustCalculationWorkers: PARALLEL_WORKERS, dbPath: join(root, 'experiment.sqlite') });
     const peers: Peer[] = [];
     let sendSpy: ReturnType<typeof vi.spyOn> | undefined;
     try {

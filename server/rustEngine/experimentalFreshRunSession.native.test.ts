@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createExperimentalServerRuntime } from './experimentalStartup.ts';
+import { RUST_CALCULATION_WORKER_MAX } from '../rustWorkers.ts';
 import { BackgroundOutputPump } from './backgroundOutput.ts';
 import { ExternalControllerRouting } from './externalRouting.ts';
 import { createRustWelcome } from './browserMetadata.ts';
@@ -218,6 +219,23 @@ async function appendInvalidGeneration(client: CheckpointPersistenceClient, root
 }
 
 describe('experimental server startup composition', () => {
+  it('starts the real Rust calculation pool with up to eight available CPUs', async () => {
+    const paths = createFixturePaths('cpu-worker-pool');
+    const workers = Math.min(8, RUST_CALCULATION_WORKER_MAX);
+    const owner = await createExperimentalServerRuntime({ databasePath: paths.databasePath,
+      managedDirectory: paths.managedRoot, seed: 42, calculationWorkers: workers, onWake() {} });
+    try {
+      owner.runtime.start();
+      const deadline = performance.now() + 5000;
+      while (BigInt(`0x${owner.runtime.health().completedStep}`) < 2n && performance.now() < deadline) {
+        await new Promise<void>(done => setTimeout(done, 10));
+      }
+      expect(owner.runtime.health()).toMatchObject({ calculationWorkers: workers, lifecycle: 'running' });
+      expect(BigInt(`0x${owner.runtime.health().completedStep}`)).toBeGreaterThanOrEqual(2n);
+      expect(owner.runtime.health().faultCode).toBeUndefined();
+    } finally { await owner.close(); }
+  }, 15_000);
+
   it('automatically skips corrupt generations, commits a branch, and preserves exact-resume rejection', async () => {
     const paths = createFixturePaths('automatic-recovery');
     const options = { databasePath: paths.databasePath, managedDirectory: paths.managedRoot, onWake() {} };
@@ -501,6 +519,21 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(countManagedFiles(paths.managedRoot)).toBe(1);
     } finally { runtime.requestStop(); await runtime.join(); }
   }, 30_000);
+
+  it('enforces the native detected CPU ceiling without a fixed worker cap', () => {
+    const binding = loadBinding();
+    /** Construct only scalar identity inputs; this does not allocate a population or thread pool. */
+    const construct = (workers: number): ExperimentalFreshRunNativeHandle =>
+      new binding.ExperimentalStage6aFreshRunSession('worker-range', '0000002a', '0000000100000000', workers);
+    let rejection = '';
+    try { construct(0); } catch (error) { rejection = String(error); }
+    const match = /must be from 1 to (\d+) \(available logical CPUs\)/u.exec(rejection);
+    expect(match).not.toBeNull();
+    const maximum = Number(match![1]);
+    expect(maximum).toBeGreaterThan(0);
+    expect(construct(maximum).snapshot()).toEqual({ phase: 'created' });
+    expect(() => construct(maximum + 1)).toThrow(`1 to ${maximum}`);
+  });
 
   it('keeps one real Rust boundary through file publication, SQLite retry, exact ack, and activation', async () => {
     const binding = loadBinding();

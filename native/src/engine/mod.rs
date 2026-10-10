@@ -12,6 +12,8 @@ pub mod baseline;
 pub mod baseline_control;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.
 pub mod calculation;
+/// Process-available logical CPU limits for the Rust calculation pool.
+pub mod calculation_workers;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.
 pub mod checkpoint;
 /// Deterministic test-hook fixture for the real checkpoint publication boundary.

@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
+import { RUST_CALCULATION_WORKER_MAX } from '../../server/rustWorkers.ts';
 import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointPersistenceClient.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
@@ -102,7 +103,7 @@ function parseOptions(argv: readonly string[]): Options {
     databasePath,
     generations: unsigned(values.get('--generations') ?? '480', '--generations', 1000),
     seed: unsigned(values.get('--seed') ?? '1511506142', '--seed', 0xffff_ffff),
-    rustWorkers: unsigned(values.get('--rust-workers') ?? '5', '--rust-workers', 7),
+    rustWorkers: unsigned(values.get('--rust-workers') ?? '5', '--rust-workers', RUST_CALCULATION_WORKER_MAX),
     checkpointBudgetMiB,
     resumeExisting
   };

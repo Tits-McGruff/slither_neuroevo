@@ -1,4 +1,5 @@
 import { parseConfig, type ServerConfig } from './config.ts';
+import { RUST_CALCULATION_WORKER_MAX } from './rustWorkers.ts';
 
 /** One production CLI option accepted before any configuration-file or game startup work. */
 interface ProductionOption {
@@ -32,7 +33,7 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--checkpoint-budget-mib': { value: 'N', integer: true, description: 'Managed storage budget, 1280..65536 MiB (CHECKPOINT_BUDGET_MIB).' },
   '--log': { value: 'LEVEL', choices: ['debug', 'info', 'warn', 'error'], description: 'Logging level (LOG_LEVEL).' },
   '--seed': { value: 'N', integer: true, description: 'Run seed; requires --fresh when a database already exists (WORLD_SEED).' },
-  '--rust-workers': { value: 'N', integer: true, description: 'Rust calculation workers, 1..7 (RUST_WORKERS).' },
+  '--rust-workers': { value: 'N', integer: true, description: 'Rust calculation workers (RUST_WORKERS).' },
   '--fresh': { description: 'Start a new generation-one run; conflicts with --resume.' },
   '--resume': { value: 'latest|sha256:ID', description: 'Select a retained managed checkpoint (SERVER_RESUME).' },
   '--help': { description: 'Print help and exit without creating configuration or starting the game.' }
@@ -41,27 +42,37 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
 /** Flags retained solely by the explicitly selected reference runtime. */
 const REFERENCE_FLAGS = new Set(['--backend', '--mt', '--mt-workers', '--tick']);
 
-/** Help generated from the same option surface used for complete-vector validation. */
-export const PRODUCTION_CLI_HELP = [
-  'Usage: npm run server -- [options]',
-  '',
-  'Rust-authoritative server. Loopback is the default; use --host 0.0.0.0 for deliberate trusted-LAN access.',
-  'Values accept --option value or --option=value. The fixed-step rate is 60 Hz.',
-  '',
-  ...Object.entries(OPTIONS).map(([flag, option]) =>
-    `  ${(flag + (option.value ? ' ' + option.value : '')).padEnd(38)}${option.description}`),
-  '  -h                                    Alias for --help.',
-  '',
-  'Backend, Node pool and tick overrides belong to npm run server:reference.'
-].join('\n');
+/**
+ * Generate help from the validated option surface and detected CPU ceiling.
+ * @param rustWorkerMaximum - Process CPU count, injectable for help tests.
+ * @returns User-facing production usage text.
+ */
+export function productionCliHelp(rustWorkerMaximum = RUST_CALCULATION_WORKER_MAX): string {
+  return [
+    'Usage: npm run server -- [options]',
+    '',
+    'Rust-authoritative server. Loopback is the default; use --host 0.0.0.0 for deliberate trusted-LAN access.',
+    'Values accept --option value or --option=value. The fixed-step rate is 60 Hz.',
+    '',
+    ...Object.entries(OPTIONS).map(([flag, option]) =>
+      `  ${(flag + (option.value ? ' ' + option.value : '')).padEnd(38)}${option.description}${flag === '--rust-workers' ? ` Range: 1..${rustWorkerMaximum} available logical CPUs.` : ''}`),
+    '  -h                                    Alias for --help.',
+    '',
+    'Backend, Node pool and tick overrides belong to npm run server:reference.'
+  ].join('\n');
+}
+
+/** Startup help with the same detected maximum as configuration normalization. */
+export const PRODUCTION_CLI_HELP = productionCliHelp();
 
 /**
  * Validate every production argument before config loading, then resolve existing configuration precedence.
  * @param argv - Complete production argument vector.
  * @param env - Environment overrides accepted by the existing configuration parser.
+ * @param rustWorkerMaximum - Detected CPU ceiling shared with TOML normalization.
  * @returns Configuration for startup, or null for a side-effect-free help request.
  */
-export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv): ServerConfig | null {
+export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv, rustWorkerMaximum = RUST_CALCULATION_WORKER_MAX): ServerConfig | null {
   const seen = new Set<string>();
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index]!;
@@ -98,5 +109,5 @@ export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv): Serv
     throw new Error('--fresh and --resume are mutually exclusive');
   }
   if (seen.has('--help')) return null;
-  return parseConfig(argv, env);
+  return parseConfig(argv, env, rustWorkerMaximum);
 }

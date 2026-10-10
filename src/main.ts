@@ -345,6 +345,8 @@ const n4Val = document.getElementById('n4Val') as HTMLElement;
 const n5Val = document.getElementById('n5Val') as HTMLElement;
 /** Button to apply core slider settings. */
 const btnApply = document.getElementById('apply') as HTMLButtonElement;
+/** Visible acknowledgement or rejection for the latest settings reset. */
+const resetStatus = document.getElementById('resetStatus') as HTMLElement | null;
 /** Button to restore default settings. */
 const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
 /** Button that starts a separately seeded, durably checkpointed run. */
@@ -3540,10 +3542,20 @@ function applyResetToSimulation(): void {
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
     const graphSpec = resolveGraphSpecForReset(settings);
+    setResetStatus('Checking settings and preparing reset...');
     wsClient.sendReset(settings, updates, graphSpec);
     return;
   }
+  setResetStatus('Reset unavailable: connect to the server first.', true);
   console.warn('[reset] not connected to server');
+}
+
+/** Show server-confirmed reset feedback beside its action button without applying local authority. */
+function setResetStatus(message: string, failed = false): void {
+  if (!resetStatus) return;
+  resetStatus.textContent = message;
+  resetStatus.hidden = message.length === 0;
+  resetStatus.classList.toggle('error', failed);
 }
 
 /**
@@ -3647,6 +3659,7 @@ function refreshServerHallOfFame(clearExisting = true): void {
 
 wsClient = createWsClient({
   onConnected: (info) => {
+    setResetStatus('');
     resetManualCamera();
     storeServerUrl(serverUrl);
     reconnectDelayMs = 1000;
@@ -3897,6 +3910,7 @@ wsClient = createWsClient({
     console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
   },
   onStateReplaced: (msg) => {
+    setResetStatus(msg.reason === 'reset' ? 'Reset applied.' : '');
     const info = msg.welcome;
     resolvePendingServerReset();
     const rejoinPlayer = playerSnakeId !== null || joinPending;
@@ -3950,6 +3964,9 @@ wsClient = createWsClient({
   },
   onError: (msg) => {
     console.warn(`[ws] ${msg.message}`);
+    if (msg.message.startsWith('reset failed:')) {
+      setResetStatus(`Reset failed: ${msg.message.slice('reset failed:'.length).trim()}`, true);
+    }
     if (joinPending) {
       joinPending = false;
       updateJoinControls();

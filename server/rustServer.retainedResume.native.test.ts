@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { DEFAULT_CONFIG } from './config.ts';
+import { RUST_TEST_CONFIG as DEFAULT_CONFIG } from './test/rustConfig.ts';
 import { startRustServer, type RustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';

@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
+import { RUST_CALCULATION_WORKER_MAX } from '../../server/rustWorkers.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
 import { counterWindow } from './archive-overlap-summary.ts';
@@ -89,7 +90,7 @@ function options(argv: readonly string[]): Options {
   }
   return { scenario, databasePath,
     measureSeconds: positive(values.get('--measure-seconds') ?? '600', '--measure-seconds', 7200),
-    rustWorkers: positive(values.get('--rust-workers') ?? '5', '--rust-workers', 7) };
+    rustWorkers: positive(values.get('--rust-workers') ?? '5', '--rust-workers', RUST_CALCULATION_WORKER_MAX) };
 }
 
 /** Decode one small Protocol 2 JSON message without retaining display frames. */

@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG } from './config.ts';
 import { createBrowserOriginPolicy } from './browserOrigins.ts';
 
 vi.mock('node:os', () => ({
+  availableParallelism: () => 8,
   hostname: () => 'slither-pc.home',
   networkInterfaces: () => ({ lan: [{ address: '192.168.1.25' }, { address: 'fe80::1%eth0' }] })
 }));

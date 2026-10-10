@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import { DEFAULT_CONFIG } from './config.ts';
+import { RUST_TEST_CONFIG as DEFAULT_CONFIG, rustWorkersForTest } from './test/rustConfig.ts';
 import { startRustServer, type RustServer } from './rustServer.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
@@ -81,8 +81,8 @@ async function archive(server: RustServer, boundary: HeldBoundary): Promise<Buff
 }
 
 describeNetworkSuite('Rust archive exact continuation', () => {
-  it.each([{ generation: 2, workers: 1 }, { generation: 4, workers: 4 },
-    { generation: 4, workers: 5 }, { generation: 4, workers: 6 }])(
+  it.each([{ generation: 2, workers: 1 }, { generation: 4, workers: rustWorkersForTest(4) },
+    { generation: 4, workers: rustWorkersForTest(5) }, { generation: 4, workers: rustWorkersForTest(6) }])(
     'matches direct successors from generation $generation through import and restart with $workers workers', async scenario => {
       const root = await mkdtemp(join(tmpdir(), 'slither-rust-archive-continuation-'));
       const sourcePath = join(root, 'direct.sqlite');

@@ -131,9 +131,10 @@ async function run(): Promise<void> {
   const workers = Number(workersText);
   if (!base || !output || !sourceRevision || !/^[0-9a-f]{40}$/u.test(sourceRevision) ||
       !Number.isInteger(seconds) || seconds < 600 || seconds > 7200 ||
-      !['P0', 'P1', 'P2'].includes(scenarioText) || !Number.isInteger(workers) || workers < 1 || workers > 7) {
+      !['P0', 'P1', 'P2'].includes(scenarioText) || !Number.isSafeInteger(workers) || workers < 1) {
     throw new Error('usage: loaded-runtime-window.ts URL NEW_REPORT_PATH SECONDS>=600 SOURCE_COMMIT [P0|P1|P2] [WORKERS]');
   }
+  // This sampler may target another host; assertWorkload checks the server's admitted count.
   const scenario = scenarioText as Scenario;
   const measurementSources = await measurementSourceDigests();
   const url = new URL(base);

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { expect, it, vi } from 'vitest';
-import { DEFAULT_CONFIG } from './config.ts';
+import { RUST_TEST_CONFIG as DEFAULT_CONFIG } from './test/rustConfig.ts';
 import { startRustServer } from './rustServer.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { summarizeStepWindow, type StepHistogram } from '../scripts/stage7/step-window-summary.ts';

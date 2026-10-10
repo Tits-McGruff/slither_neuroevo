@@ -1,5 +1,6 @@
 //! Emit complete fixed-step evidence with one or more calculation workers.
 
+use slither_native::engine::calculation_workers::validate_calculation_workers;
 use slither_native::engine::inference::InferenceMathBackend;
 use slither_native::engine::inference_fixture::Stage4InferenceScenarioName;
 use slither_native::engine::step_fixture::{run_stage5_step_evidence, Stage5StepEvidenceOptions};
@@ -112,9 +113,8 @@ fn parse_options() -> Result<CliOptions, String> {
             }
             Some("--workers") => {
                 calculation_workers = parse_count(arguments.next(), "--workers", false)?;
-                if calculation_workers > 7 {
-                    return Err("--workers must be from 1 to 7".to_owned());
-                }
+                validate_calculation_workers(calculation_workers)
+                    .map_err(|error| format!("--workers: {error}"))?;
             }
             Some("--warmup-steps") => {
                 warmup_steps = parse_count(arguments.next(), "--warmup-steps", true)?;

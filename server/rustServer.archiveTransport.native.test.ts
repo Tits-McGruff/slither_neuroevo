@@ -13,7 +13,7 @@ import { constants as zstdConstants, createZstdDecompress, zstdCompressSync, zst
 import Database from 'better-sqlite3';
 import { expect, it, onTestFinished, vi } from 'vitest';
 import WebSocket from 'ws';
-import { DEFAULT_CONFIG } from './config.ts';
+import { RUST_TEST_CONFIG as DEFAULT_CONFIG } from './test/rustConfig.ts';
 import { startRustServer, type RustServer } from './rustServer.ts';
 import { P0_ARCHIVE_UPLOAD_LIMIT } from './rustEngine/archiveUpload.ts';
 import * as archiveUpload from './rustEngine/archiveUpload.ts';

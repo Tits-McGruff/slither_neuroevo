@@ -12,6 +12,7 @@
     )
 )]
 
+use crate::engine::calculation_workers::validate_calculation_workers;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -711,12 +712,8 @@ impl ExperimentalStage6aFreshRunSession {
         calculation_workers: Option<u32>,
     ) -> Result<Self> {
         let calculation_workers = calculation_workers.unwrap_or(1) as usize;
-        if !(1..=7).contains(&calculation_workers) {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "calculation workers must be from 1 to 7",
-            ));
-        }
+        validate_calculation_workers(calculation_workers)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
         let run_id = bounded_js_string(run_id, "runId", MAX_EXPERIMENTAL_RUN_ID_BYTES, false)?;
         if run_id.contains('\0') {
             return Err(Error::new(Status::InvalidArg, "runId must not contain NUL"));
@@ -1308,9 +1305,7 @@ impl Task for InitializeExperimentalFreshRunTask {
                 FreshRunInitialization::Fresh => prepare_stage6a_p0_fresh_run(self.request.clone())
                     .map_err(|error| error.to_string())?,
             };
-            transition
-                .configure_calculation_workers(self.calculation_workers)
-                .map_err(str::to_owned)?;
+            transition.configure_calculation_workers(self.calculation_workers)?;
             let mut inner = lock_recover(&self.inner);
             if let Some(detail) = inner.fault_detail.as_deref() {
                 return Err(format!(
