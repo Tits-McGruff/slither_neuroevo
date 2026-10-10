@@ -2718,3 +2718,25 @@ Stage 6 working state before the subsequent Stage 6 feature commits.
   require a configured UI referrer before routing, preserving CLI clients and
   direct UI downloads. The full native suite, Rust lint/format gates, browser
   admission contracts and real-server/download-binding regressions pass.
+
+- 2026-10-10 The owner-approved retirement removes executable TypeScript simulation,
+  reference startup/persistence/BrainPool, and the five standalone neural-kernel
+  N-API exports. Before edits, combined revision `abe20d6` was frozen and verified
+  remotely under the archive branch/tag recorded in ADR 0003. Shared wire types,
+  immutable stack defaults and large-graph fixtures are detached; client settings,
+  graph tooling, preferences, native legacy readers and internal SIMD remain.
+  Neutral legacy configuration warns without rewriting owner TOML; active or
+  malformed settings and numeric resume reject. Display rate remains bounded by
+  60 Hz and Rust worker defaults remain CPU-normalized.
+  Windows passes 662 JavaScript tests (18 existing platform/optional-fixture skips),
+  540 Rust unit tests, three binary checks and the doctest; full type/lint, browser
+  build, rustfmt and all-target/all-feature Clippy pass. The rebuilt addon passes
+  source/API checks, and a synthetic pre-retirement checkpoint resumes through
+  labelled compatible-build recovery and re-exports. Oxygen passes native surface,
+  real CLI fresh/resume, acceptance/security, LAN and launcher checks (15 tests,
+  one Windows-only skip), plus the client build. Native fixtures and historical
+  evidence remain byte-identical to the archive. CI run `38043918823` passes the
+  Ubuntu/Windows and Node 24/26 matrix plus Rust fmt/Clippy on `ce05bc0`.
+  PR #11 review identified one remaining live inference-generator provenance
+  comment; it now points to the archive without changing the numeric fixture.
+  Production calculations and deferred laptop/performance follow-ups are unchanged.

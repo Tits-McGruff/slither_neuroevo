@@ -2,9 +2,9 @@
 //!
 //! This test-hook-only module uses the production graph compiler, selectable scalar/SIMD
 //! executor, heterogeneous weight/state resolution, staging, and recurrent commit. Its numeric
-//! generator is mirrored by scripts/stage4/inferenceFixture.ts so Rust and the
-//! current TypeScript paths can report matching input digests without checking large
-//! fixtures into Git.
+//! generator was mirrored by `scripts/stage4/inferenceFixture.ts`, preserved at
+//! `archive/ts-reference-and-rust-2026-10-10`. The archived TypeScript comparison
+//! paths reported matching input digests without checking large fixtures into Git.
 
 use super::calculation::{
     CalculationBatchKey, CalculationExecutionBuffers, CalculationScratch, CalculationWorkUnit,
@@ -29,7 +29,7 @@ use std::fs;
 use std::mem::size_of;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-/// Version shared with the current TypeScript fixture generator.
+/// Version shared with the TypeScript fixture generator at the archive tag above.
 pub const STAGE4_INFERENCE_FIXTURE_VERSION: u32 = 1;
 /// Population/brain epoch used by the isolated evidence fixture.
 const FIXTURE_EPOCH: u64 = 1;
