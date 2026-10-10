@@ -15,6 +15,12 @@ import { describeNetworkSuite } from './test/networkSuites.ts';
 import { fixtureArchiveDownload } from './test/archiveDownload.ts';
 import { verifyRetainedAnchors } from '../scripts/stage7/verify-retained-anchors.ts';
 
+/** Exercise the complete verifier below the five-worker default on any test machine. */
+vi.mock('node:os', async () => {
+  const actual = await vi.importActual<typeof import('node:os')>('node:os');
+  return { ...actual, availableParallelism: () => Math.min(4, actual.availableParallelism()) };
+});
+
 /** Genuine durable boundary held before its coordinator receives the SQLite acknowledgement. */
 interface Boundary {
   /** Immutable production descriptor. */

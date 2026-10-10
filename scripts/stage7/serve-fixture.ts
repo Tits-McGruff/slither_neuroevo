@@ -3,7 +3,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { DEFAULT_CONFIG } from '../../server/config.ts';
+import { DEFAULT_CONFIG, normalizeConfig } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 
 /** Parse a fixed QA port and an existing managed checkpoint database. */
@@ -25,7 +25,7 @@ function options(argv: readonly string[]): { databasePath: string; port: number 
 
 /** Start only the required Rust production path and stop cleanly on a signal. */
 export async function serve(databasePath: string, port: number): Promise<void> {
-  const server = await startRustServer({ ...DEFAULT_CONFIG, host: '0.0.0.0', port,
+  const server = await startRustServer({ ...normalizeConfig(DEFAULT_CONFIG), host: '0.0.0.0', port,
     dbPath: databasePath, resume: 'latest', logLevel: 'error' });
   if (server.startupFault) {
     await server.close();

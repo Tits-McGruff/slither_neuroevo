@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
-import { DEFAULT_CONFIG } from '../../server/config.ts';
+import { DEFAULT_CONFIG, normalizeConfig } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 
 /** Scalar retained checkpoint row selected without population materialization. */
@@ -142,7 +142,7 @@ export async function verifyRetainedAnchors(sourcePath: string, checkpointId?: s
       const started = performance.now();
       try {
         await copyFixture(sourcePath, dbPath);
-        const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0,
+        const server = await startRustServer({ ...normalizeConfig(DEFAULT_CONFIG), port: 0,
           dbPath, resume: `sha256:${anchor.checkpointId}`, logLevel: 'error' });
         try {
           if (server.startupFault) throw new Error(`anchor startup failed: ${server.startupFault}`);

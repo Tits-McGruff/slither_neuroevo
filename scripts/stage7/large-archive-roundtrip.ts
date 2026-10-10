@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
-import { DEFAULT_CONFIG } from '../../server/config.ts';
+import { DEFAULT_CONFIG, normalizeConfig } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
 
 /** Exact source checkpoint identity selected from durable SQLite metadata. */
@@ -121,7 +121,7 @@ export async function run(sourcePath: string, outputRoot: string): Promise<Recor
   const archivePath = resolve(outputRoot, 'export.slither-save');
   await isolatedSource(sourcePath, sourceCopyPath);
   const selected = sourceIdentity(sourceCopyPath);
-  const source = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: sourceCopyPath,
+  const source = await startRustServer({ ...normalizeConfig(DEFAULT_CONFIG), port: 0, dbPath: sourceCopyPath,
     resume: `sha256:${selected.checkpointId}`, logLevel: 'error' });
   let archive: Awaited<ReturnType<typeof exportArchive>>;
   try {
@@ -132,7 +132,7 @@ export async function run(sourcePath: string, outputRoot: string): Promise<Recor
     }
     archive = await exportArchive(source.port, selected.checkpointId, archivePath);
   } finally { await source.close(); }
-  let target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: targetPath,
+  let target = await startRustServer({ ...normalizeConfig(DEFAULT_CONFIG), port: 0, dbPath: targetPath,
     resume: 'fresh', seed: 42, logLevel: 'error' });
   let imported: Awaited<ReturnType<typeof importArchive>>;
   try {
@@ -145,7 +145,7 @@ export async function run(sourcePath: string, outputRoot: string): Promise<Recor
       throw new Error(`import did not activate the selected checkpoint: ${JSON.stringify({ imported, after })}`);
     }
   } finally { await target.close(); }
-  target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: targetPath,
+  target = await startRustServer({ ...normalizeConfig(DEFAULT_CONFIG), port: 0, dbPath: targetPath,
     resume: 'latest', logLevel: 'error' });
   try {
     if (target.startupFault) throw new Error(`imported restart failed: ${target.startupFault}`);
