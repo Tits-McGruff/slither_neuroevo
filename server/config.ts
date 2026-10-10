@@ -1,13 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
-import type { InferenceBackend } from '../src/brains/types.ts';
 import { RUST_CALCULATION_WORKER_MAX, validateRustCalculationWorkers } from './rustWorkers.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 /** Startup population-selection policy. */
-export type ResumeSelection = 'auto' | 'latest' | 'fresh' | number | `sha256:${string}`;
+export type ResumeSelection = 'auto' | 'latest' | 'fresh' | `sha256:${string}`;
 
 /** Server runtime configuration values derived from defaults, config, env, and CLI. */
 export interface ServerConfig {
@@ -19,7 +18,6 @@ export interface ServerConfig {
   uiPort: number;
   /** Optional default WebSocket URL for UI clients on a different host. */
   publicWsUrl: string;
-  tickRateHz: number;
   uiFrameRateHz: number;
   maxActionsPerTick: number;
   maxActionsPerSecond: number;
@@ -32,15 +30,9 @@ export interface ServerConfig {
   /** Managed-store physical budget in MiB, excluding owner-pinned checkpoints. */
   checkpointBudgetMiB: number;
   logLevel: LogLevel;
-  /** Enable server-side MT inference. */
-  mtEnabled: boolean;
-  /** Requested worker count (0 for auto). */
-  mtWorkers: number;
-  /** Rust calculation threads, from one through the process-available logical CPU count. */
+  /** Rust calculation threads within the process-available logical CPU count. */
   rustCalculationWorkers: number;
-  /** Immutable neural math backend selected before brain construction. */
-  inferenceBackend: InferenceBackend;
-  /** Automatic first startup, explicit fresh/latest startup, or one snapshot id. */
+  /** Automatic first startup, explicit fresh/latest startup, or one managed checkpoint identity. */
   resume: ResumeSelection;
   seed?: number;
 }
@@ -52,7 +44,6 @@ export const DEFAULT_CONFIG: ServerConfig = {
   uiHost: '127.0.0.1',
   uiPort: 5173,
   publicWsUrl: '',
-  tickRateHz: 60,
   uiFrameRateHz: 36,
   maxActionsPerTick: 1,
   maxActionsPerSecond: 120,
@@ -62,10 +53,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   checkpointEveryGenerations: 1,
   checkpointBudgetMiB: 4096,
   logLevel: 'info',
-  mtEnabled: false,
-  mtWorkers: 0,
   rustCalculationWorkers: 5,
-  inferenceBackend: 'native',
   resume: 'auto'
 };
 
@@ -74,10 +62,25 @@ type Env = Record<string, string | undefined>;
 /** Partial raw config input before validation and coercion. */
 type RawConfigInput = Partial<Record<keyof ServerConfig, unknown>>;
 
+/** Immutable native fixed-step frequency; display publication cannot exceed it. */
+export const NATIVE_STEP_RATE_HZ = 60;
+
+/** Validate retired configuration keys without exposing them in the active runtime. */
+function validateLegacyKeys(input: Record<string, unknown>, warn?: (message: string) => void): void {
+  const neutral: Record<string, unknown> = { inferenceBackend: 'native', mtEnabled: false, mtWorkers: 0, tickRateHz: NATIVE_STEP_RATE_HZ };
+  for (const [key, expected] of Object.entries(neutral)) {
+    const raw = input[key];
+    if (raw === undefined) continue;
+    const value = typeof expected === 'boolean' ? (typeof raw === 'boolean' ? raw : typeof raw === 'string' ? parseBoolValue(raw) : undefined) :
+      typeof expected === 'number' ? (typeof raw === 'number' ? raw : typeof raw === 'string' && /^[0-9]+$/u.test(raw) ? Number(raw) : undefined) :
+      typeof raw === 'string' ? raw.trim().toLowerCase() : undefined;
+    if (value !== expected) throw new Error(`${key} was removed; only its neutral legacy value ${String(expected)} is accepted. Use --rust-workers for native workers.`);
+    warn?.(`${key} is obsolete and ignored; remove it from configuration.`);
+  }
+}
+
 /** Supported log levels for validation. */
 const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-/** Supported immutable neural math backends. */
-const INFERENCE_BACKENDS: InferenceBackend[] = ['native', 'js'];
 /** Default TOML config file path relative to the repo root. */
 const DEFAULT_CONFIG_PATH = 'server/config.toml';
 
@@ -122,7 +125,7 @@ function parseBoolValue(raw: string | undefined): boolean | undefined {
  * Normalize a startup resume selector from TOML, environment, or CLI text.
  * @param value - Raw selector value.
  * @param warn - Optional warning callback for invalid non-CLI input.
- * @returns Automatic, fresh, latest, or one positive snapshot id.
+ * @returns Automatic, fresh, latest, or one managed SHA-256 checkpoint identity.
  */
 function normalizeResumeSelection(
   value: unknown,
@@ -132,8 +135,7 @@ function normalizeResumeSelection(
   if (value === 'auto' || value === 'latest' || value === 'fresh') return value;
   const text = String(value).trim();
   if (/^(?:sha256:)?[0-9a-f]{64}$/u.test(text)) return `sha256:${text.replace(/^sha256:/u, '')}`;
-  const parsed = typeof value === 'number' ? value : Number.parseInt(text, 10);
-  if (Number.isSafeInteger(parsed) && parsed > 0 && text === String(parsed)) return parsed;
+  if (typeof value === 'number' || /^[0-9]+$/u.test(text)) throw new Error('numeric reference snapshot IDs were removed; use latest for legacy conversion or sha256:ID for native checkpoints');
   warn?.(`resume selector "${String(value)}" is invalid; using ${DEFAULT_CONFIG.resume}.`);
   return DEFAULT_CONFIG.resume;
 }
@@ -251,27 +253,8 @@ export function normalizeConfig(
   if (input.publicWsUrl !== undefined && typeof input.publicWsUrl !== 'string') {
     warn?.('publicWsUrl is invalid; leaving unset.');
   }
-  const tickRateHz = coerceInt(
-    'tickRateHz',
-    input.tickRateHz,
-    DEFAULT_CONFIG.tickRateHz,
-    1,
-    240,
-    warn
-  );
-  // Ensure the UI frame rate does not exceed the server tick rate.
-  let uiFrameRateHz = coerceInt(
-    'uiFrameRateHz',
-    input.uiFrameRateHz,
-    DEFAULT_CONFIG.uiFrameRateHz,
-    1,
-    240,
-    warn
-  );
-  if (uiFrameRateHz > tickRateHz) {
-    warn?.('uiFrameRateHz exceeded tickRateHz; clamping to tickRateHz.');
-    uiFrameRateHz = tickRateHz;
-  }
+  validateLegacyKeys(input as Record<string, unknown>, warn);
+  const uiFrameRateHz = coerceInt('uiFrameRateHz', input.uiFrameRateHz, DEFAULT_CONFIG.uiFrameRateHz, 1, NATIVE_STEP_RATE_HZ, warn);
   const maxActionsPerTick = coerceInt(
     'maxActionsPerTick',
     input.maxActionsPerTick,
@@ -339,35 +322,12 @@ export function normalizeConfig(
     }
   }
 
-  let mtEnabled = DEFAULT_CONFIG.mtEnabled;
-  if (input.mtEnabled !== undefined) {
-    if (typeof input.mtEnabled === 'boolean') {
-      mtEnabled = input.mtEnabled;
-    } else if (typeof input.mtEnabled === 'string') {
-      const parsed = parseBoolValue(input.mtEnabled);
-      if (parsed !== undefined) mtEnabled = parsed;
-      else warn?.('mtEnabled is invalid; using false.');
-    } else {
-      warn?.('mtEnabled is invalid; using false.');
-    }
-  }
-  const mtWorkers = coerceInt('mtWorkers', input.mtWorkers, DEFAULT_CONFIG.mtWorkers, 0, 128, warn);
   const rustWorkerDefault = validateRustCalculationWorkers(
     Math.min(DEFAULT_CONFIG.rustCalculationWorkers, rustWorkerMaximum), rustWorkerMaximum);
   const rustCalculationWorkers = coerceInt('rustCalculationWorkers', input.rustCalculationWorkers,
     rustWorkerDefault,
     1, rustWorkerMaximum,
     warn ? message => warn(`${message} Valid Rust worker range: 1..${rustWorkerMaximum} (available logical CPUs).`) : undefined);
-  let inferenceBackend = DEFAULT_CONFIG.inferenceBackend;
-  const rawInferenceBackend =
-    typeof input.inferenceBackend === 'string' ? input.inferenceBackend.trim().toLowerCase() : '';
-  if (INFERENCE_BACKENDS.includes(rawInferenceBackend as InferenceBackend)) {
-    inferenceBackend = rawInferenceBackend as InferenceBackend;
-  } else if (input.inferenceBackend !== undefined) {
-    warn?.(
-      `inferenceBackend "${String(input.inferenceBackend)}" is invalid; using ${inferenceBackend}.`
-    );
-  }
   const resume = normalizeResumeSelection(input.resume, warn);
 
   const output: ServerConfig = {
@@ -376,7 +336,6 @@ export function normalizeConfig(
     uiHost,
     uiPort,
     publicWsUrl,
-    tickRateHz,
     uiFrameRateHz,
     maxActionsPerTick,
     maxActionsPerSecond,
@@ -386,10 +345,7 @@ export function normalizeConfig(
     checkpointEveryGenerations,
     checkpointBudgetMiB: selectedCheckpointBudgetMiB,
     logLevel,
-    mtEnabled,
-    mtWorkers,
     rustCalculationWorkers,
-    inferenceBackend,
     resume
   };
   if (seed !== undefined) output.seed = seed;
@@ -445,13 +401,13 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     return {};
   }
   const data = raw as Record<string, unknown>;
+  validateLegacyKeys(data, warn);
   return {
     host: data['host'],
     port: data['port'],
     uiHost: data['uiHost'],
     uiPort: data['uiPort'],
     publicWsUrl: data['publicWsUrl'],
-    tickRateHz: data['tickRateHz'],
     uiFrameRateHz: data['uiFrameRateHz'],
     maxActionsPerTick: data['maxActionsPerTick'],
     maxActionsPerSecond: data['maxActionsPerSecond'],
@@ -462,10 +418,7 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     checkpointBudgetMiB: data['checkpointBudgetMiB'],
     logLevel: data['logLevel'],
     seed: data['seed'],
-    mtEnabled: data['mtEnabled'],
-    mtWorkers: data['mtWorkers'],
     rustCalculationWorkers: data['rustCalculationWorkers'],
-    inferenceBackend: data['inferenceBackend'],
     resume: data['resume']
   };
 }
@@ -483,7 +436,7 @@ function loadConfigFile(filePath: string, warn?: (msg: string) => void): RawConf
   if (!raw.trim()) return {};
   try {
     const parsed = parseToml(raw) as unknown;
-    return parseConfigFile(parsed, warn);
+    return parsed as RawConfigInput;
   } catch (err) {
     warn?.(`failed to parse TOML config: ${(err as Error).message}`);
     return {};
@@ -498,10 +451,16 @@ function loadConfigFile(filePath: string, warn?: (msg: string) => void): RawConf
  * @returns Normalized server config ready for runtime use.
  */
 export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_CALCULATION_WORKER_MAX): ServerConfig {
+  for (const arg of argv) {
+    if (['--backend', '--mt', '--mt-workers', '--tick'].includes(arg.split('=')[0]!)) {
+      throw new Error(`${arg.split('=')[0]} was removed; use --rust-workers for native workers. The simulation step rate is fixed at 60 Hz.`);
+    }
+  }
   const warn = (msg: string) => console.warn(`[config] ${msg}`);
+  validateLegacyKeys({ inferenceBackend: env['INFERENCE_BACKEND'], mtEnabled: env['MT_ENABLED'], mtWorkers: env['MT_WORKERS'], tickRateHz: env['TICK_RATE'] }, warn);
   const configPath = resolveConfigPath(argv, env);
   const input: RawConfigInput = {
-    ...loadConfigFile(configPath, warn)
+    ...parseConfigFile(loadConfigFile(configPath, warn), warn)
   };
   const host = getArgValue(argv, '--host') ?? env['HOST'];
   if (host) input.host = host;
@@ -513,9 +472,6 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   if (uiPort !== undefined) input.uiPort = uiPort;
   const publicWsUrl = getArgValue(argv, '--public-ws-url') ?? env['PUBLIC_WS_URL'];
   if (publicWsUrl) input.publicWsUrl = publicWsUrl;
-  const tickRate =
-    parseIntValue(getArgValue(argv, '--tick')) ?? parseIntValue(env['TICK_RATE']);
-  if (tickRate !== undefined) input.tickRateHz = tickRate;
   const uiRate =
     parseIntValue(getArgValue(argv, '--ui-rate')) ?? parseIntValue(env['UI_RATE']);
   if (uiRate !== undefined) input.uiFrameRateHz = uiRate;
@@ -555,17 +511,8 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   const seed =
     parseIntValue(getArgValue(argv, '--seed')) ?? parseIntValue(env['WORLD_SEED']);
   if (seed !== undefined) input.seed = seed;
-  const mtRaw = getArgValue(argv, '--mt') ?? env['MT_ENABLED'];
-  const mtFlag = mtRaw ?? (hasArgFlag(argv, '--mt') ? 'true' : undefined);
-  const mtEnabled = parseBoolValue(mtFlag);
-  if (mtEnabled !== undefined) input.mtEnabled = mtEnabled;
-  const mtWorkers =
-    parseIntValue(getArgValue(argv, '--mt-workers')) ?? parseIntValue(env['MT_WORKERS']);
-  if (mtWorkers !== undefined) input.mtWorkers = mtWorkers;
   const rustWorkers = parseIntValue(getArgValue(argv, '--rust-workers')) ?? parseIntValue(env['RUST_WORKERS']);
   if (rustWorkers !== undefined) input.rustCalculationWorkers = rustWorkers;
-  const inferenceBackend = getArgValue(argv, '--backend') ?? env['INFERENCE_BACKEND'];
-  if (inferenceBackend !== undefined) input.inferenceBackend = inferenceBackend;
   const hasFresh = hasArgFlag(argv, '--fresh');
   const hasResumeFlag = argv.some((arg) => arg === '--resume' || arg.startsWith('--resume='));
   if (hasFresh && hasResumeFlag) {
@@ -576,7 +523,7 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
     input.resume = 'fresh';
   } else if (hasResumeFlag) {
     if (!resumeRaw || resumeRaw.startsWith('--')) {
-      throw new Error('--resume requires "latest", a positive reference snapshot id, or a managed SHA-256 checkpoint id');
+      throw new Error('--resume requires latest or sha256:ID with a managed SHA-256 checkpoint id');
     }
     const selection = normalizeResumeSelection(resumeRaw);
     if (selection === DEFAULT_CONFIG.resume && resumeRaw !== 'latest') {

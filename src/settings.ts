@@ -29,7 +29,7 @@ type SettingSpec = SettingDefinition;
 /**
  * Pure shared definitions used to build the settings UI.
  * The sensor logger and automatic focus controls belong to the retained
- * reference World and have no counterpart in the active Rust runtime.
+ * retired authoritative camera and now remain browser presentation controls.
  */
 const SETTING_SPECS = SETTING_DEFINITIONS.filter(spec =>
   spec.path !== 'sense.debug' && spec.path !== 'observer.focusRecheckSeconds' &&

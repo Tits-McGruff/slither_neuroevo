@@ -1,26 +1,3 @@
-/** Serialized genome representation for export/import. */
-export interface GenomeJSON {
-  archKey: string;
-  brainType?: string;
-  weights: number[];
-  fitness?: number;
-}
-
-/** Population export payload. */
-export interface PopulationExport {
-  generation: number;
-  archKey: string;
-  genomes: GenomeJSON[];
-}
-
-/** Population import payload, optionally including HoF. */
-export interface PopulationImportData {
-  generation?: number;
-  archKey?: string;
-  genomes?: GenomeJSON[];
-  hof?: HallOfFameEntry[];
-}
-
 /** Fitness summary for a single generation. */
 export interface FitnessData {
   gen: number;
@@ -58,9 +35,9 @@ export interface VizData {
   populationSlot?: number;
   /** Last committed authoritative step associated with the snapshot. */
   simulationStep?: number;
-  /** Worker-pool lifecycle epoch associated with the snapshot. */
+  /** Reserved legacy Protocol 2 visualization pool epoch. */
   poolEpoch?: number;
-  /** Population-weight epoch associated with the snapshot. */
+  /** Reserved legacy Protocol 2 visualization weight epoch. */
   weightEpoch?: number;
 }
 
@@ -71,8 +48,6 @@ export interface HallOfFameEntry {
   fitness: number;
   points: number;
   length: number;
-  /** Exact genome for the TypeScript reference runtime. */
-  genome?: GenomeJSON;
   /** Opaque Rust run-scoped selector used without transferring genome weights. */
   entryId?: string;
   /** Whether this historical winner is explicitly retained by the owner. */

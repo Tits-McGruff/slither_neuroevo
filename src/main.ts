@@ -14,11 +14,8 @@ import { lerp, setByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 import {
   exportJsonToFile,
-  exportToFile,
-  importFromFile,
   loadBaselineBotSettings,
-  saveBaselineBotSettings,
-  type PopulationFilePayload
+  saveBaselineBotSettings
 } from './storage.ts';
 import { hof } from './hallOfFame.ts';
 import { BrainViz } from './BrainViz.ts';
@@ -46,13 +43,13 @@ import { validateGraph } from './brains/graph/validate.ts';
 import { graphKey } from './brains/graph/compiler.ts';
 import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
-import type { FrameStats, GenomeJSON, HallOfFameEntry, VizData } from './protocol/messages.ts';
+import type { FrameStats, HallOfFameEntry, VizData } from './protocol/messages.ts';
 import type {
   RustImportBranchNotice,
   RustLegacyConversionNotice,
   RustRecoveryNotice
 } from './protocol/rustBackground.ts';
-import { SETTINGS_PATHS, coerceSettingsUpdateValue } from './protocol/settings.ts';
+import { coerceSettingsUpdateValue } from './protocol/settings.ts';
 import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './protocol/settingDefinitions.ts';
 import type {
   CoreSettings,
@@ -64,15 +61,12 @@ import type {
 /** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
   generation: number;
-  population: unknown[];
-  snakes: unknown[];
   zoom: number;
   cameraX: number;
   cameraY: number;
   viewMode: string;
   fitnessHistory: FitnessHistoryUiEntry[];
   toggleViewMode: () => void;
-  resurrect: (genome: GenomeJSON) => Promise<number | null>;
 }
 
 /** UI-friendly fitness history entry used by charts. */
@@ -130,8 +124,6 @@ const authoritativeControls = createAuthoritativeControls({
 let connectionMode: ConnectionMode = 'connecting';
 /** Current server URL used for connection attempts. */
 let serverUrl = '';
-/** Latest server config hash from the welcome message. */
-let serverCfgHash: string | null = null;
 /** Latest authoritative config revision received from the server. */
 let serverConfigRevision = 0;
 /** Last simulation speed accepted or advertised by the authoritative server. */
@@ -148,15 +140,6 @@ let serverImportBranch: RustImportBranchNotice | null = null;
 let serverLegacyConversion: RustLegacyConversionNotice | null = null;
 /** Correlation id of the currently pending New Run request. */
 let pendingNewRunRequestId: string | null = null;
-/** Latest tick id observed from server stats. */
-let lastServerTick = 0;
-/** Pending server reset promise used to sequence imports. */
-let pendingServerReset: {
-  priorTick: number;
-  resolve: () => void;
-  timeoutId: number;
-  promise: Promise<void>;
-} | null = null;
 /** Backoff delay for reconnection attempts in ms. */
 let reconnectDelayMs = 1000;
 /** Last player nickname used for reconnecting control. */
@@ -191,8 +174,6 @@ let pointerScreen: { x: number; y: number } | null = null;
 let boostHeld = false;
 /** Local storage key for graph spec persistence. */
 const GRAPH_SPEC_STORAGE_KEY = 'slither_neuroevo_graph_spec';
-/** Set of valid settings update paths for import validation. */
-const SETTINGS_PATH_SET = new Set(SETTINGS_PATHS);
 /** Applied custom graph spec used for resets. */
 let customGraphSpec: GraphSpec | null = null;
 /** Current graph editor draft spec. */
@@ -754,46 +735,6 @@ function collectSettingsUpdatesFromUI(): SettingsUpdate[] {
 }
 
 /**
- * Validate and normalize imported settings updates.
- * @param value - Raw updates payload from an import file.
- * @returns Parsed updates array or null when absent.
- * @throws Error when updates contain unknown paths or invalid values.
- */
-function normalizeImportUpdates(value: unknown): SettingsUpdate[] | null {
-  if (!Array.isArray(value)) return null;
-  const normalized: SettingsUpdate[] = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') {
-      throw new Error('Invalid settings updates payload.');
-    }
-    const path = (entry as { path?: unknown }).path;
-    const updateValue = (entry as { value?: unknown }).value;
-    if (typeof path !== 'string' || !SETTINGS_PATH_SET.has(path as SettingsUpdate['path'])) {
-      throw new Error(`Unknown settings path in import: ${String(path)}`);
-    }
-    if (typeof updateValue !== 'number' || !Number.isFinite(updateValue)) {
-      throw new Error(`Invalid settings value for ${String(path)}`);
-    }
-    normalized.push({ path: path as SettingsUpdate['path'], value: updateValue });
-  }
-  return normalized;
-}
-
-/**
- * Apply settings updates to CFG and sync the settings UI.
- * @param updates - Settings updates to apply.
- */
-function applySettingsUpdatesToUi(updates: SettingsUpdate[]): void {
-  updates.forEach(update => {
-    const coerced = coerceSettingsUpdateValue(update.path, update.value);
-    setByPath(CFG, update.path, coerced);
-  });
-  syncBrainInputSize();
-  applyValuesToSlidersFromCFG(resolveSettingsRoot());
-  setBaselineSeedHintVisible(false);
-}
-
-/**
  * Apply graph mode styling to stack slider rows and hints.
  * @param graphActive - Whether a custom graph spec is active.
  */
@@ -1229,8 +1170,6 @@ let serverArchiveImport = false;
 /** Proxy world exposed to UI helpers and HoF spawn. */
 const proxyWorld: ProxyWorld = {
   generation: 1,
-  population: [],
-  snakes: [],
   zoom: 1.0,
   cameraX: 0,
   cameraY: 0,
@@ -1247,10 +1186,6 @@ const proxyWorld: ProxyWorld = {
         viewH: cssH
       });
     }
-  },
-  resurrect: async (genome: GenomeJSON) => {
-    if (!wsClient || !wsClient.isConnected()) return null;
-    return resurrectOnServer(genome);
   }
 };
 window.currentWorld = proxyWorld; // For HoF
@@ -1690,24 +1625,6 @@ function getGraphSpecInputSize(spec: GraphSpec): number | null {
   if (inputNodes.length !== 1) return null;
   const size = inputNodes[0]?.outputSize;
   return Number.isFinite(size) ? (size as number) : null;
-}
-
-/**
- * Throw when a graph spec input size does not match the current CFG input size.
- * @param spec - Graph spec to validate.
- * @param context - Context label for the error message.
- */
-function assertGraphSpecInputSizeMatches(spec: GraphSpec, context: string): void {
-  const inputSize = getGraphSpecInputSize(spec);
-  if (inputSize == null) {
-    throw new Error(`${context} must include exactly one Input node.`);
-  }
-  if (inputSize !== CFG.brain.inSize) {
-    throw new Error(
-      `${context} input size mismatch (expected ${CFG.brain.inSize}, got ${inputSize}). ` +
-      'Rebuild or re-export the graph for the current v3 sensor size; existing checkpoints can remain in place.'
-    );
-  }
 }
 
 /**
@@ -3470,32 +3387,6 @@ function updateClientCamera(): void {
   publishClientCamera();
 }
 
-/**
- * Ask the server to resurrect a Hall of Fame genome.
- * @param genome - Serialized genome to spawn on the server.
- * @returns Spawned snake id or null when spawning fails.
- */
-async function resurrectOnServer(genome: GenomeJSON): Promise<number | null> {
-  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-  if (!base) return null;
-  const res = await fetch(`${base}/api/resurrect`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ genome })
-  });
-  if (!res.ok) {
-    const message = await readErrorMessage(res);
-    console.warn(`HoF spawn failed (${res.status}): ${message}`);
-    return null;
-  }
-  const payload = await res.json() as { ok?: boolean; snakeId?: number; message?: string };
-  if (!payload?.ok) {
-    console.warn(payload?.message || 'HoF spawn failed');
-    return null;
-  }
-  return Number.isFinite(payload.snakeId) ? payload.snakeId ?? null : null;
-}
-
 /** Ask the Rust server to resurrect one retained winner by its opaque compact identity. */
 async function resurrectHallOfFameOnServer(entryId: string): Promise<number | null> {
   const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
@@ -3512,7 +3403,6 @@ async function resurrectHallOfFameOnServer(entryId: string): Promise<number | nu
   }
   return result.snakeId!;
 }
-
 
 /**
  * Validate the applied graph spec against the active sensor input size.
@@ -3663,7 +3553,6 @@ wsClient = createWsClient({
     resetManualCamera();
     storeServerUrl(serverUrl);
     reconnectDelayMs = 1000;
-    serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
     serverRecovery = info.recovery ?? null;
     serverImportBranch = info.importBranch ?? null;
@@ -3685,7 +3574,6 @@ wsClient = createWsClient({
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
-    lastServerTick = 0;
     spectatorFollowSnakeId = null;
     currentStats = {
       gen: 1,
@@ -3726,7 +3614,6 @@ wsClient = createWsClient({
     playerActionPump.stop();
     authoritativeControls.dispose();
     setConnectionStatus('connecting');
-    serverCfgHash = null;
     serverConfigRevision = 0;
     serverSimSpeed = 1;
     serverWorldSeed = null;
@@ -3736,8 +3623,6 @@ wsClient = createWsClient({
     serverLegacyConversion = null;
     pendingNewRunRequestId = null;
     btnNewRun.disabled = false;
-    lastServerTick = 0;
-    resolvePendingServerReset();
     playerSnakeId = null;
     spectatorFollowSnakeId = null;
     playerSensorTick = 0;
@@ -3757,12 +3642,6 @@ wsClient = createWsClient({
     if (serverArchiveExport && msg.gen !== serverHallOfFameGeneration) {
       serverHallOfFameGeneration = msg.gen;
       refreshServerHallOfFame(false);
-    }
-    lastServerTick = msg.tick;
-    if (pendingServerReset) {
-      if (msg.tick < pendingServerReset.priorTick || msg.tick <= 1) {
-        resolvePendingServerReset();
-      }
     }
     const aliveTotal = Number.isFinite(msg.aliveTotal) ? msg.aliveTotal : msg.alive;
     const baselineBotsAlive = Number.isFinite(msg.baselineBotsAlive) ? msg.baselineBotsAlive : 0;
@@ -3868,7 +3747,6 @@ wsClient = createWsClient({
   onSettingsApplied: (msg) => {
     if (msg.configRevision < serverConfigRevision) return;
     serverConfigRevision = msg.configRevision;
-    serverCfgHash = msg.configHash;
     if (msg.applied) {
       applyAuthoritativeLivePatch(msg.updates);
       return;
@@ -3912,7 +3790,6 @@ wsClient = createWsClient({
   onStateReplaced: (msg) => {
     setResetStatus(msg.reason === 'reset' ? 'Reset applied.' : '');
     const info = msg.welcome;
-    resolvePendingServerReset();
     const rejoinPlayer = playerSnakeId !== null || joinPending;
     playerActionPump.stop();
     authoritativeControls.dispose();
@@ -3926,9 +3803,7 @@ wsClient = createWsClient({
     boostHeld = false;
     selectedSnake = null;
     currentVizData = null;
-    lastServerTick = 0;
     try { localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY); } catch { /* Storage is optional. */ }
-    serverCfgHash = info.configHash;
     serverConfigRevision = info.configRevision;
     serverWorldSeed = info.worldSeed;
     serverRecovery = info.recovery ?? null;
@@ -4342,109 +4217,7 @@ function resolveServerHttpBase(wsUrl: string): string | null {
 }
 
 /**
- * Extract a human-readable error message from a failed fetch response.
- * @param res - Failed fetch response.
- * @returns Error message for UI display.
- */
-async function readErrorMessage(res: Response): Promise<string> {
-  try {
-    const body = await res.json() as { message?: string } | null;
-    if (body?.message && typeof body.message === 'string') {
-      return body.message;
-    }
-  } catch {
-    // Fall back to status text when JSON parsing fails.
-  }
-  return res.statusText || `HTTP ${res.status}`;
-}
-
-/**
- * Resolve any pending server reset promise.
- */
-function resolvePendingServerReset(): void {
-  if (!pendingServerReset) return;
-  clearTimeout(pendingServerReset.timeoutId);
-  const { resolve } = pendingServerReset;
-  pendingServerReset = null;
-  resolve();
-}
-
-/**
- * Wait for the server to reset its tick counter after a reset request.
- * @returns Promise resolved after observing the tick counter drop or timeout.
- */
-function waitForServerReset(): Promise<void> {
-  if (pendingServerReset) return pendingServerReset.promise;
-  const priorTick = lastServerTick;
-  let resolve!: () => void;
-  const promise = new Promise<void>((res) => {
-    resolve = res;
-  });
-  const timeoutId = window.setTimeout(() => {
-    resolvePendingServerReset();
-  }, 2000);
-  pendingServerReset = { priorTick, resolve, timeoutId, promise };
-  return promise;
-}
-
-/**
- * Import a snapshot into the server and return the applied counts.
- * @param data - Parsed population file payload.
- * @returns Import result counts from the server.
- */
-async function importServerSnapshot(data: PopulationFilePayload): Promise<{ used: number; total: number }> {
-  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-  if (!base) {
-    throw new Error('invalid server URL.');
-  }
-  const metadata = data as PopulationFilePayload & {
-    archKey?: unknown;
-    cfgHash?: unknown;
-    worldSeed?: unknown;
-  };
-  const archKey = typeof metadata.archKey === 'string' && metadata.archKey.trim()
-    ? metadata.archKey.trim()
-    : (data.genomes?.[0]?.archKey ?? '');
-  if (!archKey) {
-    throw new Error('missing archKey for server import.');
-  }
-  const cfgHash = typeof metadata.cfgHash === 'string' && metadata.cfgHash.trim()
-    ? metadata.cfgHash.trim()
-    : serverCfgHash;
-  if (!cfgHash) {
-    throw new Error('missing cfgHash for server import (export from server or reconnect).');
-  }
-  const seedFromFile = typeof metadata.worldSeed === 'number' ? metadata.worldSeed : NaN;
-  const worldSeed = Number.isFinite(seedFromFile) ? seedFromFile : serverWorldSeed;
-  if (!Number.isFinite(worldSeed ?? NaN)) {
-    throw new Error('missing worldSeed for server import (export from server or reconnect).');
-  }
-  const payload = {
-    generation: Number.isFinite(data.generation) ? data.generation : 1,
-    archKey,
-    genomes: data.genomes,
-    cfgHash,
-    worldSeed: worldSeed as number
-  };
-  const force = typeof serverCfgHash === 'string' && serverCfgHash.trim() && cfgHash !== serverCfgHash;
-  const res = await fetch(`${base}/api/import${force ? '?force=1' : ''}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) {
-    const message = await readErrorMessage(res);
-    throw new Error(`server import failed (${res.status}): ${message}`);
-  }
-  const result = await res.json() as { ok?: boolean; used?: number; total?: number; message?: string };
-  if (!result?.ok) {
-    throw new Error(result?.message || 'server import failed');
-  }
-  return { used: result.used ?? 0, total: result.total ?? 0 };
-}
-
-/**
- * Start an opaque direct archive download when supported, or use the reference JSON path.
+ * Start an opaque direct archive download when the connected authority supports it.
  */
 async function exportServerSnapshot(): Promise<void> {
   const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
@@ -4467,56 +4240,8 @@ async function exportServerSnapshot(): Promise<void> {
     pendingExport = false;
     return;
   }
-  try {
-    const saveRes = await fetch(`${base}/api/save`, { method: 'POST' });
-    if (!saveRes.ok) {
-      const message = await readErrorMessage(saveRes);
-      throw new Error(`snapshot save failed (${saveRes.status}): ${message}`);
-    }
-    const exportRes = await fetch(`${base}/api/export/latest`);
-    if (!exportRes.ok) {
-      const message = await readErrorMessage(exportRes);
-      throw new Error(`snapshot export failed (${exportRes.status}): ${message}`);
-    }
-    const exportData = await exportRes.json() as {
-      generation?: number;
-      archKey?: string;
-      genomes?: unknown;
-      cfgHash?: string;
-      worldSeed?: number;
-    };
-    if (!exportData || !Array.isArray(exportData.genomes)) {
-      throw new Error('invalid export payload from server.');
-    }
-    const archKey = typeof exportData.archKey === 'string' ? exportData.archKey : '';
-    if (!archKey) {
-      throw new Error('invalid export payload from server (missing archKey).');
-    }
-    const settings = readSettingsFromCoreUI();
-    const updates = collectSettingsUpdatesFromUI();
-    const payload: PopulationFilePayload = {
-      generation: exportData.generation || 1,
-      archKey,
-      genomes: exportData.genomes,
-      graphSpec: customGraphSpec ?? null,
-      settings,
-      updates,
-      hof: await hof.getAll()
-    };
-    if (typeof exportData.cfgHash === 'string' && exportData.cfgHash.trim()) {
-      payload.cfgHash = exportData.cfgHash;
-    }
-    const worldSeed = exportData.worldSeed;
-    if (typeof worldSeed === 'number' && Number.isFinite(worldSeed)) {
-      payload.worldSeed = worldSeed;
-    }
-    exportToFile(payload, `slither_neuroevo_gen${payload.generation}.json`);
-  } catch (err) {
-    console.error('Server export failed', err);
-    alert(`Export failed: ${(err as Error).message}`);
-  } finally {
-    pendingExport = false;
-  }
+  pendingExport = false;
+  alert('Export unavailable: this server does not support native archive downloads.');
 }
 
 // Persistence UI Wiring
@@ -4660,55 +4385,7 @@ if (btnImport && fileInput) {
         alert(`Imported generation ${BigInt(`0x${result.generation}`).toString()}${source}.`);
         return;
       }
-      const data = await importFromFile(file);
-      if (!data || !Array.isArray(data.genomes)) {
-        throw new Error('Invalid import file: missing genomes array.');
-      }
-      if (Array.isArray(data.hof)) {
-        await hof.replace(data.hof);
-      }
-      const hasGraphSpecField = Object.prototype.hasOwnProperty.call(data, 'graphSpec');
-      const fileGraphSpec = hasGraphSpecField ? (data.graphSpec ?? null) : undefined;
-      const fileSettings = data.settings;
-      const fileUpdates = normalizeImportUpdates(data.updates);
-      const shouldReset =
-        hasGraphSpecField ||
-        (fileSettings != null && typeof fileSettings === 'object') ||
-        (fileUpdates != null && fileUpdates.length > 0);
-      if (shouldReset) {
-        if (fileSettings && typeof fileSettings === 'object') {
-          applyCoreSettingsToUi(fileSettings);
-        }
-        if (fileUpdates && fileUpdates.length > 0) {
-          applySettingsUpdatesToUi(fileUpdates);
-        }
-        if (hasGraphSpecField) {
-          if (fileGraphSpec && typeof fileGraphSpec === 'object') {
-            assertGraphSpecInputSizeMatches(fileGraphSpec, 'Import graph spec');
-            if (!applyGraphSpec(fileGraphSpec, 'Graph loaded from import.')) {
-              throw new Error('Import file graph spec is invalid.');
-            }
-          } else if (fileGraphSpec === null) {
-            clearCustomGraphSpec('Graph cleared from import.');
-          }
-        } else {
-          resolveGraphSpecForReset(readSettingsFromCoreUI());
-        }
-        persistBaselineBotSettings();
-      }
-      if (wsClient && wsClient.isConnected()) {
-        if (shouldReset) {
-          const resetSettings = fileSettings ?? readSettingsFromCoreUI();
-          const resetUpdates = fileUpdates ?? collectSettingsUpdatesFromUI();
-          const resetGraphSpec = resolveGraphSpecForReset(resetSettings);
-          wsClient.sendReset(resetSettings, resetUpdates, resetGraphSpec);
-          await waitForServerReset();
-        }
-        const result = await importServerSnapshot(data);
-        alert(`Import applied on server. Loaded ${result.used}/${result.total} genomes.`);
-        return;
-      }
-      throw new Error('No active simulation backend for import.');
+      throw new Error('Import unavailable: this server does not support native archive uploads.');
     } catch (err) {
       console.error("Import failed", err);
       const error = err as Error;
@@ -4834,7 +4511,7 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
     html += `
       <div class="hof-item">
         <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
-        <button onclick="window.spawnHoF(${idx})"${entry.genome || entry.entryId ? '' : ' disabled'}>Spawn</button>
+        <button onclick="window.spawnHoF(${idx})"${entry.entryId ? '' : ' disabled'}>Spawn</button>
       </div>`;
   });
   container.innerHTML = html;
@@ -4847,7 +4524,7 @@ window.spawnHoF = async function (idx) {
   if (entry && window.currentWorld) {
     const spawnedId = entry.entryId && connectionMode === 'server'
       ? await resurrectHallOfFameOnServer(entry.entryId)
-      : entry.genome ? await window.currentWorld.resurrect(entry.genome) : null;
+      : null;
     if (spawnedId != null && connectionMode === 'server') {
       spectatorFollowSnakeId = spawnedId;
       proxyWorld.viewMode = 'follow';

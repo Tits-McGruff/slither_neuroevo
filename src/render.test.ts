@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { drawSnakeStruct, renderWorldStruct } from './render.ts';
-import { WorldSerializer } from './serializer.ts';
-import { World } from './world.ts';
-import { CFG, resetCFGToDefaults } from './config.ts';
+import { readFileSync } from 'node:fs';
 
 /** Recorded canvas call for asserting drawing behavior. */
 type CallRecord = [string, ...unknown[]];
@@ -164,29 +162,9 @@ describe('render.ts', () => {
   });
 
   it('renders a serialized buffer without throwing', () => {
-    const world: Parameters<typeof WorldSerializer.serialize>[0] = {
-      generation: 1,
-      worldRadius: 2400,
-      cameraX: 0,
-      cameraY: 0,
-      zoom: 1,
-      snakes: [
-        {
-          id: 1,
-          radius: 5,
-          color: '#fff',
-          x: 0,
-          y: 0,
-          dir: 0,
-          boost: 0,
-          alive: true,
-          points: [{ x: 0, y: 0 }, { x: 5, y: 0 }]
-        }
-      ],
-      pellets: [{ x: 10, y: 0, v: 1, kind: 'ambient' }]
-    };
-
-    const buffer = WorldSerializer.serialize(world);
+    const buffer = new Float32Array([1, 1, 1, 2400, 0, 0, 1,
+      1, 5, 0, 0, 0, 0, 0, 2, 0, 0, 5, 0,
+      1, 10, 0, 1, 0, 0]);
     const ctx = makeCtx();
     const renderCtx = ctx as unknown as CanvasRenderingContext2D;
 
@@ -198,29 +176,16 @@ describe('render.ts', () => {
     expect(lineCalls).toBeGreaterThan(0);
   });
 
-  it('renders the first-generation world frame with snakes present', async () => {
-    resetCFGToDefaults();
-    const originalTarget = CFG.pelletCountTarget;
-    const originalSpawn = CFG.pelletSpawnPerSecond;
-    CFG.pelletCountTarget = 200;
-    CFG.pelletSpawnPerSecond = 40;
-    try {
-      const world = new World({ snakeCount: 6, hiddenLayers: 1, neurons1: 12, neurons2: 8 });
-      await world.step(1 / 60, 800, 600, undefined, 1);
-      const buffer = WorldSerializer.serialize(world);
-      const ctx = makeCtx();
-      const renderCtx = ctx as unknown as CanvasRenderingContext2D;
-
-      renderWorldStruct(renderCtx, buffer, 800, 600, 1, 0, 0);
-
-      const lineCalls = ctx.calls.filter(call => call[0] === 'lineTo').length;
-      expect(buffer[2]).toBeGreaterThan(0); // aliveCount
-      expect(lineCalls).toBeGreaterThan(0);
-    } finally {
-      CFG.pelletCountTarget = originalTarget;
-      CFG.pelletSpawnPerSecond = originalSpawn;
-      resetCFGToDefaults();
-    }
+  it('renders the independently captured frame-v1 expectation with snakes present', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../native/fixtures/frame-v1-reference.json', import.meta.url), 'utf8')) as {
+      expected: { floatBits: string[] };
+    };
+    const bits = Uint32Array.from(fixture.expected.floatBits, value => Number.parseInt(value, 16));
+    const buffer = new Float32Array(bits.buffer);
+    const ctx = makeCtx();
+    renderWorldStruct(ctx as unknown as CanvasRenderingContext2D, buffer, 800, 600, 1, 0, 0);
+    expect(buffer[2]).toBeGreaterThan(0);
+    expect(ctx.calls.some(call => call[0] === 'lineTo')).toBe(true);
   });
   it('renders robot skin with correct colors', () => {
     const buffer = new Float32Array([

@@ -1,9 +1,5 @@
-// storage.ts
-// Handles browser-local UI preferences and population file export/import.
+/** Browser preferences and graph-spec JSON download utilities. */
 
-import type { CoreSettings, SettingsUpdate } from './protocol/settings.ts';
-import type { GraphSpec } from './brains/graph/schema.ts';
-import type { GenomeJSON, HallOfFameEntry } from './protocol/messages.ts';
 
 /** Legacy local population key retained only so Clear All removes old data. */
 const STORAGE_KEY = 'slither_neuroevo_pop';
@@ -23,27 +19,6 @@ export interface BaselineBotSettings {
 /** Baseline bot settings payload stored in localStorage. */
 interface BaselineBotSettingsPayload extends BaselineBotSettings {
   version: number;
-}
-
-/** Population-transfer file assembled by the browser, optionally including HoF. */
-export interface PopulationFilePayload {
-  /** Exported generation number. */
-  generation: number;
-  /** Exported population genomes. */
-  genomes: GenomeJSON[];
-  /** Optional architecture key for snapshot compatibility. */
-  archKey?: string;
-  /** Optional server configuration hash for snapshot imports. */
-  cfgHash?: string;
-  /** Optional world seed for snapshot imports. */
-  worldSeed?: number;
-  /** Optional graph spec used to rebuild the brain on import. */
-  graphSpec?: GraphSpec | null;
-  /** Optional core settings captured during export. */
-  settings?: CoreSettings;
-  /** Optional settings updates captured during export. */
-  updates?: SettingsUpdate[];
-  hof?: HallOfFameEntry[];
 }
 
 /**
@@ -312,36 +287,6 @@ export function loadBaselineBotSettings(): BaselineBotSettings | null {
     return null;
   }
   return normalized;
-}
-
-/**
- * Triggers a download of the given data object as a JSON file.
- * @param data - File payload to serialize.
- * @param filename - Downloaded file name.
- */
-export function exportToFile(data: PopulationFilePayload, filename: string): void {
-  exportJsonToFile(data, filename);
-}
-
-/**
- * Reads a JSON file and parses it.
- * @param file - File object selected by the user.
- * @returns Promise resolving to parsed payload.
- */
-export function importFromFile(file: File): Promise<PopulationFilePayload> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = JSON.parse((e.target as FileReader).result as string);
-        resolve(data);
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = reject;
-    reader.readAsText(file);
-  });
 }
 
 /**

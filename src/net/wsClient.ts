@@ -7,7 +7,7 @@ import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from 
 import type { GraphSpec } from '../brains/graph/schema.ts';
 import { RUNTIME_SERVER_URL_META } from '../protocol/browserRouting.ts';
 import type { SensorSpec } from '../protocol/sensors.ts';
-import type { SpatialHashDiagnostics } from '../spatialHash.ts';
+import type { SpatialHashDiagnostics } from '../protocol/runtime.ts';
 import type {
   CoreSettings,
   LiveSettingsUpdate,
@@ -55,7 +55,7 @@ export interface WelcomeMsg {
   sensorSpec: SensorSpec;
   serializerVersion: number;
   frameByteLength: number;
-  /** Optional server features whose UI must stay hidden on older/reference runtimes. */
+  /** Optional server features whose UI must stay hidden on servers that do not advertise the capability. */
   capabilities?: {
     /** Whether the exact current managed checkpoint can be pinned. */
     checkpointPinning: boolean;

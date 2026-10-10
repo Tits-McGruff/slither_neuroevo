@@ -2,7 +2,6 @@
 
 import { TAU, clamp, hashColor } from './utils.ts';
 import { THEME, getPelletColor, getPelletGlow } from './theme.ts';
-import { CFG } from './config.ts';
 import { FRAME_HEADER_FLOATS } from './protocol/frame.ts';
 
 /** Camera state required by background drawing. */
@@ -59,47 +58,6 @@ interface SnakeMeta {
   boost: number;
   speed: number;
 }
-
-/** Pellet shape for legacy renderer. */
-interface RenderPellet {
-  x: number;
-  y: number;
-  v: number;
-  kind?: string;
-  colorId?: number;
-  [key: string]: unknown;
-}
-
-/** Snake shape for legacy renderer. */
-interface RenderSnake {
-  id: number;
-  alive: boolean;
-  radius: number;
-  x: number;
-  y: number;
-  dir: number;
-  turnInput?: number;
-  boostInput?: number;
-  lastSensors?: Float32Array | number[];
-  lastOutputs?: Float32Array | number[];
-}
-
-/** World shape for legacy renderer. */
-interface RenderWorld {
-  zoom: number;
-  cameraX: number;
-  cameraY: number;
-  pellets: RenderPellet[];
-  snakes: RenderSnake[];
-  particles: {
-    render: (ctx: CanvasRenderingContext2D, cameraX: number, cameraY: number, zoom: number) => void;
-  };
-  focusSnake?: RenderSnake | null;
-  viewMode?: string;
-}
-
-/** Legacy drawSnake helper provided elsewhere in the renderer. */
-declare function drawSnake(ctx: CanvasRenderingContext2D, s: RenderSnake, zoom: number): void;
 
 /** Cached render info for snakes by id. */
 const snakeRenderCache = new Map<number, SnakeRenderCacheEntry>();
@@ -712,131 +670,6 @@ export function renderWorldStruct(
 
     // Draw the calculated snake block.
     drawSnakeStruct(ctx, s, zoom);
-  }
-  ctx.restore();
-}
-
-/**
- * Render the entire world to the canvas.
- * @param ctx - Canvas 2D context to draw into.
- * @param world - World snapshot to render.
- * @param viewW - Viewport width in pixels.
- * @param viewH - Viewport height in pixels.
- * @param dpr - Device pixel ratio for scaling.
- */
-export function renderWorld(
-  ctx: CanvasRenderingContext2D,
-  world: RenderWorld,
-  viewW: number,
-  viewH: number,
-  dpr: number
-): void {
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, viewW, viewH);
-  ctx.save();
-  ctx.translate(viewW / 2, viewH / 2);
-  ctx.scale(world.zoom, world.zoom);
-  ctx.translate(-world.cameraX, -world.cameraY);
-
-  drawGrid(ctx, world, viewW, viewH);
-
-  // Draw particles (before snakes/pellets or after? After usually looks better for additive, or before for transparency)
-  // Let's draw before pellets so pellets are on top, or maybe particles on top?
-  // Boost particles should be below snakes probably.
-  world.particles.render(ctx, world.cameraX, world.cameraY, world.zoom);
-
-  // Draw pellets
-  for (const p of world.pellets) {
-    const kind = p.kind || 'ambient';
-    let pr = 1.8 + Math.sqrt(Math.max(0, p.v)) * 0.9;
-    if (kind === 'boost') pr *= 0.85;
-    else if (kind === 'corpse_small') pr *= 1.10;
-    else if (kind === 'corpse_big') pr *= 1.35;
-    pr = clamp(pr, 1.1, 7.5);
-
-    // Glow for pellets
-    ctx.shadowBlur = pr * 2.0;
-    ctx.shadowColor = getPelletGlow(p);
-
-    ctx.fillStyle = getPelletColor(p);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, pr, 0, TAU);
-    ctx.fill();
-
-    ctx.shadowBlur = 0; // Reset
-  }
-
-  // Arena boundary
-  ctx.strokeStyle = THEME.worldBorder;
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.arc(0, 0, CFG.worldRadius, 0, TAU);
-  ctx.stroke();
-
-  // Draw snakes
-  for (const s of world.snakes) if (s.alive) drawSnake(ctx, s, world.zoom);
-
-  // Focused snake overlays
-  if (world.focusSnake && world.focusSnake.alive && world.viewMode === 'follow') {
-    const s = world.focusSnake;
-    // Halo
-    ctx.strokeStyle = THEME.snakeSnakeSelfHalo;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.radius * 2.0, 0, TAU);
-    ctx.stroke();
-    // Steering arrow
-    const steerAngle = s.dir + (s.turnInput || 0) * (Math.PI / 2);
-    const arrowLen = s.radius * 4;
-    const tipX = s.x + Math.cos(steerAngle) * arrowLen;
-    const tipY = s.y + Math.sin(steerAngle) * arrowLen;
-    ctx.strokeStyle = THEME.snakeSteerArrow;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(s.x, s.y);
-    ctx.lineTo(tipX, tipY);
-    ctx.stroke();
-    const headLen = arrowLen * 0.25;
-    for (const sign of [-1, 1]) {
-      const ang = steerAngle + sign * 0.4;
-      const hx = tipX - Math.cos(ang) * headLen;
-      const hy = tipY - Math.sin(ang) * headLen;
-      ctx.beginPath();
-      ctx.moveTo(tipX, tipY);
-      ctx.lineTo(hx, hy);
-      ctx.stroke();
-    }
-    // Boost intent ring
-    if ((s.boostInput ?? 0) > 0.35) {
-      ctx.strokeStyle = THEME.snakeBoostActive;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.radius * 2.4, 0, TAU);
-      ctx.stroke();
-    }
-    // Wall distance gauge
-    const distToWall = CFG.worldRadius - Math.hypot(s.x, s.y);
-    const wallRatio = clamp(distToWall / CFG.worldRadius, 0, 1);
-    ctx.strokeStyle = THEME.snakeWallGauge;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.radius * (0.8 + wallRatio * 1.8), 0, TAU);
-    ctx.stroke();
-    // Boost margin bar
-    const margin = s.lastSensors && s.lastSensors.length > 3 ? (s.lastSensors[3] ?? -1) : -1;
-    const barLen = s.radius * 3;
-    const barDir = s.dir;
-    const barX = s.x + Math.cos(barDir) * s.radius * 2.6;
-    const barY = s.y + Math.sin(barDir) * s.radius * 2.6;
-    ctx.strokeStyle = THEME.snakeBoostRefill;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(barX, barY);
-    ctx.lineTo(
-      barX + Math.cos(barDir) * barLen * clamp((margin + 1) / 2, 0, 1),
-      barY + Math.sin(barDir) * barLen * clamp((margin + 1) / 2, 0, 1)
-    );
-    ctx.stroke();
   }
   ctx.restore();
 }

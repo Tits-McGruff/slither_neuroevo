@@ -575,17 +575,12 @@ contract shared with the serializer and renderer.
 ## HTTP API
 
 HTTP and WebSocket handling share the configured server port, normally 5174.
-The persistence contract depends on the selected runtime:
-
-| Startup | Persistence transport |
-|---|---|
-| `npm run server` | Rust-owned binary `.slither-save` downloads and raw file uploads |
-| `npm run server:reference` | Retained TypeScript JSON snapshot API |
-
-The production JSON routes accept small, endpoint-specific request bodies.
-Archive upload has its own limit and does not use the reference server's
-50 MiB JSON-body parser. These routes support the local UI, local tooling and
-deliberate use on the owner's trusted home LAN under the origin rules above.
+The server uses Rust-owned binary `.slither-save` downloads and original-file
+uploads. Production JSON endpoints accept small endpoint-specific bodies;
+archive upload has a separate limit. The retired TS snapshot API is available
+only from the frozen archive tag `archive/ts-reference-and-rust-2026-10-10`.
+These routes support loopback and deliberate trusted-home-LAN use under the
+origin rules above.
 
 ### Rust-authoritative HTTP routes
 
@@ -707,53 +702,8 @@ in the JSON request.
 #### `GET /api/hof`
 
 Returns `{ "hof": [...] }` with compact retained Hall-of-Fame metadata.
-Production does not accept `POST /api/hof`, `POST /api/save` or the reference
-server's `POST /api/import` JSON endpoint.
-
-### Retained reference HTTP routes
-
-These routes apply only to `npm run server:reference`. JSON request bodies are
-limited to 50 MiB. Its health response reports reference tick, client,
-inference and scheduler state; graph preset routes have the same shape listed
-above.
-
-#### `POST /api/save`
-
-Writes a typed, non-resumable `population-export` snapshot and returns
-`{ "ok": true, "snapshotId": number }`. Automatic generation and run-start
-checkpoints are separate resumable records.
-
-#### `GET /api/export/latest`
-
-Streams the newest reference snapshot as JSON. Returns 404 when the database
-has no snapshots. The payload includes `generation`, `archKey`, `genomes`,
-`cfgHash`, `worldSeed` and available settings/run/boundary metadata.
-
-#### `POST /api/import`
-
-Accepts the JSON snapshot directly or as `{ "payload": snapshot }`. Required
-fields are `generation`, `archKey`, a non-empty `genomes` array, `cfgHash` and
-`worldSeed`. `?force=1` or top-level `force: true` deliberately overrides a
-configuration-hash mismatch.
-
-This replaces compatible population genomes at a recurrent reset boundary and
-does not apply the exported seed. Success reports `importedWorldSeed`,
-`activeWorldSeed` and `seedApplied: false`. Use Protocol 2 New Run for a new seed
-or Reset for a same-seed reconstruction.
-
-#### `POST /api/resurrect`
-
-Accepts a genome directly or as `{ "genome": genome }`, containing a non-empty
-`archKey`, finite `weights`, and optional `brainType` and `fitness`. Success
-returns the spawned `snakeId`.
-
-#### Hall of Fame
-
-- `GET /api/hof?limit=50` returns `{ "ok": true, "hof": [...] }`.
-- `POST /api/hof` accepts `{ "hof": [...] }` and replaces/saves the supplied
-  entries.
-
-Unknown routes return 404.
+Production does not accept `POST /api/hof`, `POST /api/save` or the retired
+`POST /api/import` JSON endpoint. Use opaque archive upload and native selectors.
 
 ## Minimal Node bot
 
@@ -848,4 +798,4 @@ socket.on('close', (code, reason) => {
 - Treating a population export as an exact resumable checkpoint.
 - Assuming an imported `worldSeed` changes the active run.
 - Assuming JavaScript is a transparent fallback when native loading fails.
-- Exposing the unauthenticated local server to another machine.
+- Exposing the unauthenticated server on an untrusted network.

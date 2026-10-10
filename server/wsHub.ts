@@ -89,7 +89,7 @@ export interface WsOutboundDiagnostics {
   maxReliableMessagesPerConnection: number;
   /** Reliable payload byte admission cap per connection; excludes the one in-flight write. */
   maxReliableBytesPerConnection: number;
-  /** Configured live connection capacity, or null for the uncapped reference hub. */
+  /** Configured live connection capacity, or null for an explicitly uncapped test hub. */
   maxConnections: number | null;
 }
 
@@ -206,7 +206,7 @@ export class WsHub {
 
   /**
    * Update dynamic authoritative fields cached for future handshakes.
-   * @param patch - Partial welcome state produced by SimServer.
+   * @param patch - Partial welcome state projected from native authority.
    */
   updateWelcome(patch: Partial<WelcomeMsg>): void {
     this.welcome = { ...this.welcome, ...patch, type: 'welcome' };

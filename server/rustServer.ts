@@ -299,19 +299,14 @@ function applyMetadataSettings(
 
 /** Start native authority from fresh or retained managed state. */
 export async function startRustServer(config: ServerConfig): Promise<RustServer> {
-  if (config.tickRateHz !== 60) {
-    throw new Error('Rust startup requires tickRateHz=60; --tick/TICK_RATE are supported only by npm run server:reference');
-  }
-  if (config.inferenceBackend !== 'native' || config.mtEnabled || config.mtWorkers !== 0 || config.controllerInputHoldMs !== 500 ||
-      config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
-    throw new Error('Rust startup requires the native backend, reference MT disabled, default controller timing, and every-generation checkpoints; use --rust-workers for Rust or npm run server:reference for backend/Node-MT options');
+  if (config.controllerInputHoldMs !== 500 || config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
+    throw new Error('Rust startup requires default controller timing and every-generation checkpoints');
   }
   const browserOrigins = createBrowserOriginPolicy(config);
   const sessionId = randomUUID();
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
   try {
-    if (typeof config.resume === 'number') throw new Error('numeric reference snapshot IDs are not managed checkpoint IDs');
     const databaseExists = existsSync(resolve(config.dbPath));
     if (!databaseExists && config.resume !== 'auto' && config.resume !== 'fresh') {
       throw new Error(`cannot resume: database does not exist at ${resolve(config.dbPath)}`);

@@ -2,9 +2,9 @@
 
 - Status: accepted by owner approval of plan `2026-07-29-draft-4`
 - Decision date: 2026-07-29
-- Implementation state: staged migration in progress
+- Implementation state: production Rust authority; reference retirement recorded in ADR 0003
 
-## Context
+## Historical context at decision time
 
 The current branch runs the authoritative simulation in TypeScript and crosses
 into Rust for individual neural kernels. Every evolved snake has different
@@ -44,7 +44,9 @@ records, Hall-of-Fame indexes, and file references. Browser import/export uses
 ordinary direct file transfer and never reconstructs a population in browser
 JavaScript.
 
-## Migration rule
+## Historical migration rule
+
+The temporary reference was retired by ADR 0003 after production cutover.
 
 The current TypeScript game remains a selected reference and test oracle while
 each subsystem is studied, characterized, corrected where required, ported,

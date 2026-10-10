@@ -1,258 +1,140 @@
 # Agent instructions for slither_neuroevo
 
-## Project scope and layout
+## Architecture and scope
 
-Slither Neuroevolution is a browser-based neuroevolution sandbox. The browser
-is a rendering and control client. Normal startup has one Rust-owned
-authoritative game, with Node limited to a thin HTTP,
-WebSocket, static-file, routing, and SQLite-metadata interface. Loopback is the
-default, and deliberate use from other devices on the owner's trusted home LAN
-is supported. This repository does not provide authentication, TLS, or a
-hardened public deployment mode.
-
-The main browser entry point is `index.html`, with UI behavior in `src/main.ts`,
-rendering in `src/render.ts`, and styling in `styles.css`. Production server
-startup is in `server/rustServer.ts`. The retained reference starts in
-`server/index.ts`, with
-orchestration in `server/simServer.ts`, the fixed-step engine in
-`src/sim/SimCore.ts`, and its model in `src/world.ts`. Rust lives under
-`native/`.
-
-`package.json` and `package-lock.json` define the Node toolchain. TypeScript is
-checked through `tsconfig.json`, ESLint through `eslint.config.cjs`, and Vite
-through `vite.config.ts`. SQLite state defaults to the ignored
-`data/slither.db`. `server/config.toml` is also ignored: `server/config.ts`
-creates it from current defaults on first startup when it is absent. Do not
-describe it as a tracked source file.
-
-Active plans live in `docs/todo/`.
-`docs/todo/rust-authoritative-runtime-plan.md`, revision
-`2026-07-29-draft-4`, is the owner-approved implementation plan.
-`docs/todo/rust-authoritative-runtime-implementation-log.md` is its short
-factual execution record. `docs/todo/project-recovery-plan.md`,
-`docs/todo/native_refactor_plan.md`, and `docs/todo/archive/` are superseded
-historical material and must not direct implementation. In particular, the
-old claim that the owner selected kernel-only Rust is false. Durable
-architecture choices live in `docs/decisions/`.
-
-## Explicit reference runtime flow
-
-The TypeScript implementation is selected only with
-`npm run server:reference`; its retained comparison flow is:
-
-```text
-browser control
-  -> Protocol 2 WebSocket validation
-  -> SimServer command queue
-  -> fixed-step boundary
-  -> SimCore scheduler
-  -> World.step
-  -> serial brain or canonical BrainPool
-  -> movement, food, collision, and evolution
-  -> binary frame and JSON stats
-```
-
-`server/wsHub.ts` owns WebSocket connection state. `server/protocol.ts` is the
-source of truth for Protocol 2 JSON messages. `server/controllerRegistry.ts`
-owns external player/bot assignments and rate limits. `server/httpApi.ts`
-provides health, persistence export/import, Hall of Fame, resurrection, and
-graph-preset endpoints.
-
-The browser has no local World or simulation worker. Do not reintroduce a
-browser fallback, optimistic authoritative state, or a second simulation loop.
-On disconnect, the UI reconnects and waits for server frames.
-
-This path is a selectable test oracle. It is not an automatic fallback for the
-Rust-authoritative runtime and must not be imported by production startup.
-
-## Fixed-step scheduling and World ordering
-
-`SimCore.update()` converts elapsed wall time and `simSpeed` into zero or more
-complete fixed steps. `simSpeed` changes the requested rate of fixed-step
-execution; it never enlarges a World delta. A per-pump cap may discard and
-report wall-clock debt, but committed World state never skips a step or uses a
-partial step.
-
-`World.step()` is the sole production control/physics pipeline. It samples all
-due controls from one observation boundary before movement, then advances
-physics with collision-only substeps. Keep external, serial-neural, and pooled
-population controls aligned to that ordering.
-
-## Determinism and run identity
-
-Authoritative randomness uses the versioned streams in `src/rng.ts`. World,
-evolution, observer, and durable baseline-bot streams are derived from the
-normalized run seed. Cosmetic rendering randomness must not advance those
-streams.
-
-Reset rebuilds generation one with the same seed and a new run ID. New Run
-uses system entropy for a different seed and creates a new run ID. Both become
-current only after their required run-start checkpoint commits.
-
-Exact replay is required only for the same source revision, RNG/snapshot
-versions, graph and settings, backend build, target architecture, supported
-environment, completed-step count, and ordered action log. Compare JS and
-native kernels with explicit numeric tolerances; do not promise bit-identical
-long-horizon results across backends or platforms.
-
-## Rust-authoritative runtime and retained reference backend
-
-The kernel-only boundary is superseded. Normal startup uses one Rust-owned
-authoritative game: persistent world state, fixed-step scheduling,
+Slither Neuroevolution is a browser-based neuroevolution sandbox with one
+Rust-owned authoritative game. Rust owns world state, fixed-step scheduling,
 sensors, heterogeneous neural inference, recurrent state, movement, food,
-collisions, controllers, evolution, generation transitions, RNG/allocator
-state, checkpoint construction, and binary frame packing all belong in Rust.
-Node remains the thin LAN/API/file/SQLite-metadata interface, and browser
-TypeScript remains the renderer, UI, camera presentation, and input collector.
-See `docs/todo/rust-authoritative-runtime-plan.md` and
-`docs/decisions/0002-rust-authoritative-runtime.md`.
+collisions, controllers, evolution, generation transitions, RNG/allocator state,
+checkpoint construction, and frame packing. Node remains the thin HTTP,
+WebSocket, static-file, archive-byte routing and SQLite-metadata interface.
 
-The retained TypeScript reference backend still exposes Dense, MLP, GRU, LSTM, and RRU
-kernels from `native/src/simd_kernels.rs` through `native/src/lib.rs`. Keep it
-working for characterization and differential tests, but do not extend the
-per-snake/per-layer N-API boundary as the final architecture.
+The browser entry is `index.html`, UI is `src/main.ts`, packed-frame rendering
+is `src/render.ts`, and styling is `styles.css`. Server startup is
+`server/rustServer.ts`, with native coordination and persistence under
+`server/rustEngine/`; Rust lives under `native/`. Migration-era `experimental*`
+names in this retained production path are naming debt, not alternate runtimes.
 
-Reference startup selects the native backend. `src/brains/nativeBridge.ts`
-validates every required export and a source-derived build identifier before
-brains are constructed. Production independently validates the complete Rust
-bridge and build identity. A missing or incompatible addon fails startup with
-build instructions. `--backend js` is reference-only diagnostic mode, not a
-production fallback.
+The TypeScript simulator and Node inference pool were retired under the owner's
+2026-10-10 plan. The complete combined implementation is frozen at branch
+`codex/archive/ts-reference-and-rust-2026-10-10` and annotated tag
+`archive/ts-reference-and-rust-2026-10-10`, commit
+`abe20d695a4c8fbd5ae73f50973280c2c0801bbc`. See
+`docs/decisions/0003-retire-typescript-runtime.md` for restoration instructions.
+Do not reintroduce TS world/physics/sensing/evolution, neural execution, a
+browser fallback, a second simulation loop, or a per-layer native bridge.
 
-Backend and threading are independent axes. `--mt` requests the canonical
-worker pool; `--mt-workers N` requests a bounded count. Native single-thread,
-native MT, JS diagnostic single-thread, and JS diagnostic MT are all tested.
-Enabling or disabling MT must not change the selected math backend.
+`package.json` and its lockfile define the Node toolchain; TypeScript, ESLint
+and Vite use their root configs. `data/slither.db` and `server/config.toml`
+are ignored owner state. `server/config.ts` creates default TOML only when
+absent; never describe the generated file as tracked or rewrite it to migrate
+removed settings.
 
-`server/brainPool.ts` is the sole retained reference pool,
-`server/brainPoolProtocol.ts` is its parent/worker contract, and
-`server/worker/inferWorker.ts` is the sole inference worker. Shared typed
-buffers hold inputs, outputs, population weights, and slot indices. Completion
-and reset use tagged messages and promises, not a second Atomics-based pool.
+The approved retirement is recorded in `docs/todo/typescript-runtime-retirement-plan.md`.
+The prior Rust migration plan and factual implementation log remain historical
+architecture/acceptance evidence. Deferred laptop/performance follow-ups stay
+open. `project-recovery-plan.md`, `native_refactor_plan.md`, and `docs/todo/archive/`
+are superseded; the former claim that the owner selected kernel-only Rust is false.
+Durable decisions live under `docs/decisions/`.
 
-Population slots are stable recurrent-state identities. Workers own slots by a
-deterministic modulo rule for the entire pool epoch; shuffled or shrinking
-batches do not migrate GRU/LSTM/RRU state. Pool lifecycle and population
-weights have separate monotonic epochs. A new weight epoch is usable only after
-every worker acknowledges rebinding and recurrent-state reset.
+## Runtime ordering and identities
 
-If a requested worker fails, times out, exits, or violates the protocol, the
-in-flight authoritative step is rejected. No successful frame, stats, or
-checkpoint is published, and the server does not fall back mid-generation.
-Health/status remain available. Recovery requires an explicit Reset, New Run,
-or process restart from a valid checkpoint boundary.
+Rust converts wall time and `simSpeed` into complete 60 Hz fixed steps.
+Simulation speed never enlarges the physics delta. Overload may discard and
+report wall debt; committed state never skips or partially commits a step.
+All due controls use a stable observation boundary before movement, followed
+by collision-only substeps. Delivered score-delta observations accumulate
+between deliveries; baseline strategy probes do not consume that boundary.
 
-Build and verify the addon from the repository root with:
+Authoritative versioned RNG streams live in `native/src/engine/rng.rs`.
+World, evolution, observer and baseline streams derive from the normalized
+run seed; cosmetic rendering randomness must never advance them. Reset uses
+the same seed with a new run ID; New Run uses entropy for a different seed.
+Both become current only after durable run-start checkpoint commitment.
+
+Exact replay applies only to matching source/RNG/snapshot versions, graph,
+settings, backend build, target architecture, supported environment, completed
+step count and ordered actions. Scalar/SSE2 comparisons use explicit numeric
+tolerances; do not promise cross-build/platform bit-identical long-horizon replay.
+
+## Protocol, client state and graph tooling
+
+`server/wsHub.ts` owns socket connections and reliable/replaceable delivery;
+`server/protocol.ts` and `src/protocol/` own shared wire types. Native external
+routing uses `server/rustEngine/externalRouting.ts`. The browser reconnects
+and waits for server frames after disconnect; it never owns a World.
+
+`src/config.ts` contains browser setting drafts and presentation defaults.
+Rust settings remain authoritative. Live updates use one atomic request and
+settle from `settingsApplied`; reset-only settings and graphs use Apply and reset.
+Welcome supplies seed, run/config identity, settings, sensors, serializer and
+honest native inference mode. Preserve existing Protocol 2 fields, including
+reserved epoch fields; native welcome pool/weight epochs remain null.
+
+God Mode kill follows normal death; move translates the entire body within
+bounds. UI logs use `godModeResult`. The status pill shows server, seed,
+native backend and active worker count.
+
+The only sensor layout is v3: `19 + 4 * bubbleBins`, bins at least eight.
+Keep native sensors, `src/protocol/sensors.ts`, graph validation and UI aligned.
+Pure graph schema/compiler/editor, stack builder and `parameterCounts.ts`
+remain TypeScript. Graph execution belongs only to Rust. Ports are zero-based;
+Split sizes sum to inputs, Concat ordering is explicit, outputs total two,
+and graph keys/parameter counts are persistence compatibility boundaries.
+
+`native/src/engine/frame_v1.rs` and `src/protocol/frame.ts` define frame-v1:
+seven header floats; each alive snake has eight scalar floats plus body XY
+pairs; then pellet count and five floats per pellet. Update native packing,
+frame helpers, renderer, selection parsing and tests together. Keep compact
+buffers rather than cloning native state into the browser.
+
+## Native addon and validation
+
+Production validates the complete coarse Rust bridge and independently
+computed source/build identity. Missing/stale addons fail with build
+instructions; there is no JS fallback. `--rust-workers` controls bounded
+native calculation threads; defaults are normalized against available CPUs.
+Do not pass raw defaults where a normalized config is required.
+
+Standalone Dense/MLP/GRU/LSTM/RRU N-API exports are retired. Internal SIMD
+dot products remain in `native/src/simd_kernels.rs`. Validate dimensions,
+checked arithmetic, buffer lengths and aliasing at public native boundaries;
+keep unsafe scopes narrow and document ranges/non-overlap. Supported targets
+are x86_64 Windows MSVC and x86_64 Linux GNU; no WASM/non-x86_64 fallback.
 
 ```powershell
 npm --prefix native run build
-cargo test --manifest-path native\Cargo.toml --release
-cargo fmt --manifest-path native\Cargo.toml -- --check
-cargo clippy --manifest-path native\Cargo.toml -- -D warnings
+cargo test --manifest-path native/Cargo.toml --release
+cargo fmt --manifest-path native/Cargo.toml -- --check
+cargo clippy --manifest-path native/Cargo.toml -- -D warnings
 ```
 
-When the local npm shim is broken, use the compiled napi-rs CLI from `native/`:
+If an npm shim fails, run the compiled napi-rs CLI from `native/`:
+`node node_modules/@napi-rs/cli/dist/cli.js build --platform --release`.
 
-```powershell
-node .\node_modules\@napi-rs\cli\dist\cli.js build --platform --release
-```
+Retain the five native source-identity fixtures and historical spawn,
+movement, death, ambient and baseline-control evidence. Preserve bytes and
+provenance; generators are archived. Live references to removed generators
+must name the archive tag. Use frozen expectations, native regression tests,
+scalar/SSE2 and multiworker continuation tests rather than reviving TS execution.
 
-Every public N-API entry validates positive dimensions, checked arithmetic,
-array lengths, scratch/state sizes, and unsupported writable aliasing before
-raw-pointer code. Keep unsafe scopes narrow and document their exact valid
-ranges and non-overlap requirements. Supported native targets are x86_64
-Windows MSVC and x86_64 Linux GNU; there is no WASM path or non-x86_64 native
-fallback.
+## Persistence and operations
 
-## Binary frames and rendering
+Exact checkpoints are generation-boundary population saves, not mid-round
+world snapshots. They capture evolved population, generation/step/run/config
+identity, RNG/allocator state and zero recurrent state before spawn/sensing.
+Immutable managed checkpoint-v3 files contain packed binary payloads with
+raw or shuffled-Zstandard encoding. SQLite stores metadata, pointers, compact
+history, graph/config records, Hall-of-Fame indexes and file references.
 
-`src/serializer.ts` and `src/protocol/frame.ts` define the hard binary frame
-contract. A `Float32Array` contains:
+Export is one direct self-contained archive download; import uploads the
+original File. Browser JS never parses or reconstructs populations. Keep
+bounded TS-v2, legacy-gzip and legacy-JSON readers/conversion provenance.
+Never delete or rewrite owner databases merely to migrate them. Newer builds
+use approved labelled compatible-build recovery branches rather than claiming
+exact replay across revisions. Startup selects the latest valid retained boundary.
 
-1. Seven header floats: generation, total snakes, alive count, world radius,
-   camera X, camera Y, and zoom.
-2. Each alive snake: eight floats for ID, radius, skin, head X/Y, direction,
-   boost, and body-point count, followed by `pointCount * 2` body coordinates.
-3. One pellet count followed by five floats per pellet: X, Y, value, type, and
-   color ID.
-
-`src/render.ts` and God Mode parsing in `src/main.ts` walk this layout. Change
-serializer, frame helpers, renderer, selection parsing, and tests together.
-Prefer extending the compact buffer over cloning the World into the browser.
-
-## Sensors and neural controllers
-
-The only supported sensor layout is v3. Its input length is
-`19 + 4 * bubbleBins`, where `bubbleBins` is at least 8. Keep
-`CFG.brain.inSize`, `src/protocol/sensors.ts`, sensor construction, baseline
-bots, graph validation, and visualizer expectations aligned.
-
-`points_delta_norm` is score change accumulated since that snake's previous
-delivered sensor sample, or since construction for its first sample. Unsampled
-control intervals accumulate. `Snake.sampleSensors()` owns this stateful
-boundary; `computeSensors()` remains pure. External, serial-neural, and pooled
-paths must all sample through the same method. Baseline-bot strategy probes are
-not delivered observations and must remain pure.
-
-Neural graph construction is centralized in `src/mlp.ts` and `src/brains/`.
-Graph ports are zero-based. Split sizes must sum to their input, Concat port
-ordering is explicit, and total outputs must equal the two turn/boost values.
-Architecture keys and parameter counts are persistence compatibility
-boundaries.
-
-## UI and Protocol 2 controls
-
-The welcome message supplies the active seed, run ID, config revision/hash,
-authoritative settings, sensor spec, serializer version, and honest inference
-mode. The status pill must show the server, seed, active backend, and active
-worker count.
-
-Live settings use one atomic `settings` request and apply only at a pre-step
-server boundary. The shared metadata in
-`src/protocol/settingDefinitions.ts` defines type, range, and whether a path is
-live or reset-only. The browser updates its displayed state from
-`settingsApplied`, not from an optimistic local write. Reset-only controls and
-graph changes use `reset` through Apply and reset.
-
-God Mode kill uses the normal death path. Move translates the entire body by
-one bounded delta and rebuilds spatial state. Logs are based on
-`godModeResult`. New Run is acknowledged only after its new generation-one
-checkpoint is durable.
-
-## Persistence and export
-
-The current TypeScript reference stores checkpoints as versioned parent
-metadata plus one `snapshot_genomes` child row per dense population slot in a
-single SQLite transaction. Its browser export/import path still materializes
-population JSON. Treat both as compatibility/reference evidence, not the
-approved destination.
-
-The old `genomes_blob` format is read-only compatibility. Its bounded reader
-warns that a legacy load may still allocate the combined population; never
-rewrite or delete a user database merely to migrate it.
-
-A resumable checkpoint is an exact generation-boundary population checkpoint,
-not a mid-tick world save. It captures the evolved population, generation,
-simulation step, seed/run/config identity, authoritative RNG and allocator
-state, and the zero-recurrent-state boundary before spawn, pellets, focus,
-sensors, or inference.
-
-New checkpoint-v3 population payloads are immutable managed files containing
-packed binary data with per-payload raw or shuffled-Zstandard encoding.
-SQLite stores only metadata, current pointers, compact history, graph/config
-records, Hall-of-Fame indexes, and file references. Export is one ordinary
-direct browser download of a self-contained archive; import uploads the
-original file directly. Browser JavaScript never parses or reconstructs the
-population. Keep current/legacy readers until the owner's real databases and
-save files have been inventoried and migrated within the approved limits.
-
-Ordinary exact checkpoints remain generation-boundary saves, not mid-round
-world snapshots. Normal startup uses the latest valid retained managed
-checkpoint and the approved recovery-branch rule.
-
-## Local and trusted-LAN setup
-
-The default workflow is local loopback use:
+## Loopback and trusted-LAN setup
 
 ```powershell
 npm install
@@ -261,70 +143,43 @@ npm run server
 npm run dev
 ```
 
-Open the Vite URL, normally `http://localhost:5173`. Opening `index.html`
-directly does not work. `play.bat` installs missing dependencies, builds the
-mandatory native addon, starts the Rust server and Vite, and writes
-PID/log files in the repository root. `play.sh` builds the addon and browser
-and starts the Rust server with static assets; a failed-resume database stays put
-and the health-only server remains available for diagnosis.
+Open Vite, normally `http://localhost:5173`; opening `index.html` directly does
+not work. `play.bat` builds native and starts Rust/Vite with PID/log files;
+`play.sh` builds native/client and starts Rust with static assets. Failed resume
+preserves the database and health-only diagnostics.
 
-Trusted home-LAN use is supported by setting `host` and `uiHost` to
-`0.0.0.0` or an explicit LAN interface and setting `publicWsUrl` when the
-browser cannot derive the simulation-server host from the UI hostname. Both
-launchers must retain non-loopback address discovery and print usable UI,
-server, and WebSocket network URLs. Vite HMR must remain connectable from
-another LAN device. CORS enables those browser/server address combinations; it
-is not authentication. Never equate trusted-LAN routing with public-internet
-hardening, and do not advertise router port forwarding or untrusted-network
-exposure as safe.
+Loopback is default. Trusted-home-LAN use supports `host`/`uiHost` bound to
+an interface or `0.0.0.0`, and `publicWsUrl` for split-host routing. Preserve
+launcher network discovery, usable UI/server/socket URLs and connectable HMR.
+Origin admission/CORS are not authentication. This project has no authentication,
+TLS or hardened public mode; never advertise router forwarding/untrusted exposure.
 
-`server/config.ts` resolves defaults, the generated TOML file, environment
-overrides, and CLI flags. Important production flags include
-`--rust-workers N`, `--seed N`, `--fresh`, `--resume latest|sha256:ID`, and
-`--db-path PATH`. A configured seed conflicts with an existing resume and
-therefore requires `--fresh`. Backend and Node-MT flags are retained only for
-`npm run server:reference`.
-
-LAN-related overrides are `--host`, `--ui-host`, and `--public-ws-url`, with
-matching `HOST`, `UI_HOST`, and `PUBLIC_WS_URL` environment variables.
-`publicWsUrl` is the browser's configured route to the simulation server; its
-legacy name does not imply public-internet safety.
+Important flags: `--rust-workers`, `--seed`, `--fresh`,
+`--resume latest|sha256:ID`, `--db-path`, and LAN host/UI/socket overrides.
+A configured seed with an existing resume requires `--fresh`. Removed backend,
+Node-MT and tick flags reject with guidance. Neutral old TOML/environment values
+warn and are ignored; active/malformed ones reject. UI rate remains at most 60 Hz.
 
 ## Tests and CI
 
-Primary test layers are explicit and non-overlapping in
-`scripts/test-categories.ts`:
-
-- unit: small pure/module contracts;
-- component: multi-module behavior without full server boundaries;
-- integration: real boundaries such as WebSocket, persistence, or pool use;
-- system: process/server lifecycle behavior;
-- acceptance: owner-visible end-to-end contract;
-- regression: named historical failures;
-- performance: measured budgets, informational in CI while history matures;
-- security: input limits, protocol rejection, and boundary hardening.
-
-`native-required` is an additive overlay. It must load the source-identified
-addon and execute native plus MT contracts; it must not skip because native is
-missing. Network suites may skip only when
-`SLITHER_SKIP_NETWORK_TESTS=1` is explicitly set, and they emit a visible
-warning.
-
-Use direct commands when an npm/PowerShell wrapper obscures completion:
+`scripts/test-categories.ts` assigns every test exactly once to unit, component,
+integration, system, acceptance, regression, performance or security. The
+native-required additive overlay must load the source-identified addon and
+exercise real Rust single/multiple-worker contracts; it cannot skip missing native.
+Network skips require explicit `SLITHER_SKIP_NETWORK_TESTS=1` and a warning.
 
 ```powershell
-node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts all --reporter=dot
-node .\node_modules\tsx\dist\cli.mjs scripts\run-tests.ts native-required --reporter=dot
-node .\node_modules\typescript\bin\tsc -p tsconfig.json --pretty false
-node .\node_modules\eslint\bin\eslint.js .
-node .\node_modules\vite\bin\vite.js build
-cargo test --manifest-path native\Cargo.toml --release
+node node_modules/tsx/dist/cli.mjs scripts/run-tests.ts all --reporter=dot
+node node_modules/tsx/dist/cli.mjs scripts/run-tests.ts native-required --reporter=dot
+node node_modules/typescript/bin/tsc -p tsconfig.json --pretty false
+node node_modules/eslint/bin/eslint.js .
+node node_modules/vite/bin/vite.js build
 ```
 
-CI is `.github/workflows/CI.yml`. Its Ubuntu/Windows and Node 24/26 matrix
-builds native once in each job, verifies the addon identity, runs the native/MT
-overlay and every primary JavaScript layer, then runs Vite, TypeScript, and
-ESLint. A separate Rust job enforces rustfmt and Clippy.
+CI retains Ubuntu/Windows and Node 24/26, one production-native build per job,
+source identity, all JS layers, native multiworker overlay, browser/type/lint,
+and separate rustfmt/Clippy. Dependency guards verify retired paths are absent
+and surviving client/server/metadata/tools cannot reach simulation execution.
 
 ### Verification cadence and usage efficiency
 
@@ -453,6 +308,6 @@ every slow or flaky matrix job.
   future work. Do not expand or imitate them solely for consistency.
 - Never commit `data/slither.db`, generated native binaries, PID/log files, or
   `server/config.toml`.
-- Preserve `bestPointsThisGen` initialization before the first sensor pass.
+- Preserve Rust generation-best-score initialization before the first sensor pass.
 - Treat `populationSlot`, snake-array index, visible snake ID, baseline-bot
   slot, and external controller ID as different identities.

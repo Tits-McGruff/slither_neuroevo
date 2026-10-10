@@ -1,5 +1,10 @@
 # Forward plan: Rust-owned Slither runtime
 
+> Historical migration plan. Rust is now the production authority; the temporary
+> TS reference was retired under `typescript-runtime-retirement-plan.md` and
+> ADR 0003. Historical source references describe the archived combined version.
+> Deferred acceptance/performance follow-ups remain open.
+
 ## Document control
 
 **Status:** Approved for implementation by the owner on 2026-07-29.

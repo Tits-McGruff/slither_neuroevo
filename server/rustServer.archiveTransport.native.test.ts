@@ -22,7 +22,7 @@ import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { CheckpointPersistenceClient } from './rustEngine/checkpointPersistenceClient.ts';
 import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
 import * as freshRunSessions from './rustEngine/experimentalFreshRunSession.ts';
-import { buildLargeBrainGraph } from '../scripts/stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../scripts/fixtures/largeBrainGraph.ts';
 import { compileGraph } from '../src/brains/graph/compiler.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';

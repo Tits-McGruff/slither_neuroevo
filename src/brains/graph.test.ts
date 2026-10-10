@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { compileGraph, graphKey } from './graph/compiler.ts';
 import type { GraphSpec } from './graph/schema.ts';
-import { headParamCount, mlpParamCount } from './ops.ts';
+import { headParamCount, mlpParamCount } from './parameterCounts.ts';
 
 /** Test suite label for graph compiler integration cases. */
 const SUITE = 'graph compiler';

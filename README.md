@@ -6,7 +6,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 
 - **Remote browser client**: The browser renders server frames and sends controls; it does not run a second game.
 - **Rust-authoritative runtime**: The complete authoritative game—world state, sensing, differently weighted brains, movement, collision, evolution, and frame packing—runs in Rust behind a thin Node interface.
-- **Explicit reference runtime**: The former TypeScript `SimCore`/`World` remains available only through `npm run server:reference` as a test oracle; production never falls back to it.
+- **One runtime**: The former TypeScript simulator is retired. Its combined source is preserved by the archive branch/tag described below; the UI and thin Node interface remain TypeScript.
 - **Deep Evolution**: Supports MLP, GRU, LSTM, and RRU architectures with complex genetic operators and a modular graph editor.
 - **Deterministic run controls**: Reset repeats a seed; New Run starts and checkpoints a different seed.
 - **Bounded persistence**: Managed immutable checkpoint files hold packed binary population data; SQLite holds small metadata/history/indexes. Browser import/export uses direct file upload/download without population-sized JavaScript objects.
@@ -153,8 +153,7 @@ CPUs, or 1–32 with 32. The default remains five, bounded to the available coun
 on smaller hosts; zero does not select an automatic mode. TOML
 `rustCalculationWorkers`, the environment override, and the CLI use the same
 detected maximum and retain their existing precedence and clamping behavior.
-This is separate from the reference server's
-`--mt-workers` option.
+The retired Node inference-pool options are no longer accepted.
 
 ### World resource limits
 
@@ -287,8 +286,7 @@ device.
 - **Named presets** are saved, listed, and loaded through the isolated SQLite
   metadata worker.
 
-Use `npm run server:reference` only for the retained TypeScript comparison
-implementation.
+The earlier combined implementation is preserved in the [retirement archive](docs/decisions/0003-retire-typescript-runtime.md).
 
 ## Measured workloads and limits
 
@@ -486,7 +484,7 @@ forwarding or run it on an untrusted network.
 On first server startup, `server/config.ts` creates the ignored
 `server/config.toml` file from current defaults. Useful fields include the
 server/UI bind addresses and ports, `publicWsUrl`, checkpoint interval,
-worker settings and Rust calculation-worker count. `publicWsUrl` is simply the
+Rust calculation-worker count and UI frame rate. `publicWsUrl` is simply the
 WebSocket address the webpage should use when the simulation server is not at
 the same hostname as the UI; despite the legacy word “public,” it does not make
 the service safe for the public internet. Normal defaults are native,
@@ -494,12 +492,15 @@ five calculation workers and automatic startup (`resume = "auto"`): resume the
 latest valid checkpoint when the database exists, otherwise create the first
 run. Use `--rust-workers N` to override
 the worker count, `--fresh` for a new durable run, or
-`--resume latest|sha256:<checkpoint-id>` for managed recovery. Reference-only
-backend and Node-MT flags belong to `npm run server:reference`.
+`--resume latest|sha256:<checkpoint-id>` for managed recovery.
+Backend and Node-MT selection flags were removed; use `--rust-workers` for native threads.
 
-Fresh Rust runs use a 60 Hz fixed step. Non-60 `tickRateHz` settings, `--tick`
-and `TICK_RATE` overrides are supported only by the reference server. Use the
-simulation-speed control to change the requested pace of production steps.
+Rust runs use a fixed 60 Hz step; UI frame publication is bounded by 60 Hz.
+Existing neutral legacy keys (`inferenceBackend = "native"`, `mtEnabled = false`,
+`mtWorkers = 0`, `tickRateHz = 60`) warn and are ignored without rewriting the
+file. Active or malformed values reject startup. The corresponding environment
+values follow the same rule; obsolete CLI flags and numeric resume IDs reject.
+Use simulation speed to change the requested pace of complete steps.
 
 ### Checkpoint byte budget
 
@@ -833,20 +834,18 @@ a checkpoint does not resume the middle of a tick.
 See [Server startup and recovery](#server-startup-and-recovery) for selection
 and recovery behavior.
 
-### TypeScript reference compatibility
+### Older-save compatibility and archived implementation
 
-The explicit `npm run server:reference` runner retains JSON export/import for
-comparison. Its JSON exports are portable population files, rather than
-automatic exact-resume checkpoints.
+Rust converts compatible per-genome SQLite rows, combined `genomes_blob` rows,
+and format-zero parent-JSON populations into new generation-one runs while
+preserving source rows. Upload older JSON saves as their original files through
+the ordinary import UI; browser JavaScript never parses the population.
+Incompatible graphs/sensor sizes reject without replacing the active run.
 
-Rust's resume-latest path converts compatible per-genome SQLite rows, combined
-`genomes_blob` rows, and format-zero parent-JSON populations into new generation-one
-runs while preserving the source rows.
-
-Reference JSON import resets that reference simulation to the file contents.
-Older graphs may be incompatible with the current v3 sensor layout. **Keep the
-database intact** and use a save from a compatible graph/sensor build when
-input sizes differ.
+The complete pre-retirement source is frozen at tag
+`archive/ts-reference-and-rust-2026-10-10` and branch
+`codex/archive/ts-reference-and-rust-2026-10-10`. See
+[archive restoration](docs/decisions/0003-retire-typescript-runtime.md).
 
 ## Preset recipes (QA-friendly)
 
@@ -916,8 +915,8 @@ Use GRU for smoother, more deliberate behavior.
   build tools plus a Windows SDK for `better-sqlite3` and the native addon,
   then re-run `npm install`.
 - **Native startup failure**: Run `npm --prefix native run build`. The normal
-  server does not fall back to JavaScript; use `npm run server:reference --
-  --backend js` only for deliberate reference diagnosis.
+  server does not fall back to JavaScript. Rebuild the source-identified addon
+  and inspect health-only diagnostics if startup remains faulted.
 - **Worker failure**: The server faults the run instead of switching backends
   or publishing a partial step. Use Apply and reset, New Run, or restart from a
   valid checkpoint after addressing the reported cause.

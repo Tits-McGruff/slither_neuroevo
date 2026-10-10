@@ -12,10 +12,6 @@ mod simd_kernels;
 
 use napi_derive::napi;
 
-pub use simd_kernels::{
-    dense_forward_native, gru_step_native, lstm_step_native, mlp_forward_native, rru_step_native,
-};
-
 pub use napi_engine::experimental_engine_contract_version;
 
 /// Return the crate, source-revision, and source-content identity embedded at build time.
