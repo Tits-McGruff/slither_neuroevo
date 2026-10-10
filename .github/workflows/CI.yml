@@ -82,7 +82,7 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run server/rustEngine/checkpointPersistence.native.test.ts --reporter=dot --testTimeout=15000
       - name: Build browser client
         run: npm run build:client
-      - name: Required native and MT contracts
+      - name: Required native authority and calculation-worker contracts
         run: npm run test:native-required -- --reporter=dot
       - name: Unit tests
         run: npm run test:unit -- --reporter=dot

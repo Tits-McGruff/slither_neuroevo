@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { parseProductionCli, productionCliHelp, PRODUCTION_CLI_HELP } from './productionCli.ts';
-import { DEFAULT_CONFIG, normalizeConfig } from './config.ts';
+import { DEFAULT_CONFIG, normalizeConfig, parseConfig } from './config.ts';
 import { RUST_CALCULATION_WORKER_MAX, validateRustCalculationWorkers } from './rustWorkers.ts';
 
 /** Task-owned configuration roots, removed after each test. */
@@ -91,11 +91,65 @@ it.each([1, 2, 8, 16, 32, 64])('uses the supplied %i-CPU manual range across TOM
   } finally { warnings.mockRestore(); }
 });
 
-it('keeps the five-worker default and the separate Node MT settings', () => {
+it('keeps the normalized five-worker default without Node-pool configuration', () => {
   expect(DEFAULT_CONFIG.rustCalculationWorkers).toBe(5);
-  expect(normalizeConfig({ mtEnabled: true, mtWorkers: 128 }, undefined, 32))
-    .toMatchObject({ rustCalculationWorkers: 5, mtEnabled: true, mtWorkers: 128 });
+  expect(normalizeConfig({}, undefined, 32).rustCalculationWorkers).toBe(5);
+  expect(DEFAULT_CONFIG).not.toHaveProperty('mtEnabled');
+  expect(DEFAULT_CONFIG).not.toHaveProperty('inferenceBackend');
   expect(PRODUCTION_CLI_HELP).toContain(`Range: 1..${RUST_CALCULATION_WORKER_MAX} available logical CPUs`);
+});
+
+it('accepts neutral legacy TOML/environment keys without exposing them or rewriting owner configuration', () => {
+  const { config } = fixture();
+  const original = 'inferenceBackend = "native"\nmtEnabled = false\nmtWorkers = 0\ntickRateHz = 60\nuiFrameRateHz = 120\n';
+  writeFileSync(config, original);
+  const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    const normalized = parseConfig([], { SERVER_CONFIG: config, INFERENCE_BACKEND: 'native',
+      MT_ENABLED: 'false', MT_WORKERS: '0', TICK_RATE: '60' }, 2);
+    expect(normalized.uiFrameRateHz).toBe(60);
+    expect(normalized.rustCalculationWorkers).toBe(2);
+    for (const key of ['inferenceBackend', 'mtEnabled', 'mtWorkers', 'tickRateHz']) {
+      expect(normalized).not.toHaveProperty(key);
+      expect(warnings.mock.calls.flat().join('\n')).toContain(`${key} is obsolete`);
+    }
+    expect(readFileSync(config, 'utf8')).toBe(original);
+    expect(normalizeConfig({ uiFrameRateHz: 24 }).uiFrameRateHz).toBe(24);
+    expect(normalizeConfig({}).uiFrameRateHz).toBe(36);
+  } finally { warnings.mockRestore(); }
+});
+
+it.each([
+  { line: 'inferenceBackend = "js"', env: { INFERENCE_BACKEND: 'js' } },
+  { line: 'mtEnabled = true', env: { MT_ENABLED: 'true' } },
+  { line: 'mtWorkers = 4', env: { MT_WORKERS: '4' } },
+  { line: 'tickRateHz = 30', env: { TICK_RATE: '30' } },
+  { line: 'mtEnabled = "maybe"', env: { MT_ENABLED: 'maybe' } },
+  { line: 'mtWorkers = "0junk"', env: { MT_WORKERS: '0junk' } },
+  { line: 'tickRateHz = "60junk"', env: { TICK_RATE: '60junk' } },
+  { line: 'inferenceBackend = 0', env: { INFERENCE_BACKEND: 'unknown' } }
+])('rejects active or malformed legacy settings at the parser boundary: $line', ({ line, env }) => {
+  const { config, database } = fixture();
+  writeFileSync(config, `${line}\n`);
+  expect(() => parseConfig([], { SERVER_CONFIG: config, DB_PATH: database })).toThrow(/removed/);
+  expect(readFileSync(config, 'utf8')).toBe(`${line}\n`);
+  writeFileSync(config, '');
+  expect(() => parseConfig([], { SERVER_CONFIG: config, ...env })).toThrow(/removed/);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+});
+
+it('rejects numeric resume from TOML/environment and emits only active keys in new configs', () => {
+  const { config } = fixture();
+  writeFileSync(config, 'resume = 17\n');
+  expect(() => parseConfig([], { SERVER_CONFIG: config })).toThrow(/numeric reference snapshot IDs/);
+  writeFileSync(config, '');
+  expect(() => parseConfig([], { SERVER_CONFIG: config, SERVER_RESUME: '17' })).toThrow(/numeric reference snapshot IDs/);
+  const generated = join(fixture().root, 'generated.toml');
+  const warnings = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    parseConfig([], { SERVER_CONFIG: generated }, 2);
+    expect(readFileSync(generated, 'utf8')).not.toMatch(/(?:inferenceBackend|mtEnabled|mtWorkers|tickRateHz)\s*=/u);
+  } finally { warnings.mockRestore(); }
 });
 
 it('bounds real-server fixture defaults and comparison counts on a two-CPU process', async () => {

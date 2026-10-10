@@ -1,43 +1,34 @@
 {
-    "$schema": "typedoc.org",
-    "entryPoints": [
-        "./src",
-        "./server"
-    ],
-    "entryPointStrategy": "expand",
-    "out": "./docs/api",
-    "cleanOutputDir": true,
-    "projectDocuments": [
-        "./docs/todo/*.md"
-    ],
-    "exclude": [
-        "**/*.test.ts",
-        "**/node_modules/**"
-    ],
-    "excludeExternals": true,
-    "excludePrivate": true,
-    "excludeInternal": true,
-    "skipErrorChecking": true,
-    "hideGenerator": true,
-    "searchInComments": true,
-    "name": "Slither Neuroevo API",
-    "intentionallyNotExported": [
-        "RuntimeNode",
-        "Particle",
-        "Point",
-        "FitnessHistoryEntry",
-        "PelletGrid",
-        "WorldSettings",
-        "HiddenSettings",
-        "CameraState",
-        "SnakeStruct",
-        "RenderWorld",
-        "WorldLike",
-        "SnakeLike",
-        "SerializableWorld",
-        "WorldSettingsInput",
-        "BrainCfg",
-        "RawConfigInput",
-        "Env"
-    ]
+  "$schema": "typedoc.org",
+  "entryPoints": [
+    "./src",
+    "./server"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "./docs/api",
+  "cleanOutputDir": true,
+  "projectDocuments": [
+    "./docs/decisions/0002-rust-authoritative-runtime.md",
+    "./docs/decisions/0003-retire-typescript-runtime.md"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/node_modules/**"
+  ],
+  "excludeExternals": true,
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "skipErrorChecking": true,
+  "hideGenerator": true,
+  "searchInComments": true,
+  "name": "Slither Neuroevo API",
+  "intentionallyNotExported": [
+    "FitnessHistoryEntry",
+    "HiddenSettings",
+    "CameraState",
+    "SnakeStruct",
+    "BrainCfg",
+    "RawConfigInput",
+    "Env"
+  ]
 }

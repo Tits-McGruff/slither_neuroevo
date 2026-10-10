@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { RUST_CALCULATION_WORKER_MAX } from '../../server/rustWorkers.ts';
 import { startRustServer } from '../../server/rustServer.ts';
-import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../fixtures/largeBrainGraph.ts';
 import { counterWindow } from './archive-overlap-summary.ts';
 import { generationInterval, generationPublication } from './generation-window-summary.ts';
 import type { GenerationPublication } from './generation-window-summary.ts';

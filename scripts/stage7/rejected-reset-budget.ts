@@ -8,7 +8,7 @@ import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
-import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../fixtures/largeBrainGraph.ts';
 
 /** Health fields needed to prove the original authority resumes stepping. */
 interface Health {

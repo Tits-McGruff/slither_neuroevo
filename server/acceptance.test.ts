@@ -1,7 +1,10 @@
 import { it, expect } from 'vitest';
 import WebSocket, { type RawData } from 'ws';
-import { startServer } from './index.ts';
-import { DEFAULT_CONFIG } from './config.ts';
+import { startRustServer } from './rustServer.ts';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { RUST_TEST_CONFIG as DEFAULT_CONFIG } from './test/rustConfig.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 
 /**
@@ -29,16 +32,16 @@ function parseJsonMessage(data: RawData): Record<string, unknown> | null {
 
 describeNetworkSuite('acceptance: join and play flow', () => {
   it('assigns a snake and accepts actions', async () => {
-    const server = await startServer({
+    const root = await mkdtemp(join(tmpdir(), 'slither-native-contract-'));
+    const server = await startRustServer({
       ...DEFAULT_CONFIG,
       port: 0,
-      dbPath: ':memory:',
+      dbPath: join(root, 'experiment.sqlite'),
       resume: 'fresh',
-      inferenceBackend: 'js',
       logLevel: 'error'
     });
 
-    const ws = new WebSocket(server.wsUrl);
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}`);
     ws.binaryType = 'arraybuffer';
     let assignedId: number | null = null;
     let sawSensor = false;
@@ -103,6 +106,7 @@ describeNetworkSuite('acceptance: join and play flow', () => {
         ws.close();
       }
       await server.close();
+      await rm(root, { recursive: true, force: true });
     }
 
     expect(assignedId).toBeTruthy();

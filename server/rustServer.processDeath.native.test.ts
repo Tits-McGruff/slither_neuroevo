@@ -12,7 +12,7 @@ import { expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { ARCHIVE_ARTIFACT_GRACE_MS, isRecognizedArchiveArtifact } from './rustEngine/archiveScavenger.ts';
-import { buildLargeBrainGraph } from '../scripts/stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../scripts/fixtures/largeBrainGraph.ts';
 
 /** One scalar health response needed by the process-death contract. */
 interface ProcessHealth {

@@ -9,7 +9,7 @@ import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import Database from 'better-sqlite3';
-import { normalizeConfig, parseConfig } from './config.ts';
+import { normalizeConfig } from './config.ts';
 import { RUST_TEST_CONFIG as DEFAULT_CONFIG, rustWorkersForTest } from './test/rustConfig.ts';
 import { PlayerActionPump } from '../src/net/playerActionPump.ts';
 import { createWsClient, type AssignMsg, type SensorsMsg, type WelcomeMsg, type WsClient } from '../src/net/wsClient.ts';
@@ -348,31 +348,6 @@ describeNetworkSuite('Rust server real sockets', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 20_000);
-
-  it.each([
-    { inferenceBackend: 'js' as const },
-    { mtEnabled: true },
-    { mtWorkers: 4 }
-  ])('rejects reference backend/pool configuration before production startup: %j', async reference => {
-    await expect(startRustServer({ ...DEFAULT_CONFIG, ...reference })).rejects.toThrow(
-      /use --rust-workers for Rust or npm run server:reference/u
-    );
-  });
-
-  it.each(['CLI', 'environment', 'TOML'])('rejects a production tick override from %s before creating state', async source => {
-    const root = await mkdtemp(join(tmpdir(), 'slither-rust-tick-override-'));
-    const configPath = join(root, 'server.toml');
-    try {
-      await writeFile(configPath, source === 'TOML' ? 'tickRateHz = 30\n' : '');
-      const config = parseConfig(['--config', configPath, ...(source === 'CLI' ? ['--tick', '30'] : [])],
-        source === 'environment' ? { TICK_RATE: '30' } : {});
-      expect(config.tickRateHz).toBe(30);
-      await expect(startRustServer({ ...config, port: 0, dbPath: join(root, 'missing.sqlite') })).rejects.toThrow(
-        'Rust startup requires tickRateHz=60'
-      );
-      expect(await readdir(root)).toEqual(['server.toml']);
-    } finally { await rm(root, { recursive: true, force: true }); }
-  });
 
   it('keeps the process session stable through live settings, reconnect, reset and New Run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-process-session-'));

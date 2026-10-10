@@ -9,7 +9,7 @@ import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { startRustServer, type RustServer } from '../../server/rustServer.ts';
 import { compileGraph } from '../../src/brains/graph/compiler.ts';
-import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../fixtures/largeBrainGraph.ts';
 
 /** Full supported population for the P3 capacity case. */
 const POPULATION = 300;

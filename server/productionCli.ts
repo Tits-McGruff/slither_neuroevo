@@ -15,7 +15,7 @@ interface ProductionOption {
   description: string;
 }
 
-/** Explicit production interface; reference-only math/pool flags are handled separately below. */
+/** Explicit production interface; retired math/pool flags are handled separately below. */
 const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--config': { value: 'PATH', description: 'TOML configuration file (SERVER_CONFIG).' },
   '--host': { value: 'HOST', description: 'HTTP/WebSocket bind, default 127.0.0.1 (HOST).' },
@@ -39,8 +39,8 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--help': { description: 'Print help and exit without creating configuration or starting the game.' }
 };
 
-/** Flags retained solely by the explicitly selected reference runtime. */
-const REFERENCE_FLAGS = new Set(['--backend', '--mt', '--mt-workers', '--tick']);
+/** Retired flags recognized only to explain their removal. */
+const REMOVED_FLAGS = new Set(['--backend', '--mt', '--mt-workers', '--tick']);
 
 /**
  * Generate help from the validated option surface and detected CPU ceiling.
@@ -58,7 +58,7 @@ export function productionCliHelp(rustWorkerMaximum = RUST_CALCULATION_WORKER_MA
       `  ${(flag + (option.value ? ' ' + option.value : '')).padEnd(38)}${option.description}${flag === '--rust-workers' ? ` Range: 1..${rustWorkerMaximum} available logical CPUs.` : ''}`),
     '  -h                                    Alias for --help.',
     '',
-    'Backend, Node pool and tick overrides belong to npm run server:reference.'
+    'The TypeScript reference runtime was retired. Use --rust-workers; simulation steps remain fixed at 60 Hz.'
   ].join('\n');
 }
 
@@ -79,7 +79,7 @@ export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv, rustW
     const equals = argument.indexOf('=');
     const rawFlag = equals < 0 ? argument : argument.slice(0, equals);
     const flag = rawFlag === '-h' ? '--help' : rawFlag;
-    if (REFERENCE_FLAGS.has(flag)) throw new Error(`${flag} is reference-only; use npm run server:reference`);
+    if (REMOVED_FLAGS.has(flag)) throw new Error(`${flag} was removed; use --rust-workers for native workers. Simulation steps remain fixed at 60 Hz.`);
     const option = Object.hasOwn(OPTIONS, flag) ? OPTIONS[flag] : undefined;
     if (!option) throw new Error(`unknown production argument: ${argument}; use --help for supported options`);
     if (seen.has(flag)) throw new Error(`duplicate production option: ${flag}`);
@@ -96,7 +96,7 @@ export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv, rustW
       throw new Error(`${flag} requires a safe integer`);
     }
     if (option.fixed !== undefined && Number(value) !== option.fixed) {
-      throw new Error(`${flag} is fixed at ${option.fixed} in production; other values are reference-only`);
+      throw new Error(`${flag} is fixed at ${option.fixed} in production; other values are unsupported`);
     }
     if (option.choices && !option.choices.includes(value)) {
       throw new Error(`${flag} requires one of: ${option.choices.join(', ')}`);

@@ -1,11 +1,11 @@
-// config.ts
-// Default configuration values and mutable configuration state for the simulation.
+/** Browser settings drafts and presentation defaults; Rust owns game configuration. */
 
 import { deepClone } from './utils.ts';
 import { getSensorLayout, type SensorLayout, type SensorLayoutVersion } from './protocol/sensors.ts';
+import { defaultStackBrain } from './brains/stackBuilder.ts';
 import type { GraphSpec } from './brains/graph/schema.ts';
 
-/** Default configuration values for the simulation and UI sliders. */
+/** Initial browser settings/presentation values, replaced by authoritative metadata. */
 export const CFG_DEFAULT = {
   worldRadius: 3500,
   pelletCountTarget: 3500,
@@ -23,8 +23,6 @@ export const CFG_DEFAULT = {
   snakeMinLen: 4,
   snakeSizeSpeedPenalty: 0.18,
   snakeBoostSizePenalty: 0.28,
-  /** Multiplier for turn rate decay based on length. */
-  snakeTurnPenalty: 1.4,
   foodValue: 1.0,
   growPerFood: 1.0,
   foodSpawn: {
@@ -60,17 +58,11 @@ export const CFG_DEFAULT = {
     focusSwitchMargin: 1.08,
     earlyEndMinSeconds: 8,
     earlyEndAliveThreshold: 2,
-    defaultViewMode: "overview",
     overviewPadding: 1.10,
     snapZoomOutInOverview: true,
     zoomLerpFollow: 0.09,
     zoomLerpOverview: 0.14,
     overviewExtraWorldMargin: 160
-  },
-  pelletGrid: {
-    // Spatial hash for pellets used by sensing and eating.
-    // Larger cells reduce bookkeeping, smaller cells reduce per-query scan.
-    cellSize: 120
   },
   sense: {
     // 360° "bubble" sensing around the head.
@@ -78,12 +70,6 @@ export const CFG_DEFAULT = {
     // as the follow camera (larger snakes see farther).
     layoutVersion: 'v3' as SensorLayoutVersion,
     bubbleBins: 16,
-    bubbleRadiusBase: 760,
-    bubbleRadiusMin: 420,
-    bubbleRadiusMax: 1700,
-    // Saturation constant for per-bin food accumulation.
-    bubbleFoodK: 4.0,
-    // V2 sensing radii (near/far) and food saturation controls.
     rNearBase: 520,
     rNearScale: 260,
     rNearMin: 420,
@@ -99,35 +85,13 @@ export const CFG_DEFAULT = {
     // Caps on work per snake per tick when the local region is extremely dense.
     // These apply to bubble food/hazard sensing.
     maxPelletChecks: 900,
-    maxSegmentChecks: 2200,
-
-    // Legacy parameters retained for compatibility with older sensor code.
-    rayLen: 420,
-    coneOffset: 0.75,
-    coneHalfAngle: 0.42,
-    nearestPelletRadius: 900,
-    wallRayLen: 720
+    maxSegmentChecks: 2200
   },
   // Brain configuration.
   // Input size is derived from the active sensor layout.
   brain: {
-    inSize: getSensorLayout(16, 'v3').inputSize,
-    outSize: 2,
-    // Recurrent memory.
-    // Stackable memory units sit after the MLP feature extractor.
-    useMlp: true,
-    stack: {
-      gru: 1,
-      lstm: 0,
-      rru: 0
-    },
-    stackOrder: ["gru", "lstm", "rru"],
+    ...defaultStackBrain(getSensorLayout(16).inputSize),
     graphSpec: null as GraphSpec | null,
-
-    // GRU hidden state size.
-    gruHidden: 16,
-    lstmHidden: 16,
-    rruHidden: 16,
 
     // Brain is evaluated on a fixed controller timestep independent of physics substeps.
     // This stabilises what “memory length” means when collision substepping changes.
@@ -180,29 +144,14 @@ export const CFG_DEFAULT = {
     fitnessKill: 400.0,
     fitnessPointsNorm: 42.0,
     fitnessTopPointsBonus: 600.0
-  },
-  // Death-to-pellets conversion tuned to resemble slither.io: smaller snakes
-  // recycle a higher fraction of their mass; very large snakes recycle less.
-  // Total dropped pellet value is derived from "mass" (segment count) and growPerFood.
-  death: {
-    dropFracSmall: 0.95,
-    dropFracLarge: 0.33,
-    dropFracPow: 1.6,
-    bigPelletValueFactor: 3.0,
-    smallPelletValueFactor: 1.0,
-    bigShare: 0.78,
-    jitter: 8,
-    clusterJitter: 14,
-    maxPellets: 420,
-    useSnakeColor: true
   }
 };
 
 /** Mutable configuration object, cloned from CFG_DEFAULT on reset. */
 export let CFG = deepClone(CFG_DEFAULT);
 
-/** Track whether the default v2 layout log has been emitted. */
-let didLogDefaultV2Layout = false;
+/** Track whether the v3 presentation layout log has been emitted. */
+let didLogV3Layout = false;
 
 /**
  * Resets the global configuration to its default values.
@@ -217,14 +166,14 @@ export function resetCFGToDefaults(): void {
  * @param layout - Active sensor layout metadata.
  */
 function logV3LayoutOnce(layout: SensorLayout): void {
-  if (didLogDefaultV2Layout) return;
+  if (didLogV3Layout) return;
   if (layout.layoutVersion !== 'v3') return;
   console.info('[sensors.layout.v3_enabled]', {
     bins: layout.bins,
     scalarCount: layout.scalarCount,
     inputSize: layout.inputSize
   });
-  didLogDefaultV2Layout = true;
+  didLogV3Layout = true;
 }
 
 /**

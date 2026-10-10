@@ -5,7 +5,7 @@ import type {
 } from '../src/protocol/rustBackground.ts';
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
 import type { SensorSpec as SensorSpecBase } from '../src/protocol/sensors.ts';
-import type { SpatialHashDiagnostics } from '../src/spatialHash.ts';
+import type { SpatialHashDiagnostics } from '../src/protocol/runtime.ts';
 import type {
   CoreSettings,
   LiveSettingsUpdate,
@@ -13,7 +13,7 @@ import type {
 } from '../src/protocol/settings.ts';
 import { getLiveSettingDefinition, SETTINGS_PATHS } from '../src/protocol/settings.ts';
 import type { GraphSpec } from '../src/brains/graph/schema.ts';
-import type { InferenceModeRecord } from './inferenceMode.ts';
+import type { InferenceModeRecord } from '../src/protocol/runtime.ts';
 
 /** Current protocol version for handshake compatibility. */
 export const PROTOCOL_VERSION = 2;

@@ -1,4 +1,21 @@
 import type { GraphSpec, GraphNodeSpec, GraphEdge, GraphOutputRef } from './graph/schema.ts';
+/** Immutable stack defaults shared by UI presentation and native graph metadata. */
+export const DEFAULT_STACK_BRAIN = Object.freeze({
+  outSize: 2,
+  useMlp: true,
+  stack: Object.freeze({ gru: 1, lstm: 0, rru: 0 }),
+  stackOrder: Object.freeze(['gru', 'lstm', 'rru']),
+  gruHidden: 16,
+  lstmHidden: 16,
+  rruHidden: 16
+});
+
+/** Clone independent graph controls for an authoritative sensor input width. */
+export function defaultStackBrain(inputSize: number): Required<BrainCfg> & { stack: { gru: number; lstm: number; rru: number } } {
+  return { ...DEFAULT_STACK_BRAIN, inSize: inputSize,
+    stack: { ...DEFAULT_STACK_BRAIN.stack }, stackOrder: [...DEFAULT_STACK_BRAIN.stackOrder] };
+}
+
 /** Settings for hidden layer sizes used by stack builder. */
 type HiddenSettings = {
   hiddenLayers: number;

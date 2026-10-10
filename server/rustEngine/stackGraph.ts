@@ -1,5 +1,4 @@
-import { CFG_DEFAULT } from '../../src/config.ts';
-import { buildStackGraphSpec } from '../../src/brains/stackBuilder.ts';
+import { buildStackGraphSpec, defaultStackBrain } from '../../src/brains/stackBuilder.ts';
 import { graphKey } from '../../src/brains/graph/compiler.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { DEFAULT_CORE_SETTINGS, type CoreSettings, type SettingsUpdate } from '../../src/protocol/settings.ts';
@@ -32,7 +31,7 @@ export interface StackPresentation {
 
 /** Default stack configuration sized for the authoritative sensor layout. */
 function defaultBrain(inputSize: number): StackBrain {
-  return { ...CFG_DEFAULT.brain, inSize: inputSize, stack: { ...CFG_DEFAULT.brain.stack } };
+  return defaultStackBrain(inputSize);
 }
 
 /** Recover slider values only when rebuilding them reproduces the complete graph key. */

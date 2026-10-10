@@ -1336,6 +1336,7 @@ mod tests {
         let source = StatefulRng::new(0x5afe as f64).export_state();
         let config = SpawnConfig::typescript_geometry_defaults();
         // Captured by scripts/stage5/generate-spawn-fixtures.ts and retained in
+        // Generator archived at archive/ts-reference-and-rust-2026-10-10.
         // docs/todo/evidence/stage5/typescript-spawn-fixtures.json. Keep these
         // literal values independent of Rust's candidate/body helpers.
         let expected_direction = 3.799_256_610_584_831_8;

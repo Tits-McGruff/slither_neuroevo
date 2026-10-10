@@ -10,7 +10,7 @@ import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { RUST_CALCULATION_WORKER_MAX } from '../../server/rustWorkers.ts';
 import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointPersistenceClient.ts';
 import { startRustServer } from '../../server/rustServer.ts';
-import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../fixtures/largeBrainGraph.ts';
 
 /** Approved workload names represented by this measured fixture. */
 type Scenario = 'P0' | 'P2' | 'P3';

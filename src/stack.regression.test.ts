@@ -1,31 +1,30 @@
-import { describe, it, expect } from 'vitest';
-import { buildArch, Genome } from './mlp.ts';
-import { CFG } from './config.ts';
+import { afterEach, describe, expect, it } from 'vitest';
+import { CFG, resetCFGToDefaults } from './config.ts';
+import { buildStackGraphSpec, defaultStackBrain } from './brains/stackBuilder.ts';
+import { compileGraph, graphKey } from './brains/graph/compiler.ts';
+import { DEFAULT_CORE_SETTINGS } from './protocol/settings.ts';
 
-/** Test suite label for stacked brain regression coverage. */
-const SUITE = 'regression: stacked brains';
+afterEach(resetCFGToDefaults);
 
-describe(SUITE, () => {
-  it('produces deterministic outputs for fixed weights', () => {
-    const settings = {
-      hiddenLayers: 1,
-      neurons1: 6,
-      neurons2: 4,
-      neurons3: 4,
-      neurons4: 4,
-      neurons5: 4
-    };
-    CFG.brain.stack.gru = 1;
+describe('regression: stacked graph controls', () => {
+  it('keeps stack dimensions and parameter layout stable across browser reset', () => {
+    const original = buildStackGraphSpec(DEFAULT_CORE_SETTINGS, { brain: defaultStackBrain(83) });
+    CFG.brain.stack.gru = 0;
     CFG.brain.stack.lstm = 1;
-    CFG.brain.stack.rru = 0;
-    const arch = buildArch(settings);
-    const genome = Genome.random(arch);
-    genome.weights.fill(0.02);
-    const brain = genome.buildBrain(arch);
-    const input = new Float32Array(CFG.brain.inSize).fill(0.1);
-    const out1 = Array.from(brain.forward(input));
-    brain.reset();
-    const out2 = Array.from(brain.forward(input));
-    expect(out1).toEqual(out2);
+    resetCFGToDefaults();
+    const reset = buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG);
+    expect(graphKey(reset)).toBe(graphKey(original));
+    expect(compileGraph(reset).totalParams).toBe(13_458);
+    expect(defaultStackBrain(83).stack).toEqual({ gru: 1, lstm: 0, rru: 0 });
+  });
+
+  it('keeps differently sized recurrent modules in deterministic stack order', () => {
+    const brain = defaultStackBrain(83);
+    brain.stack = { gru: 1, lstm: 1, rru: 1 };
+    brain.gruHidden = 8; brain.lstmHidden = 12; brain.rruHidden = 20;
+    const compiled = compileGraph(buildStackGraphSpec(DEFAULT_CORE_SETTINGS, { brain }));
+    expect(compiled.order.filter(id => ['gru', 'lstm', 'rru'].includes(id))).toEqual(['gru', 'lstm', 'rru']);
+    expect(compiled.totalStateSize).toBe(8 + 24 + 20);
+    expect(compiled.totalParams).toBeGreaterThan(0);
   });
 });

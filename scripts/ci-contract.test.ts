@@ -62,8 +62,7 @@ function runtimeTypeScriptDependencies(entry: string): Set<string> {
         const argument = node.arguments[0];
         if (argument && ts.isStringLiteralLike(argument)) include(argument.text);
         else if (!(file === resolve('server/rustEngine/experimentalStartup.ts') &&
-            node.getText(source) === "require(resolve(NATIVE_DIRECTORY, 'index.js'))") &&
-            !(file === resolve('src/brains/nativeBridge.ts') && node.getText(source) === 'require(addonPath)')) {
+            node.getText(source) === "require(resolve(NATIVE_DIRECTORY, 'index.js'))")) {
           throw new Error(`uninspectable runtime load: ${relative(ROOT, file)}: ${node.getText(source)}`);
         }
       }
@@ -98,23 +97,27 @@ function countOccurrences(value: string): number {
 }
 
 describe(SUITE, () => {
-  it('makes Rust the normal server and isolates the TypeScript reference entry point', () => {
+  it('contains only native authority and keeps surviving entry points independent of retired execution', () => {
     expect(PACKAGE.scripts?.['server']).toBe('tsx server/rustServer.ts');
-    expect(PACKAGE.scripts?.['server:reference']).toBe('tsx server/index.ts');
-    const production = runtimeTypeScriptDependencies('server/rustServer.ts');
-    for (const forbidden of [
-      'server/index.ts',
-      'server/simServer.ts',
-      'server/brainPool.ts',
-      'server/worker/inferWorker.ts',
-      'src/sim/SimCore.ts',
-      'src/world.ts',
-      'src/mlp.ts',
-      'src/brains/ops.ts',
-      'src/brains/graph/runtime.ts',
-      'src/brains/nativeBridge.ts'
-    ]) {
-      expect(production.has(forbidden), `production dependency reached ${forbidden}`).toBe(false);
+    expect(PACKAGE.scripts).not.toHaveProperty('server:reference');
+    expect(PACKAGE.scripts).not.toHaveProperty('server:reference:dev');
+    const retired = [
+      'server/index.ts', 'server/simServer.ts', 'server/brainPool.ts', 'server/brainPoolProtocol.ts',
+      'server/worker/inferWorker.ts', 'server/inferenceMode.ts', 'server/controllerRegistry.ts',
+      'server/httpApi.ts', 'server/persistence.ts', 'server/checkpoint.ts', 'server/startupResume.ts',
+      'src/sim/SimCore.ts', 'src/world.ts', 'src/snake.ts', 'src/mlp.ts', 'src/sensors.ts',
+      'src/spatialHash.ts', 'src/serializer.ts', 'src/rng.ts', 'src/bots/baselineBots.ts',
+      'src/brains/ops.ts', 'src/brains/graph/runtime.ts', 'src/brains/nativeBridge.ts',
+      'src/brains/types.ts', 'src/brains/registry.ts', 'src/brains/nullBrain.ts'
+    ];
+    for (const file of retired) expect(existsSync(resolve(file)), `retired implementation remains: ${file}`).toBe(false);
+    for (const entry of ['src/main.ts', 'server/rustServer.ts',
+      'server/rustEngine/checkpointPersistenceWorker.ts', 'scripts/resolve-launcher-config.ts',
+      'scripts/backup-production.ts', 'scripts/restore-production.ts',
+      'scripts/stage7/realtime-workload.ts', 'scripts/stage7/codec-archive-fixture.ts',
+      'scripts/stage7/compact-legacy-database.ts']) {
+      const dependencies = runtimeTypeScriptDependencies(entry);
+      for (const file of retired) expect(dependencies.has(file), `${entry} reached ${file}`).toBe(false);
     }
   });
 
@@ -141,10 +144,6 @@ describe(SUITE, () => {
         await writeFile(resolve(root, 'entry.ts'), `${load}\n`);
         expect(() => runtimeTypeScriptDependencies(resolve(root, 'entry.ts'))).toThrow(/uninspectable runtime load/);
       }
-      // The retained reference is a positive control for the production exclusion.
-      const reference = runtimeTypeScriptDependencies('server/index.ts');
-      expect(reference.has('src/world.ts')).toBe(true);
-      expect(reference.has('src/brains/nativeBridge.ts')).toBe(true);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 

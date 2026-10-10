@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { startRustServer } from '../../server/rustServer.ts';
-import { buildLargeBrainGraph } from '../stage2/fixtures.ts';
+import { buildLargeBrainGraph } from '../fixtures/largeBrainGraph.ts';
 
 /** Workload names and an absent, explicitly selected scratch destination. */
 interface Options {

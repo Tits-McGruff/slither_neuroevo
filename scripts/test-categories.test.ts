@@ -50,9 +50,9 @@ describe(SUITE, () => {
 
   it('keeps the required-native overlay explicit and inside the complete suite', () => {
     const allFiles = new Set(TEST_CATEGORIES.all);
-    expect(NATIVE_REQUIRED_TEST_FILES).toContain('src/brains/nativeBridge.test.ts');
-    expect(NATIVE_REQUIRED_TEST_FILES).toContain('server/recoveryPhase4.brainPool.test.ts');
-    expect(NATIVE_REQUIRED_TEST_FILES).toContain('server/recoveryPhase4.simServer.test.ts');
+    expect(NATIVE_REQUIRED_TEST_FILES).toContain('server/rustServer.continuation.native.test.ts');
+    expect(NATIVE_REQUIRED_TEST_FILES).toContain('server/rustEngine/nativeSurface.native.test.ts');
+    expect(NATIVE_REQUIRED_TEST_FILES).not.toContain('server/brainPool.test.ts');
     expect(NATIVE_REQUIRED_TEST_FILES.every(file => allFiles.has(file))).toBe(true);
   });
 });
