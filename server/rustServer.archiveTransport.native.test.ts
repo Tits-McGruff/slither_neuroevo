@@ -44,7 +44,7 @@ const originalHttpEmit = Server.prototype.emit;
  * it is not a valid budget for all of the fixture's disk operations combined.
  */
 const ARCHIVE_FIXTURE_TIMEOUT_MS = 20_000;
-/** A resource rejection also verifies a second successful archive preparation after cleanup. */
+/** A rejection fixture also verifies a second successful archive preparation after cleanup. */
 const ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS = ARCHIVE_FIXTURE_TIMEOUT_MS + ARCHIVE_PREPARATION_TIMEOUT_MS;
 
 /** Change the task's private tmpfs quota without allocating its advertised capacity. */
@@ -1134,7 +1134,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           await preserved(fixture);
           await advancing(fixture);
           acquiring.mockRestore();
-          const retry = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+          const retry = await fixtureArchiveDownload(fixture.server.port, 'export collision retry');
           expect(retry.status).toBe(200);
           expect(Buffer.from(await retry.arrayBuffer())).toEqual(fixture.archive);
           await preserved(fixture);
@@ -1145,7 +1145,9 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           });
         }
       });
-    }, 20_000
+    // The ready-file collision allows a 30-second preparation response and then
+    // proves successful retry; its whole fixture must not expire after 20 seconds.
+    }, ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS
   );
 
   it.each(['import', 'reset', 'newRun'] as const)(
