@@ -52,7 +52,7 @@ pub const ENGINE_STATE_VERSION: u32 = 1;
 pub const PROTOCOL_VERSION: u32 = 2;
 /// Binary display-frame v1 remains the first browser target.
 pub const SERIALIZER_VERSION: u32 = 1;
-/// Sensor v3 is the only supported sensor layout.
+/// Frozen historical sensor version and ordinary production default.
 pub const SENSOR_VERSION: u32 = 3;
 /// Version of the independent RNG-stream bundle.
 pub const RNG_BUNDLE_VERSION: u32 = 1;
@@ -3760,6 +3760,34 @@ fn validate_admission_header(
         &candidate.identity,
         policy,
     )?;
+    if candidate.versions.sensor == 4
+        || candidate
+            .config
+            .settings
+            .iter()
+            .any(|entry| entry.path == "sense.contractVersion")
+    {
+        let contract = super::sensor_contract::SensorContractIdentity::from_settings(
+            &candidate.config.settings,
+        )
+        .map_err(|error| StateError::InvalidField {
+            field: "config.sensor_contract",
+            reason: error.to_string(),
+        })?;
+        let width = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_type == super::graph::CompiledNodeType::Input)
+            .map(|node| node.output_size);
+        if contract.layout_version() != candidate.versions.sensor
+            || width != Some(contract.input_size())
+        {
+            return invalid(
+                "config.sensor_contract",
+                "version or graph Input does not match structural sensor contract",
+            );
+        }
+    }
     if candidate.config.graph_architecture_key != graph.architecture_key {
         return invalid(
             "config.graph_architecture_key",
@@ -3837,7 +3865,6 @@ fn validate_versions(versions: &ContractVersions, graph: &CompiledGraph) -> Resu
             versions.serializer,
             SERIALIZER_VERSION,
         ),
-        ("versions.sensor", versions.sensor, SENSOR_VERSION),
         (
             "versions.checkpoint",
             versions.checkpoint,
@@ -3847,6 +3874,9 @@ fn validate_versions(versions: &ContractVersions, graph: &CompiledGraph) -> Resu
         if actual != expected {
             return invalid(field, "unsupported contract version");
         }
+    }
+    if !matches!(versions.sensor, 3 | 4) {
+        return invalid("versions.sensor", "unsupported sensor version");
     }
     if !matches!(
         versions.rng_bundle,

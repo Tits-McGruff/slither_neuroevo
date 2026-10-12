@@ -22,7 +22,6 @@ use super::inference::InferenceMathBackend;
 use super::live_settings::LiveSettingUpdate;
 use super::rng::labelled_stream;
 use super::run_start::{PendingRunStartTransition, RunStartTransitionError};
-use super::sensor_layout::{SENSOR_CHANNEL_COUNT, SENSOR_SCALAR_COUNT};
 use super::state::{
     normalized_config_hash, normalized_settings_schema_hash,
     preflight_generation_boundary_allocation, AllocatorState, AuthorityPhase, BrainHandle,
@@ -33,7 +32,7 @@ use super::state::{
     BASELINE_ENTITY_ID_START, CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
     GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION,
     RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, RNG_BUNDLE_WITH_EVOLVED_VERSION,
-    SENSOR_VERSION, SERIALIZER_VERSION,
+    SERIALIZER_VERSION,
 };
 use super::step_config::{
     production_default_settings, project_baseline_generation_config, project_running_step_config,
@@ -309,11 +308,67 @@ fn prepare_fresh_boundary(
     graph_spec: GraphSpec,
     modern: bool,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    prepare_fresh_boundary_with_sensor(
+        request,
+        replacement_settings,
+        graph_spec,
+        modern,
+        None,
+        RunningStepWorkLimits::provisional_defaults(),
+    )
+}
+
+/// Explicit candidate construction for native workload/continuation qualification.
+/// Public fresh defaults stay recorded v3 until the v4 gates select ray limits.
+#[cfg(any(test, feature = "engine-test-hooks"))]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_v4_qualification_run(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    limits: RunningStepWorkLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if profile == super::sensor_contract::SensorProfile::V3 || limits.ray_work.is_none() {
+        return Err(FreshRunError::Settings(
+            "v4 qualification requires a profile and explicit ray limits".into(),
+        ));
+    }
+    let contract = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let prepared = prepare_fresh_boundary_with_sensor(
+        request,
+        replacement_settings,
+        graph_spec,
+        modern,
+        Some(contract),
+        limits,
+    )?;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+fn prepare_fresh_boundary_with_sensor(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    sensor_contract: Option<super::sensor_contract::SensorContractIdentity>,
+    work_limits: RunningStepWorkLimits,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
     let graph = Arc::new(GraphBundle::compile(graph_spec, &graph_limits)?);
 
-    let work_limits = RunningStepWorkLimits::provisional_defaults();
     let legacy =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
     let mut settings = if modern {
@@ -338,6 +393,11 @@ fn prepare_fresh_boundary(
         }
     }
     apply_fresh_run_settings(&mut settings, replacement_settings)?;
+    if let Some(contract) = &sensor_contract {
+        contract
+            .record_v4_settings(&mut settings)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    }
     let population_count = fresh_setting_integer(&settings, "snakeCount")?;
     let baseline_count = fresh_setting_integer(&settings, "baselineBots.count")?;
     if population_count == 0 || population_count > MAXIMUM_FRESH_RUN_POPULATION_COUNT {
@@ -369,14 +429,10 @@ fn prepare_fresh_boundary(
         .ok_or(FreshRunError::ProfileInvariant {
             reason: "compiled graph omits its input node",
         })?;
-    let sensor_input_size = projected
-        .sensor
-        .bins
-        .checked_mul(SENSOR_CHANNEL_COUNT)
-        .and_then(|binned| binned.checked_add(SENSOR_SCALAR_COUNT))
-        .ok_or(FreshRunError::ArithmeticOverflow {
-            context: "fresh-run sensor input width",
-        })?;
+    let sensor_input_size =
+        super::sensor_contract::SensorContractIdentity::from_settings(&config.settings)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?
+            .input_size();
     if graph_input_size != sensor_input_size {
         return Err(FreshRunError::GraphInputMismatch {
             graph: graph_input_size,
@@ -633,6 +689,20 @@ fn production_restore_policy(
     let mut policy =
         current_build_policy(memory_ceiling_bytes, legacy, require_exact_build_identity);
     policy.allowed_settings_schema_sha256.push(modern);
+    for mut settings in [
+        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
+        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
+    ] {
+        super::sensor_contract::SensorContractIdentity::new(
+            super::sensor_contract::SensorProfile::Motion,
+            16,
+        )
+        .and_then(|contract| contract.record_v4_settings(&mut settings))
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&settings)?);
+    }
     Ok(policy)
 }
 
@@ -707,7 +777,7 @@ fn boundary_shell(
             engine: ENGINE_CONTRACT_VERSION,
             protocol: PROTOCOL_VERSION,
             serializer: SERIALIZER_VERSION,
-            sensor: SENSOR_VERSION,
+            sensor: fresh_integer(&config, "brain.sensorVersion")? as u32,
             rng_bundle: RNG_BUNDLE_VERSION,
             checkpoint: CHECKPOINT_VERSION,
             graph_layout: graph.layout_version,
@@ -1679,6 +1749,250 @@ mod tests {
             &production_restore_policy(TEST_MEMORY_CEILING, true).unwrap()
         )
         .is_err());
+    }
+
+    #[test]
+    fn v4_state_admission_rejects_missing_digest_and_graph_mismatch_without_reinterpreting_numeric_environment(
+    ) {
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        use crate::engine::sensor_contract::{SensorContractIdentity, SensorProfile};
+        let contract = SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap();
+        let graph = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 144 },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 144,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![GraphEdge {
+                from: "input".into(),
+                to: "head".into(),
+                from_port: None,
+                to_port: None,
+            }],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let prepared = prepare_fresh_boundary_with_sensor(
+            request(42),
+            &[],
+            graph,
+            false,
+            Some(contract.clone()),
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        for path in [
+            "sense.contractVersion",
+            "sense.profile",
+            "sense.contractSha256",
+        ] {
+            let mut missing = prepared.candidate.clone();
+            missing.config.settings.retain(|entry| entry.path != path);
+            missing.config.settings_schema_sha256 =
+                normalized_settings_schema_hash(&missing.config.settings).unwrap();
+            missing.identity.config_hash = normalized_config_hash(&missing.config).unwrap();
+            let mut policy = current_build_policy(
+                TEST_MEMORY_CEILING,
+                missing.config.settings_schema_sha256.clone(),
+                true,
+            );
+            policy.expected_settings_schema_sha256 = missing.config.settings_schema_sha256.clone();
+            assert!(matches!(
+                AuthoritativeState::validate_and_own(missing, Arc::clone(&prepared.graph), &policy),
+                Err(StateError::InvalidField {
+                    field: "config.sensor_contract",
+                    ..
+                })
+            ));
+        }
+        let mut modified = prepared.candidate.clone();
+        modified
+            .config
+            .settings
+            .iter_mut()
+            .find(|entry| entry.path == "sense.profile")
+            .unwrap()
+            .value = NormalizedSettingValue::Integer(0);
+        modified.identity.config_hash = normalized_config_hash(&modified.config).unwrap();
+        assert!(matches!(
+            AuthoritativeState::validate_and_own(
+                modified,
+                Arc::clone(&prepared.graph),
+                &prepared.admission_policy
+            ),
+            Err(StateError::InvalidField {
+                field: "config.sensor_contract",
+                ..
+            })
+        ));
+        let mut changed_environment = prepared.candidate.clone();
+        changed_environment
+            .config
+            .settings
+            .iter_mut()
+            .find(|entry| entry.path == "sense.rNearBase")
+            .unwrap()
+            .value = NormalizedSettingValue::Float(600.0);
+        changed_environment.identity.config_hash =
+            normalized_config_hash(&changed_environment.config).unwrap();
+        let authority = AuthoritativeState::validate_and_own(
+            changed_environment,
+            Arc::clone(&prepared.graph),
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        assert_eq!(
+            SensorContractIdentity::from_settings(&authority.state().config.settings).unwrap(),
+            contract
+        );
+        assert!(
+            matches!(crate::engine::running_step::RunningStepCoordinator::try_new(&authority,RunningStepWorkLimits::provisional_defaults()),
+            Err(crate::engine::running_step::RunningStepError::Config(error)) if matches!(*error,crate::engine::step_config::StepConfigError::MissingRayWorkLimits))
+        );
+        assert!(matches!(
+            prepare_fresh_boundary_with_sensor(
+                request(42),
+                &[],
+                typescript_default_graph_spec(),
+                false,
+                Some(contract),
+                RunningStepWorkLimits::provisional_defaults()
+            ),
+            Err(FreshRunError::GraphInputMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn v4_durable_metadata_restores_and_runs_real_fixed_steps_with_explicit_qualification_limits() {
+        use super::super::ray_work::RayWorkLimits;
+        use super::super::sensor_contract::{SensorContractIdentity, SensorProfile};
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in [8, 16, 32] {
+                let contract = SensorContractIdentity::new(profile, bins).unwrap();
+                let width = contract.input_size();
+                let graph = GraphSpec {
+                    nodes: vec![
+                        GraphNodeSpec {
+                            id: "input".into(),
+                            kind: GraphNodeKind::Input { output_size: width },
+                        },
+                        GraphNodeSpec {
+                            id: "memory".into(),
+                            kind: GraphNodeKind::Rru {
+                                input_size: width,
+                                hidden_size: 8,
+                            },
+                        },
+                        GraphNodeSpec {
+                            id: "head".into(),
+                            kind: GraphNodeKind::Dense {
+                                input_size: 8,
+                                output_size: 2,
+                            },
+                        },
+                    ],
+                    edges: vec![
+                        GraphEdge {
+                            from: "input".into(),
+                            to: "memory".into(),
+                            from_port: None,
+                            to_port: None,
+                        },
+                        GraphEdge {
+                            from: "memory".into(),
+                            to: "head".into(),
+                            from_port: None,
+                            to_port: None,
+                        },
+                    ],
+                    outputs: vec![GraphOutputRef {
+                        node_id: "head".into(),
+                        port: None,
+                    }],
+                    output_size: 2,
+                };
+                let settings = numeric_settings(production_default_settings(12, 2));
+                let limits = RunningStepWorkLimits {
+                    ray_work: Some(RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+                    calculation_workers: 3,
+                    ..RunningStepWorkLimits::provisional_defaults()
+                };
+                let mut pending = prepare_v4_qualification_run(
+                    request(42),
+                    &settings,
+                    graph,
+                    true,
+                    profile,
+                    bins,
+                    limits,
+                )
+                .unwrap();
+                let metadata = pending.startup_metadata_json().unwrap();
+                let decoded: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+                assert_eq!(decoded["sensorVersion"], 4);
+                assert_eq!(
+                    decoded["sensorContract"]["sha256"],
+                    contract.sha256_hex().unwrap()
+                );
+                assert_eq!(
+                    decoded["sensorContract"]["canonicalJson"],
+                    String::from_utf8(contract.canonical_bytes().unwrap()).unwrap()
+                );
+                let managed = TestDirectory::create("v4-durable-contract");
+                let descriptor = pending
+                    .publish_checkpoint(
+                        managed.path(),
+                        CheckpointOperationId::parse("112233445566778899aabbccddeeff00").unwrap(),
+                    )
+                    .unwrap();
+                let policy = production_restore_policy(TEST_MEMORY_CEILING, true).unwrap();
+                let mut restored = PendingRunStartTransition::restore_committed(
+                    managed.path(),
+                    &descriptor,
+                    policy,
+                    production_checkpoint_limits(),
+                    stage6a_p0_graph_limits(),
+                    limits,
+                )
+                .unwrap();
+                assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+                restored.configure_calculation_workers(1).unwrap();
+                let mut expected_frame = None;
+                for transition in [&mut pending, &mut restored] {
+                    transition.acknowledge_persistence(&descriptor).unwrap();
+                    transition.publish_running_authority().unwrap();
+                    let mut frame = Vec::new();
+                    assert_eq!(
+                        transition
+                            .pack_initial_frame_v1(&mut frame)
+                            .unwrap()
+                            .alive_snakes,
+                        14
+                    );
+                    transition
+                        .publish_first_scheduled_frame_v1(&mut frame)
+                        .unwrap();
+                    assert_eq!(transition.completed_step(), 1);
+                    if let Some(expected) = &expected_frame {
+                        assert_eq!(&frame, expected);
+                    } else {
+                        expected_frame = Some(frame);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

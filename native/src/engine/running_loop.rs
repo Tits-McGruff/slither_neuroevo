@@ -984,6 +984,11 @@ impl RunningAuthorityLoop {
         self.coordinator.pending_hall_of_fame_weights_descriptor()
     }
 
+    /// Exact active observation width; no world scan or sensor execution.
+    pub(crate) fn sensor_input_size(&self) -> usize {
+        self.coordinator.sensor_input_size()
+    }
+
     /// Borrow only the retained source controller records for queue admission.
     /// These remain private Rust data and cannot be supplied by a bridge caller.
     pub(crate) fn generation_source_controller_leases(&self) -> &[super::state::ControllerLease] {

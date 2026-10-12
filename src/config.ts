@@ -1,7 +1,7 @@
 /** Browser settings drafts and presentation defaults; Rust owns game configuration. */
 
 import { deepClone } from './utils.ts';
-import { getSensorLayout, type SensorLayout, type SensorLayoutVersion } from './protocol/sensors.ts';
+import { getSensorLayout, type SensorLayout, type SensorLayoutVersion, type SensorSpec, type SensorV4Profile, sensorLayoutFromContract } from './protocol/sensors.ts';
 import { defaultStackBrain } from './brains/stackBuilder.ts';
 import type { GraphSpec } from './brains/graph/schema.ts';
 
@@ -76,6 +76,7 @@ export const CFG_DEFAULT = {
     // The bubble radius increases with snake length using the same zoom curve
     // as the follow camera (larger snakes see farther).
     layoutVersion: 'v3' as SensorLayoutVersion,
+    profile: 'motion' as SensorV4Profile,
     bubbleBins: 16,
     rNearBase: 520,
     rNearScale: 260,
@@ -189,7 +190,22 @@ function logV3LayoutOnce(layout: SensorLayout): void {
  */
 export function syncBrainInputSize(): void {
   const sense = CFG.sense ?? {};
-  const layout = getSensorLayout(sense.bubbleBins ?? 16);
+  const layout = getSensorLayout(sense.bubbleBins ?? 16, sense.layoutVersion, sense.profile);
   CFG.brain.inSize = layout.inputSize;
   logV3LayoutOnce(layout);
+}
+
+
+/** Apply explicit v4 structure before rebuilding browser stack/editor presentation. */
+export function applyAuthoritativeSensorSpec(spec: SensorSpec): void {
+  if (spec.layoutVersion === 'v3') return;
+  if (!spec.contract) throw new TypeError('missing authoritative v4 sensor contract');
+  const layout = sensorLayoutFromContract(spec.contract);
+  if (layout.layoutVersion !== spec.layoutVersion || layout.profile !== spec.profile ||
+      spec.sensorCount !== layout.inputSize || spec.order.length !== layout.order.length ||
+      spec.order.some((label,index)=>label !== layout.order[index])) throw new TypeError('authoritative sensor shape mismatch');
+  CFG.sense.layoutVersion = 'v4';
+  CFG.sense.profile = layout.profile as SensorV4Profile;
+  CFG.sense.bubbleBins = layout.bins;
+  syncBrainInputSize();
 }

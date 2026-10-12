@@ -4,6 +4,8 @@ import type {
   RustBackgroundVisualization
 } from '../../src/protocol/rustBackground.ts';
 import type { AssignMsg, ReclaimResultMsg, SensorsMsg } from '../protocol.ts';
+import { nativeSensorLayout } from './browserMetadata.ts';
+import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { BackgroundFramePool, type BackgroundFrameLease } from './backgroundFrames.ts';
 import { BackgroundGenerationRouter } from './backgroundGeneration.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
@@ -62,6 +64,10 @@ export class BackgroundOutputPump {
   private readonly generation: BackgroundGenerationRouter;
   /** Two admitted Node send buffers, never a frame backlog. */
   private readonly frames: BackgroundFramePool;
+  /** Metadata object whose structural width is cached; only cold revisions reparse it. */
+  private sensorMetadata: RustStartupMetadata | undefined;
+  /** Exact current sensor count, with no per-observation metadata allocation. */
+  private sensorCount = 0;
   /** Last frame actually handed to the transport. */
   private frameSequence: RustBackgroundIdentity = '0000000000000000';
   /** Last focused snapshot copied from the replaceable Rust cache. */
@@ -82,6 +88,7 @@ export class BackgroundOutputPump {
     const { owner, send, maxControllers } = options;
     this.admission = new BackgroundCommandAdmission(owner.runtime);
     this.ordinary = new ControllerDeliveryRouter(maxControllers, {
+      sensorCount: () => this.currentSensorCount(),
       send, nextSequence: () => this.admission.nextSequence(),
       trySubmitReceipt: (sequence, receipt) => this.admission.trySubmitReceipt(sequence, receipt)
     });
@@ -101,6 +108,16 @@ export class BackgroundOutputPump {
       observeBarrier: durationMs => options.observeCheckpointBarrier?.(durationMs)
     });
     this.frames = new BackgroundFramePool(owner.runtime, owner.metadata.maximumFrameBytes);
+  }
+
+  /** Recompute only when an authoritative reset/import/live revision replaces metadata. */
+  private currentSensorCount(): number {
+    const metadata = this.options.owner.metadata;
+    if (this.sensorMetadata !== metadata) {
+      this.sensorCount = nativeSensorLayout(metadata).inputSize;
+      this.sensorMetadata = metadata;
+    }
+    return this.sensorCount;
   }
 
   /** Drain a bounded turn; callers reschedule when true and periodically retry input capacity. */

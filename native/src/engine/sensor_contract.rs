@@ -3,6 +3,7 @@
 //! geometry or normalization change changes its digest even at equal width.
 
 use super::sensor_layout::{SensorLayout, MAX_SENSOR_BINS, MIN_SENSOR_BINS, SENSOR_SCALAR_LABELS};
+use super::state::{NormalizedSetting, NormalizedSettingValue};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::{Display, Formatter};
@@ -150,6 +151,127 @@ impl SensorContractIdentity {
         })
     }
 
+    /// Reconstruct the recorded structural contract; legacy v3 has no extension.
+    /// V4 always carries an exact digest, so a same-width or revised meaning rejects.
+    pub fn from_settings(settings: &[NormalizedSetting]) -> Result<Self, SensorContractError> {
+        if settings.windows(2).any(|pair| pair[0].path >= pair[1].path) {
+            return Err(SensorContractError::Settings);
+        }
+        let value = |path: &str| {
+            settings
+                .binary_search_by(|entry| entry.path.as_str().cmp(path))
+                .ok()
+                .map(|index| &settings[index].value)
+        };
+        let integer = |path| match value(path) {
+            Some(NormalizedSettingValue::Integer(value)) => Ok(*value),
+            _ => Err(SensorContractError::Settings),
+        };
+        let version = integer("sense.layoutVersion")?;
+        if integer("brain.sensorVersion")? != version {
+            return Err(SensorContractError::Settings);
+        }
+        let bins =
+            usize::try_from(integer("sense.bubbleBins")?).map_err(|_| SensorContractError::Bins)?;
+        let profile = match version {
+            3 => SensorProfile::V3,
+            4 if integer("sense.contractVersion")? == 1 => match integer("sense.profile")? {
+                0 => SensorProfile::Basic,
+                1 => SensorProfile::Motion,
+                _ => return Err(SensorContractError::Settings),
+            },
+            _ => return Err(SensorContractError::Settings),
+        };
+        let identity = Self::new(profile, bins)?;
+        if version == 3 {
+            if [
+                "sense.contractVersion",
+                "sense.profile",
+                "sense.contractSha256",
+            ]
+            .iter()
+            .any(|path| value(path).is_some())
+            {
+                return Err(SensorContractError::Settings);
+            }
+        } else if !matches!(value("sense.contractSha256"), Some(NormalizedSettingValue::Text(digest)) if *digest == identity.sha256_hex()?)
+        {
+            return Err(SensorContractError::StructuralMismatch);
+        }
+        Ok(identity)
+    }
+
+    /// Stamp a newly constructed v4 candidate; never migrate an existing owner record.
+    pub fn record_v4_settings(
+        &self,
+        settings: &mut Vec<NormalizedSetting>,
+    ) -> Result<(), SensorContractError> {
+        let profile = match self.profile {
+            SensorProfile::Basic => 0,
+            SensorProfile::Motion => 1,
+            SensorProfile::V3 => return Err(SensorContractError::Settings),
+        };
+        let digest = self.sha256_hex()?;
+        for path in [
+            "brain.sensorVersion",
+            "sense.layoutVersion",
+            "sense.bubbleBins",
+        ] {
+            if settings.iter().filter(|entry| entry.path == path).count() != 1 {
+                return Err(SensorContractError::Settings);
+            }
+        }
+        for entry in settings.iter_mut() {
+            match entry.path.as_str() {
+                "brain.sensorVersion" | "sense.layoutVersion" => {
+                    entry.value = NormalizedSettingValue::Integer(4)
+                }
+                "sense.bubbleBins" => {
+                    entry.value = NormalizedSettingValue::Integer(self.bins as i64)
+                }
+                _ => {}
+            }
+        }
+        settings.retain(|entry| {
+            ![
+                "sense.contractVersion",
+                "sense.profile",
+                "sense.contractSha256",
+            ]
+            .contains(&entry.path.as_str())
+        });
+        settings.extend([
+            NormalizedSetting {
+                path: "sense.contractVersion".into(),
+                value: NormalizedSettingValue::Integer(1),
+            },
+            NormalizedSetting {
+                path: "sense.profile".into(),
+                value: NormalizedSettingValue::Integer(profile),
+            },
+            NormalizedSetting {
+                path: "sense.contractSha256".into(),
+                value: NormalizedSettingValue::Text(digest),
+            },
+        ]);
+        settings.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+        Ok(())
+    }
+
+    pub const fn layout_version(&self) -> u32 {
+        self.layout_version
+    }
+
+    /// Lowercase canonical digest carried by settings, saved brains and handshakes.
+    pub fn sha256_hex(&self) -> Result<String, SensorContractError> {
+        use std::fmt::Write;
+        let mut text = String::with_capacity(64);
+        for byte in self.sha256()? {
+            write!(&mut text, "{byte:02x}").map_err(|_| SensorContractError::Encoding)?;
+        }
+        Ok(text)
+    }
+
     pub const fn profile(&self) -> SensorProfile {
         self.profile
     }
@@ -204,7 +326,12 @@ impl SensorLayout {
     /// labels, default settings or the historical native sensor fixtures.
     pub fn contract_identity(&self) -> Result<SensorContractIdentity, SensorContractError> {
         let identity = SensorContractIdentity::new(self.profile, self.bins)?;
-        if identity.input_size() != self.input_size || identity.order() != self.order.as_ref() {
+        let expected = match self.profile {
+            SensorProfile::V3 => SensorLayout::new(self.bins),
+            profile => SensorLayout::v4(profile, self.bins),
+        }
+        .map_err(|_| SensorContractError::StructuralMismatch)?;
+        if *self != expected {
             return Err(SensorContractError::StructuralMismatch);
         }
         Ok(identity)
@@ -308,6 +435,8 @@ pub enum SensorContractError {
     Bins,
     Encoding,
     StructuralMismatch,
+    /// Incomplete, noncanonical or inconsistent structural settings.
+    Settings,
 }
 impl Display for SensorContractError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -319,6 +448,84 @@ impl std::error::Error for SensorContractError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_wire_fixtures_are_exact_native_canonical_contracts() {
+        let records: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("fixtures/sensor-contract-shapes.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(records.as_array().unwrap().len(), 7);
+        for record in records.as_array().unwrap() {
+            let profile: SensorProfile = serde_json::from_value(record["profile"].clone()).unwrap();
+            let contract =
+                SensorContractIdentity::new(profile, record["bins"].as_u64().unwrap() as usize)
+                    .unwrap();
+            assert_eq!(
+                record["canonicalJson"],
+                String::from_utf8(contract.canonical_bytes().unwrap()).unwrap()
+            );
+            assert_eq!(record["sha256"], contract.sha256_hex().unwrap());
+        }
+    }
+
+    #[test]
+    fn persisted_settings_bind_profiles_revisions_and_same_width_meanings() {
+        use crate::engine::step_config::typescript_default_settings;
+        let mut basic = typescript_default_settings(12, 2);
+        let identity = SensorContractIdentity::new(SensorProfile::Basic, 20).unwrap();
+        identity.record_v4_settings(&mut basic).unwrap();
+        assert_eq!(
+            SensorContractIdentity::from_settings(&basic).unwrap(),
+            identity
+        );
+        for path in [
+            "sense.contractVersion",
+            "sense.profile",
+            "sense.contractSha256",
+        ] {
+            let mut missing = basic.clone();
+            missing.retain(|entry| entry.path != path);
+            assert!(SensorContractIdentity::from_settings(&missing).is_err());
+        }
+        let motion = SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap();
+        assert_eq!(motion.input_size(), identity.input_size());
+        let mut reinterpreted = basic.clone();
+        for entry in &mut reinterpreted {
+            match entry.path.as_str() {
+                "sense.profile" => entry.value = NormalizedSettingValue::Integer(1),
+                "sense.bubbleBins" => entry.value = NormalizedSettingValue::Integer(8),
+                _ => {}
+            }
+        }
+        assert_eq!(
+            SensorContractIdentity::from_settings(&reinterpreted),
+            Err(SensorContractError::StructuralMismatch)
+        );
+        motion.record_v4_settings(&mut reinterpreted).unwrap();
+        assert_eq!(
+            SensorContractIdentity::from_settings(&reinterpreted).unwrap(),
+            motion
+        );
+        let legacy = typescript_default_settings(12, 2);
+        assert_eq!(
+            SensorContractIdentity::from_settings(&legacy)
+                .unwrap()
+                .profile(),
+            SensorProfile::V3
+        );
+        let mut partial_legacy = legacy;
+        partial_legacy.push(NormalizedSetting {
+            path: "sense.profile".into(),
+            value: NormalizedSettingValue::Integer(1),
+        });
+        partial_legacy.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+        assert!(SensorContractIdentity::from_settings(&partial_legacy).is_err());
+    }
+
     #[test]
     fn layouts_have_exact_labels_offsets_and_ceiling_widths() {
         for bins in 8..=32 {

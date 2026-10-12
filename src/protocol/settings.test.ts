@@ -46,5 +46,8 @@ describe('authoritative settings contract', () => {
   it('normalizes every legacy sensor-layout snapshot marker to v3', () => {
     expect(coerceSettingsUpdateValue('sense.layoutVersion', 0)).toBe('v3');
     expect(coerceSettingsUpdateValue('sense.layoutVersion', 1)).toBe('v3');
+    expect(coerceSettingsUpdateValue('sense.layoutVersion', 3)).toBe('v3');
+    expect(coerceSettingsUpdateValue('sense.layoutVersion', 4)).toBe('v4');
+    expect(()=>coerceSettingsUpdateValue('sense.layoutVersion',99)).toThrow('unsupported');
   });
 });

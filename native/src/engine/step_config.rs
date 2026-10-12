@@ -21,9 +21,7 @@ use super::movement::MovementConfig;
 use super::physics::PhysicsConfig;
 use super::sensors::{SensorConfig, SensorError};
 use super::spatial::SensorIndexConfig;
-use super::state::{
-    NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue, SENSOR_VERSION,
-};
+use super::state::{NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue};
 use super::world_step::{WorldStepConfig, WorldStepError, MAXIMUM_PHYSICS_SUBSTEPS};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -47,6 +45,8 @@ const TYPESCRIPT_MINIMUM_FIXED_STEP_SECONDS: f64 = 1.0 / 240.0;
 /// or smaller values without changing experiment configuration identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunningStepWorkLimits {
+    /// Explicit admitted v4 qualification limits; no production default before the workload gate.
+    pub ray_work: Option<super::ray_work::RayWorkLimits>,
     /// Persistent calculation threads, independent of gameplay identity.
     pub calculation_workers: usize,
     /// Complete body-cell entries admitted for shared sensing.
@@ -74,6 +74,7 @@ impl RunningStepWorkLimits {
     #[must_use]
     pub const fn provisional_defaults() -> Self {
         Self {
+            ray_work: None,
             calculation_workers: 1,
             sensor_body_entries: 1_000_000,
             collision_index_entries: 2_000_000,
@@ -225,8 +226,10 @@ pub struct RunningStepConfigProjection {
     pub world_step: WorldStepConfig,
     /// Recorded legacy or complete evolved-life experiment contract.
     pub evolved: super::evolved_lives::EvolvedExperimentConfig,
-    /// Exact corrected sensor-v3 formula configuration owned by the control pipeline.
+    /// Exact numeric sensor environment owned by the configured control pipeline.
     pub sensor: SensorConfig,
+    /// Structural profile reconstructed from the persisted digest contract.
+    pub sensor_profile: super::sensor_contract::SensorProfile,
     /// Values that prove whether a completed step is safely nonterminal.
     pub generation_guard: GenerationGuardConfig,
     /// Reset-only random genome initialization formulas needed by replacement/evolution.
@@ -490,13 +493,9 @@ pub(crate) fn project_running_step_config(
             path: "baselineBots.count",
         });
     }
-    if settings.integer("brain.sensorVersion", 3, 3)? != i64::from(SENSOR_VERSION)
-        || settings.integer("sense.layoutVersion", 3, 3)? != i64::from(SENSOR_VERSION)
-    {
-        return Err(StepConfigError::ProjectionMismatch {
-            path: "sense.layoutVersion",
-        });
-    }
+    let sensor_contract =
+        super::sensor_contract::SensorContractIdentity::from_settings(&config.settings)
+            .map_err(StepConfigError::SensorContract)?;
 
     let food_value = settings.float("foodValue", 0.1, 8.0)?;
     let growth_per_food = settings.float("growPerFood", 0.1, 10.0)?;
@@ -738,6 +737,7 @@ pub(crate) fn project_running_step_config(
         world_step,
         evolved: project_evolved_experiment_config(config)?,
         sensor,
+        sensor_profile: sensor_contract.profile(),
         generation_guard,
         genome_initialization,
     })
@@ -873,6 +873,10 @@ impl<'config> SettingReader<'config> {
 /// Rejection while deriving the complete running-step formula contract.
 #[derive(Debug)]
 pub enum StepConfigError {
+    /// Unsupported or mismatched structural sensor identity.
+    SensorContract(super::sensor_contract::SensorContractError),
+    /// V4 cannot run before explicit measured/admitted limits are supplied.
+    MissingRayWorkLimits,
     /// The normalized settings vector is not strictly path-sorted and unique.
     NonCanonicalSettings,
     /// One correctness-relevant running-step setting is absent.
@@ -917,6 +921,11 @@ impl From<SensorError> for StepConfigError {
 impl Display for StepConfigError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SensorContract(error) => write!(formatter, "{error}"),
+            Self::MissingRayWorkLimits => write!(
+                formatter,
+                "sensor-v4 requires explicit admitted ray-work limits for qualification"
+            ),
             Self::NonCanonicalSettings => {
                 write!(
                     formatter,

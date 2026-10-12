@@ -24,6 +24,7 @@ const BASE_FIXTURE_FILES: Readonly<Record<string, string>> = {
   'fixtures/frame-v1-reference.json': '{"fixture":"frame-v1"}\n',
   'fixtures/fresh-run-reference.json': '{"fixture":"fresh-run"}\n',
   'fixtures/genome-init-reference.json': '{"fixture":"genome-init"}\n',
+  'fixtures/sensor-contract-shapes.json': '{"fixture":"sensor-contract-shapes"}\n',
   'fixtures/sensor-v3-reference.json': '{"fixture":"sensor-v3"}\n',
   'package-lock.json': '{"lockfileVersion":3}\n',
   'package.json': '{"name":"fixture"}\n',
@@ -87,9 +88,9 @@ describe(SUITE, () => {
     const identity = computeNativeSourceIdentity(fixture);
 
     expect(identity.sha256).toBe(
-      '9f101f2933fe20f8979c9d204f0ab111ca3523f36c39324ccc29b6c5a8f107c9'
+      '45cf9254f396334e8117dcfa7d152f69424bf4e81a4318b30e2ad93298069ceb'
     );
-    expect(identity.fileCount).toBe(13);
+    expect(identity.fileCount).toBe(14);
     expect(identity.manifest.map(entry => entry.relativePath)).toEqual([
       '.cargo/config.toml',
       'Cargo.lock',
@@ -99,6 +100,7 @@ describe(SUITE, () => {
       'fixtures/frame-v1-reference.json',
       'fixtures/fresh-run-reference.json',
       'fixtures/genome-init-reference.json',
+      'fixtures/sensor-contract-shapes.json',
       'fixtures/sensor-v3-reference.json',
       'package-lock.json',
       'package.json',

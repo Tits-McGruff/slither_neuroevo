@@ -776,6 +776,7 @@ describe('main.ts startup smoke', () => {
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify({ type: 'welcome', protocolVersion: 2,
       worldSeed: 42, runId: 'finish-run', configRevision: 0, capabilities: { finishGeneration: true },
+      sensorSpec: {sensorCount:83,order:[],layoutVersion:'v3'},
       settings: { core: { simSpeed: 1 }, updates: [] },
       inferenceMode: { activeBackend: 'native', activeWorkerCount: 0 } }) });
     socket.onmessage?.({ data: JSON.stringify({ type: 'stats', gen: 7, generationTime: 3723,

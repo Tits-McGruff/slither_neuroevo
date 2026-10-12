@@ -1,5 +1,5 @@
 import { DEFAULT_CORE_SETTINGS, SETTINGS_PATHS } from '../../src/protocol/settings.ts';
-import { getSensorLayout, getSensorSpec } from '../../src/protocol/sensors.ts';
+import { getSensorLayout, getSensorSpec, sensorLayoutFromContract, type SensorLayout } from '../../src/protocol/sensors.ts';
 import type {
   RustBackgroundDisplay,
   RustBackgroundVisualization,
@@ -25,10 +25,17 @@ export function nativeSetting(metadata: RustStartupMetadata, path: string): numb
   return raw;
 }
 
+/** Resolve Rust structural metadata, retaining the historical v3 handshake reader. */
+export function nativeSensorLayout(metadata: RustStartupMetadata): SensorLayout {
+  if (metadata.sensorContract) return sensorLayoutFromContract(metadata.sensorContract);
+  if (metadata.sensorVersion !== 3) throw new TypeError('missing native structural sensor metadata');
+  return getSensorLayout(nativeSetting(metadata,'sense.bubbleBins'));
+}
+
 /** Project graph controls and scalar settings without assigning transport identities. */
 export function createRustSettings(metadata: RustStartupMetadata): WelcomeMsg['settings'] {
   const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: nativeSetting(metadata, 'snakeCount'), simSpeed: nativeSetting(metadata, 'simSpeed') };
-  const inputSize = getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins')).inputSize;
+  const inputSize = nativeSensorLayout(metadata).inputSize;
   const stack = deriveStackPresentation(metadata.graphSpec, core, inputSize);
   const updates = new Map(SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
     .map(path => [path, nativeSetting(metadata, path)]));
@@ -52,7 +59,7 @@ export function createRustWelcome(
     graphSpec: metadata.graphSpec,
     capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true },
     settings: createRustSettings(metadata),
-    sensorSpec: getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins'))),
+    sensorSpec: getSensorSpec(nativeSensorLayout(metadata), metadata.sensorContract),
     inferenceMode: {
       requestedBackend: 'native', activeBackend: 'native', requestedMt: calculationWorkers > 1,
       activeWorkerCount: calculationWorkers > 1 ? calculationWorkers : 0,

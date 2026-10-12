@@ -1,3 +1,4 @@
+import { isSupportedSensorCount } from '../../src/protocol/sensors.ts';
 import type { AssignMsg, SensorsMsg, ReclaimResultMsg } from '../protocol.ts';
 import type {
   RustBackgroundControllerMessage,
@@ -10,6 +11,8 @@ import type { RustBackgroundGenerationAssignment } from '../../src/protocol/rust
 
 /** Transport and bounded command admission supplied by the background event router. */
 export interface ControllerDeliveryPorts {
+  /** Current Rust-admitted width; historical fixture adapters may omit this v3-only hint. */
+  sensorCount?(): number;
   /** Route to the exact socket epoch; false means the local send was not accepted. */
   send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg): boolean;
   /** Allocate from the shared ordered command pump, which must hold later commands while blocked. */
@@ -40,7 +43,7 @@ function identity(value: string): RustBackgroundIdentity {
 }
 
 /** Translate a complete Rust envelope without calculating sensors or looking up game state. */
-function prepare(message: RustBackgroundControllerMessage): PendingDelivery {
+function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?: number): PendingDelivery {
   const receipt: RustGenerationAssignmentReceipt = {
     operationEpoch: identity(message.operationEpoch),
     eventSequence: identity(message.eventSequence),
@@ -70,11 +73,12 @@ function prepare(message: RustBackgroundControllerMessage): PendingDelivery {
   const tick = BigInt(`0x${message.sourceCompletedStep}`);
   if (tick > MAX_WIRE_INTEGER) throw new RangeError('observation tick exceeds Protocol 2 exact integers');
   const { sensors, x, y, direction } = message;
-  if (!Array.isArray(sensors) || sensors.length < 51 || sensors.length > 147 ||
-      (sensors.length - 19) % 4 !== 0 || !sensors.every(Number.isFinite) ||
+  if (!Array.isArray(sensors) || !isSupportedSensorCount(sensors.length) ||
+      (expectedSensorCount === undefined ? (sensors.length<51 || sensors.length>147 || (sensors.length-19)%4!==0) :
+        (!isSupportedSensorCount(expectedSensorCount) || sensors.length!==expectedSensorCount)) || !sensors.every(Number.isFinite) ||
       typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y) ||
       typeof direction !== 'number' || !Number.isFinite(direction)) {
-    throw new TypeError('controller observation omits valid sensor-v3 values or pose');
+    throw new TypeError('controller observation omits the admitted sensor values or pose');
   }
   return { receipt, message: {
     type: 'sensors', tick: Number(tick), snakeId: message.snakeId,
@@ -111,7 +115,8 @@ export class ControllerDeliveryRouter {
     if (messages.length === 0 || messages.length > this.maxMessages) {
       throw new RangeError('controller batch exceeds admitted message capacity');
     }
-    const prepared = messages.map(prepare);
+    const sensorCount = this.ports.sensorCount?.();
+    const prepared = messages.map(message=>prepare(message,sensorCount));
     this.pending = prepared;
     this.cursor = 0;
     this.busy = true;

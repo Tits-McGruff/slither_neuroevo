@@ -608,7 +608,30 @@ impl PendingRunStartTransition {
             })
             .collect::<Vec<_>>();
         let graph_spec = graph_spec_metadata(self.authority.graph_spec());
-        let metadata = serde_json::json!({
+        // Compact historical v3 format fixtures can carry no sensing settings.
+        // Preserve that old metadata surface; v4 never admits an absent contract.
+        let compact_v3 = state.versions.sensor == 3
+            && !state.config.settings.iter().any(|entry| {
+                matches!(
+                    entry.path.as_str(),
+                    "sense.layoutVersion"
+                        | "sense.bubbleBins"
+                        | "sense.contractVersion"
+                        | "sense.profile"
+                        | "sense.contractSha256"
+                )
+            });
+        let contract = if compact_v3 {
+            None
+        } else {
+            Some(
+                super::sensor_contract::SensorContractIdentity::from_settings(
+                    &state.config.settings,
+                )
+                .map_err(|error| error.to_string())?,
+            )
+        };
+        let mut metadata = serde_json::json!({
             "runId": state.identity.run_id,
             "seed": state.identity.seed,
             "legacyConversion": state.identity.legacy_conversion,
@@ -623,8 +646,17 @@ impl PendingRunStartTransition {
             "serializerVersion": state.versions.serializer,
             "sensorVersion": state.versions.sensor,
             "settings": settings,
-        })
-        .to_string();
+        });
+        if let Some(contract) = contract {
+            let canonical = String::from_utf8(
+                contract
+                    .canonical_bytes()
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            metadata["sensorContract"] = serde_json::json!({"canonicalJson":canonical,"sha256":contract.sha256_hex().map_err(|error|error.to_string())?});
+        }
+        let metadata = metadata.to_string();
         if metadata.len() > 1024 * 1024 {
             return Err("startup metadata exceeds one MiB".into());
         }

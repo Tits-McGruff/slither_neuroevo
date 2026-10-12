@@ -580,7 +580,25 @@ impl RunningStepCoordinator {
         limits: RunningStepWorkLimits,
     ) -> Result<Self, RunningStepError> {
         let projection = authority.running_step_config(limits)?;
-        let sensor = SensorEvaluator::new(projection.sensor.clone())?;
+        let sensor = if projection.sensor_profile == super::sensor_contract::SensorProfile::V3 {
+            SensorEvaluator::new(projection.sensor.clone())?
+        } else {
+            let ray_work = limits
+                .ray_work
+                .ok_or(StepConfigError::MissingRayWorkLimits)?;
+            if ray_work.maximum_due() < projection.world_step.control.maximum_snakes {
+                return Err(StepConfigError::OutOfRange {
+                    path: "ray maximum-due admission",
+                }
+                .into());
+            }
+            SensorEvaluator::new_v4(
+                projection.sensor.clone(),
+                projection.world_step.physics.movement,
+                projection.world_step.prefix.fixed_dt,
+                projection.sensor_profile,
+            )?
+        };
         let state = authority.state();
         let math_backend = InferenceMathBackend::from_label(&state.identity.math_backend)
             .ok_or_else(|| InferenceError::UnknownMathBackend {
@@ -674,6 +692,11 @@ impl RunningStepCoordinator {
     /// Retain manual completion across config changes until durable successor publication.
     pub(crate) fn request_manual_finish(&mut self) {
         self.manual_finish_requested = true;
+    }
+
+    /// Exact active neural/external width used for coarse output-byte admission.
+    pub(crate) fn sensor_input_size(&self) -> usize {
+        self.control.sensor_input_size()
     }
 
     /// Exact numeric implementation bound by the admitted run identity.
@@ -852,7 +875,20 @@ impl RunningStepCoordinator {
                 generation: &self.staged_sensor_generation,
                 assessment_points: selected_score_context
                     .then_some(self.staged_assessment_points.as_slice()),
-                v4: None,
+                v4: self
+                    .work_limits
+                    .ray_work
+                    .filter(|_| {
+                        self.projection.sensor_profile != super::sensor_contract::SensorProfile::V3
+                    })
+                    .map(|limits| super::control_phase::V4BoundaryContext {
+                        context: super::sensors_v4::V4ObservationContext {
+                            generation_elapsed_seconds: prefix.generation_elapsed_seconds(),
+                            evolved: &self.staged_evolved_generation,
+                            experiment: self.projection.evolved,
+                        },
+                        limits,
+                    }),
                 population: &state.population,
                 brains: &state.brains,
                 wall_now_ms: inputs.wall_now_ms,
@@ -872,9 +908,11 @@ impl RunningStepCoordinator {
             }
             #[cfg(feature = "engine-test-hooks")]
             let commit_started = Instant::now();
-            for update in selected.control_updates() {
+            let evaluated_controls = selected.control_updates();
+            let committed = self.control_commit.prepare(selected)?;
+            for update in evaluated_controls {
                 if update.source() == super::control_phase::SelectedControlSource::NeuralEvaluated {
-                    let snake = &selected.prefix().world().snakes[update.snake_index()];
+                    let snake = &committed.world().snakes[update.snake_index()];
                     if snake.kind == SnakeKind::Evolved {
                         let slot = snake.population_slot.ok_or_else(|| {
                             evolved_accounting_error(
@@ -886,7 +924,6 @@ impl RunningStepCoordinator {
                     }
                 }
             }
-            let committed = self.control_commit.prepare(selected)?;
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.control_commit_ms = elapsed_ms(commit_started);

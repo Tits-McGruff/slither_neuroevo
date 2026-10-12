@@ -2,7 +2,7 @@ import { buildStackGraphSpec, defaultStackBrain } from '../../src/brains/stackBu
 import { graphKey } from '../../src/brains/graph/compiler.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { DEFAULT_CORE_SETTINGS, type CoreSettings, type SettingsUpdate } from '../../src/protocol/settings.ts';
-import { getSensorLayout } from '../../src/protocol/sensors.ts';
+import { getSensorLayout, sensorLayoutFromContract } from '../../src/protocol/sensors.ts';
 import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from '../../src/protocol/settingDefinitions.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import type { ResetMsg } from '../protocol.ts';
@@ -80,10 +80,14 @@ export function normalizeStackSetting(path: string, value: number): number {
 export function clearedStackGraph(metadata: RustStartupMetadata, message: ResetMsg,
   settings: readonly { path: string; value: number }[]): GraphSpec {
   const values = new Map(settings.map(setting => [setting.path, setting.value]));
-  const inputSize = getSensorLayout(values.get('sense.bubbleBins')!).inputSize;
+  const currentLayout = metadata.sensorContract ? sensorLayoutFromContract(metadata.sensorContract) :
+    getSensorLayout(Number(metadata.settings.find(setting=>setting.path==='sense.bubbleBins')!.value));
+  const version = values.get('sense.layoutVersion') ?? metadata.sensorVersion;
+  const inputSize = getSensorLayout(values.get('sense.bubbleBins')!, 'v'+version,
+    currentLayout.profile === 'v3' ? undefined : currentLayout.profile).inputSize;
   const currentCore = { ...DEFAULT_CORE_SETTINGS,
     snakeCount: values.get('snakeCount')!, simSpeed: values.get('simSpeed')! };
-  const currentInput = getSensorLayout(Number(metadata.settings.find(setting => setting.path === 'sense.bubbleBins')!.value)).inputSize;
+  const currentInput = currentLayout.inputSize;
   const current = deriveStackPresentation(metadata.graphSpec, currentCore, currentInput);
   const core = { ...(current?.core ?? currentCore) };
   for (const [key, value] of Object.entries(message.settings ?? {})) {

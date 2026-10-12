@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-12)
+## Implementation progress (2026-10-13)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -201,11 +201,40 @@ test-hooks addons pass all 13 required-native files: 170 tests with six existing
 skips, including archive cancellation and exact multiworker continuation.
 Client-build evidence is reused because browser sources are unchanged.
 
+V4 now has strict native settings/state admission: a complete version-one
+structural extension records profile and canonical digest, checks the exact
+Input width and rejects incomplete, revised or same-width reinterpretations.
+Numeric environment changes preserve the structural identity. Existing v3
+schemas and compact v3 checkpoint-format metadata retain their compatibility.
+The checkpoint-v3 settings role carries the new fields without changing its
+packed population format. Production restore recognizes both complete v4
+schema families. Candidate runs use the normal durable run-start, native
+control/physics and checkpoint restore paths with explicit ray limits; ordinary
+constructors still select v3 until workload/ablation qualification chooses limits.
+Native startup emits bounded canonical contract bytes and their digest. Node
+verifies those bytes against the digest, graph and recorded settings, then
+forwards them in welcome metadata. Browser stack/editor sizing follows the exact
+profile. Seven shared conformance fixtures cover v3 and both v4 profiles at
+B8/B16/B32 and are included in both independent source-identity policies; the
+five historical fixture files remain unchanged. Native reply admission prices
+wider vectors, and controller routing checks the active width with metadata
+cached across observations. Existing v3 snapshot-marker conversion remains.
+Native regressions prove durable v4 restoration, first-step frame agreement
+across one/three workers, structural rejection and environment compatibility.
+Production selectors, ray/normalization freeze, workload/tactical qualification,
+full resource accounting and saved-brain/trainer propagation remain open.
+Windows qualification passes 643 release library tests with hooks, three
+benchmark checks and the doctest; all-target Clippy with hooks and rustfmt pass.
+The rebuilt production and isolated source-identified hooks addons pass all
+13 required-native files: 170 tests with six existing skips. Unit/component
+validation passes 384/61 tests (three existing unit capability skips), and the
+focused browser startup set passes. TypeScript, repository ESLint and the
+client build pass.
+
 Stages D through J and the remaining B/C integration and qualification gates
-remain open. Production sensor-v4 routing/propagation and qualification,
-baseline v2, canonical PyTorch distillation, capture/jobs/shadows, the brain
-library and the new inspector are not yet
-implemented. Existing v3/v1 runtime defaults remain until their stages qualify.
+remain open. Baseline v2, canonical PyTorch distillation, capture/jobs/shadows,
+the brain library and the new inspector are not yet implemented. Existing
+v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:
 

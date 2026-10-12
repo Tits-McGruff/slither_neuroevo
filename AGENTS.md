@@ -75,8 +75,14 @@ God Mode kill follows normal death; move translates the entire body within
 bounds. UI logs use `godModeResult`. The status pill shows server, seed,
 native backend and active worker count.
 
-The only sensor layout is v3: `19 + 4 * bubbleBins`, bins at least eight.
-Keep native sensors, `src/protocol/sensors.ts`, graph validation and UI aligned.
+The ordinary production default remains frozen v3: `19 + 4 * bubbleBins`.
+Candidate v4 Basic/Motion use `24 + 6B`/`24 + 15B`, B8..32, and require
+explicit admitted ray limits in the native qualification constructor until the
+workload/ablation gate selects production defaults. Native admission binds v4
+profile and canonical sensor digest through recorded settings; startup/welcome
+metadata carries exact Rust canonical bytes. Browser code validates metadata and
+sizes graph presentation only. Keep native sensors, `src/protocol/sensors.ts`,
+graph validation and UI aligned.
 Pure graph schema/compiler/editor, stack builder and `parameterCounts.ts`
 remain TypeScript. Graph execution belongs only to Rust. Ports are zero-based;
 Split sizes sum to inputs, Concat ordering is explicit, outputs total two,

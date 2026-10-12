@@ -58,7 +58,7 @@ pub struct SensorOffsets {
     pub head: usize,
 }
 
-/// Validated sensor-v3 layout used by graphs, observations, and handshakes.
+/// Exact frozen v3 or candidate v4 layout used by graphs and observation staging.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SensorLayout {
     /// Explicit structural version; v3 remains the historical default.
@@ -113,6 +113,18 @@ impl SensorLayout {
             offsets,
             order: order.into_boxed_slice(),
         })
+    }
+
+    /// Dispatch a structural profile to its exact native layout.
+    pub fn for_profile(
+        profile: super::sensor_contract::SensorProfile,
+        bins: usize,
+    ) -> Result<Self, SensorLayoutError> {
+        if profile == super::sensor_contract::SensorProfile::V3 {
+            Self::new(bins)
+        } else {
+            Self::v4(profile, bins)
+        }
     }
 
     /// Build the candidate v4 layout without padding or reinterpreting v3.

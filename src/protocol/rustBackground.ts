@@ -114,6 +114,8 @@ export interface RustQueueDiagnostics {
 
 /** Immutable Rust-owned facts used to construct the initial server welcome. */
 export interface RustStartupMetadata {
+  /** Native canonical sensor manifest; mandatory for v4 and optional for historical v3. */
+  sensorContract?: import('./sensors.ts').SensorContractEnvelope;
   /** Immutable population-only source facts when this lineage came from legacy data. */
   legacyConversion?: RustLegacyConversionNotice;
   /** Exact admitted lineage. */

@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { sensorLayoutFromContract,type SensorContractEnvelope } from '../../src/protocol/sensors.ts';
+
+/** Cross-language fixture byte pairs are verified by native sensor-contract tests. */
+const CONTRACTS = JSON.parse(readFileSync(new URL('../../native/fixtures/sensor-contract-shapes.json',import.meta.url),'utf8')) as SensorContractEnvelope[];
 import { CFG_DEFAULT } from '../../src/config.ts';
 import { buildStackGraphSpec } from '../../src/brains/stackBuilder.ts';
 import { graphKey } from '../../src/brains/graph/compiler.ts';
@@ -19,6 +24,23 @@ function metadata(graphSpec: RustStartupMetadata['graphSpec']): RustStartupMetad
 }
 
 describe('Rust stack graph presentation', () => {
+  it('recovers v4 stack controls and clears graphs at the exact requested profile width',()=>{
+    for (const contract of CONTRACTS) {
+      const layout=sensorLayoutFromContract(contract);
+      if (layout.layoutVersion==='v3') continue;
+      const brain={...CFG_DEFAULT.brain,inSize:layout.inputSize};
+      const spec=buildStackGraphSpec(CORE,{brain});
+      const current={...metadata(spec),sensorVersion:4,sensorContract:contract};
+      current.settings.push({path:'sense.layoutVersion',value:4});
+      current.settings.find(setting=>setting.path==='sense.bubbleBins')!.value=layout.bins;
+      expect(createRustWelcome(current,'v4-stack-session').settings.core).toMatchObject({hiddenLayers:3,neurons1:23});
+      const cleared=clearedStackGraph(current,{type:'reset',graphSpec:null},[
+        {path:'snakeCount',value:12},{path:'simSpeed',value:1},
+        {path:'sense.layoutVersion',value:4},{path:'sense.bubbleBins',value:16}
+      ]);
+      expect(cleared.nodes.find(node=>node.type==='Input')?.outputSize).toBe(layout.profile==='basic'?120:264);
+    }
+  });
   it.each([
     { useMlp: true, stack: { gru: 0, lstm: 0, rru: 0 } },
     { useMlp: true, stack: { gru: 1, lstm: 1, rru: 1 } },

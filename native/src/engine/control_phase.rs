@@ -1381,6 +1381,11 @@ impl ControlPhaseWorkspace {
         self.visualization_identity = None;
     }
 
+    /// Exact configured observation width, read without sampling or allocation.
+    pub(crate) fn sensor_input_size(&self) -> usize {
+        self.neural.sensor().layout().input_size
+    }
+
     /// Whether a subscriber currently requests focused activation work.
     pub const fn visualization_enabled(&self) -> bool {
         self.visualization_enabled

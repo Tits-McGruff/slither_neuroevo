@@ -1,7 +1,7 @@
 /** Entry point for the simulation UI, canvas, and client networking. */
 
 import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
-import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
+import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize, applyAuthoritativeSensorSpec } from './config.ts';
 import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
 import {
   BASELINE_BOT_SEED_HINT_ID,
@@ -3641,6 +3641,7 @@ wsClient = createWsClient({
     serverArchiveImport = info.capabilities?.archiveImport === true;
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeSensorSpec(info.sensorSpec);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3915,6 +3916,7 @@ wsClient = createWsClient({
     serverArchiveExport = info.capabilities?.archiveExport === true;
     serverArchiveImport = info.capabilities?.archiveImport === true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeSensorSpec(info.sensorSpec);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     refreshServerHallOfFame();

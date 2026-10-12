@@ -157,7 +157,10 @@ export function coerceSettingsUpdateValue(
   value: number
 ): number | string | boolean {
   if (path === 'sense.layoutVersion') {
-    return 'v3';
+    if (value === 4) return 'v4';
+    // Historical UI snapshots encoded v2/v3 as zero/one; retain their v3 presentation conversion.
+    if (value === 0 || value === 1 || value === 3) return 'v3';
+    throw new TypeError('unsupported sensor layout version');
   }
   if (path === 'brain.useMlp') {
     return value !== 0;
