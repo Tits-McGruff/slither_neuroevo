@@ -915,6 +915,9 @@ impl FixedStepPrefixWorkspace {
                 control_accumulator_seconds: 0.0,
                 delivered_observation_points: 0.0,
                 observation_delivered: false,
+                completed_step_heading_delta: 0.0,
+                completed_step_speed_delta: 0.0,
+                completed_step_applied_turn: 0.0,
                 body: BodyRange {
                     start: body_start,
                     len: self.respawn_body.len(),
@@ -1650,6 +1653,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 2,

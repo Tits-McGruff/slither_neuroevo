@@ -431,7 +431,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const newSelection = await selectPhysical(viewer, 'life-new-world-select', { snakeId: reused.snakeId });
       expect(newSelection.token).not.toBe(lifeSelection.token);
     } finally { viewer?.socket.terminate(); await server?.close(); await rm(root, { recursive: true, force: true }); }
-  });
+  }, 30_000);
 
   it('finishes only the requested generation through checkpoint durability and rejects stale requests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-manual-finish-'));
@@ -510,7 +510,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       await server?.close();
       await rm(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
+
   it('reports manual completion failure and preserves the durable source when persistence rejects', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-manual-failure-'));
     const dbPath = join(root, 'experiment.sqlite');

@@ -232,6 +232,9 @@ fn initial_external_snake(
         control_accumulator_seconds: 0.0,
         delivered_observation_points: 0.0,
         observation_delivered: false,
+        completed_step_heading_delta: 0.0,
+        completed_step_speed_delta: 0.0,
+        completed_step_applied_turn: 0.0,
         body,
         skin: EXTERNAL_SNAKE_SKIN,
     }
@@ -2107,6 +2110,9 @@ pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
         hash.update(snake.control_accumulator_seconds.to_bits().to_le_bytes());
         hash.update(snake.delivered_observation_points.to_bits().to_le_bytes());
         hash.update([u8::from(snake.observation_delivered)]);
+        hash.update(snake.completed_step_heading_delta.to_bits().to_le_bytes());
+        hash.update(snake.completed_step_speed_delta.to_bits().to_le_bytes());
+        hash.update(snake.completed_step_applied_turn.to_bits().to_le_bytes());
         hash_usize(&mut hash, snake.body.start);
         hash_usize(&mut hash, snake.body.len);
         hash.update(snake.skin.to_le_bytes());
@@ -2843,6 +2849,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 1.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body,
             skin: 2,
         }

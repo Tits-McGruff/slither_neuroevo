@@ -49,6 +49,55 @@ impl SensorRay {
         self.maximum
     }
 
+    /// Conservative entry distance into an inflated world-axis bounding box.
+    /// This is a broad-phase lower bound, never a capsule collision result.
+    pub fn aabb_clearance(
+        self,
+        minimum: WorldPoint,
+        maximum: WorldPoint,
+        inflation: f64,
+    ) -> Result<Option<f64>, SensorGeometryError> {
+        if !valid_point(minimum)
+            || !valid_point(maximum)
+            || minimum.x > maximum.x
+            || minimum.y > maximum.y
+            || !valid_nonnegative(inflation)
+        {
+            return Err(SensorGeometryError);
+        }
+        let mut enter: f64 = 0.0;
+        let mut exit = self.maximum;
+        for (origin, delta, low, high) in [
+            (
+                self.origin.x,
+                self.direction.x,
+                minimum.x - inflation,
+                maximum.x + inflation,
+            ),
+            (
+                self.origin.y,
+                self.direction.y,
+                minimum.y - inflation,
+                maximum.y + inflation,
+            ),
+        ] {
+            if delta == 0.0 {
+                if origin < low || origin > high {
+                    return Ok(None);
+                }
+            } else {
+                let first = (low - origin) / delta;
+                let last = (high - origin) / delta;
+                enter = enter.max(first.min(last));
+                exit = exit.min(first.max(last));
+                if enter > exit {
+                    return Ok(None);
+                }
+            }
+        }
+        Ok(Some(enter))
+    }
+
     /// Exact first intersection with the closed segment capsule, including
     /// tangency and initial overlap. Radius includes both collision radii.
     pub fn capsule_clearance(

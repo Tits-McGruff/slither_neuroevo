@@ -979,7 +979,7 @@ impl Error for SensorError {}
 
 /// Map one relative angle to the current centered angular bin.
 #[must_use]
-fn angle_to_centered_bin(relative_angle: f64, bins: usize) -> usize {
+pub(crate) fn angle_to_centered_bin(relative_angle: f64, bins: usize) -> usize {
     let mut unit = (relative_angle + PI) / TAU;
     unit = (unit + 0.5 / bins as f64) % 1.0;
     clamp((unit * bins as f64).floor(), 0.0, (bins - 1) as f64) as usize
@@ -1097,12 +1097,16 @@ fn normalize_angle(mut angle: f64) -> f64 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct ClosestPoint {
-    point: WorldPoint,
-    distance_squared: f64,
+pub(crate) struct ClosestPoint {
+    pub(crate) point: WorldPoint,
+    pub(crate) distance_squared: f64,
 }
 
-fn closest_point_on_segment(point: WorldPoint, start: WorldPoint, end: WorldPoint) -> ClosestPoint {
+pub(crate) fn closest_point_on_segment(
+    point: WorldPoint,
+    start: WorldPoint,
+    end: WorldPoint,
+) -> ClosestPoint {
     let abx = end.x - start.x;
     let aby = end.y - start.y;
     let apx = point.x - start.x;
@@ -1157,7 +1161,7 @@ fn resize_scratch(
     Ok(())
 }
 
-fn validate_snake_for_sensing(snake: &SnakeState) -> Result<(), SensorError> {
+pub(crate) fn validate_snake_for_sensing(snake: &SnakeState) -> Result<(), SensorError> {
     for (field, value) in [
         ("position.x", snake.position.x),
         ("position.y", snake.position.y),
@@ -1391,6 +1395,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body,
             skin: 0,
         }

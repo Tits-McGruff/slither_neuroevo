@@ -475,6 +475,37 @@ impl WorldStepWorkspace {
             }
         }
 
+        // Cache only complete-step motion, before any external physical replacement.
+        // The control world includes newborn placement and is the true motion origin.
+        {
+            let buffers = self.physics.publication_buffers(key)?;
+            let before = control.world();
+            if buffers.world.snakes.len() != before.snakes.len() {
+                return Err(WorldStepError::InvalidConfig {
+                    field: "motion continuation shape",
+                });
+            }
+            for (snake, source) in buffers.world.snakes.iter_mut().zip(&before.snakes) {
+                if snake.id != source.id {
+                    return Err(WorldStepError::InvalidConfig {
+                        field: "motion continuation physical identity",
+                    });
+                }
+                let change = snake.direction - source.direction;
+                snake.completed_step_heading_delta = if source.alive {
+                    change.sin().atan2(change.cos())
+                } else {
+                    0.0
+                };
+                snake.completed_step_speed_delta = if source.alive {
+                    snake.speed - source.speed
+                } else {
+                    0.0
+                };
+                snake.completed_step_applied_turn = if source.alive { source.turn } else { 0.0 };
+            }
+        }
+
         if let Some((lives, policy)) = evolved_generation.as_mut() {
             let buffers = self.physics.publication_buffers(key)?;
             lives

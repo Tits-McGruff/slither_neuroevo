@@ -316,6 +316,9 @@ impl EvolvedReplacementWorkspace {
             newborn.control_accumulator_seconds = initial_accumulator;
             newborn.delivered_observation_points = wallet;
             newborn.observation_delivered = false;
+            newborn.completed_step_heading_delta = 0.0;
+            newborn.completed_step_speed_delta = 0.0;
+            newborn.completed_step_applied_turn = 0.0;
             newborn.body = super::state::BodyRange {
                 start: world.body_points.len(),
                 len: self.body.len(),

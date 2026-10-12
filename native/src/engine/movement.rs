@@ -364,7 +364,6 @@ impl MovementWorkspace {
             let boost_drop_start = self.boost_drops.len();
 
             if source.alive {
-                let boost_size = size_normalized(body.len(), config);
                 if source.input_boost
                     && body.len()
                         > config.snake_min_len.checked_add(1).ok_or(
@@ -374,8 +373,7 @@ impl MovementWorkspace {
                         )?
                     && source.points >= config.boost_min_points
                 {
-                    let cost_rate = config.boost_points_cost_per_second
-                        * (1.0 + config.boost_points_cost_size_factor * boost_size);
+                    let cost_rate = effective_boost_cost(body.len(), config);
                     boost_points_spent = source.points.min(cost_rate * dt);
                     if boost_points_spent > 0.0 {
                         staged.points -= boost_points_spent;
@@ -617,6 +615,12 @@ fn size_normalized(length: usize, config: MovementConfig) -> f64 {
         0.0,
         1.0,
     )
+}
+
+/// Shared effective cost keeps sensor eligibility/budget aligned with actual burn.
+pub(crate) fn effective_boost_cost(length: usize, config: MovementConfig) -> f64 {
+    config.boost_points_cost_per_second
+        * (1.0 + config.boost_points_cost_size_factor * size_normalized(length, config))
 }
 
 pub(crate) fn desired_body_length(target: f64, config: MovementConfig) -> usize {
@@ -900,6 +904,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: length,

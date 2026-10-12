@@ -919,6 +919,9 @@ fn new_snake(
         control_accumulator_seconds,
         delivered_observation_points: 0.0,
         observation_delivered: false,
+        completed_step_heading_delta: 0.0,
+        completed_step_speed_delta: 0.0,
+        completed_step_applied_turn: 0.0,
         body,
         skin,
     }

@@ -737,6 +737,12 @@ pub struct SnakeState {
     pub delivered_observation_points: f64,
     /// Whether an observation was consumed or accepted in this physical life.
     pub observation_delivered: bool,
+    /// Signed wrapped heading change over the last complete physical fixed step.
+    pub completed_step_heading_delta: f64,
+    /// Speed change over the last complete physical fixed step.
+    pub completed_step_speed_delta: f64,
+    /// Turn actually applied during that complete step, independent of delivery cadence.
+    pub completed_step_applied_turn: f32,
     /// Pooled head-to-tail body range.
     pub body: BodyRange,
     /// Stable display skin/color identifier.
@@ -4777,6 +4783,14 @@ fn validate_snake(
         ("world.snakes.direction", snake.direction),
         ("world.snakes.radius", snake.radius),
         ("world.snakes.speed", snake.speed),
+        (
+            "world.snakes.completed_step_heading_delta",
+            snake.completed_step_heading_delta,
+        ),
+        (
+            "world.snakes.completed_step_speed_delta",
+            snake.completed_step_speed_delta,
+        ),
         ("world.snakes.age_seconds", snake.age_seconds),
         ("world.snakes.food", snake.food),
         ("world.snakes.points", snake.points),
@@ -4802,6 +4816,9 @@ fn validate_snake(
         || snake.control_accumulator_seconds < 0.0
         || !snake.turn.is_finite()
         || !snake.previous_turn.is_finite()
+        || !snake.completed_step_applied_turn.is_finite()
+        || !(-1.0..=1.0).contains(&snake.completed_step_applied_turn)
+        || snake.completed_step_heading_delta.abs() > std::f64::consts::PI
         || !(-1.0..=1.0).contains(&snake.turn)
         || !(-1.0..=1.0).contains(&snake.previous_turn)
     {
@@ -5978,6 +5995,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -6158,6 +6178,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -7535,6 +7558,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -7799,6 +7825,9 @@ mod tests {
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
             observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange { start: 0, len: 1 },
             skin: 0,
         });
@@ -8068,6 +8097,59 @@ mod tests {
             other => panic!("expected a published newborn step, got {other:?}"),
         };
         (authority, diagnostics)
+    }
+
+    #[test]
+    fn whole_step_motion_proprioception_uses_all_substeps_and_held_actions_across_wrap() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        set_complete_setting(
+            &mut candidate,
+            "brain.controlDt",
+            NormalizedSettingValue::Float(0.06),
+        );
+        candidate.world.snakes[0].control_accumulator_seconds = 0.0;
+        candidate.world.snakes[0].direction = std::f64::consts::PI - 0.01;
+        candidate.world.snakes[0].turn = 0.75;
+        candidate.world.snakes[0].speed = 150.0;
+        candidate.world.snakes[0].observation_delivered = true;
+        refresh_config_hash(&mut candidate);
+        let projection = crate::engine::step_config::project_running_step_config(
+            &candidate.config,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(projection.world_step.physics_substeps > 1);
+        let mut authority = own_complete_running(candidate, graph);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        for step in 1..=2 {
+            let before = authority.state().world.snakes[0].clone();
+            assert!(matches!(
+                coordinator
+                    .advance_nonterminal(
+                        &mut authority,
+                        RunningStepInputs {
+                            wall_now_ms: step * 100,
+                            wall_accumulator_seconds: 0.0
+                        }
+                    )
+                    .unwrap(),
+                RunningStepProgress::Published(_)
+            ));
+            let after = &authority.state().world.snakes[0];
+            assert!(after.alive);
+            assert_eq!(after.completed_step_applied_turn, 0.75);
+            assert!((after.completed_step_heading_delta - 0.75 * 3.2 / 60.0).abs() < 1e-12);
+            assert_eq!(after.completed_step_speed_delta, after.speed - before.speed);
+            assert!(after.completed_step_speed_delta > 0.0);
+            if step == 1 {
+                assert!(before.direction > 0.0 && after.direction < 0.0);
+            }
+        }
     }
 
     #[test]

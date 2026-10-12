@@ -145,7 +145,7 @@ The allocation prototype validates the complete maximum-due bound, uses stable
 population/baseline slots and non-population brains, grants equal base work and
 rotating single-unit remainders, and retains private revision-guarded proposals.
 It has no production limit defaults or finish-order redistribution. Its cursor
-and spatial traversal still need integration into the v4 observation transaction.
+still needs integration into the authoritative v4 observation transaction.
 The physical-life first-delivery flag is integrated into existing actual Rust
 delivery/acceptance, replacement initialization and authority witnesses. Pure
 probes and rejected external deliveries preserve it; takeover keeps it and
@@ -158,10 +158,32 @@ TypeScript and repository ESLint pass; the client-build evidence is reused
 from the preceding telemetry checkpoint because client sources are unchanged.
 The five historical source-identity fixtures remain byte-for-byte unchanged.
 
+The complete native v4 candidate evaluator now constructs every Basic/Motion
+scalar and channel, including local economics, exact kind/life-budget sentinels,
+food rings, body sectors/capsule rays, walls, nearest-head representatives and
+all-head predicted urgency. Existing movement owns the shared effective-cost
+formula. Complete-step heading/speed changes and applied turn are staged with
+physics and reset at physical births, independently of neural delivery cadence.
+A reused sensor-only hierarchy binds exact source-body records and stores each
+segment once. A ray packet shares hierarchy/candidate visits across at most 32
+directions; each exact capsule intersection remains individually charged.
+Incomplete output identifies unresolved directions conservatively. Oracle
+comparisons cover every exhaustion boundary; serial/multiworker vectors match.
+Initial synthetic P0/P1 exploration at B16/B32 reports zero incomplete samples
+with batch 65,536 and cap 256. At P1 the 32,768 batch still saturates; cap 128
+also saturates at 65,536. This is preliminary source-shape evidence, not actual
+gameplay/target-platform cost, histogram or ablation qualification. No production
+minimum, default or normalization revision is frozen by this result.
+Windows release qualification passes 636 library tests with hooks, three
+benchmark checks and the doctest; Clippy, formatting, types and ESLint pass.
+The rebuilt production and isolated test-hooks addons pass all 13 required-native
+files: 170 tests, with six existing capability/platform skips. Client build
+evidence is reused from the prior checkpoint because browser sources are unchanged.
+
 Stages D through J and the remaining B/C integration and qualification gates
-remain open. Complete sensor-v4 execution/propagation, baseline v2, canonical
-PyTorch distillation,
-capture/jobs/shadows, the brain library and the new inspector are not yet
+remain open. Production sensor-v4 routing/propagation and qualification,
+baseline v2, canonical PyTorch distillation, capture/jobs/shadows, the brain
+library and the new inspector are not yet
 implemented. Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

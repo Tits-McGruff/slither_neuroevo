@@ -121,8 +121,12 @@ pub mod sensor_contract;
 pub mod sensor_geometry;
 /// Sensor-v3 labels, offsets, and input-size contract.
 pub mod sensor_layout;
+/// Bounded reusable sensor-only traversal over complete body segments.
+pub mod sensor_rays;
 /// Corrected sensor-v3 construction and delivered-observation boundaries.
 pub mod sensors;
+/// Complete Basic/Motion candidate observations for native qualification.
+pub mod sensors_v4;
 /// Complete derived body-segment and pellet spatial indexes.
 pub mod spatial;
 /// Deterministic collision-safe initial-body placement with bounded fallback.
