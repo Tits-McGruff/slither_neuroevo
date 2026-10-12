@@ -33,6 +33,11 @@ name = "stage5-step-benchmark"
 path = "src/bin/stage5_step_benchmark.rs"
 required-features = ["engine-test-hooks"]
 
+[[bin]]
+name = "sensor-v4-qualification"
+path = "src/bin/sensor_v4_qualification.rs"
+required-features = ["engine-test-hooks"]
+
 [features]
 engine-test-hooks = []
 

@@ -231,6 +231,24 @@ validation passes 384/61 tests (three existing unit capability skips), and the
 focused browser startup set passes. TypeScript, repository ESLint and the
 client build pass.
 
+An actual native qualification runner now constructs the six specified graph
+sizes, publishes a normal immutable run-start checkpoint, measures complete
+steps plus frame packing, and reads consumed observations after publication.
+Bounded raw/normalized histograms, due counts, cost percentiles and work/quality
+counters retain exact source/contract identity. Observer on/off and worker-count
+continuation tests guard noninterference. Windows Motion/B16 P1 at minimum 1,
+cap 256 and batch 65,536 measured 3.02% incomplete with eight-segment BVH leaves;
+four-segment leaves reduced this to 0.384% at unchanged limits. Native step p95
+still misses the Windows 1x gate. These actual-run results supersede synthetic
+zero-incomplete exploration for this configuration; limits/revisions remain
+unfrozen. See [the runner and retained reports](../performance/sensor-v4/README.md).
+Loaded Oxygen runs preserve the same source identity and bounded RSS, but even
+frozen v3 misses the cost gate under concurrent Node load; they do not establish
+clean target performance. Target-platform, trained-distribution, all-consumer
+and ablation gates remain open. This checkpoint passes 646 release library
+tests, three benchmark checks and the doctest, plus all 13 required-native files
+(170 tests, six existing skips), type/lint/build, rustfmt and all-target Clippy.
+
 Stages D through J and the remaining B/C integration and qualification gates
 remain open. Baseline v2, canonical PyTorch distillation, capture/jobs/shadows,
 the brain library and the new inspector are not yet implemented. Existing

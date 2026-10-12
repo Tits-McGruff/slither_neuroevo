@@ -694,6 +694,17 @@ impl RunningStepCoordinator {
         self.manual_finish_requested = true;
     }
 
+    /// Retained neural rows and their exact pre-control source, gated by the loop's publication key.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_batch(
+        &self,
+    ) -> Option<(super::control::NeuralControlBatchView<'_>, &WorldState)> {
+        Some((
+            self.control.qualification_batch()?,
+            self.prefix.qualification_world(),
+        ))
+    }
+
     /// Exact active neural/external width used for coarse output-byte admission.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.control.sensor_input_size()

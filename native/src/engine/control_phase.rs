@@ -1381,6 +1381,12 @@ impl ControlPhaseWorkspace {
         self.visualization_identity = None;
     }
 
+    /// Borrow already-constructed observations for completed-step qualification only.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_batch(&self) -> Option<super::control::NeuralControlBatchView<'_>> {
+        self.neural.batch().ok()
+    }
+
     /// Exact configured observation width, read without sampling or allocation.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.neural.sensor().layout().input_size

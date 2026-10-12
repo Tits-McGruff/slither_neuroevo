@@ -364,6 +364,12 @@ pub struct FixedStepPrefixWorkspace {
 }
 
 impl FixedStepPrefixWorkspace {
+    /// Immutable pre-control source retained after publication; never resamples sensors.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_world(&self) -> &WorldState {
+        &self.world
+    }
+
     /// Construct empty reusable prefix scratch.
     #[must_use]
     pub fn new() -> Self {
