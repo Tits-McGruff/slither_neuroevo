@@ -12,7 +12,7 @@ use std::fmt::{Display, Formatter};
 use std::mem::size_of;
 
 /// Small deterministic leaves bound local broad-phase work.
-const LEAF_SEGMENTS: usize = 8;
+const LEAF_SEGMENTS: usize = 4;
 #[derive(Clone, Copy, Debug)]
 struct RayNode {
     minimum: WorldPoint,
@@ -69,8 +69,8 @@ impl BodyRayIndexWorkspace {
         } else if count <= LEAF_SEGMENTS {
             1
         } else {
-            // Every non-root leaf has at least four records after median splits.
-            (count / 4)
+            // Every non-root leaf has at least half a leaf after median splits.
+            (count / (LEAF_SEGMENTS / 2))
                 .checked_mul(2)
                 .and_then(|n| n.checked_sub(1))
                 .ok_or(RayIndexError::Arithmetic)?

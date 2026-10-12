@@ -357,6 +357,46 @@ pub fn prepare_v4_qualification_run(
     .map_err(FreshRunError::from)
 }
 
+/// Construct a measured v3/v4 comparison with one shared modern experiment and explicit arithmetic.
+#[cfg(feature = "engine-test-hooks")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_sensor_qualification_run(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    limits: RunningStepWorkLimits,
+    math: InferenceMathBackend,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    if (profile != super::sensor_contract::SensorProfile::V3) != limits.ray_work.is_some() {
+        return Err(FreshRunError::Settings(
+            "v4 requires explicit ray limits; v3 does not use them".into(),
+        ));
+    }
+    let mut prepared = prepare_fresh_boundary_with_sensor(
+        request,
+        settings,
+        graph,
+        true,
+        (profile != super::sensor_contract::SensorProfile::V3).then_some(identity),
+        limits,
+    )?;
+    prepared.candidate.identity.math_backend = math.label().into();
+    prepared.admission_policy.expected_math_backend = math.label().into();
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
 fn prepare_fresh_boundary_with_sensor(
     request: Stage6aP0FreshRunRequest,
     replacement_settings: &[FreshRunSettingUpdate],
@@ -855,7 +895,7 @@ fn initialize_population_numeric(
 }
 
 /// Production graph ceilings covering current editor graphs without unbounded allocation.
-fn stage6a_p0_graph_limits() -> GraphLimits {
+pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
     GraphLimits {
         max_nodes: 64,
         max_edges: 128,

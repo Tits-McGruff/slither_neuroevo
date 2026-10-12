@@ -984,6 +984,73 @@ impl RunningAuthorityLoop {
         self.coordinator.pending_hall_of_fame_weights_descriptor()
     }
 
+    /// Same-build/environment continuation witness for observer noninterference.
+    /// Streaming parameters avoids materializing a textual population copy.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_continuation_sha256(&self) -> String {
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write;
+        let state = self.authority.state();
+        let mut hash = Sha256::new();
+        hash.update(b"slither.sensor-qualification-continuation.v1\0");
+        hash.update(super::external_replacement::authority_world_digest(
+            &state.world,
+        ));
+        hash.update(
+            format!(
+                "{:?}",
+                (
+                    &state.generation,
+                    &state.rng,
+                    &state.allocators,
+                    &state.fixed_step
+                )
+            )
+            .as_bytes(),
+        );
+        for genome in &state.population {
+            for value in &genome.weights {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        for brain in &state.brains {
+            for value in &brain.recurrent {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        let mut text = String::with_capacity(64);
+        for byte in hash.finalize() {
+            write!(&mut text, "{byte:02x}").expect("String formatting cannot fail");
+        }
+        text
+    }
+
+    /// Inspect only an observation batch matching the currently committed boundary.
+    /// Failed, pending or retired-generation work cannot appear as benchmark samples.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_batch(
+        &self,
+    ) -> Option<(
+        super::control::NeuralControlBatchView<'_>,
+        &super::state::WorldState,
+    )> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return None;
+        }
+        let (batch, world) = self.coordinator.qualification_batch()?;
+        let state = self.authority.state();
+        if batch.key()
+            != super::calculation::CalculationBatchKey::new(
+                state.generation.generation,
+                state.generation.completed_step,
+                state.generation.population_epoch,
+            )
+        {
+            return None;
+        }
+        Some((batch, world))
+    }
+
     /// Exact active observation width; no world scan or sensor execution.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.coordinator.sensor_input_size()

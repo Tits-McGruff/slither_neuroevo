@@ -121,6 +121,9 @@ pub mod sensor_contract;
 pub mod sensor_geometry;
 /// Sensor-v3 labels, offsets, and input-size contract.
 pub mod sensor_layout;
+/// Actual native workload timing and bounded committed-observation histograms.
+#[cfg(feature = "engine-test-hooks")]
+pub mod sensor_qualification;
 /// Bounded reusable sensor-only traversal over complete body segments.
 pub mod sensor_rays;
 /// Corrected sensor-v3 construction and delivered-observation boundaries.

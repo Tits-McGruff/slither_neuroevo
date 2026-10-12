@@ -308,6 +308,9 @@ impl ObservationDeliveryMarker {
 /// Per-sample work and saturation counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SensorSampleDiagnostics {
+    /// Exact radii from this already-constructed sample, retained only for qualification.
+    #[cfg(feature = "engine-test-hooks")]
+    pub radii_bits: [u64; 2],
     /// Charged v4 spatial packet/candidate/exact work; zero for v3.
     pub ray_work: super::ray_work::RayWorkDiagnostics,
     /// V4 directions that remained unknown at the grant boundary.
@@ -582,6 +585,8 @@ impl SensorEvaluator {
             delivery: sample.delivery,
             radii: sample.radii,
             diagnostics: SensorSampleDiagnostics {
+                #[cfg(feature = "engine-test-hooks")]
+                radii_bits: [sample.radii.near.to_bits(), sample.radii.far.to_bits()],
                 ray_work: sample.diagnostics.ray,
                 incomplete_rays: sample.diagnostics.incomplete_rays,
                 pellet_query: sample.diagnostics.pellets,
@@ -987,6 +992,8 @@ impl SensorEvaluator {
                 sampled_points: snake.points,
             },
             diagnostics: SensorSampleDiagnostics {
+                #[cfg(feature = "engine-test-hooks")]
+                radii_bits: [radii.near.to_bits(), radii.far.to_bits()],
                 ray_work: super::ray_work::RayWorkDiagnostics::default(),
                 incomplete_rays: 0,
                 pellet_query,
