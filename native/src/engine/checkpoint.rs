@@ -2247,7 +2247,9 @@ fn encode_rng_bundle(
 ) -> Result<(), CheckpointError> {
     if !matches!(
         value.version,
-        super::state::RNG_BUNDLE_VERSION | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+        super::state::RNG_BUNDLE_VERSION
+            | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+            | super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION
     ) {
         return Err(CheckpointError::format(
             "RNG_VERSION",
@@ -2258,6 +2260,14 @@ fn encode_rng_bundle(
         return Err(CheckpointError::format(
             "RNG_STATE",
             "frozen RNG bundle has evolved streams",
+        ));
+    }
+    if value.version < super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+        && !value.baseline_behaviors.is_empty()
+    {
+        return Err(CheckpointError::format(
+            "RNG_STATE",
+            "frozen RNG bundles cannot carry baseline behavior",
         ));
     }
     if value.baselines.len() > limits.max_baseline_rng_count {
@@ -2275,7 +2285,7 @@ fn encode_rng_bundle(
         output.u32(baseline.slot)?;
         encode_rng(output, &baseline.state)?;
     }
-    if value.version == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+    if value.version >= super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
         if value.evolved_respawns.len() > limits.max_population_count
             || value.evolved_respawns.len() > 300
         {
@@ -2293,6 +2303,32 @@ fn encode_rng_bundle(
                 return Err(CheckpointError::format(
                     "RNG_STATE",
                     "evolved RNG slots must be dense and nonzero",
+                ));
+            }
+            output.u32(stream.slot)?;
+            output.u32(stream.uniform_state)?;
+        }
+    }
+    if value.version == super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+        let streams = &value.baseline_behaviors;
+        if streams.len() > limits.max_baseline_rng_count || streams.len() > 120 {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "baseline behavior count exceeds checkpoint limit",
+            ));
+        }
+        if streams.len() != value.baselines.len() {
+            return Err(CheckpointError::format(
+                "RNG_STATE",
+                "behavior count must match baseline slots",
+            ));
+        }
+        output.u32(usize_to_u32(streams.len(), "baseline behavior count")?)?;
+        for (slot, stream) in streams.iter().enumerate() {
+            if stream.slot as usize != slot || stream.uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "behavior slots must be dense and nonzero",
                 ));
             }
             output.u32(stream.slot)?;
@@ -2526,7 +2562,9 @@ fn decode_rng_bundle(
     let version = input.u32()?;
     if !matches!(
         version,
-        super::state::RNG_BUNDLE_VERSION | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+        super::state::RNG_BUNDLE_VERSION
+            | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+            | super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION
     ) {
         return Err(CheckpointError::format(
             "RNG_VERSION",
@@ -2554,7 +2592,7 @@ fn decode_rng_bundle(
         });
     }
     let mut evolved_respawns = Vec::new();
-    if version == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+    if version >= super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
         let count = u32_to_usize(input.u32()?, "evolved RNG count")?;
         if count > limits.max_population_count || count > 300 {
             return Err(CheckpointError::format(
@@ -2585,7 +2623,45 @@ fn decode_rng_bundle(
             });
         }
     }
+    let mut baseline_behaviors = Vec::new();
+    if version == super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+        let count = u32_to_usize(input.u32()?, "baseline behavior count")?;
+        if count > limits.max_baseline_rng_count || count > 120 {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "declared behavior count exceeds limit",
+            ));
+        }
+        if count != baselines.len() {
+            return Err(CheckpointError::format(
+                "RNG_STATE",
+                "behavior count must match baseline slots",
+            ));
+        }
+        let length = count.checked_mul(8).ok_or_else(|| {
+            CheckpointError::format("ARITHMETIC", "baseline behavior bytes overflow")
+        })?;
+        let packed = input.raw(length)?; // Prove the whole record range before reserving.
+        baseline_behaviors.try_reserve_exact(count).map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve behavior streams")
+        })?;
+        for (slot, record) in packed.as_chunks::<8>().0.iter().enumerate() {
+            let actual_slot = u32::from_le_bytes([record[0], record[1], record[2], record[3]]);
+            let uniform_state = u32::from_le_bytes([record[4], record[5], record[6], record[7]]);
+            if actual_slot as usize != slot || uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "behavior slots must be dense and nonzero",
+                ));
+            }
+            baseline_behaviors.push(super::rng::BaselineBehaviorRngState {
+                slot: actual_slot,
+                uniform_state,
+            });
+        }
+    }
     Ok(RngStateBundle {
+        baseline_behaviors,
         evolved_respawns,
         version,
         world,
@@ -5656,6 +5732,7 @@ mod tests {
             },
             fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
+                baseline_behaviors: Vec::new(),
                 evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: rng(),
@@ -5703,6 +5780,104 @@ mod tests {
         .expect("checkpoint publication must succeed");
         let path = directory.path.join(&descriptor.relative_filename);
         (path, descriptor)
+    }
+
+    #[test]
+    fn rng_bundle_v3_roundtrips_behavior_words_and_preserves_v1_v2_bytes() {
+        let (authority, _, _) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut rng = authority.state().rng.clone();
+        let mut legacy = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut legacy, &rng, &limits).unwrap();
+        let v1 = legacy.bytes;
+        rng.version = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(42, 1, 2).unwrap();
+        rng.baselines = (0..3)
+            .map(|slot| BaselineRngState {
+                slot,
+                state: StatefulRng::new(slot as f64 + 1.0).export_state(),
+            })
+            .collect();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let v2 = writer.bytes;
+        rng.version = super::super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        rng.baseline_behaviors =
+            super::super::rng::derive_baseline_v2_behaviors(42, 1, 1, 3, true).unwrap();
+        let mut behavior = rng.baseline_behaviors[1].runtime().unwrap();
+        for _ in 0..19 {
+            behavior.next_f64();
+        }
+        rng.baseline_behaviors[1].uniform_state = behavior.uniform_state();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let bytes = writer.bytes;
+        let restored = decode_rng_bundle(&mut BinaryReader::new(&bytes, &limits), &limits).unwrap();
+        assert_eq!(restored, rng);
+        let mut next = restored.baseline_behaviors[1].runtime().unwrap();
+        for _ in 0..128 {
+            assert_eq!(behavior.next_f64().to_bits(), next.next_f64().to_bits());
+        }
+        rng.baseline_behaviors.clear();
+        rng.version = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        assert_eq!(writer.bytes, v2);
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &authority.state().rng, &limits).unwrap();
+        assert_eq!(writer.bytes, v1);
+    }
+    #[test]
+    fn rng_bundle_v3_rejects_count_slot_zero_truncation_and_frozen_stream_elision() {
+        let (authority, _, _) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut rng = authority.state().rng.clone();
+        rng.version = super::super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(7, 1, 2).unwrap();
+        rng.baselines = (0..2)
+            .map(|slot| BaselineRngState {
+                slot,
+                state: StatefulRng::new(slot as f64 + 1.0).export_state(),
+            })
+            .collect();
+        rng.baseline_behaviors =
+            super::super::rng::derive_baseline_v2_behaviors(7, 1, 1, 2, true).unwrap();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let bytes = writer.bytes;
+        let records = bytes.len() - 16;
+        for (offset, value, code) in [
+            (records - 4, 121u32, "RNG_LIMIT"),
+            (records - 4, 1, "RNG_STATE"),
+            (records, 1, "RNG_STATE"),
+            (records + 4, 0, "RNG_STATE"),
+        ] {
+            let mut bad = bytes.clone();
+            bad[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            assert!(
+                matches!(decode_rng_bundle(&mut BinaryReader::new(&bad,&limits),&limits),
+                Err(CheckpointError::Format{code:actual,..})if actual==code)
+            );
+        }
+        for cut in 1..=16 {
+            assert!(decode_rng_bundle(
+                &mut BinaryReader::new(&bytes[..bytes.len() - cut], &limits),
+                &limits
+            )
+            .is_err());
+        }
+        for version in [
+            super::super::state::RNG_BUNDLE_VERSION,
+            super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION,
+        ] {
+            rng.version = version;
+            assert!(encode_rng_bundle(
+                &mut BinaryWriter::new(limits.max_state_bytes, &limits),
+                &rng,
+                &limits
+            )
+            .is_err());
+        }
     }
 
     #[test]

@@ -1064,6 +1064,7 @@ fn build_fixture(
             sensor_generation,
         },
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(f64::from(FIXTURE_SEED), "world").export_state(),

@@ -925,11 +925,12 @@ fn prepare_generation_boundary_internal(
         });
     }
 
-    let baseline_rngs = derive_baseline_rngs(
+    let (baseline_rngs, baseline_behaviors) = derive_baseline_streams_for_generation(
         source.identity.seed,
         next_generation,
         source.config.baseline_count,
         baseline_config,
+        completed_rng.version,
     )?;
     let metadata = PreparedGenerationMetadata {
         summary: parts.summary,
@@ -952,8 +953,9 @@ fn prepare_generation_boundary_internal(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors,
             evolved_respawns: if completed_rng.version
-                == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+                >= super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
             {
                 super::state::EvolvedRespawnRngState::derive_generation(
                     source.identity.seed,
@@ -1029,6 +1031,62 @@ pub(crate) fn derive_baseline_rngs(
         });
     }
     Ok(baselines)
+}
+
+/// Dispatch frozen combined streams or isolated v2 lifecycle/behavior.
+fn derive_baseline_streams_for_generation(
+    run_seed: u32,
+    generation: u64,
+    count: usize,
+    config: BaselineGenerationConfig,
+    version: u32,
+) -> Result<
+    (
+        Vec<BaselineRngState>,
+        Vec<super::rng::BaselineBehaviorRngState>,
+    ),
+    GenerationTransitionError,
+> {
+    if version == super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+        let behavior = super::rng::derive_baseline_v2_behaviors(
+            run_seed,
+            config.seed,
+            generation,
+            count,
+            config.randomize_seed_per_generation,
+        )
+        .map_err(|error| StateError::InvalidRng {
+            stream: "baseline-behavior-v2".into(),
+            reason: error.to_string(),
+        })?;
+        let mut lifecycle = reserve_vec(count, "v2 baseline lifecycle RNG states")?;
+        for slot in 0..count {
+            lifecycle.push(BaselineRngState {
+                slot: slot as u32,
+                state: super::rng::baseline_v2_lifecycle_rng(
+                    run_seed,
+                    config.seed,
+                    generation,
+                    slot as u32,
+                    config.randomize_seed_per_generation,
+                )
+                .export_state(),
+            });
+        }
+        Ok((lifecycle, behavior))
+    } else if matches!(
+        version,
+        super::state::RNG_BUNDLE_VERSION | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+    ) {
+        Ok((
+            derive_baseline_rngs(run_seed, generation, count, config)?,
+            Vec::new(),
+        ))
+    } else {
+        Err(GenerationTransitionError::InvalidContinuation {
+            field: "RNG bundle version",
+        })
+    }
 }
 
 fn validate_rng_continuation(
@@ -1128,6 +1186,38 @@ fn zeroed_box(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn baseline_successor_streams_preserve_v1_v2_and_separate_v3_full_generation_scope() {
+        use super::*;
+        let config = BaselineGenerationConfig {
+            seed: 1,
+            randomize_seed_per_generation: true,
+        };
+        for version in [1, 2] {
+            let (lifecycle, behavior) =
+                derive_baseline_streams_for_generation(42, 1, 12, config, version).unwrap();
+            assert_eq!(lifecycle, derive_baseline_rngs(42, 1, 12, config).unwrap());
+            assert!(behavior.is_empty());
+        }
+        let (life1, behavior1) =
+            derive_baseline_streams_for_generation(42, 1, 12, config, 3).unwrap();
+        let (life2, behavior2) =
+            derive_baseline_streams_for_generation(42, (1u64 << 32) + 1, 12, config, 3).unwrap();
+        assert_ne!(life1, life2);
+        assert_ne!(behavior1, behavior2);
+        let fixed = BaselineGenerationConfig {
+            randomize_seed_per_generation: false,
+            ..config
+        };
+        assert_eq!(
+            derive_baseline_streams_for_generation(42, 1, 12, fixed, 3).unwrap(),
+            derive_baseline_streams_for_generation(42, (1u64 << 32) + 1, 12, fixed, 3).unwrap()
+        );
+        assert!(derive_baseline_streams_for_generation(42, 0, 12, config, 3).is_err());
+        assert!(derive_baseline_streams_for_generation(42, 1, 121, config, 3).is_err());
+        assert!(derive_baseline_streams_for_generation(42, 1, 12, config, 4).is_err());
+    }
+
     use super::*;
     use crate::engine::checkpoint::{
         restore_checkpoint, CheckpointBoundaryKind, CheckpointLimits, CheckpointOperationId,
@@ -1440,6 +1530,7 @@ mod tests {
             },
             fixed_step,
             rng: RngStateBundle {
+                baseline_behaviors: Vec::new(),
                 evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: stream(42, "world"),

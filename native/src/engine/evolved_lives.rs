@@ -1799,6 +1799,7 @@ mod tests {
             .collect();
         let stream = super::super::rng::StatefulRng::new(42.0).export_state();
         let rng = super::super::state::RngStateBundle {
+            baseline_behaviors: Vec::new(),
             version: super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION,
             world: stream.clone(),
             evolution: stream.clone(),

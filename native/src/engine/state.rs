@@ -58,6 +58,8 @@ pub const SENSOR_VERSION: u32 = 3;
 pub const RNG_BUNDLE_VERSION: u32 = 1;
 /// Additive bundle encoding with dense uniform-only evolved respawn streams.
 pub const RNG_BUNDLE_WITH_EVOLVED_VERSION: u32 = 2;
+/// Version three adds dense isolated baseline-v2 behavior continuations.
+pub const RNG_BUNDLE_WITH_BASELINE_V2_VERSION: u32 = 3;
 /// Version of normalized configuration encoded by this state contract.
 pub const NORMALIZED_CONFIG_VERSION: u32 = 1;
 /// Version of the monotonic allocator continuation bundle.
@@ -322,6 +324,8 @@ pub struct RngStateBundle {
     pub baselines: Vec<BaselineRngState>,
     /// Per-population-slot respawn streams; absent in the frozen v1 contract.
     pub evolved_respawns: Vec<EvolvedRespawnRngState>,
+    /// Dense uniform-only baseline-v2 behavior; absent in frozen v1/v2 bundles.
+    pub baseline_behaviors: Vec<super::rng::BaselineBehaviorRngState>,
 }
 
 /// Dense uniform-only respawn continuation. Delay and placement never use
@@ -2668,6 +2672,7 @@ fn validate_generation_start_replacement_contract(
     if replacement.rng.version != boundary.rng.version
         || replacement.rng.evolution != boundary.rng.evolution
         || replacement.rng.evolved_respawns != boundary.rng.evolved_respawns
+        || replacement.rng.baseline_behaviors != boundary.rng.baseline_behaviors
         || (external_replacements == 0
             && replacement.rng.external_controller != boundary.rng.external_controller)
     {
@@ -2838,6 +2843,7 @@ fn validate_running_replacement_contract_with_counts(
         );
     }
     if replacement.rng.version != candidate.rng.version
+        || replacement.rng.baseline_behaviors != candidate.rng.baseline_behaviors
         || replacement.rng.evolution != candidate.rng.evolution
         || (replacement.mutation.evolved.is_none()
             && replacement.rng.evolved_respawns != candidate.rng.evolved_respawns)
@@ -3316,10 +3322,20 @@ pub fn estimate_state_memory(
         candidate.brains.capacity().max(maximum_brains),
     )?;
     add_structural::<BaselineRngState>(&mut estimate, candidate.rng.baselines.capacity())?;
+    add_structural::<super::rng::BaselineBehaviorRngState>(
+        &mut estimate,
+        candidate.rng.baseline_behaviors.capacity().max(
+            if candidate.rng.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+                candidate.config.baseline_count
+            } else {
+                0
+            },
+        ),
+    )?;
     add_structural::<EvolvedRespawnRngState>(
         &mut estimate,
         candidate.rng.evolved_respawns.capacity().max(
-            if candidate.rng.version == RNG_BUNDLE_WITH_EVOLVED_VERSION {
+            if candidate.rng.version >= RNG_BUNDLE_WITH_EVOLVED_VERSION {
                 candidate.config.population_count
             } else {
                 0
@@ -3880,7 +3896,7 @@ fn validate_versions(versions: &ContractVersions, graph: &CompiledGraph) -> Resu
     }
     if !matches!(
         versions.rng_bundle,
-        RNG_BUNDLE_VERSION | RNG_BUNDLE_WITH_EVOLVED_VERSION
+        RNG_BUNDLE_VERSION | RNG_BUNDLE_WITH_EVOLVED_VERSION | RNG_BUNDLE_WITH_BASELINE_V2_VERSION
     ) {
         return invalid("versions.rng_bundle", "unsupported RNG-bundle version");
     }
@@ -4178,7 +4194,7 @@ fn validate_rng_bundle(
 ) -> Result<(), StateError> {
     if !matches!(
         bundle.version,
-        RNG_BUNDLE_VERSION | RNG_BUNDLE_WITH_EVOLVED_VERSION
+        RNG_BUNDLE_VERSION | RNG_BUNDLE_WITH_EVOLVED_VERSION | RNG_BUNDLE_WITH_BASELINE_V2_VERSION
     ) {
         return invalid("rng.version", "unsupported RNG-bundle version");
     }
@@ -4188,7 +4204,7 @@ fn validate_rng_bundle(
             "frozen RNG bundle cannot carry evolved streams",
         );
     }
-    if bundle.version == RNG_BUNDLE_WITH_EVOLVED_VERSION {
+    if bundle.version >= RNG_BUNDLE_WITH_EVOLVED_VERSION {
         if bundle.evolved_respawns.len() != config.population_count {
             return invalid("rng.evolved_respawns", "count must match the population");
         }
@@ -4197,6 +4213,39 @@ fn validate_rng_bundle(
                 return invalid(
                     "rng.evolved_respawns",
                     "evolved streams must be dense and nonzero",
+                );
+            }
+        }
+    }
+    let v2 =
+        super::baseline_v2::BaselineV2Settings::from_settings(&config.settings).map_err(|_| {
+            StateError::InvalidField {
+                field: "baselineBots.controlVersion",
+                reason: "incomplete or incompatible baseline-v2 settings".into(),
+            }
+        })?;
+    if v2.is_some() != (bundle.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION) {
+        return invalid(
+            "rng.version",
+            "baseline-v2 settings require exactly RNG bundle v3",
+        );
+    }
+    if bundle.version < RNG_BUNDLE_WITH_BASELINE_V2_VERSION && !bundle.baseline_behaviors.is_empty()
+    {
+        return invalid(
+            "rng.baseline_behaviors",
+            "frozen RNG bundles cannot carry behavior streams",
+        );
+    }
+    if v2.is_some() {
+        if bundle.baseline_behaviors.len() != config.baseline_count {
+            return invalid("rng.baseline_behaviors", "count must match baseline slots");
+        }
+        for (slot, stream) in bundle.baseline_behaviors.iter().enumerate() {
+            if stream.slot as usize != slot || stream.runtime().is_err() {
+                return invalid(
+                    "rng.baseline_behaviors",
+                    "behavior slots must be dense and nonzero",
                 );
             }
         }
@@ -5929,6 +5978,7 @@ mod tests {
             },
             fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
+                baseline_behaviors: Vec::new(),
                 evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: rng(42, "world"),

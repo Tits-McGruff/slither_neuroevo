@@ -25,6 +25,109 @@ pub enum BaselineV2Mode {
     Stochastic,
 }
 
+/// Complete reset-only baseline-v2 setting extension; absence means frozen v1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BaselineV2Settings {
+    pub mode: BaselineV2Mode,
+    pub control_interval_seconds: f64,
+}
+impl BaselineV2Settings {
+    pub fn validate(self) -> Result<(), BaselineV2Error> {
+        if !self.control_interval_seconds.is_finite()
+            || !(0.008..=0.06).contains(&self.control_interval_seconds)
+        {
+            return Err(BaselineV2Error::Contract);
+        }
+        Ok(())
+    }
+    pub fn from_settings(
+        settings: &[super::state::NormalizedSetting],
+    ) -> Result<Option<Self>, BaselineV2Error> {
+        use super::state::NormalizedSettingValue as Value;
+        if settings.windows(2).any(|pair| pair[0].path >= pair[1].path) {
+            return Err(BaselineV2Error::Contract);
+        }
+        let get = |path: &str| {
+            settings
+                .binary_search_by(|setting| setting.path.as_str().cmp(path))
+                .ok()
+                .map(|index| &settings[index].value)
+        };
+        let values = [
+            get("baselineBots.controlVersion"),
+            get("baselineBots.mode"),
+            get("baselineBots.controlDt"),
+        ];
+        if values.iter().all(Option::is_none) {
+            return Ok(None);
+        }
+        let [Some(Value::Integer(2)), Some(Value::Integer(mode)), Some(Value::Float(interval))] =
+            values
+        else {
+            return Err(BaselineV2Error::Contract);
+        };
+        if super::sensor_contract::SensorContractIdentity::from_settings(settings)
+            .map_err(|_| BaselineV2Error::Contract)?
+            .profile()
+            == SensorProfile::V3
+        {
+            return Err(BaselineV2Error::Contract);
+        }
+        let mode = match mode {
+            0 => BaselineV2Mode::Deterministic,
+            1 => BaselineV2Mode::Stochastic,
+            _ => return Err(BaselineV2Error::Contract),
+        };
+        let result = Self {
+            mode,
+            control_interval_seconds: *interval,
+        };
+        result.validate()?;
+        Ok(Some(result))
+    }
+    /// Explicit cold configuration selection; never called to reinterpret imports.
+    pub fn record_settings(
+        self,
+        settings: &mut Vec<super::state::NormalizedSetting>,
+    ) -> Result<(), BaselineV2Error> {
+        use super::state::{NormalizedSetting, NormalizedSettingValue as Value};
+        self.validate()?;
+        if super::sensor_contract::SensorContractIdentity::from_settings(settings)
+            .map_err(|_| BaselineV2Error::Contract)?
+            .profile()
+            == SensorProfile::V3
+        {
+            return Err(BaselineV2Error::Contract);
+        }
+        for (path, value) in [
+            ("baselineBots.controlVersion", Value::Integer(2)),
+            (
+                "baselineBots.mode",
+                Value::Integer(if self.mode == BaselineV2Mode::Deterministic {
+                    0
+                } else {
+                    1
+                }),
+            ),
+            (
+                "baselineBots.controlDt",
+                Value::Float(self.control_interval_seconds),
+            ),
+        ] {
+            if let Some(setting) = settings.iter_mut().find(|setting| setting.path == path) {
+                setting.value = value;
+            } else {
+                settings.push(NormalizedSetting {
+                    path: path.into(),
+                    value,
+                });
+            }
+        }
+        settings.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        Ok(())
+    }
+}
+
 /// Physical-life policy scratch, bounded independently of life length.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BaselineV2State {
@@ -533,6 +636,54 @@ mod tests {
     fn evaluate(p: &BaselineV2Policy, row: &[f32], state: BaselineV2State) -> BaselineV2Action {
         p.evaluate(row, state, 12345, 0.1).unwrap()
     }
+    #[test]
+    fn complete_v2_setting_extension_requires_v4_and_rejects_partial_or_revised_identity() {
+        use crate::engine::sensor_contract::SensorContractIdentity;
+        use crate::engine::state::NormalizedSettingValue;
+        let mut settings = crate::engine::step_config::production_default_settings(12, 2);
+        assert_eq!(BaselineV2Settings::from_settings(&settings).unwrap(), None);
+        let spec = BaselineV2Settings {
+            mode: BaselineV2Mode::Stochastic,
+            control_interval_seconds: 0.06,
+        };
+        let before = settings.clone();
+        assert!(spec.record_settings(&mut settings).is_err());
+        assert_eq!(settings, before);
+        SensorContractIdentity::new(SensorProfile::Motion, 16)
+            .unwrap()
+            .record_v4_settings(&mut settings)
+            .unwrap();
+        spec.record_settings(&mut settings).unwrap();
+        assert_eq!(
+            BaselineV2Settings::from_settings(&settings).unwrap(),
+            Some(spec)
+        );
+        for path in [
+            "baselineBots.controlVersion",
+            "baselineBots.mode",
+            "baselineBots.controlDt",
+        ] {
+            let mut bad = settings.clone();
+            bad.retain(|v| v.path != path);
+            assert!(BaselineV2Settings::from_settings(&bad).is_err());
+        }
+        for (path, value) in [
+            (
+                "baselineBots.controlVersion",
+                NormalizedSettingValue::Integer(3),
+            ),
+            ("baselineBots.mode", NormalizedSettingValue::Integer(2)),
+            (
+                "baselineBots.controlDt",
+                NormalizedSettingValue::Float(0.061),
+            ),
+        ] {
+            let mut bad = settings.clone();
+            bad.iter_mut().find(|v| v.path == path).unwrap().value = value;
+            assert!(BaselineV2Settings::from_settings(&bad).is_err());
+        }
+    }
+
     #[test]
     fn deterministic_ties_use_exact_smallest_turn_then_index_and_no_draws() {
         for profile in [SensorProfile::Basic, SensorProfile::Motion] {

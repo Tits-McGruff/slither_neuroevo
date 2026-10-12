@@ -851,6 +851,7 @@ fn boundary_shell(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(f64::from(seed), "world").export_state(),
@@ -1789,6 +1790,129 @@ mod tests {
             &production_restore_policy(TEST_MEMORY_CEILING, true).unwrap()
         )
         .is_err());
+    }
+
+    #[test]
+    fn baseline_v2_rng_boundary_roundtrips_managed_checkpoint_and_rejects_mixed_contracts() {
+        use crate::engine::baseline_v2::{BaselineV2Mode, BaselineV2Settings};
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        use crate::engine::rng::{baseline_v2_lifecycle_rng, derive_baseline_v2_behaviors};
+        use crate::engine::sensor_contract::{SensorContractIdentity, SensorProfile};
+        use crate::engine::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        let graph = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 144 },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 144,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![GraphEdge {
+                from: "input".into(),
+                to: "head".into(),
+                from_port: None,
+                to_port: None,
+            }],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let mut prepared = prepare_fresh_boundary_with_sensor(
+            request(42),
+            &numeric_settings(production_default_settings(12, 2)),
+            graph,
+            true,
+            Some(SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap()),
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        BaselineV2Settings {
+            mode: BaselineV2Mode::Stochastic,
+            control_interval_seconds: 0.06,
+        }
+        .record_settings(&mut prepared.candidate.config.settings)
+        .unwrap();
+        prepared.candidate.config.settings_schema_sha256 =
+            normalized_settings_schema_hash(&prepared.candidate.config.settings).unwrap();
+        prepared.candidate.identity.config_hash =
+            normalized_config_hash(&prepared.candidate.config).unwrap();
+        prepared.admission_policy.expected_settings_schema_sha256 =
+            prepared.candidate.config.settings_schema_sha256.clone();
+        prepared.candidate.rng.version = RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        prepared.candidate.versions.rng_bundle = RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        prepared.candidate.rng.baseline_behaviors =
+            derive_baseline_v2_behaviors(42, 1, 1, 2, false).unwrap();
+        for stream in &mut prepared.candidate.rng.baselines {
+            stream.state = baseline_v2_lifecycle_rng(42, 1, 1, stream.slot, false).export_state();
+        }
+        let expected = prepared.candidate.rng.clone();
+        let mut behavior = expected.baseline_behaviors[0].runtime().unwrap();
+        let mut lifecycle =
+            crate::engine::rng::StatefulRng::from_state(&expected.baselines[0].state).unwrap();
+        assert_ne!(
+            behavior.next_f64().to_bits(),
+            lifecycle.next_f64().to_bits()
+        );
+        let authority = AuthoritativeState::validate_and_own(
+            prepared.candidate.clone(),
+            Arc::clone(&prepared.graph),
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        // An unfinished control join must fail explicitly, never execute v1 under a v2 identity.
+        assert!(
+            matches!(crate::engine::running_step::RunningStepCoordinator::try_new(&authority,prepared.work_limits),
+            Err(crate::engine::running_step::RunningStepError::Config(error))
+            if matches!(*error,StepConfigError::UnsupportedSetting{path:"baselineBots.controlVersion"}))
+        );
+        let directory = TestDirectory::create("baseline-v2-rng-boundary");
+        let descriptor = crate::engine::checkpoint::publish_checkpoint(
+            directory.path(),
+            CheckpointOperationId::parse("23232323232323232323232323232323").unwrap(),
+            1,
+            authority.checkpoint_boundary().unwrap(),
+            &prepared.checkpoint_limits,
+            &prepared.graph_limits,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        let restored = crate::engine::checkpoint::restore_checkpoint(
+            &directory.path().join(&descriptor.relative_filename),
+            &prepared.checkpoint_limits,
+            &prepared.graph_limits,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        assert_eq!(restored.state.state().rng, expected);
+        for change in 0..4 {
+            let mut bad = prepared.candidate.clone();
+            match change {
+                0 => {
+                    bad.rng.version = 2;
+                    bad.versions.rng_bundle = 2;
+                    bad.rng.baseline_behaviors.clear();
+                }
+                1 => {
+                    bad.rng.baseline_behaviors.pop();
+                }
+                2 => bad.rng.baseline_behaviors[0].uniform_state = 0,
+                _ => bad.rng.baseline_behaviors[1].slot = 0,
+            };
+            assert!(AuthoritativeState::validate_and_own(
+                bad,
+                Arc::clone(&prepared.graph),
+                &prepared.admission_policy
+            )
+            .is_err());
+        }
     }
 
     #[test]

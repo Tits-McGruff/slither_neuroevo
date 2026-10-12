@@ -261,12 +261,28 @@ Float32 half-second budget, safe route and complete geometry. Deterministic mode
 preserves its behavior RNG word; stochastic wander uses a separate versioned
 run/seed/full-generation/slot label. Four real native sensor fixtures and eleven
 policy/contract tests pass, alongside all ten retained v1 strategy and thirteen
-RNG regressions. Authoritative due scheduling, state/RNG/checkpoint publication,
+RNG regressions. Authoritative due scheduling, atomic policy/control publication,
 settings propagation and full tactical batches remain open; production uses v1.
 The policy checkpoint passes all 661 release library tests, 20 focused rebuilt-
 addon source/surface/fresh-run checks, rustfmt and all-target Clippy. The previous
 checkpoint's broader JS/type/lint/client-build and unchanged benchmark/doctest
 results remain the dependency evidence for these untouched paths.
+
+The v2 persistence foundation now has a strict three-field setting identity
+(version, mode, cadence) and RNG bundle v3. Dense uniform-only behavior streams
+are separate from lifecycle/placement Gaussian streams, with full-generation
+labels when configured. V1/v2 packed bytes and derivation remain frozen. V3
+encoding/decoding bounds count, proves packed bytes before allocation, and
+rejects missing/zero/reordered streams or silent elision into older versions.
+State admission binds the complete v4/v2 setting group to exactly bundle v3;
+managed checkpoint restoration preserves exact words and subsequent draws.
+Retained phase copies reuse capacity, generation successors derive both roles,
+and memory/replacement witnesses cover the added streams. The running coordinator
+explicitly rejects v2 until its due/quota/policy/control join is implemented.
+Production selectors and restore-schema propagation remain part of that join.
+The RNG checkpoint passes 668 release library tests, three benchmark checks and
+the doctest; the rebuilt production/hooks addons pass all 13 required-native
+files (170 tests, six existing skips), rustfmt and all-target Clippy.
 
 Stages D through J and the remaining B/C integration and qualification gates
 remain open. Baseline v2 integration, canonical PyTorch distillation, capture/jobs/shadows,
