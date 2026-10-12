@@ -51,7 +51,7 @@ pub struct V4SensorSample {
 }
 
 /// Retained worker-local query storage; fixed bin arrays avoid warm allocation.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct V4SensorScratch {
     pellets: PelletQueryScratch,
     body: BodySensorQueryScratch,
@@ -63,6 +63,40 @@ pub struct V4SensorScratch {
     nearest_head: [usize; MAX_SENSOR_BINS],
     head_count: [usize; MAX_SENSOR_BINS],
     urgency: [f64; MAX_SENSOR_BINS],
+}
+
+/// Worker-local retained query capacities, with fixed arrays included explicitly.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct V4ScratchCapacity {
+    pub fixed_bytes: usize,
+    pub body_duplicate_marker_capacity: usize,
+    pub body_candidate_capacity: usize,
+    pub pellet_candidate_capacity: usize,
+    pub ray_packet_capacity: usize,
+    pub ray_packet_bytes: usize,
+}
+
+impl V4SensorScratch {
+    /// Inspect storage without allocating, querying, or consuming a delivery.
+    pub fn diagnostics(&self) -> V4ScratchCapacity {
+        V4ScratchCapacity {
+            fixed_bytes: std::mem::size_of::<Self>(),
+            body_duplicate_marker_capacity: self.body.duplicate_marker_capacity(),
+            body_candidate_capacity: self.body.candidate_capacity(),
+            pellet_candidate_capacity: self.pellets.candidate_capacity(),
+            ray_packet_capacity: self.rays.packet_capacity(),
+            ray_packet_bytes: self.rays.packet_owned_bytes(),
+        }
+    }
+}
+
+/// One coordinator-bound v4 observation context, including its fixed grants.
+/// Ray hierarchy and life ledger borrow the same stable pre-movement boundary.
+#[derive(Clone, Copy)]
+pub struct PreparedV4Sensing<'source> {
+    pub body_rays: BodyRayIndex<'source, 'source>,
+    pub context: V4ObservationContext<'source>,
+    pub grants_by_snake: &'source [u32],
 }
 
 /// Validated candidate evaluator. Physical movement curves remain shared with
@@ -114,6 +148,11 @@ impl SensorV4Evaluator {
 
     pub fn layout(&self) -> &SensorContractIdentity {
         &self.layout
+    }
+
+    /// Frozen v3 evaluator retained exclusively for version-one baselines.
+    pub(crate) fn legacy_evaluator(&self) -> &SensorEvaluator {
+        &self.common
     }
 
     /// Construct the complete vector without consuming delivery or touching

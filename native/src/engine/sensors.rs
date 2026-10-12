@@ -308,6 +308,10 @@ impl ObservationDeliveryMarker {
 /// Per-sample work and saturation counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SensorSampleDiagnostics {
+    /// Charged v4 spatial packet/candidate/exact work; zero for v3.
+    pub ray_work: super::ray_work::RayWorkDiagnostics,
+    /// V4 directions that remained unknown at the grant boundary.
+    pub incomplete_rays: usize,
     /// Pellet spatial query work.
     pub pellet_query: SpatialQueryDiagnostics,
     /// Body spatial query work.
@@ -331,6 +335,8 @@ pub struct SensorSampleDiagnostics {
 /// Reusable per-worker scratch for one observation at a time.
 #[derive(Clone, Debug, Default)]
 pub struct SensorScratch {
+    /// Reused candidate v4 storage, with no allocation on a warmed sample.
+    pub(crate) v4: super::sensors_v4::V4SensorScratch,
     food_bins: Vec<f32>,
     hazard_bins: Vec<f32>,
     head_bins: Vec<f32>,
@@ -377,6 +383,8 @@ enum SensorPhase {
 /// Reusable sensor-scratch capacities used to prove warm-path stability.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SensorScratchDiagnostics {
+    /// Inline v4 arrays and retained query/frontier buffers, including dormant storage.
+    pub v4: super::sensors_v4::V4ScratchCapacity,
     /// Food-bin Float32 slots.
     pub food_bin_capacity: usize,
     /// Body-hazard-bin Float32 slots.
@@ -445,6 +453,7 @@ impl SensorScratch {
     #[must_use]
     pub fn diagnostics(&self) -> SensorScratchDiagnostics {
         SensorScratchDiagnostics {
+            v4: self.v4.diagnostics(),
             food_bin_capacity: self.food_bins.capacity(),
             hazard_bin_capacity: self.hazard_bins.capacity(),
             head_bin_capacity: self.head_bins.capacity(),
@@ -479,6 +488,7 @@ pub struct SensorSample {
 /// Validated reusable sensor-v3 evaluator.
 #[derive(Clone, Debug)]
 pub struct SensorEvaluator {
+    v4: Option<Box<super::sensors_v4::SensorV4Evaluator>>,
     config: SensorConfig,
     layout: SensorLayout,
 }
@@ -488,7 +498,111 @@ impl SensorEvaluator {
     pub fn new(config: SensorConfig) -> Result<Self, SensorError> {
         config.validate()?;
         let layout = SensorLayout::new(config.bins)?;
-        Ok(Self { config, layout })
+        Ok(Self {
+            config,
+            layout,
+            v4: None,
+        })
+    }
+
+    /// Explicit candidate v4 constructor for the shared native control pipeline.
+    pub fn new_v4(
+        config: SensorConfig,
+        movement: super::movement::MovementConfig,
+        fixed_dt: f64,
+        profile: super::sensor_contract::SensorProfile,
+    ) -> Result<Self, SensorError> {
+        let layout = SensorLayout::v4(profile, config.bins)?;
+        let evaluator =
+            super::sensors_v4::SensorV4Evaluator::new(profile, config.clone(), movement, fixed_dt)
+                .map_err(SensorError::V4)?;
+        Ok(Self {
+            config,
+            layout,
+            v4: Some(Box::new(evaluator)),
+        })
+    }
+
+    /// Whether this evaluator requires bound v4 context and admitted ray grants.
+    pub fn is_v4(&self) -> bool {
+        self.v4.is_some()
+    }
+
+    /// Version-one baseline behavior retains its own frozen v3 observation model.
+    pub fn legacy_evaluator(&self) -> &Self {
+        self.v4
+            .as_ref()
+            .map_or(self, |evaluator| evaluator.legacy_evaluator())
+    }
+
+    /// Dispatch the configured layout inside existing coarse control staging.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_prepared(
+        &self,
+        indexed: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+        prepared_v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+    ) -> Result<SensorSample, SensorError> {
+        let Some(evaluator) = &self.v4 else {
+            return self.sample_with_assessment(
+                indexed,
+                generation,
+                snake_index,
+                output,
+                scratch,
+                assessment,
+            );
+        };
+        let prepared = prepared_v4.ok_or(SensorError::MissingV4Context)?;
+        if prepared.grants_by_snake.len() != indexed.world().snakes.len() {
+            return Err(SensorError::MissingV4Context);
+        }
+        let grant = *prepared
+            .grants_by_snake
+            .get(snake_index)
+            .ok_or(SensorError::UnknownSnakeIndex { snake_index })?;
+        let mut meter = super::ray_work::RayWorkMeter::new(grant);
+        let sample = evaluator
+            .sample(
+                indexed,
+                prepared.body_rays,
+                prepared.context,
+                snake_index,
+                output,
+                &mut meter,
+                &mut scratch.v4,
+            )
+            .map_err(SensorError::V4)?;
+        let capped = sample.diagnostics.body.candidate_limit_reached;
+        Ok(SensorSample {
+            delivery: sample.delivery,
+            radii: sample.radii,
+            diagnostics: SensorSampleDiagnostics {
+                ray_work: sample.diagnostics.ray,
+                incomplete_rays: sample.diagnostics.incomplete_rays,
+                pellet_query: sample.diagnostics.pellets,
+                body_query: sample.diagnostics.body,
+                pellet_checks: sample.diagnostics.pellets.candidates,
+                segment_checks: if capped {
+                    0
+                } else {
+                    sample.diagnostics.body.candidates
+                },
+                head_checks: sample.diagnostics.head_checks,
+                pellet_cap_hits: u64::from(sample.diagnostics.pellets.candidate_limit_reached),
+                segment_cap_hits: u64::from(capped),
+                conservative_body_saturation: capped,
+                target_outside_world: indexed.world().snakes[snake_index]
+                    .position
+                    .x
+                    .hypot(indexed.world().snakes[snake_index].position.y)
+                    > self.config.world_radius,
+            },
+        })
     }
 
     /// Read the exact layout required by this evaluator.
@@ -579,6 +693,9 @@ impl SensorEvaluator {
         scratch: &mut SensorScratch,
         assessment: Option<f64>,
     ) -> Result<SensorSample, SensorError> {
+        if self.v4.is_some() {
+            return Err(SensorError::MissingV4Context);
+        }
         if assessment.is_some_and(|points| !points.is_finite() || points < 0.0) {
             return Err(SensorError::InvalidGenerationBest);
         }
@@ -870,6 +987,8 @@ impl SensorEvaluator {
                 sampled_points: snake.points,
             },
             diagnostics: SensorSampleDiagnostics {
+                ray_work: super::ray_work::RayWorkDiagnostics::default(),
+                incomplete_rays: 0,
                 pellet_query,
                 body_query,
                 pellet_checks,
@@ -888,6 +1007,10 @@ impl SensorEvaluator {
 /// Sensor configuration, world-view, or delivery-boundary failure.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SensorError {
+    /// A v4 evaluator cannot sample without a coordinator-issued context/grant.
+    MissingV4Context,
+    /// Candidate v4 validation or geometry failed.
+    V4(super::sensors_v4::V4SensorError),
     /// Sensor-layout validation failed.
     Layout(SensorLayoutError),
     /// Spatial query/index validation failed.
@@ -930,6 +1053,11 @@ impl From<SpatialIndexError> for SensorError {
 impl fmt::Display for SensorError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingV4Context => write!(
+                formatter,
+                "sensor-v4 requires a bound observation context and ray grant"
+            ),
+            Self::V4(error) => write!(formatter, "{error}"),
             Self::Layout(error) => write!(formatter, "{error}"),
             Self::Spatial(error) => write!(formatter, "{error}"),
             Self::InvalidConfig { field } => {

@@ -1389,6 +1389,7 @@ mod tests {
             });
         }
         let world = WorldState {
+            ray_cursor: Default::default(),
             snakes,
             body_points,
             pellets: Vec::new(),

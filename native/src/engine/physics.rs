@@ -698,6 +698,7 @@ impl PhysicsSubstepWorkspace {
                 })?;
             delta.corpse_discarded_value = emission.discarded_value;
         }
+        self.next_world.ray_cursor = expected_source.ray_cursor;
         self.next_world.snakes.extend_from_slice(food.snakes());
         self.next_world
             .body_points
@@ -900,6 +901,7 @@ impl PhysicsStepWorkspace {
             source_world.controller_leases.len(),
             "controlled snake IDs",
         )?;
+        self.world.ray_cursor = source_world.ray_cursor;
         self.world.snakes.extend_from_slice(&source_world.snakes);
         self.world
             .body_points

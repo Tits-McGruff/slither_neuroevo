@@ -1237,6 +1237,7 @@ mod tests {
 
     fn world_with_body(body: &[WorldPoint], radius: f64) -> WorldState {
         WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![snake(1, 0, body, radius)],
             body_points: body.to_vec(),
             pellets: Vec::new(),
@@ -1559,6 +1560,7 @@ mod tests {
                 WorldPoint { x: 300.0, y: 30.0 },
             ];
             let mut world = WorldState {
+                ray_cursor: Default::default(),
                 snakes: vec![snake(1, 0, &first, 9.0), snake(2, 2, &second, 9.0)],
                 body_points: first.into_iter().chain(second).collect(),
                 pellets: Vec::new(),
@@ -1625,6 +1627,7 @@ mod tests {
             let mut body_points = vec![blocked_head];
             body_points.extend_from_slice(&long_clear_body);
             let mut world = WorldState {
+                ray_cursor: Default::default(),
                 snakes: vec![
                     snake(1, 0, &[blocked_head], 2.0),
                     snake(2, 1, &long_clear_body, 2.0),

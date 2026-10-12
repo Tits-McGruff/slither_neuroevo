@@ -517,6 +517,7 @@ mod tests {
             });
         }
         WorldState {
+            ray_cursor: Default::default(),
             snakes,
             body_points,
             pellets: source
@@ -614,6 +615,7 @@ mod tests {
         first.population_slot = Some(0);
         last.population_slot = Some(1);
         WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![first, dead, last],
             body_points,
             pellets: vec![

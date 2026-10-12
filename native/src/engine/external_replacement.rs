@@ -2077,6 +2077,7 @@ impl ExternalReplacementWorkspace {
 
 pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
     let mut hash = Sha256::new();
+    hash.update(world.ray_cursor.witness_bytes());
     hash.update(b"slither-external-replacement-world-v1\0");
     hash_usize(&mut hash, world.snakes.len());
     for snake in &world.snakes {
@@ -2896,6 +2897,7 @@ mod tests {
             WorldPoint { x: 92.5, y: 100.0 },
         ];
         let world = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![
                 snake(
                     1,
@@ -2968,6 +2970,7 @@ mod tests {
         baseline.baseline_slot = Some(0);
         baseline.baseline_strategy = Some(super::super::state::BaselineStrategyState::Roam);
         let world = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![evolved, baseline],
             body_points: vec![
                 evolved_head,

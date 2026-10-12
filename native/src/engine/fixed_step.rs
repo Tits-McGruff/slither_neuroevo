@@ -1130,6 +1130,7 @@ pub(crate) fn copy_world_reusing(
     source: &WorldState,
     required_pellets: usize,
 ) -> Result<(), FixedStepPrefixError> {
+    target.ray_cursor = source.ray_cursor;
     reserve_for(&mut target.snakes, source.snakes.len(), "working snakes")?;
     reserve_for(
         &mut target.body_points,
@@ -1667,6 +1668,7 @@ mod tests {
     fn world() -> WorldState {
         let snake = snake(10, SnakeKind::Evolved, 0);
         WorldState {
+            ray_cursor: Default::default(),
             body_points: vec![
                 snake.position,
                 WorldPoint {
@@ -2033,12 +2035,14 @@ mod tests {
             },
         ];
         let world_a = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![first.clone(), second.clone()],
             body_points: body_points.clone(),
             pellets: Vec::new(),
             controller_leases: Vec::new(),
         };
         let world_b = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![second, first],
             body_points,
             pellets: Vec::new(),

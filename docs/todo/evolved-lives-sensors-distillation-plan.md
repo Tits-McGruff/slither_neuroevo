@@ -144,8 +144,8 @@ An exhausted intersection budget returns explicit Incomplete rather than Clear.
 The allocation prototype validates the complete maximum-due bound, uses stable
 population/baseline slots and non-population brains, grants equal base work and
 rotating single-unit remainders, and retains private revision-guarded proposals.
-It has no production limit defaults or finish-order redistribution. Its cursor
-still needs integration into the authoritative v4 observation transaction.
+It has no production limit defaults or finish-order redistribution. Shared
+control staging now integrates the cursor as described below.
 The physical-life first-delivery flag is integrated into existing actual Rust
 delivery/acceptance, replacement initialization and authority witnesses. Pure
 probes and rejected external deliveries preserve it; takeover keeps it and
@@ -179,6 +179,27 @@ benchmark checks and the doctest; Clippy, formatting, types and ESLint pass.
 The rebuilt production and isolated test-hooks addons pass all 13 required-native
 files: 170 tests, with six existing capability/platform skips. Client build
 evidence is reused from the prior checkpoint because browser sources are unchanged.
+
+V4 candidate layouts now route through the existing shared native control,
+neural sensing/inference and packed external-observation staging. Due neural
+and external owners receive immutable, canonical quotas before dispatch; v1
+baselines retain their exact v3 evaluator and layout. The generation-scoped
+cursor is copied through prefix/control/physics/replacement scratch, bound into
+authority witnesses and published with the complete step. Empty generation
+boundaries require its reset value. Failed preparation, stale control proposals
+and rejected physics preserve source cursor, recurrence and delivery flags.
+New tests cover both profiles at B8/B16/B32, 504-input inference, exact v1
+baseline continuation, stable storage ordering, real parallel sensing/inference
+with 12 due observations and 1/2/3/4 workers, and warm retained capacities.
+Coordinator hierarchy/owner/grant capacities and worker-local v4 arrays/query/
+packet storage are reported explicitly. Production settings, wire/persistence
+propagation and full admission/target-platform qualification remain open.
+Windows qualification passes 639 release library tests with hooks, three
+benchmark checks and the doctest. All-target Clippy with hooks, rustfmt, types
+and repository ESLint pass. The rebuilt production and source-identified
+test-hooks addons pass all 13 required-native files: 170 tests with six existing
+skips, including archive cancellation and exact multiworker continuation.
+Client-build evidence is reused because browser sources are unchanged.
 
 Stages D through J and the remaining B/C integration and qualification gates
 remain open. Production sensor-v4 routing/propagation and qualification,

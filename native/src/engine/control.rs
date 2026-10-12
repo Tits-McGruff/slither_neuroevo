@@ -111,6 +111,8 @@ pub struct NeuralControlBatchInputs<'a, 'world> {
     pub generation: &'a SensorGenerationState,
     /// Optional dense life assessments from the same pre-control boundary.
     pub assessment_points: Option<&'a [f64]>,
+    /// Bound v4 context and immutable grants; absent for frozen v3.
+    pub v4: Option<super::sensors_v4::PreparedV4Sensing<'a>>,
     /// Dense heterogeneous genome slab.
     pub population: &'a [PopulationGenome],
     /// Stable brain handles and recurrent state before this operation.
@@ -130,7 +132,7 @@ impl NeuralControlBatchView<'_> {
         self.work
     }
 
-    /// Packed sensor-v3 observations in work order.
+    /// Packed active-contract observations in work order.
     pub const fn observations(&self) -> &[f32] {
         self.observations
     }
@@ -457,6 +459,7 @@ impl NeuralControlPipeline {
             indexed_world,
             generation,
             assessment_points,
+            v4,
             population,
             brains,
             reset_brains,
@@ -530,7 +533,7 @@ impl NeuralControlPipeline {
                         run_calculation_worker("sensing", partition, || {
                             for (ordinal, unit) in units.iter().enumerate() {
                                 let offset = ordinal * sensor.layout().input_size;
-                                match sensor.sample_with_assessment(
+                                match sensor.sample_prepared(
                                     indexed_world,
                                     generation,
                                     unit.snake_index(),
@@ -540,6 +543,7 @@ impl NeuralControlPipeline {
                                         assessment_points
                                             .and_then(|points| points.get(slot as usize).copied())
                                     }),
+                                    v4,
                                 ) {
                                     Ok(sample) => {
                                         deliveries[ordinal] = Some(sample.delivery);
@@ -563,7 +567,7 @@ impl NeuralControlPipeline {
         } else {
             for (ordinal, unit) in work.iter().enumerate() {
                 let offset = ordinal * self.inference.input_size();
-                let sample = self.sensor.sample_with_assessment(
+                let sample = self.sensor.sample_prepared(
                     indexed_world,
                     generation,
                     unit.snake_index(),
@@ -572,6 +576,7 @@ impl NeuralControlPipeline {
                     unit.population_slot().and_then(|slot| {
                         assessment_points.and_then(|points| points.get(slot as usize).copied())
                     }),
+                    v4,
                 )?;
                 self.deliveries[ordinal] = Some(sample.delivery);
                 self.diagnostics[ordinal] = sample.diagnostics;
@@ -1287,7 +1292,7 @@ mod tests {
             max_graph_outputs: 4,
             max_identifier_bytes: 64,
             max_total_referenced_identifier_bytes: 4_096,
-            max_tensor_width: 256,
+            max_tensor_width: 1_024,
             max_mlp_hidden_layers: 4,
             max_split_output_ports: 4,
             max_parameter_floats: 100_000,
@@ -1487,6 +1492,7 @@ mod tests {
         ];
         (
             WorldState {
+                ray_cursor: Default::default(),
                 snakes,
                 body_points,
                 pellets,
@@ -1546,6 +1552,7 @@ mod tests {
                     indexed_world: &indexed_world,
                     generation: &generation,
                     assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1590,6 +1597,7 @@ mod tests {
                         indexed_world: &indexed,
                         generation: &generation,
                         assessment_points: Some(&scores),
+                        v4: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &[],
@@ -1642,6 +1650,7 @@ mod tests {
                     indexed_world: &old_indexed,
                     generation: &generation,
                     assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1721,6 +1730,7 @@ mod tests {
                     indexed_world: &reset_indexed,
                     generation: &generation,
                     assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &reset_brains,
                     reset_brains: &[reset_handle],
@@ -1738,6 +1748,7 @@ mod tests {
                     indexed_world: &reference_indexed,
                     generation: &generation,
                     assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &reference_brains,
                     reset_brains: &[],
@@ -1809,6 +1820,7 @@ mod tests {
                         indexed_world: &indexed,
                         generation: &generation,
                         assessment_points: None,
+                        v4: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &invalid,
@@ -1837,6 +1849,7 @@ mod tests {
                     indexed_world: &indexed,
                     generation: &generation,
                 assessment_points: None,
+                v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[stale],
@@ -1880,6 +1893,7 @@ mod tests {
                     indexed_world: &original_indexed,
                     generation: &generation,
                     assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1914,6 +1928,124 @@ mod tests {
     }
 
     #[test]
+    fn v4_actual_parallel_sensing_and_inference_match_scalar_with_fixed_grants_and_warm_capacity() {
+        use crate::engine::evolved_lives::{EvolvedExperimentConfig, EvolvedGenerationState};
+        use crate::engine::sensor_contract::SensorProfile;
+        use crate::engine::sensor_rays::BodyRayIndexWorkspace;
+        use crate::engine::sensors_v4::{PreparedV4Sensing, V4ObservationContext};
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in [8, 16, 32] {
+                let sensor = SensorEvaluator::new_v4(
+                    SensorConfig {
+                        bins,
+                        ..SensorConfig::default()
+                    },
+                    crate::engine::movement::MovementConfig::typescript_defaults(),
+                    1.0 / 60.0,
+                    profile,
+                )
+                .unwrap();
+                let plan = graph_plan(sensor.layout().input_size);
+                let (world, brains, population) = fixture_with_count(&plan, EPOCH, 12);
+                let source_world = world.clone();
+                let source_brains = brains.clone();
+                let indexed_world = indexed(&world);
+                let mut hierarchy = BodyRayIndexWorkspace::default();
+                let body_rays = hierarchy.prepare(indexed_world.body_index()).unwrap();
+                let lives = EvolvedGenerationState::default();
+                let grants: Vec<_> = (0..12).map(|index| 40 + index * 7).collect();
+                let context = PreparedV4Sensing {
+                    body_rays,
+                    context: V4ObservationContext {
+                        generation_elapsed_seconds: 10.0,
+                        evolved: &lives,
+                        experiment: EvolvedExperimentConfig::legacy(240.0),
+                    },
+                    grants_by_snake: &grants,
+                };
+                let mut generation = SensorGenerationState::new();
+                generation.update_after_step(&world).unwrap();
+                let mut expected = None;
+                for workers in [1, 2, 3, 4] {
+                    // Twelve due evaluations exceed both parallel-phase thresholds.
+                    assert!(workers == 1 || 12 >= 2 * workers);
+                    let mut pipeline = NeuralControlPipeline::try_new(
+                        12,
+                        sensor.clone(),
+                        plan.clone(),
+                        workers,
+                        usize::MAX,
+                    )
+                    .unwrap();
+                    let candidates: Vec<_> = (0..12)
+                        .rev()
+                        .map(|index| CalculationCandidateIndex::new(index, index))
+                        .collect();
+                    let mut scratch = SensorScratch::default();
+                    let mut retained = None;
+                    for _ in 0..3 {
+                        let batch = pipeline
+                            .prepare_and_evaluate(
+                                NeuralControlBatchInputs {
+                                    key: CalculationBatchKey::new(7, 101, EPOCH),
+                                    candidates: &candidates,
+                                    indexed_world: &indexed_world,
+                                    generation: &generation,
+                                    assessment_points: None,
+                                    v4: Some(context),
+                                    population: &population,
+                                    brains: &brains,
+                                    reset_brains: &[],
+                                },
+                                &mut scratch,
+                            )
+                            .unwrap();
+                        assert_eq!(batch.work().len(), 12);
+                        for (index, diagnostics) in batch.diagnostics().iter().enumerate() {
+                            assert!(diagnostics.ray_work.charged() <= u64::from(grants[index]));
+                        }
+                        let result = (
+                            batch
+                                .observations()
+                                .iter()
+                                .map(|value| value.to_bits())
+                                .collect::<Vec<_>>(),
+                            batch
+                                .outputs()
+                                .iter()
+                                .map(|value| value.to_bits())
+                                .collect::<Vec<_>>(),
+                            batch.diagnostics().to_vec(),
+                            pipeline.staged_recurrent.clone(),
+                        );
+                        if let Some(expected) = &expected {
+                            assert_eq!(&result, expected);
+                        } else {
+                            expected = Some(result);
+                        }
+                        let capacity = (
+                            pipeline.capacity_diagnostics(),
+                            scratch.diagnostics(),
+                            pipeline
+                                .parallel_sensor_scratch
+                                .iter()
+                                .map(SensorScratch::diagnostics)
+                                .collect::<Vec<_>>(),
+                        );
+                        if let Some(retained) = &retained {
+                            assert_eq!(&capacity, retained);
+                        } else {
+                            retained = Some(capacity);
+                        }
+                        assert_eq!(world, source_world);
+                        assert_eq!(brains, source_brains);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn malformed_late_genome_leaves_no_ready_batch_or_authoritative_write() {
         let plan = graph_plan(51);
         let (world, brains, mut population) = fixture(&plan, EPOCH);
@@ -1942,6 +2074,7 @@ mod tests {
                     indexed_world: &original_indexed,
                     generation: &generation,
                 assessment_points: None,
+                v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1994,6 +2127,7 @@ mod tests {
                         indexed_world: &current_indexed,
                         generation: &generation,
                         assessment_points: None,
+                        v4: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &[],
@@ -2034,6 +2168,7 @@ mod tests {
                     indexed_world: &original_indexed,
                     generation: &generation,
                     assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -2121,6 +2256,7 @@ mod tests {
                     indexed_world: &replacement_indexed,
                     generation: &replacement_generation,
                     assessment_points: None,
+                    v4: None,
                     population: &replacement_population,
                     brains: &replacement_brains,
                     reset_brains: &[],

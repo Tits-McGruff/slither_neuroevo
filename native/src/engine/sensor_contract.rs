@@ -203,7 +203,11 @@ impl SensorLayout {
     /// Existing v3 layouts acquire structural metadata without changing bytes,
     /// labels, default settings or the historical native sensor fixtures.
     pub fn contract_identity(&self) -> Result<SensorContractIdentity, SensorContractError> {
-        SensorContractIdentity::new(SensorProfile::V3, self.bins)
+        let identity = SensorContractIdentity::new(self.profile, self.bins)?;
+        if identity.input_size() != self.input_size || identity.order() != self.order.as_ref() {
+            return Err(SensorContractError::StructuralMismatch);
+        }
+        Ok(identity)
     }
 }
 

@@ -926,6 +926,7 @@ mod tests {
 
     fn world_with_one(length: usize) -> WorldState {
         WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![snake(1, 0, length)],
             body_points: line_body(length, 0.0),
             pellets: Vec::new(),
@@ -1100,6 +1101,7 @@ mod tests {
             if !reverse {
                 first_body.extend(second_body);
                 WorldState {
+                    ray_cursor: Default::default(),
                     snakes: vec![first, second],
                     body_points: first_body,
                     pellets: Vec::new(),
@@ -1110,6 +1112,7 @@ mod tests {
                 first.body.start = 5;
                 second_body.extend(first_body);
                 WorldState {
+                    ray_cursor: Default::default(),
                     snakes: vec![second, first],
                     body_points: second_body,
                     pellets: Vec::new(),

@@ -1823,6 +1823,7 @@ mod tests {
             snakes.push(snake);
         }
         WorldState {
+            ray_cursor: Default::default(),
             snakes,
             body_points,
             pellets: Vec::new(),

@@ -843,6 +843,8 @@ pub struct ControllerLease {
 /// Complete world-storage skeleton. Spatial indexes are derived, not authority.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldState {
+    /// Generation-scoped sensor ray fairness, published only with complete steps.
+    pub ray_cursor: super::ray_work::RayQuotaCursor,
     /// Snake records.
     pub snakes: Vec<SnakeState>,
     /// Pooled head-to-tail body coordinates.
@@ -5114,7 +5116,8 @@ fn validate_generation_boundary(
             reason: "fixed-step continuation must be reset before spawn or sensing",
         });
     }
-    if !candidate.world.snakes.is_empty()
+    if candidate.world.ray_cursor != super::ray_work::RayQuotaCursor::default()
+        || !candidate.world.snakes.is_empty()
         || !candidate.world.body_points.is_empty()
         || !candidate.world.pellets.is_empty()
         || !candidate.world.controller_leases.is_empty()

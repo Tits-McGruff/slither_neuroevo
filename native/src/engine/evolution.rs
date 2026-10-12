@@ -1677,6 +1677,7 @@ mod tests {
             .export_state();
         (
             WorldState {
+                ray_cursor: Default::default(),
                 snakes,
                 body_points,
                 pellets: Vec::new(),

@@ -167,7 +167,7 @@ impl PendingPacket {
     }
 }
 /// Per-worker frontier, bounded by that observation's admitted node work.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RayQueryScratch {
     packets: BinaryHeap<PendingPacket>,
 }
@@ -177,6 +177,10 @@ impl RayQueryScratch {
     }
     pub fn packet_capacity(&self) -> usize {
         self.packets.capacity()
+    }
+    /// Retained packet heap bytes, including all per-bin lower bounds.
+    pub fn packet_owned_bytes(&self) -> usize {
+        self.packets.capacity() * size_of::<PendingPacket>()
     }
 }
 

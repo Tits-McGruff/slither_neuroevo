@@ -852,6 +852,7 @@ impl RunningStepCoordinator {
                 generation: &self.staged_sensor_generation,
                 assessment_points: selected_score_context
                     .then_some(self.staged_assessment_points.as_slice()),
+                v4: None,
                 population: &state.population,
                 brains: &state.brains,
                 wall_now_ms: inputs.wall_now_ms,

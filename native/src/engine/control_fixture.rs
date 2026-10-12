@@ -799,6 +799,7 @@ fn execute_boundary(
                 indexed_world: &indexed,
                 generation: &fixture.generation,
                 assessment_points: None,
+                v4: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 reset_brains: &[],

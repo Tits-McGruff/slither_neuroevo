@@ -92,6 +92,29 @@ pub struct RayQuotaCursor {
 }
 
 impl RayQuotaCursor {
+    /// Fixed canonical running-state witness bytes; not a checkpoint journal.
+    pub fn witness_bytes(self) -> [u8; 32] {
+        let mut bytes = [0; 32];
+        bytes[0] = 1;
+        match self.next_owner {
+            None => {}
+            Some(RayObservationOwner::Evolved(slot)) => {
+                bytes[1] = 1;
+                bytes[2..6].copy_from_slice(&slot.to_le_bytes());
+            }
+            Some(RayObservationOwner::Baseline(slot)) => {
+                bytes[1] = 2;
+                bytes[2..6].copy_from_slice(&slot.to_le_bytes());
+            }
+            Some(RayObservationOwner::Brain(handle)) => {
+                bytes[1] = 3;
+                bytes[2..10].copy_from_slice(&handle.id.to_le_bytes());
+                bytes[10..18].copy_from_slice(&handle.epoch.to_le_bytes());
+            }
+        }
+        bytes[24..32].copy_from_slice(&self.revision.to_le_bytes());
+        bytes
+    }
     pub const fn next_owner(self) -> Option<RayObservationOwner> {
         self.next_owner
     }
@@ -217,6 +240,13 @@ pub struct RayWorkDiagnostics {
     pub candidates: u32,
     pub intersections: u32,
     pub saturated: bool,
+}
+
+impl RayWorkDiagnostics {
+    /// Exact total operations charged against one admitted u32 grant.
+    pub const fn charged(self) -> u64 {
+        self.cells as u64 + self.candidates as u64 + self.intersections as u64
+    }
 }
 
 /// Worker-local meter admitted by the coordinator's immutable grant.
