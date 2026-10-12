@@ -2662,6 +2662,7 @@ mod tests {
             previous_input_boost: true,
             control_accumulator_seconds: accumulator,
             delivered_observation_points: 1.0,
+            observation_delivered: false,
             body,
             skin: frame_id,
         }

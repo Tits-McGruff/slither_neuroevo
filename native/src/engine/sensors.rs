@@ -254,6 +254,8 @@ pub struct ObservationDeliveryMarker {
     pub snake_id: u64,
     /// Boundary value that must still be current when this marker commits.
     pub previous_delivered_points: f64,
+    /// First-delivery flag captured at the same exact physical-life boundary.
+    pub previous_observation_delivered: bool,
     /// Snake points captured at observation construction.
     pub sampled_points: f64,
 }
@@ -269,7 +271,9 @@ impl ObservationDeliveryMarker {
                 actual: snake.id,
             });
         }
-        if snake.delivered_observation_points.to_bits() != self.previous_delivered_points.to_bits()
+        if snake.observation_delivered != self.previous_observation_delivered
+            || snake.delivered_observation_points.to_bits()
+                != self.previous_delivered_points.to_bits()
         {
             return Err(SensorError::StaleDeliveryMarker { snake_id: snake.id });
         }
@@ -292,7 +296,12 @@ impl ObservationDeliveryMarker {
             snake.delivered_observation_points.to_bits(),
             self.previous_delivered_points.to_bits()
         );
+        debug_assert_eq!(
+            snake.observation_delivered,
+            self.previous_observation_delivered
+        );
         snake.delivered_observation_points = self.sampled_points;
+        snake.observation_delivered = true;
     }
 }
 
@@ -857,6 +866,7 @@ impl SensorEvaluator {
             delivery: ObservationDeliveryMarker {
                 snake_id: snake.id,
                 previous_delivered_points: snake.delivered_observation_points,
+                previous_observation_delivered: snake.observation_delivered,
                 sampled_points: snake.points,
             },
             diagnostics: SensorSampleDiagnostics {
@@ -1380,6 +1390,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body,
             skin: 0,
         }
@@ -1718,6 +1729,51 @@ mod tests {
         ));
         let (third_output, _) = sample(&evaluator, &world, 0, &SensorGenerationState::new());
         assert_eq!(third_output[8], 0.0);
+    }
+
+    #[test]
+    fn first_life_delivery_flag_changes_only_for_matching_consumption_even_without_score_delta() {
+        let evaluator = SensorEvaluator::new(SensorConfig::default()).unwrap();
+        let mut world = WorldState {
+            body_points: vec![
+                WorldPoint { x: 0.0, y: 0.0 },
+                WorldPoint { x: -7.5, y: 0.0 },
+            ],
+            ..WorldState::default()
+        };
+        world.snakes.push(snake(
+            1,
+            SnakeKind::Evolved,
+            BodyRange { start: 0, len: 2 },
+            WorldPoint { x: 0.0, y: 0.0 },
+        ));
+        let generation = SensorGenerationState::new();
+        let (_, probe) = sample(&evaluator, &world, 0, &generation);
+        let (_, accepted) = sample(&evaluator, &world, 0, &generation);
+        assert!(!world.snakes[0].observation_delivered);
+        assert!(!probe.delivery.previous_observation_delivered);
+        let mut wrong_life = world.snakes[0].clone();
+        wrong_life.id += 1;
+        assert!(probe.delivery.commit(&mut wrong_life).is_err());
+        assert!(!wrong_life.observation_delivered);
+        accepted.delivery.commit(&mut world.snakes[0]).unwrap();
+        assert!(world.snakes[0].observation_delivered);
+        assert_eq!(world.snakes[0].delivered_observation_points, 0.0);
+        assert_eq!(
+            probe.delivery.commit(&mut world.snakes[0]),
+            Err(SensorError::StaleDeliveryMarker { snake_id: 1 })
+        );
+        let (_, delivered_life) = sample(&evaluator, &world, 0, &generation);
+        assert!(delivered_life.delivery.previous_observation_delivered);
+        // A new physical life clears the flag independently of score and recurrence.
+        world.snakes[0].id += 1;
+        world.snakes[0].observation_delivered = false;
+        assert!(delivered_life
+            .delivery
+            .commit(&mut world.snakes[0])
+            .is_err());
+        let (_, newborn) = sample(&evaluator, &world, 0, &generation);
+        assert!(!newborn.delivery.previous_observation_delivered);
     }
 
     #[test]

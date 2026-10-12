@@ -998,6 +998,7 @@ pub(crate) fn build_world(spec: Stage4SensingScenarioSpec) -> Result<WorldState,
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: (points - (snake_index % 4) as f64 * 0.5).max(0.0),
+            observation_delivered: false,
             body: BodyRange {
                 start: body_start,
                 len: spec.body_points_per_snake,

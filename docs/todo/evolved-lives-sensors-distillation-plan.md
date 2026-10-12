@@ -16,7 +16,8 @@ overlay (6 existing skips), with type/lint/client-build checks. Oxygen passed
 its seven-day clock, manual scope, checkpoint/archive and real HTTP roundtrip
 checks. The implementation is now committed and pushed on
 `evolved-lives-sensors-distillation`, beginning with `9275610` and the
-checkpoint-codec Clippy correction `0031b70`; GitHub CI runs on this branch.
+checkpoint-codec Clippy correction `0031b70`; GitHub CI now starts automatically
+on this project branch at each pushed checkpoint.
 
 Stage B's native accounting core is implemented: dense population-slot lives,
 ordered prefix/substep credits and actual burn attribution, independent
@@ -133,8 +134,33 @@ scoped to that slice; current Linux qualification belongs to the cohesive
 respawn integration gate. The copied-deployment fixture includes nonignored
 new source and verifies source identity before startup.
 
+Stage D now has native structural identities for frozen v3 and candidate v4
+Basic/Motion, with exact labels/offsets, normalization and geometry meanings,
+absence/validity encodings and a domain-separated digest. Equal-width profiles
+remain incompatible. V4 revisions stay explicitly unfrozen pending workload
+qualification and ablation. The pure geometry prototype covers capsule sides/
+endpoints/tangency, disc-aware walls and all-head relative-motion encounters.
+An exhausted intersection budget returns explicit Incomplete rather than Clear.
+The allocation prototype validates the complete maximum-due bound, uses stable
+population/baseline slots and non-population brains, grants equal base work and
+rotating single-unit remainders, and retains private revision-guarded proposals.
+It has no production limit defaults or finish-order redistribution. Its cursor
+and spatial traversal still need integration into the v4 observation transaction.
+The physical-life first-delivery flag is integrated into existing actual Rust
+delivery/acceptance, replacement initialization and authority witnesses. Pure
+probes and rejected external deliveries preserve it; takeover keeps it and
+both evolved recurrence modes reopen it on physical replacement.
+Windows release qualification passes 617 native library tests with hooks,
+three benchmark checks and the doctest; Clippy and formatting pass.
+The rebuilt production addon and isolated release test-hooks addon pass all
+13 required-native files: 170 tests, with six existing capability/platform skips.
+TypeScript and repository ESLint pass; the client-build evidence is reused
+from the preceding telemetry checkpoint because client sources are unchanged.
+The five historical source-identity fixtures remain byte-for-byte unchanged.
+
 Stages D through J and the remaining B/C integration and qualification gates
-remain open. Sensor v4, baseline v2, canonical PyTorch distillation,
+remain open. Complete sensor-v4 execution/propagation, baseline v2, canonical
+PyTorch distillation,
 capture/jobs/shadows, the brain library and the new inspector are not yet
 implemented. Existing v3/v1 runtime defaults remain until their stages qualify.
 

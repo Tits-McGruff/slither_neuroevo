@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - exclusive-server-mode-refactor
+      - evolved-lives-sensors-distillation
   pull_request:
     branches:
       - main

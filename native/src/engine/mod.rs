@@ -95,6 +95,8 @@ pub mod movement;
 pub mod physics;
 /// Bounded inbound/outbound queues and coalesced wake contracts.
 pub mod queues;
+/// Transaction-staged fair work grants for sensor-v4 capsule rays.
+pub mod ray_work;
 /// Versioned deterministic random-number generation shared by engine state.
 pub mod rng;
 /// Durable generation-one checkpoint and running-authority activation barrier.
@@ -113,6 +115,10 @@ pub mod scheduler;
 /// Deterministic Stage 4 corrected-sensing performance evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod sensing_fixture;
+/// Canonical structural sensor identity, separate from numeric environments.
+pub mod sensor_contract;
+/// Pure sensor-v4 capsule, wall and projected head-motion geometry.
+pub mod sensor_geometry;
 /// Sensor-v3 labels, offsets, and input-size contract.
 pub mod sensor_layout;
 /// Corrected sensor-v3 construction and delivered-observation boundaries.

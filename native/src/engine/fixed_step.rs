@@ -914,6 +914,7 @@ impl FixedStepPrefixWorkspace {
                 previous_input_boost: false,
                 control_accumulator_seconds: 0.0,
                 delivered_observation_points: 0.0,
+                observation_delivered: false,
                 body: BodyRange {
                     start: body_start,
                     len: self.respawn_body.len(),
@@ -1648,6 +1649,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body: BodyRange {
                 start: body_start,
                 len: 2,

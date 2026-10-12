@@ -918,6 +918,7 @@ fn new_snake(
         previous_input_boost: false,
         control_accumulator_seconds,
         delivered_observation_points: 0.0,
+        observation_delivered: false,
         body,
         skin,
     }

@@ -1096,6 +1096,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body: BodyRange { start: 0, len: 5 },
             skin: 0,
         }
@@ -1242,6 +1243,7 @@ mod tests {
     fn reclaim_keeps_source_until_delivery_then_invalidates_old_connection() {
         let mut lease = lease();
         let mut snake = snake();
+        snake.observation_delivered = true;
         let disconnect = prepare_disconnect(&lease, &snake, 11, 1_200, TIMING).unwrap();
         commit_disconnect(&mut lease, &mut snake, disconnect).unwrap();
         let before_lease = lease.clone();
@@ -1258,6 +1260,7 @@ mod tests {
         assert_eq!(lease.connection_id, Some(12));
         assert_eq!(lease.snake_id, before_lease.snake_id);
         assert_eq!(snake.brain, before_snake.brain);
+        assert!(snake.observation_delivered);
         assert_eq!(
             snake.delivered_observation_points,
             before_snake.delivered_observation_points
@@ -1442,6 +1445,7 @@ mod tests {
     fn disconnect_holds_then_neutralizes_then_takes_over_once() {
         let mut lease = lease();
         let mut snake = snake();
+        snake.observation_delivered = true;
         let disconnect =
             prepare_disconnect(&lease, &snake, 11, 1_100, TIMING).expect("disconnect should stage");
         commit_disconnect(&mut lease, &mut snake, disconnect).expect("disconnect should commit");
@@ -1479,6 +1483,10 @@ mod tests {
             .expect("takeover should commit");
         assert_eq!(lease.status, ControllerLeaseStatus::NeuralTakeover);
         assert_eq!(lease.takeover_committed_at_ms, Some(31_100));
+        assert!(
+            snake.observation_delivered,
+            "takeover retains the physical-life delivery flag"
+        );
         assert_eq!(snake.turn, 0.0);
         assert!(!snake.input_boost);
 

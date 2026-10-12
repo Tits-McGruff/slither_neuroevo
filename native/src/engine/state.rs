@@ -735,6 +735,8 @@ pub struct SnakeState {
     pub control_accumulator_seconds: f64,
     /// Points at the prior delivered-observation boundary.
     pub delivered_observation_points: f64,
+    /// Whether an observation was consumed or accepted in this physical life.
+    pub observation_delivered: bool,
     /// Pooled head-to-tail body range.
     pub body: BodyRange,
     /// Stable display skin/color identifier.
@@ -5975,6 +5977,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -6154,6 +6157,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -7530,6 +7534,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -7793,6 +7798,7 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
             body: BodyRange { start: 0, len: 1 },
             skin: 0,
         });
@@ -8062,6 +8068,55 @@ mod tests {
             other => panic!("expected a published newborn step, got {other:?}"),
         };
         (authority, diagnostics)
+    }
+
+    #[test]
+    fn evolved_replacement_reopens_first_delivery_under_both_recurrent_life_modes() {
+        use crate::engine::fixed_step::{FixedStepPrefixInputs, FixedStepPrefixWorkspace};
+        for preserve in [false, true] {
+            let graph = default_graph();
+            let mut candidate = respawn_candidate(&graph, preserve, 0.8);
+            candidate.world.snakes[0].observation_delivered = true;
+            let authority = own_complete_running(candidate, graph);
+            let state = authority.state();
+            let before = state.clone();
+            let projection = crate::engine::step_config::project_running_step_config(
+                &state.config,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+            let mut lives = state.fixed_step.evolved_generation.clone();
+            let mut workspace = FixedStepPrefixWorkspace::new();
+            let prefix = workspace
+                .prepare_with_evolved(
+                    FixedStepPrefixInputs {
+                        key: authority.running_step_key(1).unwrap(),
+                        world: &state.world,
+                        rng: &state.rng,
+                        allocators: &state.allocators,
+                        generation_elapsed_seconds: state.generation.elapsed_seconds,
+                        ambient_accumulator: state.fixed_step.ambient_pellet_accumulator,
+                        baseline_lifecycle: &state.fixed_step.baseline_lifecycle,
+                        config: projection.world_step.prefix,
+                    },
+                    &mut lives,
+                    projection.evolved,
+                    projection
+                        .world_step
+                        .control
+                        .initial_neural_accumulator_seconds(),
+                )
+                .unwrap();
+            let newborn = &prefix.world().snakes[0];
+            assert!(newborn.alive);
+            assert_ne!(newborn.id, state.world.snakes[0].id);
+            assert_eq!(newborn.brain, state.world.snakes[0].brain);
+            assert!(
+                !newborn.observation_delivered,
+                "new physical life must start unsampled even when recurrence is preserved"
+            );
+            assert_eq!(authority.state(), &before);
+        }
     }
 
     #[test]
@@ -10088,6 +10143,7 @@ mod tests {
             .find(|snake| snake.id == external_id)
             .unwrap();
         assert_eq!(published_external.delivered_observation_points, 10.01);
+        assert!(published_external.observation_delivered);
 
         let published = authority.state().clone();
         let duplicate = coordinator
@@ -10448,6 +10504,8 @@ mod tests {
             .find(|snake| snake.id == failed_id)
             .unwrap();
         assert_eq!(accepted_snake.delivered_observation_points, 10.01);
+        assert!(accepted_snake.observation_delivered);
+        assert!(!failed_snake.observation_delivered);
         assert_eq!(failed_snake.delivered_observation_points, 2.0);
         let accepted_lease = authority
             .state()
