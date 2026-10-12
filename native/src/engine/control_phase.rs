@@ -3060,6 +3060,7 @@ mod tests {
             controller_leases,
         };
         let rng = RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(11.0).export_state(),

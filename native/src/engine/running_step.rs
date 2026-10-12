@@ -579,6 +579,19 @@ impl RunningStepCoordinator {
         authority: &AuthoritativeState,
         limits: RunningStepWorkLimits,
     ) -> Result<Self, RunningStepError> {
+        if super::baseline_v2::BaselineV2Settings::from_settings(&authority.state().config.settings)
+            .map_err(|_| StepConfigError::UnsupportedSetting {
+                path: "baselineBots.controlVersion",
+            })?
+            .is_some()
+        {
+            // The persisted extension is admitted independently. Until v2 joins
+            // shared due/quota/control publication, executing it as v1 is invalid.
+            return Err(StepConfigError::UnsupportedSetting {
+                path: "baselineBots.controlVersion",
+            }
+            .into());
+        }
         let projection = authority.running_step_config(limits)?;
         let sensor = if projection.sensor_profile == super::sensor_contract::SensorProfile::V3 {
             SensorEvaluator::new(projection.sensor.clone())?

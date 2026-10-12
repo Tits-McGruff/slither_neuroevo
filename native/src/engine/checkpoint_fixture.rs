@@ -292,6 +292,7 @@ pub(crate) fn publish_stage3_fixture(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: rng(),
@@ -1070,6 +1071,7 @@ fn round_trip_rng_bundle(baseline_count: usize) -> RngStateBundle {
         });
     }
     RngStateBundle {
+        baseline_behaviors: Vec::new(),
         evolved_respawns: Vec::new(),
         version: RNG_BUNDLE_VERSION,
         world: advanced_rng_state("world", 31, true),

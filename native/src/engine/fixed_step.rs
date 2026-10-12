@@ -1248,6 +1248,7 @@ pub(crate) fn copy_rng_bundle_reusing(
 ) -> Result<(), FixedStepPrefixError> {
     if target.is_none() {
         *target = Some(RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: source.version,
             world: empty_serialized_rng(),
@@ -1260,6 +1261,15 @@ pub(crate) fn copy_rng_bundle_reusing(
         .as_mut()
         .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
     target.version = source.version;
+    reserve_for(
+        &mut target.baseline_behaviors,
+        source.baseline_behaviors.len(),
+        "baseline behavior RNG states",
+    )?;
+    target.baseline_behaviors.clear();
+    target
+        .baseline_behaviors
+        .extend_from_slice(&source.baseline_behaviors);
     reserve_for(
         &mut target.evolved_respawns,
         source.evolved_respawns.len(),
@@ -1690,6 +1700,7 @@ mod tests {
 
     fn rng_bundle(baseline_count: usize) -> RngStateBundle {
         RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(101.0).export_state(),
@@ -1832,6 +1843,40 @@ mod tests {
             Some(10.0 - DT)
         );
         assert!(workspace.is_ready());
+    }
+
+    #[test]
+    fn dense_v2_behavior_rng_copy_reuses_capacity_and_preserves_lifecycle_rng() {
+        let mut source = rng_bundle(2);
+        source.version = crate::engine::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        source.baseline_behaviors =
+            crate::engine::rng::derive_baseline_v2_behaviors(42, 1, 9, 2, true).unwrap();
+        let mut target = None;
+        let mut scratch = RngCopyScratch::default();
+        copy_rng_bundle_reusing(&mut target, &mut scratch, &source).unwrap();
+        let pointer = target.as_ref().unwrap().baseline_behaviors.as_ptr();
+        let capacity = target.as_ref().unwrap().baseline_behaviors.capacity();
+        for _ in 0..100 {
+            let mut behavior = source.baseline_behaviors[0].runtime().unwrap();
+            behavior.next_f64();
+            source.baseline_behaviors[0].uniform_state = behavior.uniform_state();
+            copy_rng_bundle_reusing(&mut target, &mut scratch, &source).unwrap();
+            assert_eq!(target.as_ref().unwrap(), &source);
+            assert_eq!(
+                target.as_ref().unwrap().baseline_behaviors.as_ptr(),
+                pointer
+            );
+            assert_eq!(
+                target.as_ref().unwrap().baseline_behaviors.capacity(),
+                capacity
+            );
+        }
+        let lifecycle = source.baselines.clone();
+        source.baseline_behaviors.clear();
+        source.version = 2;
+        copy_rng_bundle_reusing(&mut target, &mut scratch, &source).unwrap();
+        assert!(target.as_ref().unwrap().baseline_behaviors.is_empty());
+        assert_eq!(target.as_ref().unwrap().baselines, lifecycle);
     }
 
     #[test]

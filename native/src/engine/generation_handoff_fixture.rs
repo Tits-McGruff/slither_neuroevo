@@ -572,6 +572,7 @@ pub(super) fn fixture_run_start(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
             evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(42.0, "world").export_state(),
