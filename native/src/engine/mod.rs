@@ -10,6 +10,8 @@ pub mod ambient;
 pub mod baseline;
 /// Pure baseline strategy evaluation from shared corrected observations.
 pub mod baseline_control;
+/// Declared-information v4 baseline policy with isolated behavior continuation.
+pub mod baseline_v2;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.
 pub mod calculation;
 /// Process-available logical CPU limits for the Rust calculation pool.

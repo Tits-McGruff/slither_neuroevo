@@ -234,6 +234,26 @@ pub fn derive_evolved_respawn_rngs(
     Ok(streams)
 }
 
+/// Isolated baseline-v2 behavior seed; lifecycle and v1 strategy draws never
+/// participate. Full generation identity is used only when configured to vary.
+#[must_use]
+pub fn baseline_v2_behavior_word(
+    run_seed: u32,
+    baseline_seed: u32,
+    generation: u64,
+    slot: u32,
+    randomize_per_generation: bool,
+) -> u32 {
+    let generation = if randomize_per_generation {
+        generation
+    } else {
+        0
+    };
+    let label =
+        format!("baseline-behavior/v2/seed/{baseline_seed}/generation/{generation}/slot/{slot}");
+    labelled_stream(f64::from(run_seed), &label).uniform_state()
+}
+
 /// Stateful xorshift32 stream with a versioned polar Box-Muller cache.
 #[derive(Clone, Debug)]
 pub struct StatefulRng {

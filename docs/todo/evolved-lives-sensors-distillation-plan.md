@@ -249,8 +249,27 @@ and ablation gates remain open. This checkpoint passes 646 release library
 tests, three benchmark checks and the doctest, plus all 13 required-native files
 (170 tests, six existing skips), type/lint/build, rustfmt and all-target Clippy.
 
+Stage E's pure policy core now consumes strict Basic/Motion v4 inputs and the
+recorded numeric sensing environment. It retains size-stage weights, discounts
+food traps, scores capsule/wall openings and crowd/closing/crossing risk, and
+uses visible relative size/velocity for pursuit and threat escape. Intercept
+geometry is explicitly approximate from encoded clearance, without target IDs
+or world reads. World-heading commitment lasts .2 seconds while safe; normalized
+safe-sector improvement uses .15 with exact angular/index ties. Urgency uses the
+declared TTC < .5-second threshold. Economic boost checks actual eligibility,
+Float32 half-second budget, safe route and complete geometry. Deterministic mode
+preserves its behavior RNG word; stochastic wander uses a separate versioned
+run/seed/full-generation/slot label. Four real native sensor fixtures and eleven
+policy/contract tests pass, alongside all ten retained v1 strategy and thirteen
+RNG regressions. Authoritative due scheduling, state/RNG/checkpoint publication,
+settings propagation and full tactical batches remain open; production uses v1.
+The policy checkpoint passes all 661 release library tests, 20 focused rebuilt-
+addon source/surface/fresh-run checks, rustfmt and all-target Clippy. The previous
+checkpoint's broader JS/type/lint/client-build and unchanged benchmark/doctest
+results remain the dependency evidence for these untouched paths.
+
 Stages D through J and the remaining B/C integration and qualification gates
-remain open. Baseline v2, canonical PyTorch distillation, capture/jobs/shadows,
+remain open. Baseline v2 integration, canonical PyTorch distillation, capture/jobs/shadows,
 the brain library and the new inspector are not yet implemented. Existing
 v3/v1 runtime defaults remain until their stages qualify.
 
