@@ -66,10 +66,14 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitControllerAction(sequence: U64Hex, action: RustBackgroundControllerAction): void;
   /** Queue one complete live-settings batch for atomic Rust application. */
   submitLiveSettings(sequence: U64Hex, updates: readonly LiveSettingsUpdate[]): void;
+  /** Queue one bounded run/generation-scoped finish request. */
+  submitFinishGeneration(sequence: U64Hex, requestId: string, expectedRunId: string, expectedGeneration: U64Hex): void;
+  /** Resolve one live frame/slot identity in an expected run and generation. */
+  submitEntitySelection(sequence: U64Hex, targetKind: 'frame' | 'slot', targetIndex: number, expectedRunId: string, expectedGeneration: U64Hex): void;
   /** Queue one exact browser-addressed God Mode translation. */
-  submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
+  submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number, token: string): void;
   /** Queue one exact browser-addressed normal God Mode death. */
-  submitGodModeKill(sequence: U64Hex, snakeId: number): void;
+  submitGodModeKill(sequence: U64Hex, snakeId: number, token: string): void;
   /** Toggle aggregate opt-in focused activation capture. */
   submitVisualization(sequence: U64Hex, enabled: boolean): void;
   /** Decode and resurrect one worker-leased retained winner. */
@@ -269,7 +273,7 @@ export interface RustPreparedFreshRun {
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'archiveWorkProgress',
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitFinishGeneration', 'submitEntitySelection', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'estimateImportDisk',

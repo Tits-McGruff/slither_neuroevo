@@ -163,6 +163,8 @@ pub struct ControlPhaseInputs<'prefix, 'source> {
     pub prefix: PreparedFixedStepPrefix<'prefix, 'source>,
     /// Generation-best value initialized before the first sample.
     pub generation: &'source SensorGenerationState,
+    /// Optional dense pre-control life assessments.
+    pub assessment_points: Option<&'source [f64]>,
     /// Dense evolved genomes.
     pub population: &'source [PopulationGenome],
     /// Stable runtime brains and recurrent state.
@@ -1269,7 +1271,7 @@ pub struct ControlPhaseWorkspace {
     reset_brains: Vec<BrainHandle>,
     visualization_plan: VisualizationCapturePlan,
     visualization_values: Vec<f32>,
-    visualization_identity: Option<(u32, u64)>,
+    visualization_identity: Option<(u32, u64, u64)>,
     visualization_enabled: bool,
     snake_order: Vec<usize>,
     brain_order: Vec<usize>,
@@ -1337,6 +1339,11 @@ impl ControlPhaseWorkspace {
         }
     }
 
+    /// Retire physical capture without changing the subscriber's opt-in state.
+    pub(crate) fn invalidate_visualization(&mut self) {
+        self.visualization_identity = None;
+    }
+
     /// Whether a subscriber currently requests focused activation work.
     pub const fn visualization_enabled(&self) -> bool {
         self.visualization_enabled
@@ -1344,8 +1351,9 @@ impl ControlPhaseWorkspace {
 
     /// Return the last fully prepared focused snapshot without copying it.
     pub fn visualization(&self) -> Option<FocusedVisualization<'_>> {
-        let (frame_v1_id, completed_step) = self.visualization_identity?;
+        let (frame_v1_id, completed_step, physical_id) = self.visualization_identity?;
         Some(FocusedVisualization {
+            physical_id,
             frame_v1_id,
             completed_step,
             layers: self.visualization_plan.layers(),
@@ -1478,7 +1486,19 @@ impl ControlPhaseWorkspace {
                     self.prepare_external(inputs, indexed, snake_index, fixed_dt)?;
                 }
                 SnakeKind::Evolved | SnakeKind::Resurrected => {
-                    self.prepare_neural(inputs, snake_index, fixed_dt, false)?;
+                    self.prepare_neural(
+                        inputs,
+                        snake_index,
+                        fixed_dt,
+                        false,
+                        snake.brain.is_some_and(|brain| {
+                            inputs
+                                .prefix
+                                .evolved_recurrent_resets()
+                                .binary_search(&brain)
+                                .is_ok()
+                        }),
+                    )?;
                 }
             }
         }
@@ -1499,6 +1519,7 @@ impl ControlPhaseWorkspace {
                 candidates: &self.neural_candidates,
                 indexed_world: indexed,
                 generation: inputs.generation,
+                assessment_points: inputs.assessment_points,
                 population: inputs.population,
                 brains: inputs.brains,
                 reset_brains: &self.reset_brains,
@@ -1555,7 +1576,8 @@ impl ControlPhaseWorkspace {
                         field: "focused visualization snake",
                     })?
                     .frame_v1_id;
-                self.visualization_identity = Some((frame_v1_id, calculation_key.step()));
+                self.visualization_identity =
+                    Some((frame_v1_id, calculation_key.step(), unit.snake_id()));
             }
         }
         Ok(calculation_key)
@@ -1749,6 +1771,7 @@ impl ControlPhaseWorkspace {
                 snake_index,
                 fixed_dt,
                 proposal.begins_neural_takeover(),
+                proposal.begins_neural_takeover(),
             ),
         }
     }
@@ -1820,6 +1843,7 @@ impl ControlPhaseWorkspace {
         snake_index: usize,
         fixed_dt: f64,
         force_due: bool,
+        reset_source: bool,
     ) -> Result<(), ControlPhaseError> {
         let snake = &inputs.prefix.world().snakes[snake_index];
         let brain = snake
@@ -1835,7 +1859,7 @@ impl ControlPhaseWorkspace {
             snake.control_accumulator_seconds,
             fixed_dt,
             inputs.config.neural_control_interval_seconds,
-            force_due,
+            force_due || reset_source,
         )?;
         let source = if due {
             let required_candidates = self.neural_candidates.len().saturating_add(1);
@@ -1846,7 +1870,7 @@ impl ControlPhaseWorkspace {
             )?;
             self.neural_candidates
                 .push(CalculationCandidateIndex::new(snake_index, brain_index));
-            if force_due {
+            if reset_source {
                 let required_resets = self.reset_brains.len().saturating_add(1);
                 reserve_for(
                     &mut self.reset_brains,
@@ -1854,6 +1878,8 @@ impl ControlPhaseWorkspace {
                     "takeover reset brains",
                 )?;
                 self.reset_brains.push(brain);
+            }
+            if force_due {
                 SelectedControlSource::NeuralTakeover
             } else {
                 SelectedControlSource::NeuralEvaluated
@@ -1991,6 +2017,8 @@ impl ControlPhaseWorkspace {
 /// Borrowed single-brain visualization captured from one control boundary.
 #[derive(Clone, Copy, Debug)]
 pub struct FocusedVisualization<'a> {
+    /// Full physical identity captured before movement, distinct from frame IDs.
+    pub physical_id: u64,
     /// Browser/frame identity of the selected neural snake.
     pub frame_v1_id: u32,
     /// Completed step that becomes authoritative with this capture.
@@ -2862,6 +2890,7 @@ mod tests {
             controller_leases,
         };
         let rng = RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(11.0).export_state(),
             evolution: StatefulRng::new(12.0).export_state(),
@@ -3049,6 +3078,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3172,6 +3202,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3293,6 +3324,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3344,6 +3376,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3498,6 +3531,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3608,6 +3642,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3686,6 +3721,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -3816,6 +3852,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_001,
@@ -3871,6 +3908,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -4000,6 +4038,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -4047,6 +4086,7 @@ mod tests {
             workspace.prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -4092,6 +4132,7 @@ mod tests {
                 .prepare(ControlPhaseInputs {
                     prefix,
                     generation: &generation,
+                    assessment_points: None,
                     population: &fixture.population,
                     brains: &fixture.brains,
                     wall_now_ms: 31_000,
@@ -4132,6 +4173,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 wall_now_ms: 31_000,
@@ -4146,6 +4188,7 @@ mod tests {
                 .prepare(ControlPhaseInputs {
                     prefix,
                     generation: &generation,
+                    assessment_points: None,
                     population: &fixture.population,
                     brains: &fixture.brains,
                     wall_now_ms: 31_000,
@@ -4193,6 +4236,7 @@ mod tests {
             .prepare(ControlPhaseInputs {
                 prefix: replacement_prefix,
                 generation: &generation,
+                assessment_points: None,
                 population: &fixture.population,
                 brains: &replacement_brains,
                 wall_now_ms: 31_000,

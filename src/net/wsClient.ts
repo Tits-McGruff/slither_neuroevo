@@ -1,3 +1,5 @@
+import type { SelectEntityMsg, EntitySelectedMsg } from '../protocol/entitySelection.ts';
+import type { FinishGenerationResultMsg } from '../protocol/generation.ts';
 import type {
   RustImportBranchNotice,
   RustLegacyConversionNotice,
@@ -59,6 +61,8 @@ export interface WelcomeMsg {
   capabilities?: {
     /** Whether the exact current managed checkpoint can be pinned. */
     checkpointPinning: boolean;
+    /** Whether generation-scoped manual completion is available. */
+    finishGeneration?: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
     /** Whether the selected archive can be uploaded unchanged. */
@@ -156,6 +160,8 @@ export interface GodModeResultMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'kill' | 'move';
+  /** Native token captured by this request, for stale-result rejection. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
   /** Whether the mutation was applied. */
@@ -218,8 +224,12 @@ export interface WsClientCallbacks {
   onReclaimResult?: (msg: ReclaimResultMsg) => void;
   onSensors?: (msg: SensorsMsg) => void;
   onSettingsApplied?: (msg: SettingsAppliedMsg) => void;
+  /** Reliable result of one native physical/individual selection. */
+  onEntitySelected?: (msg: EntitySelectedMsg) => void;
   onGodModeResult?: (msg: GodModeResultMsg) => void;
   onNewRunResult?: (msg: NewRunResultMsg) => void;
+  /** Native admission and durable completion of manual finish. */
+  onFinishGenerationResult?: (msg: FinishGenerationResultMsg) => void;
   onStateReplaced?: (msg: StateReplacedMsg) => void;
   onError?: (msg: ErrorMsg) => void;
 }
@@ -234,9 +244,13 @@ export interface WsClient {
   sendViz: (enabled: boolean) => void;
   sendReset: (settings: CoreSettings, updates: SettingsUpdate[], graphSpec?: GraphSpec | null) => void;
   sendSettings: (requestId: string, updates: LiveSettingsUpdate[]) => void;
-  sendGodModeKill: (requestId: string, snakeId: number) => void;
-  sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number) => void;
+  /** Resolve a bounded selector before sending physical mutations. */
+  sendSelectEntity: (request: SelectEntityMsg) => void;
+  sendGodModeKill: (requestId: string, snakeId: number, token: string) => void;
+  sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number, token: string) => void;
   sendNewRun: (requestId: string) => void;
+  /** Finish the exact generation observed by the UI. */
+  sendFinishGeneration: (requestId: string, expectedRunId: string, expectedGeneration: number) => void;
   isConnected: () => boolean;
 }
 
@@ -514,9 +528,15 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
   };
 
   /** Send one authoritative God Mode kill request. */
-  const sendGodModeKill = (requestId: string, snakeId: number): void => {
+  const sendSelectEntity = (request: SelectEntityMsg): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
-    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'kill', snakeId }));
+    socket.send(JSON.stringify(request));
+  };
+
+  /** Send one token-bound authoritative God Mode kill. */
+  const sendGodModeKill = (requestId: string, snakeId: number, token: string): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'kill', snakeId, selectionToken: token }));
   };
 
   /** Send one authoritative God Mode move request. */
@@ -524,10 +544,17 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     requestId: string,
     snakeId: number,
     x: number,
-    y: number
+    y: number,
+    token: string
   ): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
-    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'move', snakeId, x, y }));
+    socket.send(JSON.stringify({ type: 'godMode', requestId, action: 'move', snakeId, x, y, selectionToken: token }));
+  };
+
+  /** Send an idempotent finish request scoped to the observed run/generation. */
+  const sendFinishGeneration = (requestId: string, expectedRunId: string, expectedGeneration: number): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify({ type: 'finishGeneration', requestId, expectedRunId, expectedGeneration }));
   };
 
   /** Send a Protocol 2 New Run request. */
@@ -599,9 +626,15 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
       case 'settingsApplied':
         callbacks.onSettingsApplied?.(msg as unknown as SettingsAppliedMsg);
         return;
+      case 'entitySelected':
+        callbacks.onEntitySelected?.(msg as unknown as EntitySelectedMsg);
+        break;
       case 'godModeResult':
         callbacks.onGodModeResult?.(msg as unknown as GodModeResultMsg);
         return;
+      case 'finishGenerationResult':
+        callbacks.onFinishGenerationResult?.(msg as unknown as FinishGenerationResultMsg);
+        break;
       case 'newRunResult':
         callbacks.onNewRunResult?.(msg as unknown as NewRunResultMsg);
         return;
@@ -626,9 +659,11 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     sendViz,
     sendReset,
     sendSettings,
+    sendSelectEntity,
     sendGodModeKill,
     sendGodModeMove,
     sendNewRun,
+    sendFinishGeneration,
     isConnected
   };
 }

@@ -1,3 +1,4 @@
+import { parseDurationDraft } from '../src/protocol/duration.ts';
 import { mkdir, mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -32,7 +33,10 @@ import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
 import { compileGraph, graphKey } from '../src/brains/graph/compiler.ts';
 import { CFG_DEFAULT } from '../src/config.ts';
+import { EVOLVED_SETTING_PATHS } from '../src/protocol/settingDefinitions.ts';
+import { getByPath } from '../src/utils.ts';
 import { DEFAULT_CORE_SETTINGS } from '../src/protocol/settings.ts';
+import type { SelectedEntity } from '../src/protocol/entitySelection.ts';
 import type { RustQueueDiagnostics } from '../src/protocol/rustBackground.ts';
 import type { WsOutboundDiagnostics } from './wsHub.ts';
 import { BROWSER_CAMERA_SETTING_PATHS, buildSettingsUI, applyValuesToSlidersFromCFG } from '../src/settings.ts';
@@ -74,6 +78,22 @@ async function until(peer: Peer, predicate: () => boolean): Promise<void> {
   const deadline = performance.now() + 5000;
   while (!predicate() && performance.now() < deadline) await new Promise<void>(done => setTimeout(done, 10));
   expect(predicate(), JSON.stringify(peer.packets)).toBe(true);
+}
+
+/** Read the small manual-completion fixture over real HTTP on any OS-assigned port.
+ * Node fetch applies browser unsafe-port blocking even to disposable local servers.
+ */
+async function manualFixtureHttp(url: string, body?: Uint8Array): Promise<{ status: number; bytes: Buffer }> {
+  return new Promise((done, reject) => {
+    const request = httpRequest(url, { method: body ? 'POST' : 'GET' }, response => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.once('error', reject);
+      response.once('end', () => done({ status: response.statusCode ?? 0, bytes: Buffer.concat(chunks) }));
+    });
+    request.once('error', reject);
+    request.end(body);
+  });
 }
 
 /** Poll one real health condition within the existing five-second integration bound. */
@@ -205,7 +225,7 @@ async function readOnlyLegacyConversion(root: string, databasePath: string, sour
   expect(legacyRecords(databasePath, sourceRows.tables)).toEqual(sourceRows);
 }
 
-/** Read the small manifest from a bounded, actually exported nine-role test archive. */
+/** Read the small manifest from a bounded, actually exported versioned test archive. */
 function legacyExportManifest(bytes: Buffer): {
   archiveKind: string; legacyConversion?: import('../src/protocol/rustBackground.ts').RustLegacyConversionNotice;
   runId: string; checkpointLogicalRootSha256: string; logicalRootSha256: string;
@@ -213,12 +233,14 @@ function legacyExportManifest(bytes: Buffer): {
 } {
   expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
   let cursor = 0;
-  for (let entry = 0; entry < 9; entry++) {
+  for (let entry = 0; entry < 10; entry++) {
     const name = bytes.subarray(cursor, cursor + 100).toString().split('\0')[0];
     const length = Number.parseInt(bytes.subarray(cursor + 124, cursor + 136).toString().replace(/\0.*$/su, '').trim(), 8);
     expect(Number.isSafeInteger(length) && length >= 0).toBe(true);
-    if (entry === 8) {
-      expect(name).toBe('manifest.json');
+    if (name === 'manifest.json') {
+      const manifest = JSON.parse(bytes.subarray(cursor + 512, cursor + 512 + length).toString()) as { archiveVersion: number };
+      expect([1, 2]).toContain(manifest.archiveVersion);
+      expect(entry).toBe(manifest.archiveVersion === 2 ? 9 : 8);
       return JSON.parse(bytes.subarray(cursor + 512, cursor + 512 + length).toString());
     }
     cursor += 512 + Math.ceil(length / 512) * 512;
@@ -288,7 +310,236 @@ function rewriteLegacyManifest(archive: Buffer, mutate: (manifest: Record<string
   throw new Error('fixture manifest not found');
 }
 
+/** Resolve a real native identity from the peer's latest observed welcome and stats. */
+async function selectPhysical(peer: Peer, requestId: string, target: { snakeId: number } | { populationSlot: number }): Promise<SelectedEntity> {
+  const replacement = peer.packets.findLast(packet => packet['type'] === 'stateReplaced');
+  const welcome = (replacement?.['welcome'] ?? peer.packets.findLast(packet => packet['type'] === 'welcome')) as WelcomeMsg;
+  if (!welcome) throw new Error('selection fixture has no welcome');
+  const stats = peer.packets.findLast(packet => packet['type'] === 'stats');
+  const generation = stats?.['gen'] ?? (peer.latestFrame ? peer.latestFrame.readFloatLE(0) : 1);
+  peer.socket.send(JSON.stringify({ type: 'selectEntity', requestId, expectedSessionId: welcome.sessionId,
+    expectedRunId: welcome.runId, expectedGeneration: generation, ...target }));
+  await until(peer, () => peer.packets.some(packet => packet['requestId'] === requestId));
+  const result = peer.packets.findLast(packet => packet['requestId'] === requestId)!;
+  expect(result).toMatchObject({ type: 'entitySelected', found: true });
+  return result['entity'] as SelectedEntity;
+}
+
 describeNetworkSuite('Rust server real sockets', () => {
+  it('preserves legacy resets and explicitly selects complete life experiments through real respawn and New Run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-life-contract-'));
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: join(root, 'experiment.sqlite'),
+        resume: 'fresh', seed: 42, rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined(); viewer = await connect(server.port, 'ui');
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      const fresh = viewer.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
+      expect(fresh.settings.updates).toEqual(expect.arrayContaining([{ path: 'evolvedRespawn.contractVersion', value: 1 },
+        { path: 'evolvedRespawn.enabled', value: 0 }, { path: 'world.pelletOverflow', value: 0 }]));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+
+      await until(viewer, () => viewer!.frames > 0);
+      /** Rejoin the replacement world before subsequent commands. */
+      const rejoin = async (): Promise<void> => {
+        const frames = viewer!.frames;
+        viewer!.socket.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: viewer!.rejoinToken }));
+        await until(viewer!, () => viewer!.frames > frames);
+      };
+      const legacy = Buffer.from(JSON.stringify({ generation: 37, archKey: 'legacy-default-graph', worldSeed: 1234567,
+        settings: { snakeCount: 2, simSpeed: 0.1 }, genomes: [1, 2].map(fitness => ({ archKey: 'legacy-default-graph',
+          brainType: 'mlp', fitness, weights: new Array<number>(13458).fill(0) })) }));
+
+      const imported = await manualFixtureHttp('http://127.0.0.1:' + server.port + '/api/import/archive', legacy);
+      expect(imported.status, imported.bytes.toString()).toBe(200);
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'import'));
+      const old = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      expect(old.settings.updates.some(update => EVOLVED_SETTING_PATHS.has(update.path))).toBe(false);
+
+      await rejoin();
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: old.settings.core, updates: [] }));
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      const resetOld = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      expect(resetOld.settings.updates.some(update => EVOLVED_SETTING_PATHS.has(update.path))).toBe(false);
+      await rejoin();
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({ type: 'reset', updates: [{ path: 'evolvedRespawn.enabled', value: 1 }] }));
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'error'));
+      expect(viewer.packets.find(packet => packet['type'] === 'error')!['message']).toContain('complete version-one');
+      expect(viewer.packets.some(packet => packet['type'] === 'stateReplaced')).toBe(false);
+      viewer.packets.length = 0;
+      const updates = [...EVOLVED_SETTING_PATHS].map(path => ({ path, value: Number(getByPath(CFG_DEFAULT, path)) }));
+      for (const update of updates) {
+        if (update.path === 'evolvedRespawn.enabled') update.value = 1;
+        if (update.path === 'evolvedRespawn.maxLives') update.value = 2;
+        if (update.path === 'evolvedRespawn.recurrentState' || update.path === 'evolvedRespawn.corpseMode') update.value = 1;
+      }
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { ...resetOld.settings.core, simSpeed: 1 },
+        updates: [...updates, { path: 'baselineBots.count', value: 0 }, { path: 'observer.earlyEndMinSeconds', value: 50 }] }));
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'reset'));
+      const experiment = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      expect(experiment.settings.updates.filter(update => EVOLVED_SETTING_PATHS.has(update.path))).toHaveLength(17);
+      expect(experiment.settings.updates).toEqual(expect.arrayContaining(updates));
+      await rejoin();
+      const selected = firstFrameSnake(viewer.latestFrame)!;
+      expect(selected.snakeId).toBe(1);
+      const lifeSelection = await selectPhysical(viewer, 'life-select', { snakeId: selected.snakeId });
+      viewer.socket.send(JSON.stringify({ type: 'godMode', action: 'kill', requestId: 'life-kill', snakeId: selected.snakeId, selectionToken: lifeSelection.token }));
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'life-kill'));
+      expect(viewer.packets.find(packet => packet['requestId'] === 'life-kill')).toMatchObject({ applied: true, pelletsDropped: 0 });
+
+      await until(viewer, () => (firstFrameSnake(viewer!.latestFrame)?.snakeId ?? 0) > 2);
+      expect(firstFrameSnake(viewer.latestFrame)!.snakeId).toBe(3);
+      const nextLife = await selectPhysical(viewer, 'life-follow', { populationSlot: lifeSelection.populationSlot! });
+      expect(nextLife).toMatchObject({ snakeId: 3, lifeOrdinal: '0000000000000002' });
+      expect(nextLife.token).not.toBe(lifeSelection.token);
+      viewer.socket.send(JSON.stringify({ type: 'godMode', action: 'kill', requestId: 'life-stale-kill',
+        snakeId: nextLife.snakeId, selectionToken: lifeSelection.token }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'life-stale-kill'));
+      expect(viewer.packets.find(packet => packet['requestId'] === 'life-stale-kill')).toMatchObject({ applied: false });
+      viewer.packets.length = 0; viewer.socket.send(JSON.stringify({ type: 'newRun', requestId: 'life-new-run' }));
+
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stateReplaced' && packet['reason'] === 'newRun'));
+      const newRun = viewer.packets.findLast(packet => packet['type'] === 'stateReplaced')!['welcome'] as WelcomeMsg;
+      expect(newRun.runId).not.toBe(experiment.runId);
+      expect(newRun.settings.updates).toEqual(experiment.settings.updates);
+      await rejoin();
+      const reused = firstFrameSnake(viewer.latestFrame)!;
+      expect(reused.snakeId).toBe(lifeSelection.snakeId);
+      for (const [requestId, token] of [['life-no-token', undefined], ['life-old-world', lifeSelection.token]] as const) {
+        viewer.socket.send(JSON.stringify({ type: 'godMode', action: 'kill', requestId,
+          snakeId: reused.snakeId, selectionToken: token }));
+        await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === requestId));
+        expect(viewer.packets.find(packet => packet['requestId'] === requestId)).toMatchObject({ applied: false });
+      }
+      const newSelection = await selectPhysical(viewer, 'life-new-world-select', { snakeId: reused.snakeId });
+      expect(newSelection.token).not.toBe(lifeSelection.token);
+    } finally { viewer?.socket.terminate(); await server?.close(); await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('finishes only the requested generation through checkpoint durability and rejects stale requests', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-manual-finish-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    let target: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined();
+      viewer = await connect(server.port, 'ui');
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      await until(viewer, () => viewer!.frames > 0);
+      const welcome = viewer.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
+      expect(welcome.capabilities?.finishGeneration).toBe(true);
+      const healthResponse = await manualFixtureHttp('http://127.0.0.1:' + server.port + '/api/health');
+      expect(healthResponse.status).toBe(200);
+      const health = JSON.parse(healthResponse.bytes.toString()) as { generation: string };
+      const generation = Number(BigInt('0x' + health.generation));
+      const finish = { type: 'finishGeneration', requestId: 'finish-1', expectedRunId: welcome.runId, expectedGeneration: generation };
+      viewer.socket.send(JSON.stringify({ ...finish, requestId: 'stale-run', expectedRunId: 'wrong-run' }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'stale-run' && packet['status'] === 'rejected'));
+      viewer.socket.send(JSON.stringify(finish));
+      viewer.socket.send(JSON.stringify(finish));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'finish-1' && packet['status'] === 'completed'));
+      expect(viewer.packets.filter(packet => packet['requestId'] === 'finish-1' && packet['status'] === 'completed')).toHaveLength(1);
+      expect(viewer.packets.some(packet => packet['requestId'] === 'finish-1' && packet['status'] === 'pending')).toBe(true);
+      viewer.socket.send(JSON.stringify({ ...finish, requestId: 'stale-generation' }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'stale-generation' && packet['status'] === 'rejected'));
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        const row = db.prepare('SELECT record_blob FROM rust_generation_completion_v1 WHERE run_id = ? AND generation_hex = ?')
+          .get(welcome.runId, generation.toString(16).padStart(16, '0')) as { record_blob: Buffer };
+        expect(row.record_blob.length).toBe(32);
+        expect(row.record_blob.readUInt32LE(0)).toBe(1);
+        expect(row.record_blob.readUInt32LE(4)).toBe(0);
+        expect(row.record_blob.readDoubleLE(8)).toBeGreaterThan(0);
+        expect(row.record_blob.readDoubleLE(16)).toBe(240);
+        expect(row.record_blob.readBigUInt64LE(24)).toBeGreaterThan(0n);
+        expect(db.prepare('SELECT length(record_blob) AS bytes FROM rust_generation_history_v1 WHERE run_id = ? AND generation_hex = ?')
+          .get(welcome.runId, generation.toString(16).padStart(16, '0'))).toEqual({ bytes: 56 });
+      } finally { db.close(); }
+      const historyResponse = await manualFixtureHttp('http://127.0.0.1:' + server.port + '/api/history');
+      expect(historyResponse.status).toBe(200);
+      const history = JSON.parse(historyResponse.bytes.toString()) as { version: number; runId: string; history: Array<{ gen: number; experiment: { version: number; reason: string; population: number; winner: { version: number; pointMethod: string; displayLengthKind: string } } }> };
+      expect(history).toMatchObject({ version: 1, runId: welcome.runId });
+      expect(history.history).toHaveLength(1);
+      expect(history.history[0]).toMatchObject({ gen: generation, experiment: { version: 1, reason: 'manual', winner: { version: 2, pointMethod: 'reset', displayLengthKind: 'latest-life' } } });
+      const hofResponse = await manualFixtureHttp('http://127.0.0.1:' + server.port + '/api/hof');
+      expect(JSON.parse(hofResponse.bytes.toString())).toMatchObject({ hof: [{ assessment: { version: 2, pointMethod: 'reset', displayLengthKind: 'latest-life' } }] });
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stats' && Array.isArray(packet['fitnessHistory']) && packet['fitnessHistory'].length > 0));
+      const compactStats = viewer.packets.find(packet => packet['type'] === 'stats' && Array.isArray(packet['fitnessHistory']) && packet['fitnessHistory'].length > 0)!;
+      expect((compactStats['fitnessHistory'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty('experiment');
+      const response = await manualFixtureHttp('http://127.0.0.1:' + server.port + '/api/export/latest');
+      expect(response.status, response.status >= 400 ? response.bytes.toString() : undefined).toBe(200);
+      const archive = new Uint8Array(response.bytes);
+      const targetDbPath = join(root, 'imported.sqlite');
+      target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: targetDbPath, resume: 'fresh', seed: 99,
+        rustCalculationWorkers: 1 });
+      const imported = await manualFixtureHttp('http://127.0.0.1:' + target.port + '/api/import/archive', archive);
+      expect(imported.status, imported.status >= 400 ? imported.bytes.toString() : undefined).toBe(200);
+      await target.close(); target = undefined;
+      const copied = new Database(targetDbPath, { readonly: true });
+      const source = new Database(dbPath, { readonly: true });
+      try {
+        expect(copied.prepare('SELECT generation_hex, record_blob FROM rust_generation_completion_v1 WHERE run_id = ? ORDER BY generation_hex').all(welcome.runId))
+          .toEqual(source.prepare('SELECT generation_hex, record_blob FROM rust_generation_completion_v1 WHERE run_id = ? ORDER BY generation_hex').all(welcome.runId));
+        expect(copied.prepare('SELECT generation_hex, record_blob FROM rust_generation_experiment_v1 WHERE run_id = ? ORDER BY generation_hex').all(welcome.runId))
+          .toEqual(source.prepare('SELECT generation_hex, record_blob FROM rust_generation_experiment_v1 WHERE run_id = ? ORDER BY generation_hex').all(welcome.runId));
+      } finally { copied.close(); source.close(); }
+    } finally {
+      viewer?.socket.terminate();
+      await target?.close();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it('reports manual completion failure and preserves the durable source when persistence rejects', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-manual-failure-'));
+    const dbPath = join(root, 'experiment.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    let viewer: Peer | undefined;
+    let rejectCommit: ReturnType<typeof vi.spyOn> | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined();
+      viewer = await connect(server.port, 'ui');
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      await until(viewer, () => viewer!.frames > 0);
+      const welcome = viewer.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
+      const sourceDb = new Database(dbPath, { readonly: true });
+      let pointer: unknown;
+      try { pointer = sourceDb.prepare('SELECT * FROM rust_checkpoint_v3_current WHERE run_id = ?').get(welcome.runId); }
+      finally { sourceDb.close(); }
+      rejectCommit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commit')
+        .mockRejectedValueOnce(new Error('manual completion fixture persistence failure'));
+      viewer.socket.send(JSON.stringify({ type: 'finishGeneration', requestId: 'finish-failure',
+        expectedRunId: welcome.runId, expectedGeneration: 1 }));
+      await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'finish-failure' && packet['status'] === 'rejected'));
+      expect(viewer.packets.some(packet => packet['requestId'] === 'finish-failure' && packet['status'] === 'completed')).toBe(false);
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        expect(db.prepare('SELECT * FROM rust_checkpoint_v3_current WHERE run_id = ?').get(welcome.runId)).toEqual(pointer);
+        expect(db.prepare('SELECT count(*) AS count FROM rust_generation_completion_v1 WHERE run_id = ?').get(welcome.runId)).toEqual({ count: 0 });
+      } finally { db.close(); }
+    } finally {
+      rejectCommit?.mockRestore();
+      viewer?.socket.terminate();
+      await server?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('enforces browser origins on production HTTP, WebSockets and startup-fault health', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-browser-origin-'));
     const peers: Peer[] = [];
@@ -2433,7 +2684,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         applyValuesToSlidersFromCFG(panel);
         updates = inputs.filter(input => input.dataset['path'] && !BROWSER_CAMERA_SETTING_PATHS.has(input.dataset['path']))
           .map(input => ({ path: input.dataset['path'] as SettingsUpdate['path'],
-            value: input.type === 'checkbox' ? Number(input.checked) : Number(input.value) }));
+            value: input.type === 'checkbox' ? Number(input.checked) : input.dataset['controlType'] === 'duration'
+              ? parseDurationDraft(input.value, input.dataset['recordedDuration'])! : Number(input.value) }));
       } finally { vi.unstubAllGlobals(); }
       expect(updates.length).toBeGreaterThan(60);
       const radius = updates.find(update => update.path === 'worldRadius')!;
@@ -2496,14 +2748,14 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(selected).toBeDefined();
       if (!selected) throw new Error('native frame omitted every alive snake');
       viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-move', action: 'move',
-        snakeId: selected.snakeId, x: selected.x * 0.9, y: selected.y * 0.9 }));
+        snakeId: selected.snakeId, selectionToken: (await selectPhysical(viewer, 'native-select', { snakeId: selected.snakeId })).token, x: selected.x * 0.9, y: selected.y * 0.9 }));
       await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-move'));
       expect(viewer.packets.findLast(packet => packet['requestId'] === 'native-god-move')).toMatchObject({
         type: 'godModeResult', action: 'move', snakeId: selected.snakeId, applied: true,
         sequence: expect.any(Number), step: expect.any(Number), x: expect.any(Number), y: expect.any(Number)
       });
       viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-kill', action: 'kill',
-        snakeId: selected.snakeId }));
+        snakeId: selected.snakeId, selectionToken: (viewer.packets.findLast(packet => packet['requestId'] === 'native-select')!['entity'] as SelectedEntity).token }));
       await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-kill'));
       const killResult = viewer.packets.findLast(packet => packet['requestId'] === 'native-god-kill');
       expect(killResult).toMatchObject({
@@ -2513,11 +2765,11 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(Number(killResult?.['pelletsDropped'])).toBeGreaterThan(0);
       await until(viewer, () => frameDirection(viewer.latestFrame, selected.snakeId) === undefined);
       viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'native-god-missing', action: 'move',
-        snakeId: selected.snakeId, x: 0, y: 0 }));
+        snakeId: selected.snakeId, selectionToken: (viewer.packets.findLast(packet => packet['requestId'] === 'native-select')!['entity'] as SelectedEntity).token, x: 0, y: 0 }));
       await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'native-god-missing'));
       expect(viewer.packets.findLast(packet => packet['requestId'] === 'native-god-missing')).toMatchObject({
         type: 'godModeResult', action: 'move', snakeId: selected.snakeId, applied: false,
-        reason: expect.stringContaining('missing or already dead')
+        reason: expect.stringContaining('no longer the current physical life')
       });
       const bot = await connect(server.port, 'bot'); peers.push(bot);
       bot.socket.send(JSON.stringify({ type: 'join', rejoinToken: bot.rejoinToken, mode: 'player', name: 'socket-bot' }));

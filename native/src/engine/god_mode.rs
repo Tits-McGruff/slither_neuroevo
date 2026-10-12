@@ -1,6 +1,9 @@
 //! Ordered God Mode mutations applied before the next authoritative step.
 
-use super::effects::{prepare_single_corpse, EffectError, PreparedSingleCorpse};
+use super::effects::{
+    prepare_single_corpse, prepare_single_corpse_with_policy, EffectError, EffectLifecyclePolicy,
+    PreparedSingleCorpse,
+};
 use super::physics::PhysicsConfig;
 use super::state::{AllocatorState, RngStateBundle, WorldPoint, WorldState};
 use std::error::Error;
@@ -18,12 +21,14 @@ pub struct GodModeMovePublication {
 }
 
 /// Result of one normal side-effect-bearing God Mode death.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GodModeKillPublication {
     /// Exact public frame-v1 identity selected by the browser.
     pub frame_v1_id: u32,
     /// Normal corpse pellets added by the accepted death.
     pub pellets_dropped: usize,
+    /// Actual cold-path emissions; population counters retain the same corpse values.
+    pub emissions: super::effects::EffectEmissionTotals,
 }
 
 /// Fully prepared cold-path mutation; population and brain storage are never copied.
@@ -36,6 +41,22 @@ pub(crate) struct PreparedGodModeKill {
     corpse: PreparedSingleCorpse,
 }
 
+impl PreparedGodModeKill {
+    /// Actual emitted corpse count/value, staged before physical commitment.
+    pub(crate) fn corpse_summary(&self) -> (u64, f64, u64, f64) {
+        (
+            self.corpse.pellets.len() as u64,
+            self.corpse.pellets.iter().map(|pellet| pellet.value).sum(),
+            self.corpse.discarded_count as u64,
+            self.corpse.discarded_value,
+        )
+    }
+    /// Staged effect continuation for atomic one-time life-delay sampling.
+    pub(crate) fn rng_mut(&mut self) -> &mut RngStateBundle {
+        &mut self.corpse.rng
+    }
+}
+
 /// Prepare a God Mode death through the normal corpse formula, allocator, and RNG stream.
 pub(crate) fn prepare_god_mode_kill(
     world: &WorldState,
@@ -43,6 +64,7 @@ pub(crate) fn prepare_god_mode_kill(
     allocators: &AllocatorState,
     physics: PhysicsConfig,
     frame_v1_id: u32,
+    lifecycle: Option<EffectLifecyclePolicy<'_>>,
 ) -> Result<PreparedGodModeKill, GodModeError> {
     if frame_v1_id == 0 {
         return Err(GodModeError::InvalidRequest);
@@ -59,17 +81,42 @@ pub(crate) fn prepare_god_mode_kill(
         .checked_add(snake.body.len)
         .filter(|end| *end <= world.body_points.len())
         .ok_or(GodModeError::InvalidBody)?;
-    let corpse = prepare_single_corpse(
-        rng,
-        allocators,
-        snake,
-        &world.body_points[snake.body.start..body_end],
-        world.pellets.len(),
-        physics.movement,
-        physics.food,
-        physics.death,
-        physics.maximum_pellets,
-    )?;
+    let mode = match lifecycle {
+        Some(policy) => policy.corpse_mode(snake)?,
+        None => super::evolved_lives::EvolvedCorpseMode::Normal,
+    };
+    let overflow = lifecycle.map_or(super::evolved_lives::PelletOverflowMode::Fail, |policy| {
+        policy.experiment.pellet_overflow
+    });
+    let corpse = if mode == super::evolved_lives::EvolvedCorpseMode::Normal
+        && overflow == super::evolved_lives::PelletOverflowMode::Fail
+    {
+        prepare_single_corpse(
+            rng,
+            allocators,
+            snake,
+            &world.body_points[snake.body.start..body_end],
+            world.pellets.len(),
+            physics.movement,
+            physics.food,
+            physics.death,
+            physics.maximum_pellets,
+        )?
+    } else {
+        prepare_single_corpse_with_policy(
+            rng,
+            allocators,
+            snake,
+            &world.body_points[snake.body.start..body_end],
+            world.pellets.len(),
+            physics.movement,
+            physics.food,
+            physics.death,
+            physics.maximum_pellets,
+            mode,
+            overflow,
+        )?
+    };
     Ok(PreparedGodModeKill {
         snake_index,
         snake_id: snake.id,
@@ -93,6 +140,16 @@ pub(crate) fn commit_god_mode_kill(
         return Err(GodModeError::SourceChanged);
     }
     let pellets_dropped = prepared.corpse.pellets.len();
+    let (emitted_count, emitted_value, discarded_count, discarded_value) =
+        prepared.corpse_summary();
+    let emissions = super::effects::EffectEmissionTotals {
+        attempted_count: pellets_dropped + prepared.corpse.discarded_count,
+        attempted_value: emitted_value + discarded_value,
+        emitted_count: emitted_count as usize,
+        emitted_value,
+        discarded_count: discarded_count as usize,
+        discarded_value,
+    };
     world
         .pellets
         .try_reserve_exact(pellets_dropped)
@@ -106,6 +163,7 @@ pub(crate) fn commit_god_mode_kill(
     Ok(GodModeKillPublication {
         frame_v1_id: prepared.frame_v1_id,
         pellets_dropped,
+        emissions,
     })
 }
 
@@ -226,6 +284,7 @@ pub enum GodModeError {
     SourceChanged,
     AllocationFailed { required: usize },
     Effects(EffectError),
+    LifeAccounting(super::evolved_lives::EvolvedLifeError),
 }
 
 impl Display for GodModeError {
@@ -247,6 +306,9 @@ impl Display for GodModeError {
                 )
             }
             Self::Effects(error) => write!(formatter, "God Mode death effects failed: {error}"),
+            Self::LifeAccounting(error) => {
+                write!(formatter, "God Mode life finalization failed: {error}")
+            }
         }
     }
 }
@@ -255,6 +317,7 @@ impl Error for GodModeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Effects(error) => Some(error),
+            Self::LifeAccounting(error) => Some(error),
             _ => None,
         }
     }

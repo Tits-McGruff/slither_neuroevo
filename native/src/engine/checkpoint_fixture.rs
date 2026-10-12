@@ -292,6 +292,7 @@ pub(crate) fn publish_stage3_fixture(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: rng(),
             evolution: rng(),
@@ -325,6 +326,7 @@ pub(crate) fn publish_stage3_fixture(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: "rust-scalar-v1".to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     let state = AuthoritativeState::validate_and_own(candidate, graph, &policy)
@@ -844,6 +846,7 @@ fn build_round_trip_state(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: "rust-scalar-v1".to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     let state = AuthoritativeState::validate_and_own(candidate, graph, &policy)
@@ -1067,6 +1070,7 @@ fn round_trip_rng_bundle(baseline_count: usize) -> RngStateBundle {
         });
     }
     RngStateBundle {
+        evolved_respawns: Vec::new(),
         version: RNG_BUNDLE_VERSION,
         world: advanced_rng_state("world", 31, true),
         evolution: advanced_rng_state("evolution", 47, true),

@@ -123,6 +123,7 @@ impl FixedStepPrefixConfig {
 }
 
 /// Immutable inputs from one admitted authority and operation epoch.
+#[derive(Clone, Copy)]
 pub struct FixedStepPrefixInputs<'source> {
     /// Complete world/generation/config/operation identity.
     pub key: PhysicsStepKey,
@@ -210,6 +211,7 @@ pub(crate) struct RngCopyScratch {
 /// Complete, still non-authoritative pre-control boundary.
 #[derive(Clone, Copy, Debug)]
 pub struct PreparedFixedStepPrefix<'workspace, 'source> {
+    recurrent_resets: &'workspace [super::state::BrainHandle],
     key: PhysicsStepKey,
     source_world: &'source WorldState,
     source_rng: &'source RngStateBundle,
@@ -228,6 +230,11 @@ pub struct PreparedFixedStepPrefix<'workspace, 'source> {
 }
 
 impl<'workspace, 'source> PreparedFixedStepPrefix<'workspace, 'source> {
+    /// Zero-source first inference markers created by successful evolved births.
+    pub(crate) const fn evolved_recurrent_resets(self) -> &'workspace [super::state::BrainHandle] {
+        self.recurrent_resets
+    }
+
     /// Exact authority/config/operation identity prepared.
     #[must_use]
     pub const fn key(self) -> PhysicsStepKey {
@@ -336,6 +343,7 @@ impl<'workspace, 'source> PreparedFixedStepPrefix<'workspace, 'source> {
 /// Reusable owner of the corrected fixed-step prefix.
 #[derive(Debug, Default)]
 pub struct FixedStepPrefixWorkspace {
+    evolved: super::evolved_replacement::EvolvedReplacementWorkspace,
     accounting: StepAccountingWorkspace,
     ambient: AmbientWorkspace,
     baseline: BaselineLifecycleWorkspace,
@@ -374,6 +382,7 @@ impl FixedStepPrefixWorkspace {
         inputs: FixedStepPrefixInputs<'source>,
     ) -> Result<PreparedFixedStepPrefix<'workspace, 'source>, FixedStepPrefixError> {
         self.ready = false;
+        self.evolved.clear();
         self.baseline_respawn_diagnostics = BaselineRespawnDiagnostics::default();
         self.due_respawn_slots.clear();
         self.replaced_baseline_ids.clear();
@@ -504,6 +513,50 @@ impl FixedStepPrefixWorkspace {
         self.ready = true;
 
         self.prepared(inputs)
+    }
+
+    /// Join evolved births after the existing prefix phases, before shared control.
+    pub(crate) fn prepare_with_evolved<'workspace, 'source>(
+        &'workspace mut self,
+        inputs: FixedStepPrefixInputs<'source>,
+        lives: &mut super::evolved_lives::EvolvedGenerationState,
+        policy: super::evolved_lives::EvolvedExperimentConfig,
+        initial_accumulator: f64,
+    ) -> Result<PreparedFixedStepPrefix<'workspace, 'source>, FixedStepPrefixError> {
+        let _prefix = self.prepare(inputs)?;
+        self.ready = false;
+        self.evolved.prepare(
+            inputs.key,
+            &mut self.world,
+            self.rng
+                .as_mut()
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?,
+            self.allocators
+                .as_mut()
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?,
+            lives,
+            policy,
+            inputs.config,
+            inputs.generation_elapsed_seconds,
+            initial_accumulator,
+        )?;
+        self.ready = true;
+        self.prepared(inputs)
+    }
+
+    /// Seal identity/RNG work only after the whole physics result exists.
+    pub(crate) fn seal_evolved(
+        &mut self,
+        key: PhysicsStepKey,
+        rng: &RngStateBundle,
+    ) -> Result<(), super::evolved_lives::EvolvedLifeError> {
+        self.evolved.seal(key, rng)
+    }
+
+    pub(crate) fn evolved_proof(
+        &self,
+    ) -> Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof> {
+        self.evolved.proof()
     }
 
     /// Resolve every due baseline slot on the private prefix working copy.
@@ -964,6 +1017,7 @@ impl FixedStepPrefixWorkspace {
             return Err(FixedStepPrefixError::ResultNotReady);
         }
         Ok(PreparedFixedStepPrefix {
+            recurrent_resets: self.evolved.recurrent_resets(),
             key: inputs.key,
             source_world: inputs.world,
             source_rng: inputs.rng,
@@ -1011,7 +1065,7 @@ fn find_baseline_slot_index(world: &WorldState, slot: u32) -> Result<usize, Fixe
     })
 }
 
-fn compact_world_bodies(
+pub(crate) fn compact_world_bodies(
     world: &mut WorldState,
     scratch: &mut Vec<WorldPoint>,
     maximum_body_points: usize,
@@ -1183,6 +1237,7 @@ pub(crate) fn copy_rng_bundle_reusing(
 ) -> Result<(), FixedStepPrefixError> {
     if target.is_none() {
         *target = Some(RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: source.version,
             world: empty_serialized_rng(),
             evolution: empty_serialized_rng(),
@@ -1194,6 +1249,15 @@ pub(crate) fn copy_rng_bundle_reusing(
         .as_mut()
         .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
     target.version = source.version;
+    reserve_for(
+        &mut target.evolved_respawns,
+        source.evolved_respawns.len(),
+        "evolved RNG states",
+    )?;
+    target.evolved_respawns.clear();
+    target
+        .evolved_respawns
+        .extend_from_slice(&source.evolved_respawns);
     copy_serialized_rng_reusing(
         &mut target.world,
         &source.world,
@@ -1419,6 +1483,8 @@ fn reserve_string(
 /// Rejected fixed-step-prefix preparation. No variant publishes authority.
 #[derive(Debug)]
 pub enum FixedStepPrefixError {
+    /// Evolved accounting or lifecycle staging failed.
+    Evolved(super::evolved_lives::EvolvedLifeError),
     /// Joined prefix settings or capacity are invalid.
     InvalidConfig { field: &'static str },
     /// One exact authority/config/operation key component changed.
@@ -1478,6 +1544,7 @@ impl From<BaselineLifecycleError> for FixedStepPrefixError {
 impl Display for FixedStepPrefixError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Evolved(error) => write!(formatter, "{error}"),
             Self::InvalidConfig { field } => write!(formatter, "invalid fixed-step prefix {field}"),
             Self::StepKeyMismatch { field } => {
                 write!(formatter, "fixed-step prefix key changed at {field:?}")
@@ -1518,6 +1585,7 @@ impl Display for FixedStepPrefixError {
 impl Error for FixedStepPrefixError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Evolved(error) => Some(error),
             Self::Accounting(error) => Some(error.as_ref()),
             Self::Ambient(error) => Some(error.as_ref()),
             Self::Baseline(error) => Some(error.as_ref()),
@@ -1606,6 +1674,7 @@ mod tests {
 
     fn rng_bundle(baseline_count: usize) -> RngStateBundle {
         RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(101.0).export_state(),
             evolution: StatefulRng::new(202.0).export_state(),

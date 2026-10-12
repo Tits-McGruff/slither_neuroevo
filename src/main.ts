@@ -1,6 +1,7 @@
 /** Entry point for the simulation UI, canvas, and client networking. */
 
-import { CFG, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
+import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
+import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
 import {
   BASELINE_BOT_SEED_HINT_ID,
   BASELINE_BOT_SEED_INPUT_ID,
@@ -8,9 +9,12 @@ import {
   BROWSER_CAMERA_SETTING_PATHS,
   applyValuesToSlidersFromCFG,
   setupSettingsUI,
-  updateCFGFromUI
+  updateCFGFromUI,
+  validateSettingDrafts,
+  readSettingChoice, readLifeSettingInput,
+  type SettingInputElement
 } from './settings.ts';
-import { lerp, setByPath } from './utils.ts';
+import { lerp, setByPath, getByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 import {
   exportJsonToFile,
@@ -32,6 +36,7 @@ import {
   type WelcomeInferenceMode
 } from './net/wsClient.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
+import { createEntitySelectionClient } from './net/entitySelection.ts';
 import {
   PlayerActionPump,
   normalizePlayerActionRate,
@@ -50,6 +55,7 @@ import type {
   RustRecoveryNotice
 } from './protocol/rustBackground.ts';
 import { coerceSettingsUpdateValue } from './protocol/settings.ts';
+import { parseDurationDraft, formatDurationTimer } from './protocol/duration.ts';
 import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './protocol/settingDefinitions.ts';
 import type {
   CoreSettings,
@@ -91,6 +97,8 @@ interface GodModeLogEntry {
 
 /** Selected snake snapshot used by God Mode interactions. */
 interface SelectedSnake {
+  /** Native physical identity, absent on an unresolved frame snapshot. */
+  token?: string;
   id: number;
   x: number;
   y: number;
@@ -115,9 +123,9 @@ let wsClient: ReturnType<typeof createWsClient> | null = null;
 /** Extracted coalescing and God Mode transport bound to the current socket. */
 const authoritativeControls = createAuthoritativeControls({
   sendSettings: (requestId, updates) => wsClient?.sendSettings(requestId, updates),
-  sendGodModeKill: (requestId, snakeId) => wsClient?.sendGodModeKill(requestId, snakeId),
-  sendGodModeMove: (requestId, snakeId, x, y) =>
-    wsClient?.sendGodModeMove(requestId, snakeId, x, y),
+  sendGodModeKill: (requestId, snakeId, token) => wsClient?.sendGodModeKill(requestId, snakeId, token),
+  sendGodModeMove: (requestId, snakeId, x, y, token) =>
+    wsClient?.sendGodModeMove(requestId, snakeId, x, y, token),
   sendNewRun: (requestId) => wsClient?.sendNewRun(requestId)
 });
 /** Current connection mode state. */
@@ -130,6 +138,10 @@ let serverConfigRevision = 0;
 let serverSimSpeed = 1;
 /** Latest server world seed from the welcome message. */
 let serverWorldSeed: number | null = null;
+/** Current run for generation-scoped UI commands. */
+let serverRunId = '';
+/** One manual finish request awaiting native durability. */
+let pendingFinishRequestId: string | null = null;
 /** Inference mode advertised for the active server run. */
 let serverInferenceMode: WelcomeInferenceMode | null = null;
 /** Durable recovery provenance advertised for the active branch. */
@@ -332,6 +344,10 @@ const resetStatus = document.getElementById('resetStatus') as HTMLElement | null
 const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
 /** Button that starts a separately seeded, durably checkpointed run. */
 const btnNewRun = document.getElementById('newRun') as HTMLButtonElement;
+/** Optional manual completion action, shown only when advertised. */
+const btnFinishGeneration = document.getElementById('finishGeneration') as HTMLButtonElement | null;
+/** Native manual completion status. */
+const finishGenerationStatus = document.getElementById('finishGenerationStatus') as HTMLElement | null;
 /** Button to toggle the settings panel. */
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
 /** Button that restores the full-arena camera after manual navigation. */
@@ -593,6 +609,7 @@ function applyStoredBaselineBotSettings(): void {
  */
 function applyBaselineSeed(seed: number): void {
   if (!Number.isFinite(seed) || !Number.isInteger(seed) || seed < 0) return;
+  if (!validateSettingDrafts(resolveSettingsRoot())) return;
   setByPath(CFG, 'baselineBots.seed', seed);
   if (baselineBotSeedInput) {
     baselineBotSeedInput.value = String(seed);
@@ -687,8 +704,11 @@ function applyCoreSettingsToUi(settings: Partial<CoreSettings>): void {
  * @param input - Input element to read.
  * @returns Parsed numeric value or null when invalid.
  */
-function readSettingsInputValue(input: HTMLInputElement): number | null {
-  if (input.type === "checkbox") return input.checked ? 1 : 0;
+function readSettingsInputValue(input: SettingInputElement): number | null {
+  if (input.dataset['lifeContract'] === '1') return readLifeSettingInput(input);
+  if (input.dataset['controlType'] === 'select') return readSettingChoice(input as HTMLSelectElement);
+  if (input.dataset['controlType'] === 'duration') return parseDurationDraft(input.value, input.dataset['recordedDuration']);
+  if (input.type === "checkbox" && 'checked' in input) return input.checked ? 1 : 0;
   if (input.dataset['path'] === 'baselineBots.seed') {
     return parseBaselineSeedValue(input.value);
   }
@@ -703,14 +723,16 @@ function readSettingsInputValue(input: HTMLInputElement): number | null {
  * @returns List of settings updates.
  */
 function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
-  const sliders = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  const sliders = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   const updates: SettingsUpdate[] = [];
   sliders.forEach(sl => {
     if (BROWSER_CAMERA_SETTING_PATHS.has(sl.dataset['path']!)) return;
+    if (EVOLVED_SETTING_PATHS.has(sl.dataset['path']!) && CFG.evolvedRespawn.contractVersion === 0) return;
     const value = readSettingsInputValue(sl);
     if (value == null) return;
     updates.push({ path: sl.dataset['path']! as SettingsUpdate['path'], value });
   });
+  if (CFG.evolvedRespawn.contractVersion === 1) updates.push({ path: 'evolvedRespawn.contractVersion', value: 1 });
   return updates;
 }
 
@@ -721,7 +743,7 @@ function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
 function resolveSettingsRoot(): HTMLElement {
   const hasContainerInputs =
     typeof settingsContainer?.querySelector === 'function' &&
-    settingsContainer.querySelector('input[data-path]') != null;
+    settingsContainer.querySelector('input[data-path], select[data-path]') != null;
   if (hasContainerInputs) return settingsContainer;
   return settingsControls ?? settingsContainer;
 }
@@ -1141,6 +1163,31 @@ let fitnessHistory: FitnessHistoryUiEntry[] = [];
 let godModeLog: GodModeLogEntry[] = [];
 /** Currently selected snake for God mode actions. */
 let selectedSnake: SelectedSnake | null = null;
+/** Presentation-only preference for following a population owner across lives. */
+const followIndividualInput = document.getElementById('followIndividual') as HTMLInputElement | null;
+if (followIndividualInput) {
+  followIndividualInput.checked = CFG.diagnostics.followIndividual;
+  followIndividualInput.addEventListener('change', () => { CFG.diagnostics.followIndividual = followIndividualInput.checked; });
+}
+/** Bounded native selection transport; no gameplay identity is reconstructed in the browser. */
+const entitySelection = createEntitySelectionClient({
+  send: request => wsClient?.sendSelectEntity(request),
+  kill: (id, token) => { authoritativeControls.killSnake(id, token); },
+  followIndividual: () => followIndividualInput?.checked ?? true,
+  changed: entity => {
+    if (selectedSnake?.token !== entity?.token) {
+      authoritativeControls.cancelMoves();
+      isDragging = false;
+      currentVizData = null;
+    }
+    selectedSnake = entity ? { id: entity.snakeId, x: entity.x, y: entity.y,
+      radius: entity.radius, skin: entity.skin, token: entity.token } : null;
+  }
+});
+/** Exact generation from scalar native stats; frame floats can round large counters. */
+let selectionGeneration = 1;
+/** Observed server process identity for selection scope updates. */
+let selectionSessionId = '';
 /** Whether a pointer drag is in progress. */
 let isDragging = false;
 /** Client-side camera X for overlays and input. */
@@ -1255,9 +1302,7 @@ function setJoinStatus(text: string): void {
  * @returns Display string in `elapsed/total` format.
  */
 function formatGenTimer(elapsed: number, duration: number): string {
-  const safeElapsed = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
-  const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
-  return `${safeElapsed.toFixed(2)}/${safeDuration.toFixed(2)}`;
+  return formatDurationTimer(elapsed) + '/' + formatDurationTimer(duration);
 }
 
 /**
@@ -3371,8 +3416,12 @@ function updateClientCamera(): void {
     return;
   }
 
-  const targetId = isPlayerControlActive() ? playerSnakeId : spectatorFollowSnakeId;
-  const focus = findSnakeInFrame(frame, targetId);
+  const waitingForIndividual = !isPlayerControlActive() && (followIndividualInput?.checked ?? true)
+    && entitySelection.followedPopulationSlot() !== null;
+  if (waitingForIndividual && !selectedSnake) { publishClientCamera(); return; }
+  const targetId = isPlayerControlActive() ? playerSnakeId : selectedSnake?.id ?? spectatorFollowSnakeId;
+  const focus = targetId !== null && !frameContainsSnake(targetId) ? null : findSnakeInFrame(frame, targetId);
+  if (!focus && waitingForIndividual) { publishClientCamera(); return; }
   if (focus) {
     clientCamX = focus.x;
     clientCamY = focus.y;
@@ -3427,6 +3476,10 @@ function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec {
  * Apply a full reset through the authoritative server.
  */
 function applyResetToSimulation(): void {
+  if (!validateSettingDrafts(resolveSettingsRoot())) {
+    setResetStatus('Correct the invalid settings before Apply and reset.', true);
+    return;
+  }
   authoritativeControls.dispose();
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
@@ -3486,6 +3539,10 @@ function applyAuthoritativeSettingsState(
   core: CoreSettings,
   updates: readonly SettingsUpdate[]
 ): void {
+  // Missing extension is an explicit legacy configuration. Reset its presentation
+  // drafts so a previously viewed modern run cannot silently upgrade it.
+  for (const path of EVOLVED_SETTING_PATHS) setByPath(CFG, path, getByPath(CFG_DEFAULT, path));
+  CFG.evolvedRespawn.contractVersion = 0;
   serverSimSpeed = core.simSpeed;
   applyCoreSettingsToUi(core);
   for (const update of updates) {
@@ -3549,6 +3606,9 @@ function refreshServerHallOfFame(clearExisting = true): void {
 
 wsClient = createWsClient({
   onConnected: (info) => {
+    entitySelection.reset();
+    selectionGeneration = 1; selectionSessionId = info.sessionId;
+    entitySelection.setScope({ sessionId: info.sessionId, runId: info.runId, generation: 1 });
     setResetStatus('');
     resetManualCamera();
     storeServerUrl(serverUrl);
@@ -3567,6 +3627,13 @@ wsClient = createWsClient({
         formatLegacyConversionRuntimeStatus(serverLegacyConversion)
       );
     }
+    serverRunId = info.runId;
+    pendingFinishRequestId = null;
+    if (btnFinishGeneration) {
+      btnFinishGeneration.hidden = info.capabilities?.finishGeneration !== true;
+      btnFinishGeneration.disabled = settingsLocked;
+    }
+    if (finishGenerationStatus) finishGenerationStatus.hidden = true;
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
     serverArchiveExport = info.capabilities?.archiveExport === true;
@@ -3606,6 +3673,7 @@ wsClient = createWsClient({
     refreshServerHallOfFame();
   },
   onDisconnected: () => {
+    entitySelection.reset();
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
     serverArchiveExport = false;
     serverArchiveImport = false;
@@ -3637,8 +3705,13 @@ wsClient = createWsClient({
   },
   onFrame: (buffer) => {
     applyFrameBuffer(buffer);
+    entitySelection.observeFrame(selectionGeneration, frameContainsSnake, performance.now());
   },
   onStats: (msg) => {
+    if (msg.gen !== selectionGeneration) {
+      selectionGeneration = msg.gen;
+      entitySelection.setScope({ sessionId: selectionSessionId, runId: serverRunId, generation: msg.gen });
+    }
     if (serverArchiveExport && msg.gen !== serverHallOfFameGeneration) {
       serverHallOfFameGeneration = msg.gen;
       refreshServerHallOfFame(false);
@@ -3691,7 +3764,7 @@ wsClient = createWsClient({
     }
     if (msg.viz) {
       currentVizData = normalizeVizData(msg.viz);
-    }
+    } else { currentVizData = null; }
     if (msg.hofEntry) {
       void hof.add(msg.hofEntry).then(() => {
         if (connectionMode === 'server') {
@@ -3756,6 +3829,7 @@ wsClient = createWsClient({
     refreshCoreUIState();
     console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
   },
+  onEntitySelected: msg => entitySelection.receive(msg),
   onGodModeResult: (msg) => {
     godModeLog.push({
       time: Date.now(),
@@ -3763,9 +3837,23 @@ wsClient = createWsClient({
       snakeId: msg.snakeId,
       result: msg.applied ? 'success' : `rejected: ${msg.reason ?? 'unknown reason'}`
     });
-    if (msg.applied && msg.action === 'move' && selectedSnake && selectedSnake.id === msg.snakeId) {
+    if (msg.applied && msg.action === 'move' && selectedSnake && selectedSnake.id === msg.snakeId && selectedSnake.token === msg.selectionToken) {
       if (Number.isFinite(msg.x)) selectedSnake.x = msg.x!;
       if (Number.isFinite(msg.y)) selectedSnake.y = msg.y!;
+    }
+  },
+  onFinishGenerationResult: (msg) => {
+    if (msg.requestId !== pendingFinishRequestId || msg.runId !== serverRunId) return;
+    if (finishGenerationStatus) {
+      finishGenerationStatus.hidden = false;
+      finishGenerationStatus.textContent = msg.status === 'pending'
+        ? 'Finishing generation; waiting for authoritative checkpoint and successor...'
+        : msg.status === 'completed' ? 'Generation ' + msg.generation + ' finished and saved.'
+          : 'Finish rejected: ' + (msg.reason ?? 'request rejected');
+    }
+    if (msg.status !== 'pending') {
+      pendingFinishRequestId = null;
+      if (btnFinishGeneration) btnFinishGeneration.disabled = settingsLocked;
     }
   },
   onNewRunResult: (msg) => {
@@ -3784,12 +3872,15 @@ wsClient = createWsClient({
       serverLegacyConversion = null;
       setConnectionStatus('server');
     }
-    selectedSnake = null;
+    entitySelection.clear();
     console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
   },
   onStateReplaced: (msg) => {
     setResetStatus(msg.reason === 'reset' ? 'Reset applied.' : '');
     const info = msg.welcome;
+    entitySelection.reset();
+    selectionGeneration = 1; selectionSessionId = info.sessionId;
+    entitySelection.setScope({ sessionId: info.sessionId, runId: info.runId, generation: 1 });
     const rejoinPlayer = playerSnakeId !== null || joinPending;
     playerActionPump.stop();
     authoritativeControls.dispose();
@@ -3805,6 +3896,13 @@ wsClient = createWsClient({
     currentVizData = null;
     try { localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY); } catch { /* Storage is optional. */ }
     serverConfigRevision = info.configRevision;
+    serverRunId = info.runId;
+    pendingFinishRequestId = null;
+    if (btnFinishGeneration) {
+      btnFinishGeneration.hidden = info.capabilities?.finishGeneration !== true;
+      btnFinishGeneration.disabled = settingsLocked;
+    }
+    if (finishGenerationStatus) finishGenerationStatus.hidden = true;
     serverWorldSeed = info.worldSeed;
     serverRecovery = info.recovery ?? null;
     serverImportBranch = info.importBranch ?? null;
@@ -3862,7 +3960,7 @@ if (typeof WebSocket === 'undefined') {
  * Live update handler for sliders that do not require a reset.
  * @param sliderEl - Slider input element to read.
  */
-function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
+function liveUpdateFromSlider(sliderEl: SettingInputElement): void {
   const path = sliderEl.dataset['path'] as LiveSettingPath | undefined;
   if (!path) return;
   const value = readSettingsInputValue(sliderEl);
@@ -3894,6 +3992,7 @@ elN5.addEventListener('input', refreshCoreUIState);
 
 // Apply new configuration and reset world
 btnApply.addEventListener('click', () => {
+  if (!validateSettingDrafts(resolveSettingsRoot())) return;
   refreshCoreUIState();
   updateCFGFromUI(resolveSettingsRoot());
   persistBaselineBotSettings();
@@ -3902,6 +4001,7 @@ btnApply.addEventListener('click', () => {
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
   resetCFGToDefaults();
+  if (followIndividualInput) followIndividualInput.checked = CFG.diagnostics.followIndividual;
   setupSettingsUI(settingsContainer, liveUpdateFromSlider); // Re-apply defaults to dynamic UI
   wireBaselineBotControls();
   elSnakes.value = '55';
@@ -3917,6 +4017,20 @@ btnDefaults.addEventListener('click', () => {
   applySettingsLock();
   persistBaselineBotSettings();
   applyResetToSimulation();
+});
+// Confirm the observed generation and request its next complete terminal step.
+btnFinishGeneration?.addEventListener('click', () => {
+  if (!wsClient?.isConnected() || pendingFinishRequestId || !serverRunId) return;
+  const generation = currentStats.gen;
+  const elapsed = currentStats.generationTime;
+  if (!window.confirm('Finish generation ' + generation + ' now at ' + elapsed.toFixed(1) + ' simulated seconds?')) return;
+  pendingFinishRequestId = crypto.randomUUID();
+  btnFinishGeneration.disabled = true;
+  if (finishGenerationStatus) {
+    finishGenerationStatus.hidden = false;
+    finishGenerationStatus.textContent = 'Requesting authoritative generation completion...';
+  }
+  wsClient.sendFinishGeneration(pendingFinishRequestId, serverRunId, generation);
 });
 // Start a separately seeded run after its generation-one checkpoint commits.
 btnNewRun.addEventListener('click', () => {
@@ -3970,6 +4084,23 @@ function screenToWorld(screenX: number, screenY: number): { x: number; y: number
   const worldX = camX + (screenX - centerX) / zoom;
   const worldY = camY + (screenY - centerY) / zoom;
   return { x: worldX, y: worldY };
+}
+
+/** Scan compact frame headers without constructing snake/body snapshots. */
+function frameContainsSnake(targetId: number): boolean {
+  const buffer = currentFrameBuffer;
+  if (!buffer || buffer.length < FRAME_HEADER_FLOATS) return false;
+  const count = buffer[FRAME_HEADER_OFFSETS.aliveCount] ?? 0;
+  let cursor = FRAME_HEADER_FLOATS;
+  for (let index = 0; index < count; index++) {
+    if (cursor + 8 > buffer.length) return false;
+    const points = buffer[cursor + 7]!;
+    const next = cursor + 8 + 2 * points;
+    if (!Number.isSafeInteger(points) || points < 0 || next > buffer.length) return false;
+    if (buffer[cursor] === targetId) return true;
+    cursor = next;
+  }
+  return false;
 }
 
 /**
@@ -4100,16 +4231,16 @@ canvas.addEventListener('click', (e) => {
 
   const snake = findSnakeNear(world.x, world.y);
   if (snake) {
-    selectedSnake = snake;
+    entitySelection.select(snake.id);
     godModeLog.push({
       time: Date.now(),
       action: 'select',
       snakeId: snake.id,
-      result: 'success'
+      result: 'pending native selection'
     });
     console.log(`Selected snake #${snake.id} (skin: ${snake.skin})`);
   } else {
-    selectedSnake = null;
+    entitySelection.clear();
   }
 });
 
@@ -4124,7 +4255,7 @@ canvas.addEventListener('contextmenu', (e) => {
   const world = screenToWorld(screenX, screenY);
 
   const snake = findSnakeNear(world.x, world.y);
-  if (snake && wsClient?.isConnected()) authoritativeControls.killSnake(snake.id);
+  if (snake && wsClient?.isConnected()) entitySelection.kill(snake.id);
 });
 
 // Left-drag pans while spectating; Shift+left-drag moves a selected snake.
@@ -4144,7 +4275,7 @@ canvas.addEventListener('mousedown', (e) => {
     playerActionPump.requestImmediate();
     return;
   }
-  if (e.button === 0 && e.shiftKey && selectedSnake) {
+  if (e.button === 0 && e.shiftKey && selectedSnake?.token) {
     isDragging = true;
   }
 });
@@ -4157,13 +4288,13 @@ canvas.addEventListener('mousemove', (e) => {
     playerActionPump.requestImmediate();
     return;
   }
-  if (isDragging && selectedSnake) {
+  if (isDragging && selectedSnake?.token) {
     const rect = canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
     const world = screenToWorld(screenX, screenY);
     if (wsClient?.isConnected()) {
-      authoritativeControls.moveSnake(selectedSnake.id, world.x, world.y);
+      authoritativeControls.moveSnake(selectedSnake.id, world.x, world.y, selectedSnake.token);
     }
   }
 });
@@ -4185,10 +4316,10 @@ function finishGodModeDrag(e: MouseEvent): void {
   }
   if (!isDragging || e.button !== 0) return;
   isDragging = false;
-  if (!selectedSnake || !wsClient?.isConnected()) return;
+  if (!selectedSnake?.token || !wsClient?.isConnected()) return;
   const rect = canvas.getBoundingClientRect();
   const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-  authoritativeControls.finishMove(selectedSnake.id, world.x, world.y);
+  authoritativeControls.finishMove(selectedSnake.id, world.x, world.y, selectedSnake.token);
 }
 
 canvas.addEventListener('mouseup', finishGodModeDrag);
@@ -4508,9 +4639,11 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
 
   let html = '';
   list.forEach((entry: HallOfFameEntry, idx: number) => {
+    const pointLabel = entry.assessment?.pointMethod === 'reset' ? 'Reset' : entry.assessment?.pointMethod === 'cumulative-net' ? 'Cumulative net' : entry.assessment?.pointMethod === 'cumulative-gross' ? 'Cumulative gross' : entry.assessment?.pointMethod === 'best-life' ? 'Best Life' : 'Legacy physical score';
+    const lengthLabel = entry.assessment?.displayLengthKind === 'generation-peak' ? 'generation peak length' : entry.assessment?.displayLengthKind === 'selected-life-peak' ? 'selected life peak length' : entry.assessment ? 'latest life length' : 'legacy physical length';
     html += `
       <div class="hof-item">
-        <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
+        <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})<br><small>${pointLabel}: ${entry.points.toFixed(1)} · ${lengthLabel}: ${entry.length}</small></span>
         <button onclick="window.spawnHoF(${idx})"${entry.entryId ? '' : ' disabled'}>Spawn</button>
       </div>`;
   });

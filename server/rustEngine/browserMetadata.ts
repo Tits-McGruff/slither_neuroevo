@@ -50,7 +50,7 @@ export function createRustWelcome(
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
     graphSpec: metadata.graphSpec,
-    capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true },
+    capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true },
     settings: createRustSettings(metadata),
     sensorSpec: getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins'))),
     inferenceMode: {

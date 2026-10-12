@@ -49,6 +49,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/config.test.ts',
     'src/hallOfFame.test.ts',
     'src/protocol/settings.test.ts',
+    'src/protocol/duration.test.ts',
     'src/render.test.ts',
     'src/storage.test.ts',
     'src/theme.test.ts',
@@ -57,6 +58,7 @@ export const PRIMARY_TEST_CATEGORIES = {
   component: [
     'server/protocol.test.ts',
     'src/net/authoritativeControls.test.ts',
+    'src/net/entitySelection.test.ts',
     'src/net/playerActionPump.test.ts',
     'src/net/wsClient.test.ts',
     'src/settings.test.ts',

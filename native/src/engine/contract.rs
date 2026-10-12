@@ -205,8 +205,10 @@ impl EngineCommand {
                     | RunningAuthorityCommand::ReclaimController(_)
                     | RunningAuthorityCommand::JoinController(_)
                     | RunningAuthorityCommand::ApplyLiveSettings { .. }
+                    | RunningAuthorityCommand::SelectEntity { .. }
                     | RunningAuthorityCommand::GodModeMove { .. }
                     | RunningAuthorityCommand::GodModeKill { .. }
+                    | RunningAuthorityCommand::FinishGeneration { .. }
                     | RunningAuthorityCommand::StagePreparedImport { .. }
             )
         )
@@ -363,14 +365,28 @@ pub enum RunningAuthorityCommand {
     ApplyLiveSettings {
         updates: Box<[LiveSettingUpdate]>,
     },
+    /// Finish exactly the requested generation after its next complete physical step.
+    FinishGeneration {
+        request_id: String,
+        expected_run_id: String,
+        expected_generation: u64,
+    },
+    /// Resolve one current physical identity without consuming gameplay RNG.
+    SelectEntity {
+        target: super::state::EntitySelectionTarget,
+        expected_run_id: String,
+        expected_generation: u64,
+    },
     /// Translate one browser-addressed live snake before the next step.
     GodModeMove {
+        token: Box<super::state::EntitySelectionToken>,
         frame_v1_id: u32,
         x: f64,
         y: f64,
     },
     /// Kill one browser-addressed live snake through ordinary death effects.
     GodModeKill {
+        token: Box<super::state::EntitySelectionToken>,
         frame_v1_id: u32,
     },
     /// Enable or disable replaceable focused activation capture.
@@ -458,7 +474,19 @@ impl RunningAuthorityCommand {
                     "live settings require 1 to 64 updates",
                 ))
             }
-            Self::GodModeMove { frame_v1_id, x, y }
+            Self::FinishGeneration { request_id, expected_run_id, expected_generation }
+                if request_id.is_empty() || request_id.len() > 128 || request_id.contains('\0')
+                    || expected_run_id.is_empty() || expected_run_id.len() > 256
+                    || expected_run_id.contains('\0') || *expected_generation == 0 =>
+            {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid finish-generation identity"))
+            }
+            Self::SelectEntity { expected_run_id, expected_generation, target }
+                if expected_run_id.is_empty() || expected_run_id.len() > 256 || expected_run_id.contains('\0')
+                    || *expected_generation == 0 || matches!(target, super::state::EntitySelectionTarget::Frame(0))
+                    || matches!(target, super::state::EntitySelectionTarget::PopulationSlot(slot) if *slot >= 300) =>
+            { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid entity selection scope")) }
+            Self::GodModeMove { frame_v1_id, x, y, .. }
                 if *frame_v1_id == 0 || !x.is_finite() || !y.is_finite() =>
             {
                 Err(EngineError::new(
@@ -466,7 +494,7 @@ impl RunningAuthorityCommand {
                     "God Mode move requires an exact snake ID and finite coordinates",
                 ))
             }
-            Self::GodModeKill { frame_v1_id } if *frame_v1_id == 0 => Err(EngineError::new(
+            Self::GodModeKill { frame_v1_id, .. } if *frame_v1_id == 0 => Err(EngineError::new(
                 EngineErrorCode::InvalidCommand,
                 "God Mode kill requires an exact snake ID",
             )),
@@ -559,8 +587,25 @@ impl RunningAuthorityCommand {
                         "live settings byte accounting overflowed",
                     )
                 }),
-            Self::GodModeMove { .. } => Ok(0),
-            Self::GodModeKill { .. } => Ok(0),
+            Self::FinishGeneration {
+                request_id,
+                expected_run_id,
+                ..
+            } => request_id
+                .capacity()
+                .checked_add(expected_run_id.capacity())
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "finish-generation identity overflow",
+                    )
+                }),
+            Self::SelectEntity {
+                expected_run_id, ..
+            } => Ok(expected_run_id.capacity()),
+            Self::GodModeMove { .. } | Self::GodModeKill { .. } => {
+                Ok(size_of::<super::state::EntitySelectionToken>())
+            }
             Self::SetVisualization { .. } => Ok(0),
             Self::ResurrectHallOfFame {
                 managed_directory,
@@ -727,6 +772,16 @@ pub enum RunningAuthorityEvent {
         config_hash: String,
         effective_step: u64,
     },
+    /// A generation-scoped finish is retained until ordinary durable completion.
+    FinishGenerationAccepted {
+        command_sequence: u64,
+        effective_step: u64,
+    },
+    /// Scalar identity for one live entity, or an honest dead/pending result.
+    EntitySelected {
+        command_sequence: u64,
+        selection: Option<super::state::EntitySelection>,
+    },
     /// One live snake and its complete body were translated in bounds.
     GodModeMoved {
         command_sequence: u64,
@@ -789,7 +844,7 @@ pub enum RunningAuthorityEvent {
         /// Deduplicated elite object needed after population checkpoint pruning.
         hall_of_fame_weights: Box<HallOfFameWeightsDescriptor>,
         /// Exact compact history and Hall-of-Fame reference.
-        commit_record: GenerationCommitRecord,
+        commit_record: Box<GenerationCommitRecord>,
     },
     /// Rust retained the worker's complete matching descriptor.
     GenerationPersistenceAcknowledged {
@@ -868,6 +923,8 @@ impl RunningAuthorityEvent {
             | Self::ControllerActionApplied { .. }
             | Self::ControllerDisconnected { .. } => 0,
             Self::LiveSettingsApplied { config_hash, .. } => config_hash.capacity(),
+            Self::FinishGenerationAccepted { .. } => 0,
+            Self::EntitySelected { .. } => 0,
             Self::GodModeMoved { .. } => 0,
             Self::GodModeKilled { .. } => 0,
             Self::HallOfFameResurrected { .. } => 0,
@@ -881,7 +938,8 @@ impl RunningAuthorityEvent {
             } => size_of::<CheckpointDescriptor>()
                 .saturating_add(descriptor.owned_bytes())
                 .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
-                .saturating_add(hall_of_fame_weights.owned_bytes()),
+                .saturating_add(hall_of_fame_weights.owned_bytes())
+                .saturating_add(size_of::<GenerationCommitRecord>()),
             Self::GenerationPersistenceAcknowledged { operation_id, .. } => {
                 operation_id.owned_bytes()
             }

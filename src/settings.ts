@@ -4,13 +4,15 @@
 // rather, it populates a provided container element with controls defined
 // by SETTING_SPECS and synchronises their values with the global CFG.
 
-import { CFG, syncBrainInputSize } from './config.ts';
+import { CFG, CFG_DEFAULT, syncBrainInputSize } from './config.ts';
+import { formatDuration, parseDurationDraft } from './protocol/duration.ts';
 import { coerceSettingsUpdateValue, type SettingsPath } from './protocol/settings.ts';
 import {
   BASELINE_BOT_SEED_HINT_ID,
   BASELINE_BOT_SEED_INPUT_ID,
   BASELINE_BOT_SEED_RANDOMIZE_ID,
-  SETTING_DEFINITIONS,
+  SETTING_DEFINITIONS, SETTING_DEFINITION_BY_PATH, normalizeSettingValue,
+  EVOLVED_SETTING_PATHS, EVOLVED_RESPAWN_PRESET_ID,
   type SettingControlType,
   type SettingDefinition
 } from './protocol/settingDefinitions.ts';
@@ -26,13 +28,16 @@ export {
 /** Settings specification alias used by the DOM builder. */
 type SettingSpec = SettingDefinition;
 
+/** Numeric inputs and closed-choice controls share the same atomic draft flow. */
+export type SettingInputElement = HTMLInputElement | HTMLSelectElement;
+
 /**
  * Pure shared definitions used to build the settings UI.
  * The sensor logger and automatic focus controls belong to the retained
  * retired authoritative camera and now remain browser presentation controls.
  */
 const SETTING_SPECS = SETTING_DEFINITIONS.filter(spec =>
-  spec.path !== 'sense.debug' && spec.path !== 'observer.focusRecheckSeconds' &&
+  !spec.hidden && spec.path !== 'sense.debug' && spec.path !== 'observer.focusRecheckSeconds' &&
   spec.path !== 'observer.focusSwitchMargin');
 
 /** Camera presentation values consumed by the browser, excluded from server commands. */
@@ -57,9 +62,12 @@ function resolveSpecType(spec: SettingSpec): SettingControlType {
  * @param input - Input element to read.
  * @returns Numeric value, or null when invalid.
  */
-function readInputValue(input: HTMLInputElement): number | null {
-  if (input.type === 'checkbox') return input.checked ? 1 : 0;
+function readInputValue(input: SettingInputElement): number | null {
+  if (input.dataset['lifeContract'] === '1') return readLifeSettingInput(input);
+  if (input.dataset['controlType'] === 'select') return readSettingChoice(input as HTMLSelectElement);
+  if (input.type === 'checkbox' && 'checked' in input) return input.checked ? 1 : 0;
   const path = input.dataset['path'];
+  if (input.dataset['controlType'] === 'duration') return parseDurationDraft(input.value, input.dataset['recordedDuration']);
   if (path === 'baselineBots.seed') {
     const parsed = Number(input.value);
     if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
@@ -76,11 +84,67 @@ function readInputValue(input: HTMLInputElement): number | null {
  * @param value - Numeric value to format.
  * @returns Human-friendly formatted value string.
  */
-function formatInputValue(input: HTMLInputElement, value: number): string {
+function formatInputValue(input: SettingInputElement, value: number): string {
+  if (input.dataset['controlType'] === 'select') {
+    const option = Array.from((input as HTMLSelectElement).options).find(option => option.value === String(value));
+    return option?.label || option?.textContent || String(value);
+  }
   if (input.type === 'checkbox') return value ? 'On' : 'Off';
+  if (input.dataset['controlType'] === 'duration') return formatDuration(value);
   const decimalsRaw = input.dataset['decimals'];
   const decimals = decimalsRaw ? Number(decimalsRaw) : 0;
   return fmtNumber(value, Number.isFinite(decimals) ? decimals : 0);
+}
+
+/** Validate life choices and numeric bounds without rounding or clamping a draft. */
+export function readLifeSettingInput(input: SettingInputElement): number | null {
+  const definition = SETTING_DEFINITION_BY_PATH.get(input.dataset['path'] ?? '');
+  if (!definition?.lifeContract) return null;
+  const value = input.type === 'checkbox' && 'checked' in input ? Number(input.checked)
+    : input.value.trim() === '' ? NaN : Number(input.value);
+  try { return normalizeSettingValue(definition, value); } catch { return null; }
+}
+
+/** Read only a declared integer option; empty/unknown choices never become zero. */
+export function readSettingChoice(input: HTMLSelectElement): number | null {
+  if (!Array.from(input.options).some(option => option.value === input.value)) return null;
+  const value = Number(input.value);
+  return input.value !== '' && Number.isSafeInteger(value) ? value : null;
+}
+
+/** Create one numeric/choice control with the shared path and reset metadata. */
+export function createSettingControl(spec: SettingDefinition): SettingInputElement {
+  const type = resolveSpecType(spec);
+  let input: SettingInputElement;
+  if (type === 'select') {
+    const choices = spec.options;
+    if (!choices?.length || choices.some(choice => !Number.isSafeInteger(choice.value)) ||
+        new Set(choices.map(choice => choice.value)).size !== choices.length) {
+      throw new Error('Select settings require distinct integer options.');
+    }
+    const select = document.createElement('select');
+    for (const choice of choices) {
+      const option = document.createElement('option');
+      option.value = String(choice.value); option.textContent = choice.label;
+      select.appendChild(option);
+    }
+    select.dataset['controlType'] = 'select'; input = select;
+  } else {
+    if (type === 'action') throw new Error('Action settings use a button.');
+    const numeric = document.createElement('input');
+    numeric.type = type === 'duration' ? 'text' : type;
+    if (type === 'duration') { numeric.maxLength = 128; numeric.dataset['controlType'] = 'duration'; }
+    if (spec.min != null) numeric.min = String(spec.min);
+    if (spec.max != null) numeric.max = String(spec.max);
+    if (spec.step != null) numeric.step = String(spec.step);
+    input = numeric;
+  }
+  if (spec.path) input.dataset['path'] = spec.path;
+  if (spec.lifeContract) input.dataset['lifeContract'] = '1';
+  if (spec.decimals != null) input.dataset['decimals'] = String(spec.decimals);
+  if (spec.requiresReset != null) input.dataset['requiresReset'] = spec.requiresReset ? '1' : '0';
+  if (spec.id) input.id = spec.id;
+  return input;
 }
 
 /**
@@ -143,23 +207,7 @@ export function buildSettingsUI(container: HTMLElement): void {
         if (spec.id) button.id = spec.id;
         wrap.appendChild(button);
       } else {
-        const input = document.createElement("input");
-        if (type === 'checkbox') {
-          input.type = "checkbox";
-        } else if (type === 'number') {
-          input.type = "number";
-        } else {
-          input.type = "range";
-        }
-        if (spec.min != null) input.min = String(spec.min);
-        if (spec.max != null) input.max = String(spec.max);
-        if (spec.step != null) input.step = String(spec.step);
-        if (spec.path) input.dataset['path'] = spec.path;
-        if (spec.decimals != null) input.dataset['decimals'] = String(spec.decimals);
-        if (spec.requiresReset != null) {
-          input.dataset['requiresReset'] = spec.requiresReset ? "1" : "0";
-        }
-        if (spec.id) input.id = spec.id;
+        const input = createSettingControl(spec);
         wrap.appendChild(input);
         if (spec.requiresReset != null) {
           const foot = document.createElement("div");
@@ -189,21 +237,33 @@ export function buildSettingsUI(container: HTMLElement): void {
  * Set all settings controls within the given root element to match CFG.
  * Also updates the displayed numeric values next to each control.
  * @param root - Root element containing the controls.
+ * @param paths - Optional subset, preserving unrelated pending drafts.
  */
-export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
-  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+export function applyValuesToSlidersFromCFG(root: HTMLElement, paths?: ReadonlySet<string>): void {
+  const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   inputs.forEach(input => {
     const path = input.dataset['path']!;
+    if (paths && !paths.has(path)) return;
     const rawValue = getByPath(CFG, path);
     const numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
-    if (input.type === 'checkbox') {
+    if (input.dataset['controlType'] === 'duration') input.dataset['recordedDuration'] = String(numericValue);
+    if (input.type === 'checkbox' && 'checked' in input) {
       input.checked = Boolean(rawValue);
     } else {
-      input.value = String(numericValue);
+      input.value = input.dataset['controlType'] === 'duration'
+        ? formatDuration(numericValue) : String(numericValue);
     }
     const out = document.getElementById("val_" + path.replaceAll(".", "_"));
     if (out) out.textContent = formatInputValue(input, numericValue);
   });
+}
+
+/** Select the explicit life preset without overwriting other unsubmitted drafts. */
+export function stageEvolvedRespawnPreset(root: HTMLElement): void {
+  for (const path of EVOLVED_SETTING_PATHS) setByPath(CFG, path, getByPath(CFG_DEFAULT, path));
+  CFG.evolvedRespawn.enabled = true;
+  CFG.world.pelletOverflow = 1;
+  applyValuesToSlidersFromCFG(root, EVOLVED_SETTING_PATHS);
 }
 
 /**
@@ -215,12 +275,25 @@ export function applyValuesToSlidersFromCFG(root: HTMLElement): void {
  */
 export function hookSliderEvents(
   root: HTMLElement,
-  onLiveUpdate: (sliderEl: HTMLInputElement) => void
+  onLiveUpdate: (sliderEl: SettingInputElement) => void
 ): void {
-  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   inputs.forEach(input => {
     input.addEventListener("input", () => {
       const value = readInputValue(input);
+      if (value != null && input.dataset['lifeContract'] === '1') CFG.evolvedRespawn.contractVersion = 1;
+      if (input.dataset['lifeContract'] === '1') {
+        input.setCustomValidity(value == null ? 'Enter a valid value or choose a listed option.' : '');
+        input.setAttribute('aria-invalid', String(value == null));
+      }
+      if (input.dataset['controlType'] === 'select') {
+        input.setCustomValidity(value == null ? 'Choose one of the listed options.' : '');
+        input.setAttribute('aria-invalid', String(value == null));
+      }
+      if (input.dataset['controlType'] === 'duration') {
+        input.setCustomValidity(value == null ? 'Enter a duration from 8 seconds to 7 days.' : '');
+        input.setAttribute('aria-invalid', String(value == null));
+      }
       if (value != null) {
         const out = document.getElementById("val_" + input.dataset['path']!.replaceAll(".", "_"));
         if (out) out.textContent = formatInputValue(input, value);
@@ -230,6 +303,7 @@ export function hookSliderEvents(
       }
     });
   });
+  document.getElementById(EVOLVED_RESPAWN_PRESET_ID)?.addEventListener?.('click', () => stageEvolvedRespawnPreset(root));
 }
 
 /**
@@ -239,15 +313,50 @@ export function hookSliderEvents(
  * @param root - Root element containing the sliders.
  */
 export function updateCFGFromUI(root: HTMLElement): void {
-  const inputs = root.querySelectorAll<HTMLInputElement>('input[data-path]');
+  if (!validateSettingDrafts(root)) return;
+  const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   inputs.forEach(input => {
     const path = input.dataset['path']!;
+    if (EVOLVED_SETTING_PATHS.has(path) && CFG.evolvedRespawn.contractVersion === 0) return;
     const value = readInputValue(input);
     if (value == null) return;
     const coerced = coerceSettingsUpdateValue(path as SettingsPath, value);
     setByPath(CFG, path, coerced);
   });
   syncBrainInputSize();
+}
+
+/**
+ * Validate duration and closed-choice drafts before applying any reset settings.
+ * @param root - Settings control container.
+ * @returns Whether all supported drafts are valid; invalid controls show feedback.
+ */
+export function validateSettingDrafts(root: HTMLElement): boolean {
+  const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
+  let valid = true;
+  inputs.forEach(input => {
+    if (input.dataset['lifeContract'] === '1') {
+      const accepted = readLifeSettingInput(input) != null;
+      input.setCustomValidity(accepted ? '' : 'Enter a valid value or choose a listed option.');
+      input.setAttribute('aria-invalid', String(!accepted));
+      if (!accepted && valid) input.reportValidity();
+      valid = valid && accepted; return;
+    }
+    if (input.dataset['controlType'] === 'select') {
+      const accepted = readSettingChoice(input as HTMLSelectElement) != null;
+      input.setCustomValidity(accepted ? '' : 'Choose one of the listed options.');
+      input.setAttribute('aria-invalid', String(!accepted));
+      if (!accepted && valid) input.reportValidity();
+      valid = valid && accepted; return;
+    }
+    if (input.dataset['controlType'] !== 'duration') return;
+    const accepted = parseDurationDraft(input.value, input.dataset['recordedDuration']) != null;
+    input.setCustomValidity(accepted ? '' : 'Enter a duration from 8 seconds to 7 days.');
+    input.setAttribute('aria-invalid', String(!accepted));
+    if (!accepted && valid) input.reportValidity();
+    valid = valid && accepted;
+  });
+  return valid;
 }
 
 /**
@@ -258,7 +367,7 @@ export function updateCFGFromUI(root: HTMLElement): void {
  */
 export function setupSettingsUI(
   container: HTMLElement,
-  onLiveUpdate?: (sliderEl: HTMLInputElement) => void
+  onLiveUpdate?: (sliderEl: SettingInputElement) => void
 ): void {
   buildSettingsUI(container);
   applyValuesToSlidersFromCFG(container);

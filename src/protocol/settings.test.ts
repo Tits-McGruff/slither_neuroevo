@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './settingDefinitions.ts';
 import {
   coerceSettingsUpdateValue,
   normalizeLiveSettingsUpdates
 } from './settings.ts';
 
 describe('authoritative settings contract', () => {
+  it('rejects malformed life codes and numeric bounds without rounding, clamping or live application', () => {
+    for (const [path, value] of [['evolvedRespawn.delayMode', 0.5], ['world.pelletOverflow', 2],
+      ['evolvedRespawn.maxLives', 1.5], ['evolvedRespawn.enabled', 2], ['evolvedRespawn.contractVersion', 0],
+      ['reward.lifePenalty', 10001]] as const) {
+      expect(() => normalizeSettingValue(SETTING_DEFINITION_BY_PATH.get(path)!, value)).toThrow();
+      expect(normalizeLiveSettingsUpdates([{ path, value: 0 }]).ok).toBe(false);
+    }
+  });
   it('rejects reset-required paths without partially accepting a batch', () => {
     const result = normalizeLiveSettingsUpdates([
       { path: 'simSpeed', value: 2 },

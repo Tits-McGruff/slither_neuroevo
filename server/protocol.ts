@@ -1,3 +1,7 @@
+import type { SelectEntityMsg, EntitySelectedMsg } from '../src/protocol/entitySelection.ts';
+import { isEntitySelectionToken } from '../src/protocol/entitySelection.ts';
+import type { FinishGenerationMsg, FinishGenerationResultMsg } from '../src/protocol/generation.ts';
+export type { FinishGenerationMsg, FinishGenerationResultMsg } from '../src/protocol/generation.ts';
 import type {
   RustImportBranchNotice,
   RustLegacyConversionNotice,
@@ -140,6 +144,8 @@ export interface GodModeKillMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'kill';
+  /** Native selection token; omission is rejected with selection guidance. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
 }
@@ -152,6 +158,8 @@ export interface GodModeMoveMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'move';
+  /** Native selection token; omission is rejected with selection guidance. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
   /** Requested head X coordinate. */
@@ -182,7 +190,9 @@ export type ClientMessage =
   | ResetMsg
   | LiveSettingsMsg
   | GodModeMsg
-  | NewRunMsg;
+  | SelectEntityMsg
+  | NewRunMsg
+  | FinishGenerationMsg;
 
 /** Sensor metadata describing the array order and size. */
 export type SensorSpec = SensorSpecBase;
@@ -235,6 +245,8 @@ export interface WelcomeMsg {
   capabilities?: {
     /** Whether the exact current managed checkpoint can be pinned. */
     checkpointPinning: boolean;
+    /** Whether generation-scoped manual completion is supported. */
+    finishGeneration?: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
     /** Whether the selected archive can be uploaded unchanged. */
@@ -354,6 +366,8 @@ export interface GodModeResultMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'kill' | 'move';
+  /** Native token captured by this request, for stale-result rejection. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
   /** Whether the mutation was applied. */
@@ -411,7 +425,9 @@ export type ServerMessage =
   | SensorsMsg
   | ErrorMsg
   | SettingsAppliedMsg
+  | FinishGenerationResultMsg
   | GodModeResultMsg
+  | EntitySelectedMsg
   | NewRunResultMsg
   | StateReplacedMsg;
 
@@ -657,18 +673,51 @@ export function isLiveSettings(msg: unknown): msg is LiveSettingsMsg {
  */
 export function isGodMode(msg: unknown): msg is GodModeMsg {
   if (!isRecord(msg) || msg['type'] !== 'godMode') return false;
-  if (!isRequestId(msg['requestId']) || !isFiniteNumber(msg['snakeId'])) return false;
+  if (!isRequestId(msg['requestId']) || !Number.isSafeInteger(msg['snakeId']) ||
+      (msg['snakeId'] as number) < 1 || (msg['snakeId'] as number) > 16_777_216 ||
+      (msg['selectionToken'] !== undefined && !isEntitySelectionToken(msg['selectionToken']))) return false;
   if (msg['action'] === 'kill') {
-    return hasKeys(msg, ['type', 'requestId', 'action', 'snakeId'], ['type', 'requestId', 'action', 'snakeId']);
+    return hasKeys(msg, ['type', 'requestId', 'action', 'snakeId', 'selectionToken'], ['type', 'requestId', 'action', 'snakeId']);
   }
   if (msg['action'] === 'move') {
     return (
-      hasKeys(msg, ['type', 'requestId', 'action', 'snakeId', 'x', 'y'], ['type', 'requestId', 'action', 'snakeId', 'x', 'y']) &&
+      hasKeys(msg, ['type', 'requestId', 'action', 'snakeId', 'x', 'y', 'selectionToken'], ['type', 'requestId', 'action', 'snakeId', 'x', 'y']) &&
       isFiniteNumber(msg['x']) &&
       isFiniteNumber(msg['y'])
     );
   }
   return false;
+}
+
+/** Validate a bounded on-demand physical/individual selector without coercion. */
+export function isSelectEntity(msg: unknown): msg is SelectEntityMsg {
+  if (!isRecord(msg) || msg['type'] !== 'selectEntity' ||
+      !hasKeys(msg, ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'expectedGeneration', 'snakeId', 'populationSlot'],
+        ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'expectedGeneration']) ||
+      !isRequestId(msg['requestId']) || !isRequestId(msg['expectedSessionId']) ||
+      typeof msg['expectedRunId'] !== 'string' || msg['expectedRunId'].length === 0 || msg['expectedRunId'].length > 256 ||
+      msg['expectedRunId'].includes('\0') || !Number.isSafeInteger(msg['expectedGeneration']) ||
+      (msg['expectedGeneration'] as number) < 1) return false;
+  const frame = msg['snakeId'];
+  const slot = msg['populationSlot'];
+  return (slot === undefined && Number.isSafeInteger(frame) && (frame as number) >= 1 && (frame as number) <= 16_777_216)
+    || (frame === undefined && Number.isSafeInteger(slot) && (slot as number) >= 0 && (slot as number) < 300);
+}
+
+/**
+ * Validate a bounded generation-scoped finish request without coercing identities.
+ * @param msg - Raw Protocol 2 payload.
+ * @returns Whether the exact fields and safe generation identity are valid.
+ */
+export function isFinishGeneration(msg: unknown): msg is FinishGenerationMsg {
+  return isRecord(msg) &&
+    hasKeys(msg, ['type', 'requestId', 'expectedRunId', 'expectedGeneration'],
+      ['type', 'requestId', 'expectedRunId', 'expectedGeneration']) &&
+    msg['type'] === 'finishGeneration' && isRequestId(msg['requestId']) &&
+    typeof msg['expectedRunId'] === 'string' && msg['expectedRunId'].length > 0 &&
+    msg['expectedRunId'].length <= 256 && !msg['expectedRunId'].includes('\0') &&
+    typeof msg['expectedGeneration'] === 'number' && Number.isSafeInteger(msg['expectedGeneration']) &&
+    msg['expectedGeneration'] > 0;
 }
 
 /**
@@ -709,10 +758,14 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return isReset(raw) ? raw : null;
     case 'settings':
       return isLiveSettings(raw) ? raw : null;
+    case 'selectEntity':
+      return isSelectEntity(raw) ? raw : null;
     case 'godMode':
       return isGodMode(raw) ? raw : null;
     case 'newRun':
       return isNewRun(raw) ? raw : null;
+    case 'finishGeneration':
+      return isFinishGeneration(raw) ? raw : null;
     default:
       return null;
   }

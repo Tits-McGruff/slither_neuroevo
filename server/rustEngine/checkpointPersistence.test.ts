@@ -1,3 +1,4 @@
+import { decodeExperimentSummary, parseGenerationExperimentRecord, parseExperimentSummary, parseHallOfFameAssessment } from './experimentRecords.ts';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -307,6 +308,21 @@ afterEach(async () => {
 });
 
 // Allow worker startup, durable I/O and joined shutdown on shared runners.
+/** Construct one strict fixed native metadata fixture without running simulation code. */
+function createExperimentPayload(base: ManagedGenerationCommit): Buffer {
+  const bytes = Buffer.alloc(768);
+  /** Set exact native record words for a synthetic metadata-only publication. */
+  const word = (index: number, value: bigint): void => { bytes.writeBigUInt64LE(value, index * 8); };
+  for (const [index, value] of [[0, 1n], [2, 1n], [3, 10n], [5, BigInt('0x' + base.completion!.actualElapsedF64Hex)],
+    [6, BigInt('0x' + base.completion!.configuredDurationF64Hex)], [7, 2n], [8, 2n], [57, 1n], [58, BigInt('0x' + base.hallOfFame.pointsF64Hex)], [59, 1n], [61, 1n]] as const) word(index, value);
+  for (let index = 20; index < 34; index++) word(index, BigInt('0x' + f64(6.25)));
+  word(34, BigInt('0x' + f64(12.5))); word(36, BigInt('0x' + f64(12.5)));
+  for (const [index, value] of [[0, 2n], [1, 1n], [2, 1n], [3, 17n], [5, 2n], [7, 1n], [8, BigInt('0x' + f64(6.25))],
+    [13, 9n], [14, BigInt('0x' + f64(6.25))], [15, BigInt('0x' + f64(6.25))], [17, BigInt('0x' + f64(6.25))],
+    [18, BigInt('0x' + f64(6.25))], [20, BigInt('0x' + f64(6.25))], [21, 1n], [24, 9n], [25, 9n], [26, 9n], [27, 9n], [28, 9n], [30, 1n]] as const) word(64 + index, value);
+  return bytes;
+}
+
 describe(SUITE, { timeout: 30_000 }, () => {
   it('reports bounded SQLite file and free-page storage counters', async () => {
     const fixture = createFixture();
@@ -2210,6 +2226,186 @@ describe(SUITE, { timeout: 30_000 }, () => {
       createGenerationCommit(7n)
     )).rejects.toThrow(/explicit branch provenance/);
   });
+
+  it('commits completion chronology atomically and rejects changed or omitted retry records', async () => {
+    const fixture = createFixture();
+    await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    const descriptor = createDescriptor(fixture.managedRoot, { operationId: 'abababababababababababababababab',
+      boundaryKind: 'generation', generation: u64(2n), completedStep: u64(10n), transitionEpoch: u64(10n) });
+    const commit = { ...createGenerationCommit(1n), completion: { version: 1 as const, reason: 'manual' as const,
+      actualElapsedF64Hex: f64(10 / 60), configuredDurationF64Hex: f64(604800), completedStep: u64(10n) } };
+    await fixture.client.commit(descriptor, commit);
+    await fixture.client.commit(descriptor, structuredClone(commit));
+    await expect(fixture.client.commit(descriptor, { ...commit,
+      completion: { ...commit.completion, reason: 'duration' } })).rejects.toThrow(/completion chronology/);
+    await expect(fixture.client.commit(descriptor, createGenerationCommit(1n))).rejects.toThrow(/completion chronology/);
+    await expect(fixture.client.commit(descriptor, { ...commit,
+      completion: { ...commit.completion, completedStep: u64(11n) } })).rejects.toThrow(/invalid chronology/);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      const row = db.prepare('SELECT record_blob FROM rust_generation_completion_v1').get() as { record_blob: Buffer };
+      expect(row.record_blob.length).toBe(32);
+      expect(row.record_blob.readUInt32LE(4)).toBe(0);
+      expect(row.record_blob.readDoubleLE(8)).toBe(10 / 60);
+      expect(row.record_blob.readDoubleLE(16)).toBe(604800);
+      expect(row.record_blob.readBigUInt64LE(24)).toBe(10n);
+    } finally { db.close(); }
+  });
+
+  it('commits fixed experiment bytes atomically and rejects omitted, changed and mismatched retries', async () => {
+    const fixture = createFixture(); await fixture.client.commit(createDescriptor(fixture.managedRoot));
+    const descriptor = createDescriptor(fixture.managedRoot, { operationId: 'acacacacacacacacacacacacacacacac',
+      boundaryKind: 'generation', generation: u64(2n), completedStep: u64(10n), transitionEpoch: u64(10n) });
+    const base = { ...createGenerationCommit(1n), completion: { version: 1 as const, reason: 'manual' as const,
+      actualElapsedF64Hex: f64(10 / 60), configuredDurationF64Hex: f64(604800), completedStep: u64(10n) } };
+    const bytes = createExperimentPayload(base);
+    const experiment = { version: 1 as const, historyHex: bytes.subarray(0, 512).toString('hex'), hallOfFameHex: bytes.subarray(512).toString('hex') };
+    const commit = { ...base, experiment };
+    await fixture.client.commit(descriptor, commit);
+    await fixture.client.commit(descriptor, structuredClone(commit));
+    await expect(fixture.client.commit(descriptor, base)).rejects.toThrow(/experiment summary/);
+    const changed = Buffer.from(bytes); changed.writeBigUInt64LE(1n, 63 * 8);
+    await expect(fixture.client.commit(descriptor, { ...commit, experiment: { ...experiment, historyHex: changed.subarray(0, 512).toString('hex') } })).rejects.toThrow(/experiment summary/);
+    const mismatch = Buffer.from(bytes); mismatch.writeBigUInt64LE(2n, 2 * 8); mismatch.writeBigUInt64LE(2n, 65 * 8);
+    await expect(fixture.client.commit(descriptor, { ...commit, experiment: { ...experiment,
+      historyHex: mismatch.subarray(0, 512).toString('hex'), hallOfFameHex: mismatch.subarray(512).toString('hex') } })).rejects.toThrow(/disagrees/);
+    expect((await fixture.client.readBrowserHistory(descriptor.runId))[0]!.experiment).toMatchObject({
+      reason: 'manual', lives: u64(2n), population: 2, winner: { version: 2, pointMethod: 'reset', displayLengthKind: 'latest-life' }
+    });
+    expect((await fixture.client.readBrowserHallOfFame(descriptor.runId))[0]).toMatchObject({
+      points: 6.25, length: 9, assessment: { version: 2, fitnessBundle: 'legacy-terminal', economics: { physicalWallet: 6.25 } }
+    });
+    const lease = await fixture.client.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ version: 3, storedByteCount: u64(1024n) });
+    const inventoryBytes = readFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename));
+    expect(inventoryBytes.subarray(0, 13).toString('ascii')).toBe('SLITHER-EXPV3');
+    expect(inventoryBytes.subarray(256).equals(bytes)).toBe(true);
+    const target = createFixture();
+    copyFileSync(join(fixture.managedRoot, descriptor.relativeFilename), join(target.managedRoot, descriptor.relativeFilename));
+    copyFileSync(join(fixture.managedRoot, commit.hallOfFameWeights.relativeFilename), join(target.managedRoot, commit.hallOfFameWeights.relativeFilename));
+    const importOperation = 'ad'.repeat(16);
+    const relativeFilename = '.' + importOperation + '.import-inventory-v3';
+    copyFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename), join(target.managedRoot, relativeFilename));
+    const imported = { ...descriptor, operationId: importOperation };
+    const inventory = { ...lease.inventory, relativeFilename };
+    await target.client.commitImport(imported, inventory);
+    expect(await target.client.readBrowserHistory(descriptor.runId)).toEqual(await fixture.client.readBrowserHistory(descriptor.runId));
+    expect(await target.client.readBrowserHallOfFame(descriptor.runId)).toEqual(await fixture.client.readBrowserHallOfFame(descriptor.runId));
+    copyFileSync(join(fixture.managedRoot, lease.inventory.relativeFilename), join(target.managedRoot, relativeFilename));
+    await target.client.commitImport(imported, inventory);
+    const badBytes = Buffer.from(inventoryBytes);
+    badBytes.writeBigUInt64LE(1n, 256 + 63 * 8);
+    writeFileSync(join(target.managedRoot, relativeFilename), badBytes);
+    await expect(target.client.commitImport(imported, { ...inventory, sha256: createHash('sha256').update(badBytes).digest('hex') })).rejects.toThrow(/experiment identity conflicts/);
+    expect((await target.client.readBrowserHistory(descriptor.runId))[0]!.experiment?.ledgerOperations).toBe(u64(0n));
+    const corrupt = new Database(target.databasePath);
+    try {
+      const wrongGeneration = Buffer.from(bytes);
+      wrongGeneration.writeBigUInt64LE(2n, 16); wrongGeneration.writeBigUInt64LE(2n, 520);
+      corrupt.prepare('UPDATE rust_generation_experiment_v1 SET record_blob = ?').run(wrongGeneration);
+      await expect(target.client.readBrowserHistory(descriptor.runId)).rejects.toThrow(/experiment generation mismatch/);
+      await expect(target.client.readBrowserHallOfFame(descriptor.runId)).rejects.toThrow(/experiment source mismatch/);
+      const wrongPhysical = Buffer.from(bytes); wrongPhysical.writeBigUInt64LE(18n, 536);
+      corrupt.prepare('UPDATE rust_generation_experiment_v1 SET record_blob = ?').run(wrongPhysical);
+      await expect(target.client.readBrowserHallOfFame(descriptor.runId)).rejects.toThrow(/experiment source mismatch/);
+      corrupt.prepare('UPDATE rust_generation_experiment_v1 SET record_blob = ?').run(bytes);
+    } finally { corrupt.close(); }
+    await fixture.client.releaseExportLease(lease.operationId);
+    await fixture.client.close();
+    const db = new Database(fixture.databasePath, { readonly: true });
+    try {
+      const row = db.prepare('SELECT record_blob FROM rust_generation_experiment_v1').get() as { record_blob: Buffer };
+      expect(row.record_blob.equals(bytes)).toBe(true);
+      expect((db.prepare('SELECT record_blob FROM rust_generation_history_v1').get() as { record_blob: Buffer }).record_blob.length).toBe(56);
+    } finally { db.close(); }
+  });
+
+  it('preserves explicit point/length methods and full-width counters in strict experiment projections', async () => {
+    createFixture();
+    const base = { ...createGenerationCommit(1n), completion: { version: 1 as const, reason: 'manual' as const, actualElapsedF64Hex: f64(10 / 60), configuredDurationF64Hex: f64(604800), completedStep: u64(10n) } };
+    for (const [mode, method, kind, length] of [[0, 'reset', 'latest-life', 9], [1, 'cumulative-net', 'generation-peak', 12], [2, 'cumulative-gross', 'generation-peak', 12], [3, 'best-life', 'selected-life-peak', 9]] as const) {
+      const bytes = createExperimentPayload(base);
+      /** Set exact schema words without executing or duplicating a fitness formula. */
+      const word = (index: number, value: bigint): void => { bytes.writeBigUInt64LE(value, index * 8); };
+      word(1, BigInt(mode)); word(60, mode === 2 ? 1n : 0n); word(64 + 4, BigInt(mode)); word(64 + 6, mode === 2 ? 1n : 0n); word(64 + 31, BigInt(mode));
+      word(64 + 27, 12n); word(64 + 28, BigInt(length)); word(64 + 29, mode === 0 ? 0n : mode === 3 ? 2n : 1n);
+      if (mode === 1 || mode === 2) { word(59, 0n); word(64 + 7, 0n); word(64 + 26, 0n); }
+      const summary = decodeExperimentSummary(bytes);
+      expect(summary.winner).toMatchObject({ pointMethod: method, displayLengthKind: kind, displayLength: length, latestLength: 9, generationPeakLength: 12 });
+      expect(parseExperimentSummary(summary)).toEqual(summary);
+      expect(parseHallOfFameAssessment(summary.winner)).toEqual(summary.winner);
+      expect(() => parseExperimentSummary({ ...summary, unknown: true })).toThrow();
+      expect(() => parseHallOfFameAssessment({ ...summary.winner, displayLength: 1 })).toThrow();
+      expect(() => parseExperimentSummary({ ...summary, winner: { ...summary.winner, pointMethod: 'unknown' } })).toThrow();
+    }
+    const bytes = createExperimentPayload(base);
+    for (const [index, value] of [[0, 2n], [7, 301n], [11, BigInt('0x' + f64(Number.NaN))], [20, BigInt('0x' + f64(-1))], [37, 1n], [64, 1n], [64 + 3, 0n], [64 + 29, 1n]] as const) {
+      const bad = Buffer.from(bytes); bad.writeBigUInt64LE(value, index * 8);
+      expect(() => parseGenerationExperimentRecord({ version: 1, historyHex: bad.subarray(0, 512).toString('hex'), hallOfFameHex: bad.subarray(512).toString('hex') })).toThrow();
+    }
+    expect(() => parseGenerationExperimentRecord({ version: 1, historyHex: bytes.subarray(0, 511).toString('hex'), hallOfFameHex: bytes.subarray(512).toString('hex') })).toThrow();
+    bytes.writeBigUInt64LE(0xffffffffffffffffn, 63 * 8);
+    expect(decodeExperimentSummary(bytes).ledgerOperations).toBe('ffffffffffffffff');
+  });
+
+  it.each(['before-commit', 'after-commit-before-reply'] as const)(
+    'keeps experiment generation publication atomic across failure %s', async phase => {
+      const fixture = createFixture();
+      const start = createDescriptor(fixture.managedRoot);
+      await fixture.client.commit(start); await fixture.client.close();
+      const writer = new CheckpointPersistenceClient({ databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot, existingOnly: true, checkpointCommitFailpointForTesting: phase });
+      clients.push(writer);
+      const descriptor = createDescriptor(fixture.managedRoot, { operationId: 'b1'.repeat(16), boundaryKind: 'generation', generation: u64(2n), completedStep: u64(10n), transitionEpoch: u64(10n) });
+      const base = { ...createGenerationCommit(1n), completion: { version: 1 as const, reason: 'manual' as const, actualElapsedF64Hex: f64(10 / 60), configuredDurationF64Hex: f64(604800), completedStep: u64(10n) } };
+      const bytes = createExperimentPayload(base);
+      const commit = { ...base, experiment: { version: 1 as const, historyHex: bytes.subarray(0, 512).toString('hex'), hallOfFameHex: bytes.subarray(512).toString('hex') } };
+      await expect(writer.commit(descriptor, commit)).rejects.toThrow(phase === 'before-commit' ? /injected.*failure/ : /worker|exit|stopped/);
+      const database = new Database(fixture.databasePath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT COUNT(*) AS count FROM rust_generation_experiment_v1').get()).toEqual({ count: phase === 'before-commit' ? 0 : 1 });
+        expect(readCurrentPointer(fixture.databasePath, descriptor.runId)?.checkpoint_id).toBe(phase === 'before-commit' ? start.logicalRootSha256 : descriptor.logicalRootSha256);
+      } finally { database.close(); }
+      const retry = phase === 'before-commit' ? writer : new CheckpointPersistenceClient({ databasePath: fixture.databasePath, managedRootPath: fixture.managedRoot, existingOnly: true });
+      if (retry !== writer) clients.push(retry);
+      await retry.commit(descriptor, commit);
+      expect((await retry.readBrowserHistory(descriptor.runId))[0]!.experiment?.winner.version).toBe(2);
+    }
+  );
+
+  it.each(['before-commit', 'after-commit-before-reply'] as const)(
+    'keeps version-three experiment import atomic across failure %s', async phase => {
+      const source = createFixture();
+      await source.client.commit(createDescriptor(source.managedRoot));
+      const descriptor = createDescriptor(source.managedRoot, { operationId: 'ae'.repeat(16), boundaryKind: 'generation', generation: u64(2n), completedStep: u64(10n), transitionEpoch: u64(10n) });
+      const base = { ...createGenerationCommit(1n), completion: { version: 1 as const, reason: 'manual' as const, actualElapsedF64Hex: f64(10 / 60), configuredDurationF64Hex: f64(604800), completedStep: u64(10n) } };
+      const bytes = createExperimentPayload(base);
+      await source.client.commit(descriptor, { ...base, experiment: { version: 1, historyHex: bytes.subarray(0, 512).toString('hex'), hallOfFameHex: bytes.subarray(512).toString('hex') } });
+      const lease = await source.client.acquireCurrentExportLease();
+      const target = createFixture(undefined, undefined, undefined, undefined, phase);
+      copyFileSync(join(source.managedRoot, descriptor.relativeFilename), join(target.managedRoot, descriptor.relativeFilename));
+      copyFileSync(join(source.managedRoot, base.hallOfFameWeights.relativeFilename), join(target.managedRoot, base.hallOfFameWeights.relativeFilename));
+      const operationId = 'af'.repeat(16);
+      const relativeFilename = '.' + operationId + '.import-inventory-v3';
+      const imported = { ...descriptor, operationId };
+      /** Recreate the exact immutable transfer for each retry after a worker failure. */
+      const inventory = (): ManagedImportInventoryDescriptor => {
+        copyFileSync(join(source.managedRoot, lease.inventory.relativeFilename), join(target.managedRoot, relativeFilename));
+        return { ...lease.inventory, relativeFilename };
+      };
+      await expect(target.client.commitImport(imported, inventory())).rejects.toThrow(phase === 'before-commit' ? /injected managed import failure/ : /worker|exit|stopped/);
+      const database = new Database(target.databasePath, { readonly: true });
+      try {
+        expect(database.prepare('SELECT COUNT(*) AS count FROM rust_generation_experiment_v1').get()).toEqual({ count: phase === 'before-commit' ? 0 : 1 });
+        expect(database.prepare('SELECT COUNT(*) AS count FROM rust_generation_completion_v1').get()).toEqual({ count: phase === 'before-commit' ? 0 : 1 });
+      } finally { database.close(); }
+      const retryClient = phase === 'before-commit' ? target.client : new CheckpointPersistenceClient({ databasePath: target.databasePath, managedRootPath: target.managedRoot, existingOnly: true });
+      if (retryClient !== target.client) clients.push(retryClient);
+      await retryClient.commitImport(imported, inventory());
+      expect((await retryClient.readBrowserHistory(descriptor.runId))[0]!.experiment).toMatchObject({ winner: { physicalId: u64(17n), version: 2 } });
+      await source.client.releaseExportLease(lease.operationId);
+    }
+  );
 
   it('replays all generation metadata exactly and rejects changed records', async () => {
     const fixture = createFixture();

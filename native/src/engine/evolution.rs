@@ -6,6 +6,7 @@
 //! and immutable. Stage 6's durable transaction assigns new identities, writes
 //! the exact boundary checkpoint, and only then publishes the prepared result.
 
+use super::evolved_lives::EvolvedAssessment;
 use super::graph::{CompiledGraph, CompiledNode, CompiledNodeType};
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::state::{PopulationGenome, SnakeKind, WorldState};
@@ -437,6 +438,37 @@ impl From<RngError> for EvolutionError {
     }
 }
 
+/// Versioned optional multi-life objective; legacy callers retain their exact formulas.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EvolvedFitnessObjective {
+    /// Absolute extensive terms by default; normalized mode uses configured duration.
+    pub normalize_to_240_seconds: bool,
+    pub configured_duration_seconds: f64,
+    pub penalty_amount: f64,
+    pub penalize_successful_respawns: bool,
+}
+
+impl EvolvedFitnessObjective {
+    /// Validate objective semantics independently of gameplay and elapsed time.
+    pub fn validate(self) -> Result<(), EvolutionError> {
+        validate_range(
+            "generationSeconds",
+            self.configured_duration_seconds,
+            8.0,
+            604_800.0,
+        )?;
+        validate_range("evolvedLifePenalty", self.penalty_amount, 0.0, 10_000.0)
+    }
+}
+
+/// One dense source-slot assessment with explicitly selected life penalty counts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EvolvedFitnessAssessment {
+    pub assessment: EvolvedAssessment,
+    pub deaths: u64,
+    pub successful_respawns: u64,
+}
+
 /// Prepare one complete serial evolution pass without mutating authority.
 pub fn prepare_evolution<'source>(
     world: &'source WorldState,
@@ -446,6 +478,60 @@ pub fn prepare_evolution<'source>(
     source_generation: u64,
     source_best_fitness_ever: f64,
     config: EvolutionConfig,
+) -> Result<PreparedEvolution<'source>, EvolutionError> {
+    prepare_evolution_internal(
+        world,
+        population,
+        graph,
+        evolution_rng,
+        source_generation,
+        source_best_fitness_ever,
+        config,
+        None,
+    )
+}
+
+/// Evolve from explicit slot assessments while preserving physical identities and draw order.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_evolution_with_assessments<'source>(
+    world: &'source WorldState,
+    population: &'source [PopulationGenome],
+    graph: &CompiledGraph,
+    evolution_rng: &'source SerializedRngState,
+    source_generation: u64,
+    source_best_fitness_ever: f64,
+    config: EvolutionConfig,
+    assessments: &[EvolvedFitnessAssessment],
+    objective: EvolvedFitnessObjective,
+) -> Result<PreparedEvolution<'source>, EvolutionError> {
+    objective.validate()?;
+    if assessments.len() != population.len() {
+        return Err(EvolutionError::InvalidConfig {
+            path: "evolved assessment population count",
+        });
+    }
+    prepare_evolution_internal(
+        world,
+        population,
+        graph,
+        evolution_rng,
+        source_generation,
+        source_best_fitness_ever,
+        config,
+        Some((assessments, objective)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_evolution_internal<'source>(
+    world: &'source WorldState,
+    population: &'source [PopulationGenome],
+    graph: &CompiledGraph,
+    evolution_rng: &'source SerializedRngState,
+    source_generation: u64,
+    source_best_fitness_ever: f64,
+    config: EvolutionConfig,
+    evolved: Option<(&[EvolvedFitnessAssessment], EvolvedFitnessObjective)>,
 ) -> Result<PreparedEvolution<'source>, EvolutionError> {
     config.validate()?;
     if source_generation == 0 || !source_best_fitness_ever.is_finite() {
@@ -475,7 +561,11 @@ pub fn prepare_evolution<'source>(
     let snake_indices = map_population_snakes(world, population)?;
     let mut source_fitness = reserve_vec(count, "source fitness")?;
     source_fitness.resize(count, 0.0);
-    calculate_fitness(world, &snake_indices, &mut source_fitness, config)?;
+    if let Some((assessments, objective)) = evolved {
+        calculate_evolved_fitness(assessments, &mut source_fitness, config, objective)?;
+    } else {
+        calculate_fitness(world, &snake_indices, &mut source_fitness, config)?;
+    }
 
     let mut sorted_source_slots = reserve_vec(count, "sorted source slots")?;
     sorted_source_slots.extend(0..count);
@@ -504,7 +594,9 @@ pub fn prepare_evolution<'source>(
         })?,
         snake_id: best_snake.id,
         fitness: source_fitness[best_source_slot],
-        points: best_snake.points,
+        points: evolved.map_or(best_snake.points, |(assessments, _)| {
+            assessments[best_source_slot].assessment.points
+        }),
         length: best_snake.body.len,
     };
 
@@ -692,6 +784,104 @@ fn map_population_snakes(
         });
     }
     Ok(indices)
+}
+
+/// Calculate rewards from dense slot assessments with finite negative totals allowed.
+fn calculate_evolved_fitness(
+    assessments: &[EvolvedFitnessAssessment],
+    output: &mut [f64],
+    config: EvolutionConfig,
+    objective: EvolvedFitnessObjective,
+) -> Result<(), EvolutionError> {
+    let mut maximum_points = 0.0_f64;
+    for (slot, entry) in assessments.iter().enumerate() {
+        for value in [
+            entry.assessment.points,
+            entry.assessment.alive_seconds,
+            entry.assessment.food,
+            entry.assessment.retained_growth,
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(EvolutionError::NonFinite {
+                    context: "evolved assessment",
+                    slot,
+                });
+            }
+        }
+        maximum_points = maximum_points.max(entry.assessment.points);
+    }
+    if maximum_points <= 0.0 {
+        maximum_points = 1.0;
+    }
+    for (slot, entry) in assessments.iter().enumerate() {
+        let fitness = assessment_fitness_breakdown(*entry, maximum_points, config, objective).total;
+        if !fitness.is_finite() {
+            return Err(EvolutionError::NonFinite {
+                context: "evolved fitness",
+                slot,
+            });
+        }
+        output[slot] = fitness;
+    }
+    Ok(())
+}
+
+/// Positive component contributions and the explicit cost, plus the exact
+/// original total arithmetic. Individually scaled components may differ from
+/// scaling their sum by rounding; the total preserves evolution's grouping.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FitnessBreakdown {
+    pub components: [f64; 7],
+    pub total: f64,
+}
+
+/// Shared authoritative formula used by selection and bounded diagnostics.
+pub(crate) fn assessment_fitness_breakdown(
+    entry: EvolvedFitnessAssessment,
+    maximum_points: f64,
+    config: EvolutionConfig,
+    objective: EvolvedFitnessObjective,
+) -> FitnessBreakdown {
+    let assessment = entry.assessment;
+    let maximum_points = if maximum_points <= 0.0 {
+        1.0
+    } else {
+        maximum_points
+    };
+    let normalized = ((1.0 + assessment.points).ln() / (1.0 + maximum_points).ln()).clamp(0.0, 1.0);
+    let top = if (assessment.points - maximum_points).abs() <= TOP_POINTS_TOLERANCE {
+        config.fitness_top_points_bonus
+    } else {
+        0.0
+    };
+    let scale = if objective.normalize_to_240_seconds {
+        240.0 / objective.configured_duration_seconds
+    } else {
+        1.0
+    };
+    let survival = assessment.alive_seconds * config.fitness_survival_per_second;
+    let food = assessment.food * config.fitness_food;
+    let growth = assessment.retained_growth * config.fitness_length_per_segment;
+    let kills = assessment.kills as f64 * config.fitness_kill;
+    let points = normalized * config.fitness_points_normalized;
+    let count = if objective.penalize_successful_respawns {
+        entry.successful_respawns
+    } else {
+        entry.deaths
+    };
+    let penalty = count as f64 * objective.penalty_amount;
+    FitnessBreakdown {
+        components: [
+            survival * scale,
+            food * scale,
+            growth * scale,
+            kills * scale,
+            points,
+            top,
+            penalty,
+        ],
+        total: (survival + food + growth + kills) * scale + points + top - penalty,
+    }
 }
 
 fn calculate_fitness(
@@ -1773,6 +1963,101 @@ mod tests {
         );
         assert_eq!(canonical.summary(), reordered.summary());
         assert_eq!(canonical.hall_of_fame(), reordered.hall_of_fame());
+    }
+
+    #[test]
+    fn explicit_one_life_assessments_preserve_legacy_evolution_and_rng() {
+        let fixture = fixture();
+        let graph = graph();
+        let (world, population, rng) = source_state(&fixture);
+        let configuration = config(&fixture.evolution, &graph, population.len());
+        let legacy =
+            prepare_evolution(&world, &population, &graph, &rng, 1, 0.0, configuration).unwrap();
+        let indices = map_population_snakes(&world, &population).unwrap();
+        let assessments = indices
+            .iter()
+            .map(|&index| {
+                let snake = &world.snakes[index];
+                EvolvedFitnessAssessment {
+                    assessment: EvolvedAssessment {
+                        points: snake.points,
+                        alive_seconds: snake.age_seconds,
+                        food: snake.food,
+                        kills: snake.kills,
+                        retained_growth: snake
+                            .body
+                            .len
+                            .saturating_sub(configuration.snake_start_length)
+                            as f64,
+                        peak_length: snake.body.len,
+                    },
+                    deaths: u64::from(!snake.alive),
+                    successful_respawns: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+        let evolved = prepare_evolution_with_assessments(
+            &world,
+            &population,
+            &graph,
+            &rng,
+            1,
+            0.0,
+            configuration,
+            &assessments,
+            EvolvedFitnessObjective {
+                normalize_to_240_seconds: false,
+                configured_duration_seconds: 240.0,
+                penalty_amount: 0.0,
+                penalize_successful_respawns: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(evolved.source_fitness(), legacy.source_fitness());
+        assert_eq!(evolved.next_population(), legacy.next_population());
+        assert_eq!(evolved.next_evolution_rng(), legacy.next_evolution_rng());
+        assert_eq!(evolved.hall_of_fame(), legacy.hall_of_fame());
+    }
+
+    #[test]
+    fn evolved_objective_scales_only_extensive_terms_and_allows_negative_penalties() {
+        let config = EvolutionConfig::typescript_defaults();
+        let entries = [EvolvedFitnessAssessment {
+            assessment: EvolvedAssessment {
+                points: 10.0,
+                alive_seconds: 3600.0,
+                food: 1.0,
+                kills: 1,
+                retained_growth: 2.0,
+                peak_length: 20,
+            },
+            deaths: 2,
+            successful_respawns: 1,
+        }];
+        let mut fitness = [0.0];
+        let mut objective = EvolvedFitnessObjective {
+            normalize_to_240_seconds: true,
+            configured_duration_seconds: 3600.0,
+            penalty_amount: 1000.0,
+            penalize_successful_respawns: false,
+        };
+        calculate_evolved_fitness(&entries, &mut fitness, config, objective).unwrap();
+        let extensive = 3600.0 * 0.70 + 80.0 + 200.0 + 400.0;
+        assert_eq!(
+            fitness[0],
+            extensive * (240.0 / 3600.0) + 42.0 + 600.0 - 2000.0
+        );
+        assert!(fitness[0] < 0.0);
+        objective.penalize_successful_respawns = true;
+        let deaths = fitness[0];
+        calculate_evolved_fitness(&entries, &mut fitness, config, objective).unwrap();
+        assert!((fitness[0] - (deaths + 1000.0)).abs() < 1.0e-10);
+        for duration in [240.0, 1800.0, 3600.0, 21600.0, 604800.0] {
+            objective.configured_duration_seconds = duration;
+            objective.validate().unwrap();
+            calculate_evolved_fitness(&entries, &mut fitness, config, objective).unwrap();
+            assert!(fitness[0].is_finite());
+        }
     }
 
     #[test]

@@ -1,3 +1,4 @@
+import { parseExperimentSummary, parseHallOfFameAssessment } from './experimentRecords.ts';
 import { parseRecoveryScanCursor, parseRecoveryScanResult, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { Worker } from 'node:worker_threads';
 import { randomBytes } from 'node:crypto';
@@ -1303,8 +1304,9 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       }
       const entry = value as Record<string, unknown>;
       requireExactKeys(entry, [
-        'gen', 'best', 'avg', 'min', 'speciesCount', 'topSpeciesSize', 'avgWeight', 'weightVariance'
+        'gen', 'best', 'avg', 'min', 'speciesCount', 'topSpeciesSize', 'avgWeight', 'weightVariance', ...(Object.hasOwn(entry, 'experiment') ? ['experiment'] : [])
       ]);
+      if (Object.hasOwn(entry, 'experiment')) parseExperimentSummary(entry['experiment']);
       if (!Number.isSafeInteger(entry['gen']) || (entry['gen'] as number) < 1 ||
           !Number.isSafeInteger(entry['speciesCount']) || (entry['speciesCount'] as number) < 0 ||
           !Number.isSafeInteger(entry['topSpeciesSize']) || (entry['topSpeciesSize'] as number) < 0 ||
@@ -1333,7 +1335,11 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
         throw new TypeError('invalid browser Hall-of-Fame entry');
       }
       const entry = value as Record<string, unknown>;
-      requireExactKeys(entry, ['entryId', 'gen', 'fitness', 'points', 'length', 'pinned']);
+      requireExactKeys(entry, ['entryId', 'gen', 'fitness', 'points', 'length', 'pinned', ...(Object.hasOwn(entry, 'assessment') ? ['assessment'] : [])]);
+      if (Object.hasOwn(entry, 'assessment')) {
+        const assessment = parseHallOfFameAssessment(entry['assessment']);
+        if (assessment.assessment !== entry['points'] || assessment.displayLength !== entry['length']) throw new TypeError('inconsistent HoF display semantics');
+      }
       if (!isU64Hex(entry['entryId']) || !Number.isSafeInteger(entry['gen']) ||
           (entry['gen'] as number) < 1 || BigInt(entry['gen'] as number) !== BigInt(`0x${entry['entryId']}`) ||
           typeof entry['fitness'] !== 'number' || !Number.isFinite(entry['fitness']) ||

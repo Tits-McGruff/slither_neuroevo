@@ -44,6 +44,12 @@ pub mod effects;
 pub mod error;
 /// Serial TypeScript-compatible fitness, selection, crossover, and mutation.
 pub mod evolution;
+/// Population-slot physical lives and ordered economic accounting.
+pub mod evolved_lives;
+/// Private bounded in-place population replacement and publication witnesses.
+mod evolved_replacement;
+/// Bounded versioned experiment-history and assessment records.
+pub mod experiment_records;
 /// Self-contained save archive assembly from one leased managed checkpoint.
 pub mod export_archive;
 /// One-shot archive completion/validation failures confined to the test addon.

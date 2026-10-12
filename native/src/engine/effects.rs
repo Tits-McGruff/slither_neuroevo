@@ -2,12 +2,16 @@
 //!
 //! Movement and collision deliberately stage boost-tail requests and deaths
 //! without touching authoritative RNG, allocators, or pellets. This phase
-//! preflights their complete size and identity requirements, reserves one
-//! contiguous pellet-ID range, then realizes requests in stable snake order
+//! preflights attempted work and retained storage, reserves one contiguous
+//! retained pellet-ID range, then realizes every attempt in stable snake order
 //! against the owning gameplay RNG stream. Its output is still scratch: only
 //! the later complete physics transaction may publish it.
 
 use super::collision::PreparedCollision;
+use super::evolved_lives::{
+    EvolvedCorpseMode, EvolvedExperimentConfig, EvolvedGenerationState, PelletOverflowMode,
+};
+
 use super::fixed_step::{copy_rng_bundle_reusing, FixedStepPrefixError, RngCopyScratch};
 use super::food::FoodConfig;
 use super::movement::MovementConfig;
@@ -29,6 +33,31 @@ const MINIMUM_BIG_VALUE: f64 = 0.05;
 const MINIMUM_SMALL_VALUE: f64 = 0.02;
 const MINIMUM_GROWTH_PER_FOOD: f64 = 1.0e-6;
 const MINIMUM_DEATH_PELLET_LIMIT: usize = 20;
+
+/// Borrowed life policy for physical effects; contains no historical-life storage.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EffectLifecyclePolicy<'a> {
+    pub experiment: EvolvedExperimentConfig,
+    pub lives: &'a EvolvedGenerationState,
+}
+
+impl EffectLifecyclePolicy<'_> {
+    pub(crate) fn corpse_mode(self, snake: &SnakeState) -> Result<EvolvedCorpseMode, EffectError> {
+        if snake.kind != SnakeKind::Evolved || !self.experiment.enabled {
+            return Ok(EvolvedCorpseMode::Normal);
+        }
+        let owner = snake
+            .population_slot
+            .and_then(|slot| self.lives.slots.get(slot as usize))
+            .filter(|owner| owner.physical_id == snake.id)
+            .ok_or(EffectError::ShapeMismatch)?;
+        Ok(if self.experiment.replaceable(owner.lives_started) {
+            self.experiment.corpse_mode
+        } else {
+            EvolvedCorpseMode::Normal
+        })
+    }
+}
 
 /// Death-to-pellet settings projected from one admitted configuration revision.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -104,8 +133,14 @@ pub struct BaselineDeathEvent {
 }
 
 /// Retained sizes and capacities for one prepared effect phase.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EffectDiagnostics {
+    /// All attempted new emissions, including storage discards.
+    pub attempted_pellets: usize,
+    pub attempted_value: f64,
+    pub emitted_value: f64,
+    pub discarded_pellets: usize,
+    pub discarded_value: f64,
     /// Pellets surviving food claims.
     pub retained_pellets: usize,
     /// Realized boost-trail pellets.
@@ -130,6 +165,66 @@ pub struct EffectDiagnostics {
     pub baseline_rng_capacity: usize,
 }
 
+/// Constant-sized attempted/emitted/discarded totals across a complete fixed step.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EffectEmissionTotals {
+    pub attempted_count: usize,
+    pub attempted_value: f64,
+    pub emitted_count: usize,
+    pub emitted_value: f64,
+    pub discarded_count: usize,
+    pub discarded_value: f64,
+}
+
+impl EffectEmissionTotals {
+    pub(crate) fn accumulate(&mut self, phase: EffectDiagnostics) -> Result<(), EffectError> {
+        self.attempted_count = self
+            .attempted_count
+            .checked_add(phase.attempted_pellets)
+            .ok_or(EffectError::ArithmeticOverflow {
+                context: "step attempted emissions",
+            })?;
+        let emitted = phase
+            .attempted_pellets
+            .checked_sub(phase.discarded_pellets)
+            .ok_or(EffectError::ShapeMismatch)?;
+        self.emitted_count =
+            self.emitted_count
+                .checked_add(emitted)
+                .ok_or(EffectError::ArithmeticOverflow {
+                    context: "step retained emissions",
+                })?;
+        self.discarded_count = self
+            .discarded_count
+            .checked_add(phase.discarded_pellets)
+            .ok_or(EffectError::ArithmeticOverflow {
+                context: "step discarded emissions",
+            })?;
+        self.attempted_value += phase.attempted_value;
+        self.emitted_value += phase.emitted_value;
+        self.discarded_value += phase.discarded_value;
+        for (value, field) in [
+            (self.attempted_value, "step attempted emission value"),
+            (self.emitted_value, "step retained emission value"),
+            (self.discarded_value, "step discarded emission value"),
+        ] {
+            validate_generated(value, field)?;
+        }
+        Ok(())
+    }
+}
+
+/// Actual corpse emission attributed to one physical owner before metadata disappears.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CorpseEmission {
+    pub snake_index: usize,
+    pub snake_id: u64,
+    pub count: usize,
+    pub value: f64,
+    pub discarded_count: usize,
+    pub discarded_value: f64,
+}
+
 /// Immutable view of one completely realized, not-yet-authoritative effect phase.
 #[derive(Clone, Copy, Debug)]
 pub struct PreparedEffects<'effects, 'collision, 'food, 'world> {
@@ -138,6 +233,7 @@ pub struct PreparedEffects<'effects, 'collision, 'food, 'world> {
     rng: &'effects RngStateBundle,
     allocators: &'effects AllocatorState,
     baseline_deaths: &'effects [BaselineDeathEvent],
+    corpse_emissions: &'effects [CorpseEmission],
     diagnostics: EffectDiagnostics,
 }
 
@@ -172,6 +268,12 @@ impl<'effects, 'collision, 'food, 'world> PreparedEffects<'effects, 'collision, 
         self.baseline_deaths
     }
 
+    /// Exact emitted corpse totals, independent of expected recycling budgets.
+    #[must_use]
+    pub const fn corpse_emissions(self) -> &'effects [CorpseEmission] {
+        self.corpse_emissions
+    }
+
     /// Current work sizes and retained capacities.
     #[must_use]
     pub const fn diagnostics(self) -> EffectDiagnostics {
@@ -179,11 +281,22 @@ impl<'effects, 'collision, 'food, 'world> PreparedEffects<'effects, 'collision, 
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct DeathPlan {
     snake_index: usize,
     big_count: usize,
     small_count: usize,
+    value_budget: Option<f64>,
+}
+
+/// Actual retained/discarded realization, including every attempted random draw.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct CorpseRealization {
+    big: usize,
+    small: usize,
+    emitted_value: f64,
+    discarded_count: usize,
+    discarded_value: f64,
 }
 
 #[derive(Debug)]
@@ -310,6 +423,8 @@ pub(crate) struct PreparedSingleCorpse {
     pub(crate) pellets: Vec<PelletState>,
     pub(crate) rng: RngStateBundle,
     pub(crate) allocators: AllocatorState,
+    pub(crate) discarded_count: usize,
+    pub(crate) discarded_value: f64,
 }
 
 /// Reuse the normal death formula, identity allocator, and owning RNG stream for one corpse.
@@ -325,6 +440,36 @@ pub(crate) fn prepare_single_corpse(
     death_config: DeathDropConfig,
     maximum_pellets: usize,
 ) -> Result<PreparedSingleCorpse, EffectError> {
+    prepare_single_corpse_with_policy(
+        source_rng,
+        source_allocators,
+        snake,
+        body,
+        existing_pellets,
+        movement_config,
+        food_config,
+        death_config,
+        maximum_pellets,
+        EvolvedCorpseMode::Normal,
+        PelletOverflowMode::Fail,
+    )
+}
+
+/// Cold-path counterpart of the ordinary retained-only emission transaction.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_single_corpse_with_policy(
+    source_rng: &RngStateBundle,
+    source_allocators: &AllocatorState,
+    snake: &SnakeState,
+    body: &[WorldPoint],
+    existing_pellets: usize,
+    movement_config: MovementConfig,
+    food_config: FoodConfig,
+    death_config: DeathDropConfig,
+    maximum_pellets: usize,
+    corpse_mode: EvolvedCorpseMode,
+    overflow: PelletOverflowMode,
+) -> Result<PreparedSingleCorpse, EffectError> {
     movement_config
         .validate()
         .map_err(|_| EffectError::InvalidConfig { field: "movement" })?;
@@ -334,16 +479,31 @@ pub(crate) fn prepare_single_corpse(
             field: "growth_per_food",
         });
     }
+    if existing_pellets > maximum_pellets {
+        return Err(EffectError::PelletCapacityExceeded {
+            required: existing_pellets,
+            maximum: maximum_pellets,
+        });
+    }
     if body.is_empty() {
         return Ok(PreparedSingleCorpse {
             pellets: Vec::new(),
             rng: source_rng.clone(),
             allocators: source_allocators.clone(),
+            discarded_count: 0,
+            discarded_value: 0.0,
         });
     }
 
-    let (big_count, small_count) =
-        death_pellet_counts(body.len(), movement_config, food_config, death_config)?;
+    let plan = death_plan(
+        0,
+        body.len(),
+        movement_config,
+        food_config,
+        death_config,
+        corpse_mode,
+    )?;
+    let (big_count, small_count) = (plan.big_count, plan.small_count);
     let generated_count =
         big_count
             .checked_add(small_count)
@@ -356,7 +516,7 @@ pub(crate) fn prepare_single_corpse(
             .ok_or(EffectError::ArithmeticOverflow {
                 context: "single corpse world pellet count",
             })?;
-    if total_pellets > maximum_pellets {
+    if total_pellets > maximum_pellets && overflow == PelletOverflowMode::Fail {
         return Err(EffectError::PelletCapacityExceeded {
             required: total_pellets,
             maximum: maximum_pellets,
@@ -364,41 +524,38 @@ pub(crate) fn prepare_single_corpse(
     }
 
     let mut pellets = Vec::new();
-    reserve_for(&mut pellets, generated_count, "single corpse pellets")?;
+    let retained_count = generated_count.min(maximum_pellets - existing_pellets);
+    reserve_for(&mut pellets, retained_count, "single corpse pellets")?;
     let mut allocators = source_allocators.clone();
     let generated_u64 =
-        u64::try_from(generated_count).map_err(|_| EffectError::ArithmeticOverflow {
+        u64::try_from(retained_count).map_err(|_| EffectError::ArithmeticOverflow {
             context: "single corpse pellet ID count",
         })?;
     let reservation = allocators
         .reserve_entity_ids(generated_u64)
-        .map_err(EffectError::Allocator)?
-        .ok_or(EffectError::ShapeMismatch)?;
+        .map_err(EffectError::Allocator)?;
     let mut baseline_rngs = Vec::new();
     let mut runtime = RuntimeRngBundle::from_serialized(source_rng, &mut baseline_rngs)?;
     let (stream, _) = runtime.stream_for(snake)?;
-    let mut next_id = reservation.first;
+    let mut next_id = reservation.map_or(source_allocators.next_entity_id, |range| range.first);
     let realized = realize_corpse_pellets(
         &mut pellets,
         &mut next_id,
         snake,
         body,
-        DeathPlan {
-            snake_index: 0,
-            big_count,
-            small_count,
-        },
+        plan,
         death_config,
         (movement_config.food_value * death_config.big_pellet_value_factor).max(MINIMUM_BIG_VALUE),
         (movement_config.food_value * death_config.small_pellet_value_factor)
             .max(MINIMUM_SMALL_VALUE),
         stream,
+        retained_count,
     )?;
-    if realized != (big_count, small_count)
+    if realized.big + realized.small != retained_count
         || next_id
-            != reservation
-                .last
-                .checked_add(1)
+            != source_allocators
+                .next_entity_id
+                .checked_add(generated_u64)
                 .ok_or(EffectError::ArithmeticOverflow {
                     context: "single corpse reserved pellet range",
                 })?
@@ -409,6 +566,8 @@ pub(crate) fn prepare_single_corpse(
         pellets,
         rng: runtime.export_owned(source_rng)?,
         allocators,
+        discarded_count: realized.discarded_count,
+        discarded_value: realized.discarded_value,
     })
 }
 
@@ -417,12 +576,18 @@ pub(crate) fn prepare_single_corpse(
 pub struct EffectWorkspace {
     snake_order: Vec<usize>,
     death_plans: Vec<DeathPlan>,
+    corpse_emissions: Vec<CorpseEmission>,
     pellets: Vec<PelletState>,
     baseline_deaths: Vec<BaselineDeathEvent>,
     baseline_rngs: Vec<StatefulRng>,
     staged_rng: Option<RngStateBundle>,
     rng_copy_scratch: RngCopyScratch,
     staged_allocators: Option<AllocatorState>,
+    attempted_pellets: usize,
+    attempted_value: f64,
+    emitted_value: f64,
+    discarded_pellets: usize,
+    discarded_value: f64,
     boost_pellets: usize,
     corpse_big_pellets: usize,
     corpse_small_pellets: usize,
@@ -448,7 +613,43 @@ impl EffectWorkspace {
         death_config: DeathDropConfig,
         maximum_pellets: usize,
     ) -> Result<PreparedEffects<'effects, 'collision, 'food, 'world>, EffectError> {
+        self.prepare_with_lifecycle(
+            collision,
+            rng,
+            allocators,
+            movement_config,
+            food_config,
+            death_config,
+            maximum_pellets,
+            None,
+        )
+    }
+
+    /// Realize all attempts in canonical order, allocating identities only for retained pellets.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn prepare_with_lifecycle<'effects, 'collision, 'food, 'world>(
+        &'effects mut self,
+        collision: PreparedCollision<'collision, 'food, 'world>,
+        rng: &RngStateBundle,
+        allocators: &AllocatorState,
+        movement_config: MovementConfig,
+        food_config: FoodConfig,
+        death_config: DeathDropConfig,
+        maximum_pellets: usize,
+        lifecycle: Option<EffectLifecyclePolicy<'_>>,
+    ) -> Result<PreparedEffects<'effects, 'collision, 'food, 'world>, EffectError> {
         self.clear();
+        if let Some(policy) = lifecycle {
+            policy
+                .experiment
+                .validate()
+                .map_err(|_| EffectError::InvalidConfig {
+                    field: "life policy",
+                })?;
+        }
+        let overflow = lifecycle.map_or(PelletOverflowMode::Fail, |policy| {
+            policy.experiment.pellet_overflow
+        });
         movement_config
             .validate()
             .map_err(|_| EffectError::InvalidConfig { field: "movement" })?;
@@ -515,19 +716,26 @@ impl EffectWorkspace {
             if body.is_empty() {
                 continue;
             }
-            let (big_count, small_count) =
-                death_pellet_counts(body.len(), movement_config, food_config, death_config)?;
+            let mode = match lifecycle {
+                Some(policy) => policy.corpse_mode(snake)?,
+                None => EvolvedCorpseMode::Normal,
+            };
+            let plan = death_plan(
+                death.victim_index,
+                body.len(),
+                movement_config,
+                food_config,
+                death_config,
+                mode,
+            )?;
+            let (big_count, small_count) = (plan.big_count, plan.small_count);
             generated_count = generated_count
                 .checked_add(big_count)
                 .and_then(|value| value.checked_add(small_count))
                 .ok_or(EffectError::ArithmeticOverflow {
                     context: "generated pellet count",
                 })?;
-            self.death_plans.push(DeathPlan {
-                snake_index: death.victim_index,
-                big_count,
-                small_count,
-            });
+            self.death_plans.push(plan);
         }
         self.baseline_deaths
             .sort_unstable_by_key(|event| event.snake_id);
@@ -541,17 +749,21 @@ impl EffectWorkspace {
             .ok_or(EffectError::ArithmeticOverflow {
                 context: "post-effect pellet count",
             })?;
-        if total_pellets > maximum_pellets {
+        if food.remaining_pellets().len() > maximum_pellets
+            || (total_pellets > maximum_pellets && overflow == PelletOverflowMode::Fail)
+        {
             return Err(EffectError::PelletCapacityExceeded {
                 required: total_pellets,
                 maximum: maximum_pellets,
             });
         }
-        reserve_for(&mut self.pellets, total_pellets, "effect pellets")?;
+        let retained_count = generated_count.min(maximum_pellets - food.remaining_pellets().len());
+        let retained_total = food.remaining_pellets().len() + retained_count;
+        reserve_for(&mut self.pellets, retained_total, "effect pellets")?;
 
         let mut staged_allocators = allocators.clone();
         let generated_u64 =
-            u64::try_from(generated_count).map_err(|_| EffectError::ArithmeticOverflow {
+            u64::try_from(retained_count).map_err(|_| EffectError::ArithmeticOverflow {
                 context: "generated pellet ID count",
             })?;
         let reservation = staged_allocators
@@ -570,7 +782,7 @@ impl EffectWorkspace {
         }
 
         let mut runtime = RuntimeRngBundle::from_serialized(rng, &mut self.baseline_rngs)?;
-        let mut next_id = first_generated_id.ok_or(EffectError::ShapeMismatch)?;
+        let mut next_id = first_generated_id.unwrap_or(allocators.next_entity_id);
 
         for request in food.boost_drops() {
             let snake = find_snake(food.snakes(), &self.snake_order, request.owner_id)?;
@@ -580,16 +792,24 @@ impl EffectWorkspace {
             validate_generated(x, "boost pellet x")?;
             validate_generated(y, "boost pellet y")?;
             validate_positive(request.value, "boost pellet value")?;
-            self.pellets.push(PelletState {
-                id: next_id,
-                position: WorldPoint { x, y },
-                value: request.value,
-                kind: BOOST_PELLET_KIND,
-                color: snake.frame_v1_id,
-                owner: Some(snake.id),
-            });
-            next_id = increment_reserved_id(next_id)?;
-            self.boost_pellets += 1;
+            if self.pellets.len() < maximum_pellets {
+                self.pellets.push(PelletState {
+                    id: next_id,
+                    position: WorldPoint { x, y },
+                    value: request.value,
+                    kind: BOOST_PELLET_KIND,
+                    color: snake.frame_v1_id,
+                    owner: Some(snake.id),
+                });
+                next_id = increment_reserved_id(next_id)?;
+                self.boost_pellets += 1;
+                self.emitted_value += request.value;
+            } else {
+                self.discarded_pellets += 1;
+                self.discarded_value += request.value;
+            }
+            self.attempted_pellets += 1;
+            self.attempted_value += request.value;
         }
 
         let big_base = (movement_config.food_value * death_config.big_pellet_value_factor)
@@ -598,7 +818,13 @@ impl EffectWorkspace {
             .max(MINIMUM_SMALL_VALUE);
         validate_positive(big_base, "large corpse pellet base value")?;
         validate_positive(small_base, "small corpse pellet base value")?;
+        reserve_for(
+            &mut self.corpse_emissions,
+            self.death_plans.len(),
+            "corpse emission totals",
+        )?;
         for plan in &self.death_plans {
+            let pellet_start = self.pellets.len();
             let snake = &food.snakes()[plan.snake_index];
             let body = food
                 .body_for(snake)
@@ -614,20 +840,37 @@ impl EffectWorkspace {
                 big_base,
                 small_base,
                 stream,
+                maximum_pellets,
             )?;
-            self.corpse_big_pellets += realized.0;
-            self.corpse_small_pellets += realized.1;
+            self.corpse_emissions.push(CorpseEmission {
+                snake_index: plan.snake_index,
+                snake_id: snake.id,
+                count: self.pellets.len() - pellet_start,
+                value: realized.emitted_value,
+                discarded_count: realized.discarded_count,
+                discarded_value: realized.discarded_value,
+            });
+            self.emitted_value += realized.emitted_value;
+            self.corpse_big_pellets += realized.big;
+            self.corpse_small_pellets += realized.small;
+            self.discarded_pellets += realized.discarded_count;
+            self.discarded_value += realized.discarded_value;
+            self.attempted_pellets += plan.big_count + plan.small_count;
+            self.attempted_value += realized.emitted_value + realized.discarded_value;
         }
-        debug_assert_eq!(self.pellets.len(), total_pellets);
-        let expected_next_id = last_generated_id
-            .ok_or(EffectError::ShapeMismatch)?
-            .checked_add(1)
-            .ok_or(EffectError::ArithmeticOverflow {
+        debug_assert_eq!(self.pellets.len(), retained_total);
+        let expected_next_id = match last_generated_id {
+            Some(last) => last.checked_add(1).ok_or(EffectError::ArithmeticOverflow {
                 context: "reserved pellet range end",
-            })?;
+            })?,
+            None => allocators.next_entity_id,
+        };
         if next_id != expected_next_id {
             return Err(EffectError::ShapeMismatch);
         }
+        validate_generated(self.emitted_value, "emitted effect value")?;
+        validate_generated(self.attempted_value, "attempted emission value")?;
+        validate_generated(self.discarded_value, "discarded emission value")?;
         runtime.export_into(rng, &mut self.staged_rng, &mut self.rng_copy_scratch)?;
         self.baseline_rngs = runtime.baselines;
         self.staged_allocators = Some(staged_allocators);
@@ -650,6 +893,7 @@ impl EffectWorkspace {
             rng,
             allocators,
             baseline_deaths: &self.baseline_deaths,
+            corpse_emissions: &self.corpse_emissions,
             diagnostics: self.diagnostics(),
         })
     }
@@ -664,6 +908,11 @@ impl EffectWorkspace {
             .saturating_sub(self.corpse_big_pellets)
             .saturating_sub(self.corpse_small_pellets);
         EffectDiagnostics {
+            attempted_pellets: self.attempted_pellets,
+            attempted_value: self.attempted_value,
+            emitted_value: self.emitted_value,
+            discarded_pellets: self.discarded_pellets,
+            discarded_value: self.discarded_value,
             retained_pellets,
             boost_pellets: self.boost_pellets,
             corpse_big_pellets: self.corpse_big_pellets,
@@ -688,12 +937,91 @@ impl EffectWorkspace {
         self.ready = false;
         self.snake_order.clear();
         self.death_plans.clear();
+        self.corpse_emissions.clear();
         self.pellets.clear();
         self.baseline_deaths.clear();
         self.baseline_rngs.clear();
+        self.attempted_pellets = 0;
+        self.attempted_value = 0.0;
+        self.emitted_value = 0.0;
+        self.discarded_pellets = 0;
+        self.discarded_value = 0.0;
         self.boost_pellets = 0;
         self.corpse_big_pellets = 0;
         self.corpse_small_pellets = 0;
+    }
+}
+
+/// Choose the frozen formula or replacement-mass compensation before drawing.
+fn death_plan(
+    snake_index: usize,
+    body_length: usize,
+    movement: MovementConfig,
+    food: FoodConfig,
+    death: DeathDropConfig,
+    mode: EvolvedCorpseMode,
+) -> Result<DeathPlan, EffectError> {
+    let (big_count, small_count, value_budget) = match mode {
+        EvolvedCorpseMode::Normal => {
+            let (big, small) = death_pellet_counts(body_length, movement, food, death)?;
+            (big, small, None)
+        }
+        EvolvedCorpseMode::None => (0, 0, None),
+        EvolvedCorpseMode::SubtractReplacementMass => {
+            let denominator = movement
+                .snake_max_len
+                .saturating_sub(movement.snake_start_len)
+                .max(1) as f64;
+            let normalized = ((body_length as f64 - movement.snake_start_len as f64) / denominator)
+                .clamp(0.0, 1.0);
+            let fraction = (death.drop_fraction_small
+                - (death.drop_fraction_small - death.drop_fraction_large)
+                    * normalized.powf(death.drop_fraction_power))
+            .clamp(0.0, 1.0);
+            let budget = (body_length as f64 * fraction - movement.snake_start_len as f64).max(0.0)
+                / food.growth_per_food.max(MINIMUM_GROWTH_PER_FOOD);
+            validate_generated(budget, "compensated corpse budget")?;
+            let big_base =
+                (movement.food_value * death.big_pellet_value_factor).max(MINIMUM_BIG_VALUE);
+            let small_base =
+                (movement.food_value * death.small_pellet_value_factor).max(MINIMUM_SMALL_VALUE);
+            let big_budget = budget * death.big_share.clamp(0.0, 1.0);
+            let mut big = floor_to_usize(big_budget / big_base, "compensated big count")?;
+            let mut small = floor_to_usize(
+                (budget - big_budget).max(0.0) / small_base,
+                "compensated small count",
+            )?;
+            let total = big
+                .checked_add(small)
+                .ok_or(EffectError::ArithmeticOverflow {
+                    context: "compensated corpse count",
+                })?;
+            let limit = death.maximum_pellets.max(MINIMUM_DEATH_PELLET_LIMIT);
+            if total > limit {
+                let scale = limit as f64 / total as f64;
+                big = floor_to_usize(big as f64 * scale, "compensated scaled big count")?;
+                small = floor_to_usize(small as f64 * scale, "compensated scaled small count")?;
+            }
+            (big, small, Some(budget))
+        }
+    };
+    Ok(DeathPlan {
+        snake_index,
+        big_count,
+        small_count,
+        value_budget,
+    })
+}
+
+/// Apply the compensation ceiling without changing frozen normal arithmetic.
+fn budgeted_value(raw: f64, scale: f64, remaining: &mut Option<f64>) -> f64 {
+    match remaining {
+        Some(budget) => {
+            let value = (raw * scale).min(*budget);
+            *budget = (*budget - value).max(0.0);
+            value
+        }
+        None => raw,
     }
 }
 
@@ -796,7 +1124,19 @@ fn realize_corpse_pellets(
     big_base: f64,
     small_base: f64,
     rng: &mut StatefulRng,
-) -> Result<(usize, usize), EffectError> {
+    maximum_pellets: usize,
+) -> Result<CorpseRealization, EffectError> {
+    let mut realized = CorpseRealization::default();
+    let upper_value =
+        plan.big_count as f64 * big_base * 1.15 + plan.small_count as f64 * small_base * 1.20;
+    let scale = plan.value_budget.map_or(1.0, |budget| {
+        if upper_value > budget {
+            budget / upper_value
+        } else {
+            1.0
+        }
+    });
+    let mut remaining_budget = plan.value_budget;
     for index in 0..plan.big_count {
         let body_index = if plan.big_count <= 1 {
             0
@@ -809,18 +1149,29 @@ fn realize_corpse_pellets(
                 })?
         };
         let point = body[body_index];
-        let value = big_base * (0.85 + rng.next_f64() * 0.30);
+        let raw_value = big_base * (0.85 + rng.next_f64() * 0.30);
+        let value = budgeted_value(raw_value, scale, &mut remaining_budget);
         let x = jittered(rng, point.x, config.jitter);
         let y = jittered(rng, point.y, config.jitter);
-        push_corpse_pellet(
-            pellets,
-            *next_id,
-            snake,
-            WorldPoint { x, y },
-            value,
-            CORPSE_BIG_PELLET_KIND,
-        )?;
-        *next_id = increment_reserved_id(*next_id)?;
+        validate_generated(x, "corpse pellet x")?;
+        validate_generated(y, "corpse pellet y")?;
+        validate_positive(value, "corpse pellet value")?;
+        if pellets.len() < maximum_pellets {
+            push_corpse_pellet(
+                pellets,
+                *next_id,
+                snake,
+                WorldPoint { x, y },
+                value,
+                CORPSE_BIG_PELLET_KIND,
+            )?;
+            *next_id = increment_reserved_id(*next_id)?;
+            realized.big += 1;
+            realized.emitted_value += value;
+        } else {
+            realized.discarded_count += 1;
+            realized.discarded_value += value;
+        }
     }
     for index in 0..plan.small_count {
         let body_index = index
@@ -830,20 +1181,33 @@ fn realize_corpse_pellets(
                 context: "small corpse body index",
             })?;
         let point = body[body_index];
-        let value = small_base * (0.80 + rng.next_f64() * 0.40);
+        let raw_value = small_base * (0.80 + rng.next_f64() * 0.40);
+        let value = budgeted_value(raw_value, scale, &mut remaining_budget);
         let x = jittered(rng, point.x, config.cluster_jitter);
         let y = jittered(rng, point.y, config.cluster_jitter);
-        push_corpse_pellet(
-            pellets,
-            *next_id,
-            snake,
-            WorldPoint { x, y },
-            value,
-            CORPSE_SMALL_PELLET_KIND,
-        )?;
-        *next_id = increment_reserved_id(*next_id)?;
+        validate_generated(x, "corpse pellet x")?;
+        validate_generated(y, "corpse pellet y")?;
+        validate_positive(value, "corpse pellet value")?;
+        if pellets.len() < maximum_pellets {
+            push_corpse_pellet(
+                pellets,
+                *next_id,
+                snake,
+                WorldPoint { x, y },
+                value,
+                CORPSE_SMALL_PELLET_KIND,
+            )?;
+            *next_id = increment_reserved_id(*next_id)?;
+            realized.small += 1;
+            realized.emitted_value += value;
+        } else {
+            realized.discarded_count += 1;
+            realized.discarded_value += value;
+        }
     }
-    Ok((plan.big_count, plan.small_count))
+    validate_generated(realized.emitted_value, "emitted corpse value")?;
+    validate_generated(realized.discarded_value, "discarded corpse value")?;
+    Ok(realized)
 }
 
 fn increment_reserved_id(current: u64) -> Result<u64, EffectError> {
@@ -1106,8 +1470,143 @@ mod tests {
         }
     }
 
+    #[test]
+    fn discard_cold_corpse_consumes_all_draws_and_allocates_only_retained_ids() {
+        let snake = snake(
+            7,
+            SnakeKind::Evolved,
+            WorldPoint { x: 0.0, y: 0.0 },
+            0.0,
+            12,
+        );
+        let body = line_body(snake.position, 0.0, 12);
+        let source_rng = rng_bundle();
+        let source_ids = allocators();
+        let run = |existing, maximum, overflow, ids: &AllocatorState| {
+            prepare_single_corpse_with_policy(
+                &source_rng,
+                ids,
+                &snake,
+                &body,
+                existing,
+                MovementConfig::typescript_defaults(),
+                FoodConfig::typescript_defaults(),
+                DeathDropConfig::typescript_defaults(),
+                maximum,
+                EvolvedCorpseMode::Normal,
+                overflow,
+            )
+        };
+        let full = run(99, 1000, PelletOverflowMode::Fail, &source_ids).unwrap();
+        let partial = run(99, 100, PelletOverflowMode::DiscardNewExcess, &source_ids).unwrap();
+        assert_eq!(partial.pellets, full.pellets[..1]);
+        assert_eq!(partial.rng, full.rng);
+        assert_eq!(
+            partial.allocators.next_entity_id,
+            source_ids.next_entity_id + 1
+        );
+        assert_eq!(partial.discarded_count, full.pellets.len() - 1);
+        assert_eq!(
+            partial.discarded_value,
+            full.pellets[1..]
+                .iter()
+                .map(|pellet| pellet.value)
+                .sum::<f64>()
+        );
+        let mut exhausted = source_ids.clone();
+        exhausted.next_entity_id = EXTERNAL_ENTITY_ID_START;
+        let discarded = run(100, 100, PelletOverflowMode::DiscardNewExcess, &exhausted).unwrap();
+        assert!(discarded.pellets.is_empty());
+        assert_eq!(discarded.allocators, exhausted);
+        assert_eq!(discarded.rng, full.rng);
+        assert_eq!(discarded.discarded_count, full.pellets.len());
+        assert_eq!(
+            discarded.discarded_value,
+            full.pellets.iter().map(|pellet| pellet.value).sum::<f64>()
+        );
+        assert!(matches!(
+            run(99, 100, PelletOverflowMode::Fail, &source_ids),
+            Err(EffectError::PelletCapacityExceeded { .. })
+        ));
+        assert!(matches!(
+            run(101, 100, PelletOverflowMode::DiscardNewExcess, &source_ids),
+            Err(EffectError::PelletCapacityExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn compensated_corpse_allows_zero_and_caps_actual_randomized_value() {
+        let source_rng = rng_bundle();
+        let source_ids = allocators();
+        let movement = MovementConfig::typescript_defaults();
+        let food = FoodConfig::typescript_defaults();
+        let death = DeathDropConfig::typescript_defaults();
+        for length in [5, 6, 12, 50, 120, 1000] {
+            let snake = snake(
+                7,
+                SnakeKind::Evolved,
+                WorldPoint { x: 0.0, y: 0.0 },
+                0.0,
+                length,
+            );
+            let body = line_body(snake.position, 0.0, length);
+            let plan = death_plan(
+                0,
+                length,
+                movement,
+                food,
+                death,
+                EvolvedCorpseMode::SubtractReplacementMass,
+            )
+            .unwrap();
+            let result = prepare_single_corpse_with_policy(
+                &source_rng,
+                &source_ids,
+                &snake,
+                &body,
+                0,
+                movement,
+                food,
+                death,
+                10000,
+                EvolvedCorpseMode::SubtractReplacementMass,
+                PelletOverflowMode::Fail,
+            )
+            .unwrap();
+            let total: f64 = result.pellets.iter().map(|pellet| pellet.value).sum();
+            assert!(
+                total <= plan.value_budget.unwrap(),
+                "length={length}, value={total}"
+            );
+            assert!(result.pellets.iter().all(|pellet| pellet.value > 0.0));
+            if length == 5 {
+                assert!(result.pellets.is_empty());
+                assert_eq!(result.rng, source_rng);
+                assert_eq!(result.allocators, source_ids);
+            }
+            let none = prepare_single_corpse_with_policy(
+                &source_rng,
+                &source_ids,
+                &snake,
+                &body,
+                0,
+                movement,
+                food,
+                death,
+                10000,
+                EvolvedCorpseMode::None,
+                PelletOverflowMode::Fail,
+            )
+            .unwrap();
+            assert!(none.pellets.is_empty());
+            assert_eq!(none.rng, source_rng);
+            assert_eq!(none.allocators, source_ids);
+        }
+    }
+
     fn rng_bundle() -> RngStateBundle {
         RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(11.0).export_state(),
             evolution: StatefulRng::new(22.0).export_state(),
@@ -1262,11 +1761,13 @@ mod tests {
                 snake_index: 0,
                 big_count,
                 small_count,
+                value_budget: None,
             },
             death,
             3.0,
             1.0,
             &mut rng,
+            usize::MAX,
         )
         .expect("fixture death should realize");
 

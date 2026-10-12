@@ -39,7 +39,7 @@ export interface BackgroundOutputOptions {
   /** Whether any UI currently requests focused neural data. */
   wantsVisualization?(): boolean;
   /** Accept one newer complete focused neural snapshot. */
-  visualization?(snapshot: RustBackgroundVisualization): void;
+  visualization?(snapshot: RustBackgroundVisualization | undefined): void;
   /** Bound connected external controllers independently of native input capacity. */
   maxControllers: number;
   /** Observe one complete generation durability barrier. */
@@ -225,7 +225,7 @@ export class BackgroundOutputPump {
           const nativeVisualization = runtime.latestVisualization(this.visualizationSequence);
           if (nativeVisualization) {
             const visualization = normalizeVisualization(nativeVisualization);
-            this.options.visualization?.(visualization);
+            this.options.visualization?.(nativeVisualization.cleared ? undefined : visualization);
             this.visualizationSequence = nativeVisualization.sequence;
           }
         }

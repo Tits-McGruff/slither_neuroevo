@@ -199,8 +199,10 @@ impl WorldStepConfig {
 }
 
 /// Retained work and phase diagnostics for one complete staged world step.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WorldStepDiagnostics {
+    /// Actual attempted/emitted/discarded effects across every accepted substep.
+    pub emissions: super::effects::EffectEmissionTotals,
     /// Shared controller-selection and internal-publication work.
     pub control: ControlCommitDiagnostics,
     /// Complete accepted physics transaction.
@@ -395,7 +397,7 @@ impl WorldStepWorkspace {
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
-        self.prepare_internal(control, config, false)
+        self.prepare_internal(control, config, false, None)
     }
 
     /// Advance physics while deliberately deferring controlled-death replacement.
@@ -407,8 +409,10 @@ impl WorldStepWorkspace {
         &'workspace mut self,
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
+        evolved_generation: &mut super::evolved_lives::EvolvedGenerationState,
+        policy: super::evolved_lives::EvolvedExperimentConfig,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
-        self.prepare_internal(control, config, true)
+        self.prepare_internal(control, config, true, Some((evolved_generation, policy)))
     }
 
     fn prepare_internal<'workspace, 'control>(
@@ -416,6 +420,10 @@ impl WorldStepWorkspace {
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
         defer_external_replacement: bool,
+        mut evolved_generation: Option<(
+            &mut super::evolved_lives::EvolvedGenerationState,
+            super::evolved_lives::EvolvedExperimentConfig,
+        )>,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
         self.key = None;
         self.prepared_config = None;
@@ -443,10 +451,46 @@ impl WorldStepWorkspace {
         )?;
         #[cfg(feature = "engine-test-hooks")]
         self.phases.record_begin_allocations();
+        let mut emissions = super::effects::EffectEmissionTotals::default();
         for _ in 0..config.physics_substeps {
-            self.physics.advance_substep(&mut self.phases, key)?;
+            let lifecycle = evolved_generation.as_ref().map(|(lives, policy)| {
+                super::effects::EffectLifecyclePolicy {
+                    experiment: *policy,
+                    lives,
+                }
+            });
+            self.physics
+                .advance_substep_with_lifecycle(&mut self.phases, key, lifecycle)?;
+            emissions
+                .accumulate(self.phases.effect_diagnostics())
+                .map_err(|error| {
+                    WorldStepError::Physics(Box::new(super::physics::PhysicsError::Effects(
+                        Box::new(error),
+                    )))
+                })?;
+            if let Some((evolved_generation, _)) = evolved_generation.as_mut() {
+                evolved_generation
+                    .apply_physics(self.physics.evolved_deltas())
+                    .map_err(WorldStepError::EvolvedAccounting)?;
+            }
         }
 
+        if let Some((lives, policy)) = evolved_generation.as_mut() {
+            let buffers = self.physics.publication_buffers(key)?;
+            lives
+                .schedule_deaths(
+                    *policy,
+                    buffers.rng,
+                    key.source_completed_step().checked_add(1).ok_or(
+                        WorldStepError::InvalidConfig {
+                            field: "completed step",
+                        },
+                    )?,
+                    control.generation_elapsed_seconds(),
+                    config.prefix.fixed_dt,
+                )
+                .map_err(WorldStepError::EvolvedAccounting)?;
+        }
         copy_lifecycle_reusing(&mut self.lifecycle, control.baseline_lifecycle())?;
         {
             let physics = self.physics.finish(key)?;
@@ -466,6 +510,18 @@ impl WorldStepWorkspace {
             )?;
             self.sensor_generation = control.sensor_generation();
             self.sensor_generation.update_after_step(physics.world())?;
+            if let Some((lives, policy)) = evolved_generation.as_ref() {
+                if policy.version != 0
+                    && (policy.enabled
+                        || policy.points != super::evolved_lives::PointAssessmentMode::Reset)
+                {
+                    for life in &lives.slots {
+                        self.sensor_generation.observe_assessments(&[life
+                            .assessment(policy.points, policy.nonpoints)
+                            .points])?;
+                    }
+                }
+            }
 
             if has_dead_controller(physics.world()) && !defer_external_replacement {
                 return Err(WorldStepError::ExternalReplacementContextRequired);
@@ -491,6 +547,7 @@ impl WorldStepWorkspace {
             .count();
         self.ready = true;
         self.diagnostics = WorldStepDiagnostics {
+            emissions,
             control: control.diagnostics(),
             physics: self.physics.diagnostics(),
             last_substep: self.phases.substep_diagnostics(),
@@ -1158,6 +1215,8 @@ pub enum WorldStepError {
     Control(Box<ControlPhaseError>),
     /// One physics phase or transaction failed.
     Physics(Box<PhysicsError>),
+    /// One accepted substep produced inconsistent population accounting.
+    EvolvedAccounting(super::evolved_lives::EvolvedLifeError),
     /// Baseline death-delay staging failed.
     Baseline(Box<BaselineLifecycleError>),
     /// Generation sensor continuation rejected the post-physics world.
@@ -1235,6 +1294,7 @@ impl Display for WorldStepError {
             Self::Prefix(error) => write!(formatter, "{error}"),
             Self::Control(error) => write!(formatter, "{error}"),
             Self::Physics(error) => write!(formatter, "{error}"),
+            Self::EvolvedAccounting(error) => write!(formatter, "{error}"),
             Self::Baseline(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),
             Self::Controller(error) => write!(formatter, "{error}"),
@@ -1278,6 +1338,7 @@ impl Error for WorldStepError {
             Self::Prefix(error) => Some(error.as_ref()),
             Self::Control(error) => Some(error.as_ref()),
             Self::Physics(error) => Some(error.as_ref()),
+            Self::EvolvedAccounting(error) => Some(error),
             Self::Baseline(error) => Some(error.as_ref()),
             Self::Sensor(error) => Some(error.as_ref()),
             Self::Controller(error) => Some(error.as_ref()),

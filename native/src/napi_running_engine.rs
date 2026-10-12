@@ -25,7 +25,7 @@ use crate::engine::export_archive::{
     ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
 };
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
+    prepare_configured_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
     FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
 };
 use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
@@ -92,9 +92,25 @@ pub struct BackgroundVisualizationLayer {
     pub is_recurrent: Option<bool>,
 }
 
+/// Reject public selector narrowing before constructing any authoritative command.
+fn checked_entity_index(value: f64, maximum: u32, allow_zero: bool) -> Result<u32> {
+    let minimum = if allow_zero { 0.0 } else { 1.0 };
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || !(minimum..=f64::from(maximum)).contains(&value)
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "entity selector must be an exact bounded integer",
+        ));
+    }
+    Ok(value as u32)
+}
+
 /// Replaceable complete focused neural snapshot.
 #[napi(object)]
 pub struct BackgroundVisualization {
+    pub cleared: bool,
     pub sequence: String,
     pub world_epoch: String,
     pub completed_step: String,
@@ -154,6 +170,7 @@ fn visualization_to_napi(status: RunningVisualizationStatus) -> Result<Backgroun
         ));
     }
     Ok(BackgroundVisualization {
+        cleared: status.cleared,
         sequence: u64_hex(status.sequence),
         world_epoch: u64_hex(status.world_epoch),
         completed_step: u64_hex(status.completed_step),
@@ -368,7 +385,7 @@ impl Task for PrepareFreshRunTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("fresh-run preparation", Some(&self.runtime), || {
-            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+            let mut transition = prepare_configured_fresh_run_with_settings_and_graph(
                 self.request.clone(),
                 &self.settings,
                 self.graph.clone(),
@@ -1230,19 +1247,84 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue one bounded generation-scoped manual completion request.
+    #[napi(catch_unwind)]
+    pub fn submit_finish_generation(
+        &self,
+        sequence: JsString<'_>,
+        request_id: JsString<'_>,
+        expected_run_id: JsString<'_>,
+        expected_generation: JsString<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::FinishGeneration {
+                request_id: bounded_js_string(request_id, "requestId", 128, false)?,
+                expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
+                expected_generation: parse_background_sequence(expected_generation)?,
+            },
+        )
+    }
+
+    /// Resolve a bounded frame/slot selector through the authoritative command queue.
+    #[napi(catch_unwind)]
+    pub fn submit_entity_selection(
+        &self,
+        sequence: JsString<'_>,
+        target_kind: JsString<'_>,
+        target_index: f64,
+        expected_run_id: JsString<'_>,
+        expected_generation: JsString<'_>,
+    ) -> Result<()> {
+        let kind = bounded_js_string(target_kind, "targetKind", 8, false)?;
+        let target = match kind.as_str() {
+            "frame" => crate::engine::state::EntitySelectionTarget::Frame(checked_entity_index(
+                target_index,
+                crate::engine::state::FRAME_V1_MAX_EXACT_ID,
+                false,
+            )?),
+            "slot" => crate::engine::state::EntitySelectionTarget::PopulationSlot(
+                checked_entity_index(target_index, 299, true)?,
+            ),
+            _ => return Err(napi::Error::from_reason("targetKind must be frame or slot")),
+        };
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SelectEntity {
+                target,
+                expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
+                expected_generation: parse_background_sequence(expected_generation)?,
+            },
+        )
+    }
+
     /// Queue one browser-addressed God Mode translation at the next clean boundary.
     #[napi(catch_unwind)]
     pub fn submit_god_mode_move(
         &self,
         sequence: JsString<'_>,
-        snake_id: u32,
+        snake_id: f64,
         x: f64,
         y: f64,
+        token: JsString<'_>,
     ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::GodModeMove {
-                frame_v1_id: snake_id,
+                token: Box::new(
+                    crate::engine::state::EntitySelectionToken::parse(&bounded_js_string(
+                        token,
+                        "selectionToken",
+                        64,
+                        false,
+                    )?)
+                    .map_err(napi::Error::from_reason)?,
+                ),
+                frame_v1_id: checked_entity_index(
+                    snake_id,
+                    crate::engine::state::FRAME_V1_MAX_EXACT_ID,
+                    false,
+                )?,
                 x,
                 y,
             },
@@ -1251,11 +1333,29 @@ impl ExperimentalRunningAuthority {
 
     /// Queue one browser-addressed God Mode death through ordinary side effects.
     #[napi(catch_unwind)]
-    pub fn submit_god_mode_kill(&self, sequence: JsString<'_>, snake_id: u32) -> Result<()> {
+    pub fn submit_god_mode_kill(
+        &self,
+        sequence: JsString<'_>,
+        snake_id: f64,
+        token: JsString<'_>,
+    ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::GodModeKill {
-                frame_v1_id: snake_id,
+                token: Box::new(
+                    crate::engine::state::EntitySelectionToken::parse(&bounded_js_string(
+                        token,
+                        "selectionToken",
+                        64,
+                        false,
+                    )?)
+                    .map_err(napi::Error::from_reason)?,
+                ),
+                frame_v1_id: checked_entity_index(
+                    snake_id,
+                    crate::engine::state::FRAME_V1_MAX_EXACT_ID,
+                    false,
+                )?,
             },
         )
     }
@@ -1584,7 +1684,7 @@ fn parse_export_inventory_descriptor(
     let version = descriptor
         .get::<f64>("version")?
         .ok_or_else(|| Error::new(Status::InvalidArg, "export inventory omits version"))?;
-    if version != 1.0 {
+    if version != 1.0 && version != 2.0 && version != 3.0 {
         return Err(Error::new(
             Status::InvalidArg,
             "export inventory version is unsupported",
@@ -1595,14 +1695,14 @@ fn parse_export_inventory_descriptor(
         "relativeFilename",
         32 + ".export-inventory-v1".len() + 1,
     )?;
-    if relative_filename != format!(".{operation_id}.export-inventory-v1") {
+    if relative_filename != format!(".{operation_id}.export-inventory-v{}", version as u32) {
         return Err(Error::new(
             Status::InvalidArg,
             "export inventory does not match the operation ID",
         ));
     }
     Ok(ExportInventoryDescriptor {
-        version: 1,
+        version: version as u32,
         relative_filename,
         sha256: bounded_object_string(descriptor, "sha256", 64)?,
         stored_byte_count_hex: bounded_object_string(descriptor, "storedByteCount", 16)?,
@@ -2060,6 +2160,20 @@ pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalD
 
 #[cfg(test)]
 mod task_panic_tests {
+    #[test]
+    fn entity_selector_arguments_reject_coercion() {
+        for value in [f64::NAN, f64::INFINITY, -1.0, 1.5, 16_777_217.0] {
+            assert!(super::checked_entity_index(value, 16_777_216, false).is_err());
+        }
+        assert!(super::checked_entity_index(0.0, 16_777_216, false).is_err());
+        assert_eq!(
+            super::checked_entity_index(16_777_216.0, 16_777_216, false).unwrap(),
+            16_777_216
+        );
+        assert_eq!(super::checked_entity_index(0.0, 299, true).unwrap(), 0);
+        assert!(super::checked_entity_index(300.0, 299, true).is_err());
+    }
+
     use super::{
         catch_background_task_panic, ArchiveProgressJob, ExperimentalRunningAuthority,
         PrepareExportArchiveTask, PrepareFreshRunTask, PrepareImportArchiveTask,
@@ -2072,7 +2186,7 @@ mod task_panic_tests {
     };
     use crate::engine::export_archive::{compose_export_archive, ExportInventoryDescriptor};
     use crate::engine::fresh_run::{
-        prepare_stage6a_p0_fresh_run_with_settings_and_graph,
+        prepare_configured_fresh_run_with_settings_and_graph,
         stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
     };
     use crate::engine::graph::typescript_default_graph_spec;
@@ -2116,7 +2230,7 @@ mod task_panic_tests {
         }
 
         fn checkpoint(&self) -> CheckpointDescriptor {
-            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+            let mut transition = prepare_configured_fresh_run_with_settings_and_graph(
                 self.request(),
                 &[],
                 typescript_default_graph_spec(),

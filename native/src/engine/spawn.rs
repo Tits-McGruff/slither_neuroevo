@@ -348,7 +348,165 @@ struct SpawnObstacles<'a> {
     staged_body_points: &'a [WorldPoint],
 }
 
+/// Bounded evolved-only placement outcome; legacy spawn errors retain their meaning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvolvedPlacementStatus {
+    Placed,
+    /// No clear body in this slot's complete candidate allowance.
+    PendingNoPlacement,
+    /// The remaining batch candidate or geometry allowance prevented completion.
+    PendingWorkLimit,
+}
+
+/// A complete evolved attempt, including failure draws and bounded fallback progress.
+pub struct PreparedEvolvedPlacement<'scratch, 'world> {
+    status: EvolvedPlacementStatus,
+    spawns: PreparedSpawns<'scratch, 'world>,
+    fallback_cursor: u64,
+}
+
+impl<'scratch, 'world> PreparedEvolvedPlacement<'scratch, 'world> {
+    #[must_use]
+    pub const fn status(&self) -> EvolvedPlacementStatus {
+        self.status
+    }
+    #[must_use]
+    pub const fn spawns(&self) -> &PreparedSpawns<'scratch, 'world> {
+        &self.spawns
+    }
+    #[must_use]
+    pub const fn fallback_cursor(&self) -> u64 {
+        self.fallback_cursor
+    }
+}
+
 impl SpawnWorkspace {
+    /// Attempt one evolved replacement with fresh complete geometry checks. Only
+    /// this API turns congestion/work exhaustion into a pending continuation.
+    /// It allocates no physical IDs and never changes source world/RNG state.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_evolved_replacement<'scratch, 'world>(
+        &'scratch mut self,
+        source_world: &'world WorldState,
+        slot: u32,
+        source_rng: &SerializedRngState,
+        config: SpawnConfig,
+        fallback_cursor: u64,
+        remaining_batch_candidates: usize,
+        remaining_batch_geometry: usize,
+        maximum_new_body_points: usize,
+    ) -> Result<PreparedEvolvedPlacement<'scratch, 'world>, SpawnError> {
+        self.clear_staging();
+        config.validate()?;
+        self.prepare_source_order(source_world)?;
+        if config.snake_start_len > maximum_new_body_points {
+            return Err(SpawnError::BodyCapacityExceeded {
+                required: config.snake_start_len,
+                maximum: maximum_new_body_points,
+            });
+        }
+        let fallback_count = config
+            .fallback_position_count
+            .checked_mul(config.fallback_heading_count)
+            .ok_or(SpawnError::ArithmeticOverflow {
+                context: "evolved fallback count",
+            })?;
+        let mut cursor = usize::try_from(fallback_cursor)
+            .ok()
+            .filter(|cursor| *cursor < fallback_count)
+            .ok_or(SpawnError::InvalidConfig {
+                field: "evolved fallback cursor",
+            })?;
+        reserve_for(
+            &mut self.candidate_body,
+            config.snake_start_len,
+            "evolved candidate body",
+        )?;
+        reserve_for(
+            &mut self.body_points,
+            config.snake_start_len,
+            "evolved placement body",
+        )?;
+        reserve_for(&mut self.placements, 1, "evolved placement")?;
+        let key = SpawnKey {
+            domain: SpawnDomain::Evolved,
+            slot: u64::from(slot),
+        };
+        let limit = if remaining_batch_geometry == 0 {
+            0
+        } else {
+            remaining_batch_candidates.min(256)
+        };
+        let mut geometry_config = config;
+        geometry_config.maximum_geometry_checks_per_batch = remaining_batch_geometry.min(250_000);
+        let mut rng = StatefulRng::from_state(source_rng)?;
+        let mut status = if limit < 256 {
+            EvolvedPlacementStatus::PendingWorkLimit
+        } else {
+            EvolvedPlacementStatus::PendingNoPlacement
+        };
+        for candidate_index in 0..limit {
+            let fallback = candidate_index >= 32.min(config.random_attempts_per_request);
+            let (head, direction) = if fallback {
+                (
+                    fallback_position(cursor / config.fallback_heading_count, config),
+                    (cursor % config.fallback_heading_count) as f64 * TAU
+                        / config.fallback_heading_count as f64,
+                )
+            } else {
+                let angle = rng.next_f64() * TAU;
+                let radius =
+                    rng.next_f64().sqrt() * (config.world_radius * config.spawn_radius_fraction);
+                let head = WorldPoint {
+                    x: angle.cos() * radius,
+                    y: angle.sin() * radius,
+                };
+                (head, rng.next_f64() * TAU)
+            };
+            self.candidates_examined += 1;
+            build_body(&mut self.candidate_body, head, direction, config)?;
+            let accepted = match candidate_is_valid(
+                &self.candidate_body,
+                SpawnObstacles {
+                    source_world,
+                    source_order: &self.source_order,
+                    placements: &[],
+                    staged_body_points: &[],
+                },
+                geometry_config,
+                key,
+                &mut self.geometry_checks,
+            ) {
+                Ok(accepted) => accepted,
+                Err(SpawnError::WorkBudgetExceeded {
+                    work: "geometry checks",
+                    ..
+                }) => {
+                    status = EvolvedPlacementStatus::PendingWorkLimit;
+                    break;
+                }
+                Err(error) => return Err(error),
+            };
+            if fallback {
+                cursor = (cursor + 1) % fallback_count;
+            }
+            if accepted {
+                let placement = self.accept_candidate(key, direction, fallback, 0)?;
+                self.placements.push(placement);
+                self.fallback_placements = usize::from(fallback);
+                status = EvolvedPlacementStatus::Placed;
+                break;
+            }
+        }
+        self.next_rng = Some(rng.export_state());
+        self.ready = status == EvolvedPlacementStatus::Placed;
+        Ok(PreparedEvolvedPlacement {
+            status,
+            spawns: self.prepared(source_world),
+            fallback_cursor: cursor as u64,
+        })
+    }
+
     /// Prepare a batch sharing one versioned gameplay RNG continuation.
     ///
     /// Callers use separate batches for independently owned streams (for
@@ -1643,6 +1801,93 @@ mod tests {
         assert!(!workspace.is_ready());
         assert_eq!(source, StatefulRng::new(72.0).export_state());
         assert_eq!(world, WorldState::default());
+    }
+
+    #[test]
+    fn evolved_impossible_placement_preserves_failure_draws_and_continues_fallback() {
+        let world = WorldState::default();
+        let source = StatefulRng::new(123.0).export_state();
+        let mut config = SpawnConfig::typescript_geometry_defaults();
+        config.world_radius = 1.0;
+        let mut workspace = SpawnWorkspace::default();
+        let attempt = workspace
+            .prepare_evolved_replacement(&world, 7, &source, config, 0, 2048, 250000, 5)
+            .unwrap();
+        assert_eq!(attempt.status(), EvolvedPlacementStatus::PendingNoPlacement);
+        assert_eq!(attempt.spawns().diagnostics().candidates_examined, 256);
+        assert_eq!(attempt.fallback_cursor(), 224);
+        assert!(attempt.spawns().placements().is_empty());
+        let mut expected_rng = StatefulRng::from_state(&source).unwrap();
+        for _ in 0..96 {
+            expected_rng.next_f64();
+        }
+        assert_eq!(attempt.spawns().next_rng(), &expected_rng.export_state());
+        let continuation = attempt.spawns().next_rng().clone();
+        let cursor = attempt.fallback_cursor();
+        let attempt = workspace
+            .prepare_evolved_replacement(&world, 7, &continuation, config, cursor, 2048, 250000, 5)
+            .unwrap();
+        assert_eq!(attempt.fallback_cursor(), 448);
+        assert_eq!(world, WorldState::default());
+        assert_eq!(source, StatefulRng::new(123.0).export_state());
+    }
+
+    #[test]
+    fn evolved_geometry_exhaustion_is_pending_and_generic_spawn_still_errors() {
+        let world = WorldState::default();
+        let source = StatefulRng::new(123.0).export_state();
+        let mut config = SpawnConfig::typescript_geometry_defaults();
+        let mut workspace = SpawnWorkspace::default();
+        let attempt = workspace
+            .prepare_evolved_replacement(&world, 1, &source, config, 0, 2048, 1, 5)
+            .unwrap();
+        assert_eq!(attempt.status(), EvolvedPlacementStatus::PendingWorkLimit);
+        assert_eq!(attempt.spawns().diagnostics().geometry_checks, 1);
+        assert_eq!(attempt.spawns().diagnostics().candidates_examined, 1);
+        assert_ne!(attempt.spawns().next_rng(), &source);
+        let idle = workspace
+            .prepare_evolved_replacement(&world, 1, &source, config, 0, 2048, 0, 5)
+            .unwrap();
+        assert_eq!(idle.status(), EvolvedPlacementStatus::PendingWorkLimit);
+        assert_eq!(idle.spawns().next_rng(), &source);
+        assert_eq!(idle.spawns().diagnostics().candidates_examined, 0);
+        config.maximum_geometry_checks_per_batch = 1;
+        assert!(matches!(
+            workspace.prepare(&world, &[request(1)], &source, config, 5),
+            Err(SpawnError::WorkBudgetExceeded { .. })
+        ));
+    }
+
+    #[test]
+    fn evolved_placement_is_safe_and_invalid_source_is_never_pending() {
+        let world = WorldState::default();
+        let source = StatefulRng::new(123.0).export_state();
+        let config = SpawnConfig::typescript_geometry_defaults();
+        let mut workspace = SpawnWorkspace::default();
+        let attempt = workspace
+            .prepare_evolved_replacement(&world, 1, &source, config, 0, 2048, 250000, 5)
+            .unwrap();
+        assert_eq!(attempt.status(), EvolvedPlacementStatus::Placed);
+        let placement = &attempt.spawns().placements()[0];
+        assert_eq!(placement.key, key(1));
+        assert_eq!(attempt.spawns().body_for(placement).unwrap().len(), 5);
+        for point in attempt.spawns().body_for(placement).unwrap() {
+            assert!(
+                point.x * point.x + point.y * point.y
+                    < (config.world_radius - config.snake_radius).powi(2)
+            );
+        }
+        assert!(workspace
+            .prepare_evolved_replacement(&world, 1, &source, config, u64::MAX, 2048, 250000, 5)
+            .is_err());
+        assert!(workspace
+            .prepare_evolved_replacement(&world, 1, &source, config, 0, 2048, 250000, 4)
+            .is_err());
+        let mut corrupt = source;
+        corrupt.state_hex = "00000000".into();
+        assert!(workspace
+            .prepare_evolved_replacement(&world, 1, &corrupt, config, 0, 0, 0, 5)
+            .is_err());
     }
 
     #[test]

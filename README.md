@@ -575,7 +575,13 @@ production addon and rejects the test build.
 - Left click: Select a snake (God Mode selection).
 - Right click: Kill the selected snake (God Mode).
 - Shift + left click + drag: Move a selected snake (God Mode).
+- **Follow population individual across lives**: Keep following an evolved owner
+  when it respawns. Turn this off to select only the current physical life.
 - Mouse to steer, hold click to boost (when playing as a user snake).
+
+God Mode resolves selection with the server before applying an action. Old
+selections cannot act on a replacement life, even when a display ID is reused.
+
 - **Settings lock**: Hides all sliders and controls inside the Settings tab; unlock to edit.
 - **Apply and reset**: Rebuild the world using reset-only settings. Reset keeps
   the active seed, creates a new run ID, and durably records generation one.
@@ -621,6 +627,41 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
   the requested multiplier and report dropped scheduler debt.
 - **AI hidden layers**: How many MLP hidden layers to use (1–5). More layers increase capacity.
 - **Neurons layer 1–5**: The size of each hidden layer. Only layers up to the selected count are active.
+
+### Evolved lives and life scoring
+
+These controls use **Apply and reset**. **Respawn evolved snakes** keeps each
+individual's genome while replacing its physical body. **Respawn delay** is in
+simulated seconds; zero waits until the next newborn boundary. **Lives per
+individual** includes the initial life, with zero meaning unlimited.
+
+**Memory across lives** selects Reset or Preserve. **Point assessment** selects
+Reset, Cumulative or Best Life, independently of **Fitness across lives**.
+Cumulative assessment can use Net or Gross earned points, and its boost wallet
+can be Life-local or Carried. **Duration reward scale** optionally normalizes
+extensive fitness to 240 seconds; **Life penalty** can count Deaths or Successful
+respawns. These choices do not change the configured duration or passive credits.
+
+**Replaceable death food** selects Normal, None or Subtract replacement mass.
+Final exhausted deaths retain normal corpse behavior; wall deaths drop none.
+**Full pellet storage** selects atomic Fail or Discard new excess. The checkbox
+alone preserves this choice. **Use respawn preset** selects life defaults,
+enables respawn and selects Discard without changing unrelated pending drafts.
+
+**Early completion** offers Automatic, Physical alive and Duration only.
+Automatic uses the legacy alive threshold when respawn is off, finite exhaustion
+when lives are capped, and duration/manual completion for unlimited lives.
+Recorded legacy configurations keep their contract during ordinary resets and
+New Run. Changing a life control or choosing the preset explicitly selects the
+complete life contract for the next reset.
+
+Each completed modern generation saves bounded life, score, death, corpse and
+fitness summaries with its population checkpoint. Export and import preserve
+these summaries. The Hall of Fame labels its assessed score and length: Reset
+shows the latest life length, Cumulative shows the generation peak, and Best
+Life shows the selected life peak. Older entries keep their legacy physical
+score and length labels. A multi-hour round is durable when its generation
+boundary commits; restarting during a round returns to the saved boundary.
 
 ### World and food
 
@@ -701,7 +742,7 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Evolution
 
-- **Generation duration seconds**: Length of each generation.
+- **Generation duration**: Simulated length of each generation, from 8 seconds to 7 days. Enter seconds (`240`), unit terms (`1h 2m 3s`) or a clock (`1:02:03`). Invalid drafts block Apply and reset. **Finish generation now** confirms the active generation and finishes its next complete step through the ordinary durable generation transition.
 - **Elite fraction**: Portion of top genomes preserved unchanged.
 - **Mutation rate**: Probability of mutating each weight.
 - **Mutation std**: Strength of weight perturbations.

@@ -125,7 +125,12 @@ impl SensorConfig {
                 0.0,
                 4.0,
             ),
-            ("generation_seconds", self.generation_seconds, 8.0, 480.0),
+            (
+                "generation_seconds",
+                self.generation_seconds,
+                8.0,
+                604_800.0,
+            ),
             ("near_radius_base", self.near_radius_base, 200.0, 900.0),
             ("near_radius_scale", self.near_radius_scale, 0.0, 600.0),
             (
@@ -221,6 +226,17 @@ impl SensorGenerationState {
             }
         }
         self.best_points_this_generation = self.best_points_this_generation.max(current);
+        Ok(())
+    }
+
+    /// Observe selected life-assessment points, including dead/pending population slots.
+    pub(crate) fn observe_assessments(&mut self, points: &[f64]) -> Result<(), SensorError> {
+        for &point in points {
+            if !point.is_finite() || point < 0.0 {
+                return Err(SensorError::InvalidGenerationBest);
+            }
+            self.best_points_this_generation = self.best_points_this_generation.max(point);
+        }
         Ok(())
     }
 
@@ -534,6 +550,29 @@ impl SensorEvaluator {
         output: &mut [f32],
         scratch: &mut SensorScratch,
     ) -> Result<SensorSample, SensorError> {
+        self.sample_with_assessment(
+            indexed_world,
+            generation,
+            snake_index,
+            output,
+            scratch,
+            None,
+        )
+    }
+
+    /// V3 life experiments replace only relative-score scalars; wallets and delivery deltas stay physical.
+    pub(crate) fn sample_with_assessment(
+        &self,
+        indexed_world: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+    ) -> Result<SensorSample, SensorError> {
+        if assessment.is_some_and(|points| !points.is_finite() || points < 0.0) {
+            return Err(SensorError::InvalidGenerationBest);
+        }
         #[cfg(feature = "engine-test-hooks")]
         let mut phase_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         if output.len() != self.layout.input_size {
@@ -579,12 +618,17 @@ impl SensorEvaluator {
             -1.0,
             1.0,
         ) as f32;
-        let logarithmic_fraction = (1.0 + snake.points).ln() / (1.0 + best_points).ln();
+        let assessment_points = assessment.unwrap_or(snake.points);
+        let logarithmic_fraction = (1.0 + assessment_points).ln() / (1.0 + best_points).ln();
         output[4] = clamp(logarithmic_fraction * 2.0 - 1.0, -1.0, 1.0) as f32;
         output[5] =
             ratio_to_bipolar(snake.speed / self.config.snake_boost_speed.max(1.0e-6)) as f32;
         output[6] = if snake.boost { 1.0 } else { -1.0 };
-        output[7] = clamp(2.0 * (snake.points / best_points.max(1.0)) - 1.0, -1.0, 1.0) as f32;
+        output[7] = clamp(
+            2.0 * (assessment_points / best_points.max(1.0)) - 1.0,
+            -1.0,
+            1.0,
+        ) as f32;
         output[8] = clamp(
             (snake.points - snake.delivered_observation_points) / POINTS_DELTA_SCALE,
             -1.0,
@@ -1414,6 +1458,51 @@ mod tests {
             .sample(&indexed, generation, snake_index, &mut output, &mut scratch)
             .expect("sensor sample should succeed");
         (output, sample)
+    }
+
+    #[test]
+    fn life_assessments_change_only_v3_relative_scores_and_preserve_delivered_wallet_delta() {
+        let evaluator = SensorEvaluator::new(SensorConfig::default()).unwrap();
+        let mut world = WorldState {
+            body_points: vec![WorldPoint { x: 0.0, y: 0.0 }],
+            ..WorldState::default()
+        };
+        let mut entity = snake(
+            1,
+            SnakeKind::Evolved,
+            BodyRange { start: 0, len: 1 },
+            WorldPoint { x: 0.0, y: 0.0 },
+        );
+        entity.points = 2.0;
+        entity.delivered_observation_points = 1.0;
+        world.snakes.push(entity);
+        let mut generation = SensorGenerationState::new();
+        generation.observe_assessments(&[80.0]).unwrap();
+        generation.observe_assessments(&[10.0]).unwrap();
+        assert_eq!(generation.best_points_this_generation(), 80.0);
+        let (legacy, before) = sample(&evaluator, &world, 0, &generation);
+        let indexed = indexed_world(&world);
+        let mut selected = vec![0.0; legacy.len()];
+        let after = evaluator
+            .sample_with_assessment(
+                &indexed,
+                &generation,
+                0,
+                &mut selected,
+                &mut SensorScratch::default(),
+                Some(80.0),
+            )
+            .unwrap();
+        assert_eq!(selected[4], 1.0);
+        assert_eq!(selected[7], 1.0);
+        for index in 0..selected.len() {
+            if index != 4 && index != 7 {
+                assert_eq!(selected[index], legacy[index]);
+            }
+        }
+        assert_eq!(before.delivery, after.delivery);
+        assert_eq!(after.delivery.sampled_points, 2.0);
+        assert_eq!(world.snakes[0].delivered_observation_points, 1.0);
     }
 
     #[test]

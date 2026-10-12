@@ -261,7 +261,15 @@ function archiveEntries(archive: Buffer): Array<{ header: number; data: number; 
     entries.push({ header, data, size, end });
     header = end;
   }
-  expect(entries).toHaveLength(9);
+  expect([9, 10, 11]).toContain(entries.length);
+  const final = entries.at(-1)!;
+  expect(archive.subarray(final.header, final.header + 100).toString().split('\0')[0]).toBe('manifest.json');
+  const manifest = JSON.parse(archive.subarray(final.data, final.data + final.size).toString()) as { archiveVersion: number; roles: unknown[] };
+  expect([1, 2, 3]).toContain(manifest.archiveVersion);
+  expect(entries).toHaveLength(manifest.archiveVersion + 8);
+  if (manifest.archiveVersion >= 2) expect(manifest.roles[8]).toMatchObject({ role: 'generation-completion', path: 'generation-completion.bin', encoding: 'raw-generation-completion-v1', recordSize: 40 });
+  if (manifest.archiveVersion === 3) expect(manifest.roles[9]).toMatchObject({ role: 'generation-experiments', path: 'generation-experiments.bin', encoding: 'raw-generation-experiment-v1', recordSize: 776 });
+  expect(manifest.roles).toHaveLength(entries.length - 1);
   expect(header + 1024).toBe(archive.byteLength);
   expect(archive.subarray(header).every(byte => byte === 0)).toBe(true);
   return entries;
@@ -290,7 +298,7 @@ interface SemanticRole {
 
 /** Selected manifest fields; JSON parsing retains all other production fields. */
 interface SemanticManifest {
-  /** Save root over all eight ordered roles. */
+  /** Save root over the versioned ordered roles. */
   logicalRootSha256: string;
   /** Nested checkpoint root referenced by the save. */
   checkpointLogicalRootSha256: string;
@@ -330,7 +338,8 @@ function semanticRoot(domain: string, roles: SemanticRole[]): string {
 function semanticArchive(archive: Buffer, roleIndex?: number, changed?: Buffer): Buffer {
   const entries = archiveEntries(archive);
   const bodies: Buffer[] = entries.map(entry => Buffer.from(archive.subarray(entry.data, entry.data + entry.size)));
-  const manifest = JSON.parse(bodies[8]!.toString()) as SemanticManifest;
+  const manifestIndex = bodies.length - 1;
+  const manifest = JSON.parse(bodies[manifestIndex]!.toString()) as SemanticManifest;
   const checkpointDomain = 'slither-neuroevo-logical-checkpoint-root\0v1\0';
   const saveDomain = 'slither-neuroevo-save-root\0v1\0';
   expect(semanticRoot(checkpointDomain, manifest.checkpointManifest.roles)).toBe(manifest.checkpointLogicalRootSha256);
@@ -353,7 +362,7 @@ function semanticArchive(archive: Buffer, roleIndex?: number, changed?: Buffer):
   manifest.checkpointManifest.logicalRootSha256 = semanticRoot(checkpointDomain, manifest.checkpointManifest.roles);
   manifest.checkpointLogicalRootSha256 = manifest.checkpointManifest.logicalRootSha256;
   manifest.logicalRootSha256 = semanticRoot(saveDomain, manifest.roles);
-  bodies[8] = Buffer.from(JSON.stringify(manifest));
+  bodies[manifestIndex] = Buffer.from(JSON.stringify(manifest));
   const chunks: Buffer[] = [];
   for (const [index, body] of bodies.entries()) {
     const header = Buffer.from(archive.subarray(entries[index]!.header, entries[index]!.data));
@@ -1715,7 +1724,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const manifest = JSON.parse(damaged.subarray(entry.data, entry.data + entry.size).toString()) as {
             archiveVersion: number; logicalRootSha256: string; roles: Array<{ decodedBytesHex: string }>;
           };
-          if (fault === 'unsupported save version') manifest.archiveVersion = 2;
+          if (fault === 'unsupported save version') manifest.archiveVersion = 4;
           else if (fault === 'corrupted logical root') {
             manifest.logicalRootSha256 = (manifest.logicalRootSha256.startsWith('0') ? '1' : '0') +
               manifest.logicalRootSha256.slice(1);

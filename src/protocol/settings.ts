@@ -6,6 +6,12 @@ import {
 
 /** Ordered list of config paths accepted by reset/import snapshots. */
 export const SETTINGS_PATHS = [
+  'evolvedRespawn.contractVersion', 'evolvedRespawn.enabled', 'evolvedRespawn.delaySeconds',
+  'evolvedRespawn.delayMode', 'evolvedRespawn.maxLives', 'evolvedRespawn.recurrentState',
+  'evolvedRespawn.rngMode', 'evolvedRespawn.corpseMode', 'lifeScoring.mode',
+  'lifeScoring.cumulativeBasis', 'lifeScoring.cumulativeWallet', 'reward.lifeAccounting',
+  'reward.durationScaling', 'reward.lifePenalty', 'reward.lifePenaltyBasis',
+  'observer.earlyEndMode', 'world.pelletOverflow',
   'worldRadius',
   'pelletCountTarget',
   'pelletSpawnPerSecond',

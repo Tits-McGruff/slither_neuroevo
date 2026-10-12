@@ -1,3 +1,4 @@
+import type { SelectedEntity } from './entitySelection.ts';
 import type { VizData } from './messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 
@@ -177,6 +178,8 @@ export interface RustBackgroundDisplay {
 
 /** Replaceable activation data for exactly one Rust-selected neural snake. */
 export interface RustBackgroundVisualization extends VizData {
+  /** Sequenced native invalidation; carries no activations when true. */
+  cleared?: boolean;
   /** Monotonic cache publication identity. */
   sequence: RustBackgroundIdentity;
   /** Authority incarnation that produced the snapshot. */
@@ -480,6 +483,10 @@ export interface RustBackgroundEvent {
   settingsConfigHash?: string;
   /** First step that observes the newly active settings. */
   settingsEffectiveStep?: RustBackgroundIdentity;
+  /** Next eligible complete step for an accepted manual completion. */
+  finishGenerationEffectiveStep?: RustBackgroundIdentity;
+  /** On-demand scalar identity snapshot for one current physical life. */
+  entitySelection?: SelectedEntity | null;
   /** Successful in-bounds God Mode translation. */
   godModeMove?: {
     /** Exact browser/frame snake identity. */

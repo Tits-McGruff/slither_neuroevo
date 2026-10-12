@@ -32,6 +32,10 @@ pub struct RunningVisualizationLayer {
 /// Latest complete single-brain visualization copied from one published step.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunningVisualizationStatus {
+    /// Sequenced tombstone retires consumers' old physical diagnostic references.
+    pub cleared: bool,
+    /// Internal physical identity used only for cache lifetime checks.
+    pub physical_id: u64,
     pub sequence: u64,
     pub world_epoch: u64,
     pub completed_step: u64,
@@ -116,10 +120,31 @@ impl RunningDisplayCache {
         }))
     }
 
-    /// Drop a prior subscription's snapshot before capture is disabled.
-    pub(crate) fn clear_visualization(&self) -> Result<(), EngineError> {
-        if let Some(mut cache) = self.try_cache()? {
-            cache.visualization = None;
+    /// Publish a bounded tombstone; false means a consumer temporarily owns the cache.
+    pub(crate) fn clear_visualization(&self) -> Result<bool, EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(false);
+        };
+        clear_cached_visualization(&mut cache);
+        Ok(true)
+    }
+
+    /// Retain the last action between neural deliveries, but retire any dead,
+    /// replaced or foreign-world physical source. The predicate is Rust-only.
+    pub(crate) fn retain_current_visualization(
+        &self,
+        world_epoch: u64,
+        is_live: impl FnOnce(u64, u32) -> bool,
+    ) -> Result<(), EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(());
+        };
+        if cache.visualization.as_ref().is_some_and(|status| {
+            !status.cleared
+                && (status.world_epoch != world_epoch
+                    || !is_live(status.physical_id, status.frame_v1_id))
+        }) {
+            clear_cached_visualization(&mut cache);
         }
         Ok(())
     }
@@ -134,9 +159,11 @@ impl RunningDisplayCache {
             return Ok(());
         };
         if cache.visualization.as_ref().is_some_and(|prior| {
-            prior.world_epoch == world_epoch
+            !prior.cleared
+                && prior.world_epoch == world_epoch
                 && prior.completed_step == visualization.completed_step
                 && prior.frame_v1_id == visualization.frame_v1_id
+                && prior.physical_id == visualization.physical_id
         }) {
             return Ok(());
         }
@@ -146,6 +173,8 @@ impl RunningDisplayCache {
             .visualization
             .take()
             .unwrap_or(RunningVisualizationStatus {
+                cleared: false,
+                physical_id: visualization.physical_id,
                 sequence,
                 world_epoch,
                 completed_step: visualization.completed_step,
@@ -154,6 +183,8 @@ impl RunningDisplayCache {
                 values: Vec::new(),
             });
         status.sequence = sequence;
+        status.cleared = false;
+        status.physical_id = visualization.physical_id;
         status.world_epoch = world_epoch;
         status.completed_step = visualization.completed_step;
         status.frame_v1_id = visualization.frame_v1_id;
@@ -260,8 +291,67 @@ impl RunningDisplayCache {
     }
 }
 
+/// Clear once while keeping activation buffers available for the next capture.
+fn clear_cached_visualization(cache: &mut CachedDisplay) {
+    if cache
+        .visualization
+        .as_ref()
+        .is_some_and(|prior| !prior.cleared)
+    {
+        cache.visualization_sequence = cache.visualization_sequence.saturating_add(1);
+        let sequence = cache.visualization_sequence;
+        if let Some(status) = cache.visualization.as_mut() {
+            status.sequence = sequence;
+            status.cleared = true;
+            status.layers.clear();
+            status.values.clear();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn physical_visualization_clear_is_a_single_sequenced_tombstone() {
+        let cache = super::RunningDisplayCache::new(128).unwrap();
+        let capture = super::FocusedVisualization {
+            physical_id: 10,
+            frame_v1_id: 9,
+            completed_step: 3,
+            layers: &[],
+            values: &[],
+        };
+        cache.publish_visualization(5, capture).unwrap();
+        let first = cache.latest_visualization(0).unwrap().unwrap();
+        assert!(!first.cleared);
+        cache
+            .retain_current_visualization(5, |id, frame| id == 10 && frame == 9)
+            .unwrap();
+        assert!(cache
+            .latest_visualization(first.sequence)
+            .unwrap()
+            .is_none());
+        cache
+            .retain_current_visualization(5, |id, frame| id == 11 && frame == 9)
+            .unwrap();
+        let cleared = cache.latest_visualization(first.sequence).unwrap().unwrap();
+        assert!(cleared.cleared);
+        assert!(cleared.layers.is_empty() && cleared.values.is_empty());
+        cache.clear_visualization().unwrap();
+        assert!(cache
+            .latest_visualization(cleared.sequence)
+            .unwrap()
+            .is_none());
+        cache.publish_visualization(5, capture).unwrap();
+        assert!(
+            !cache
+                .latest_visualization(cleared.sequence)
+                .unwrap()
+                .unwrap()
+                .cleared
+        );
+    }
+
     use super::*;
     use crate::engine::contract::{CompletedEvent, OutputLimits, ReliableEvent};
     use crate::engine::queues::{NoopWakeSink, ReplaceResult};

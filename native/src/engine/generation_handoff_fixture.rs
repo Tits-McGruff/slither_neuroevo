@@ -572,6 +572,7 @@ pub(super) fn fixture_run_start(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(42.0, "world").export_state(),
             evolution: labelled_stream(42.0, "evolution").export_state(),
@@ -627,6 +628,7 @@ pub(super) fn fixture_run_start(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     Ok((candidate, policy))

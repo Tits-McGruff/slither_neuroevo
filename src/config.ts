@@ -7,6 +7,8 @@ import type { GraphSpec } from './brains/graph/schema.ts';
 
 /** Initial browser settings/presentation values, replaced by authoritative metadata. */
 export const CFG_DEFAULT = {
+  /** Local diagnostic presentation; never submitted as authoritative gameplay settings. */
+  diagnostics: { followIndividual: true },
   worldRadius: 3500,
   pelletCountTarget: 3500,
   pelletSpawnPerSecond: 170,
@@ -45,6 +47,10 @@ export const CFG_DEFAULT = {
     // Speckle strength added to the web.
     dustStrength: 0.35
   },
+  evolvedRespawn: { contractVersion: 1, enabled: false, delaySeconds: 0, delayMode: 0,
+    maxLives: 0, recurrentState: 0, rngMode: 0, corpseMode: 0 },
+  lifeScoring: { mode: 0, cumulativeBasis: 0, cumulativeWallet: 0 },
+  world: { pelletOverflow: 0 },
   generationSeconds: 240,
   eliteFrac: 0.12,
   // With larger input vectors and higher-capacity brains, defaults that were
@@ -54,6 +60,7 @@ export const CFG_DEFAULT = {
   mutationStd: 0.35,
   crossoverRate: 0.85,
   observer: {
+    earlyEndMode: 0,
     focusRecheckSeconds: 1.0,
     focusSwitchMargin: 1.08,
     earlyEndMinSeconds: 8,
@@ -135,6 +142,7 @@ export const CFG_DEFAULT = {
     pelletJitter: 10
   },
   reward: {
+    lifeAccounting: 0, durationScaling: 0, lifePenalty: 0, lifePenaltyBasis: 0,
     pointsPerFood: 20.0,
     pointsPerKill: 400.0,
     pointsPerSecondAlive: 0.60,

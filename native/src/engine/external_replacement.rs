@@ -1810,6 +1810,7 @@ impl ExternalReplacementWorkspace {
             || rng.world != source_rng.world
             || rng.evolution != source_rng.evolution
             || rng.baselines != source_rng.baselines
+            || rng.evolved_respawns != source_rng.evolved_respawns
         {
             return Err(ExternalReplacementError::RngIsolationViolation);
         }
@@ -2156,6 +2157,13 @@ fn authority_rng_digest(rng: &RngStateBundle) -> [u8; 32] {
     for baseline in &rng.baselines {
         hash.update(baseline.slot.to_le_bytes());
         hash_serialized_rng(&mut hash, &baseline.state);
+    }
+    if rng.version == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        hash_usize(&mut hash, rng.evolved_respawns.len());
+        for stream in &rng.evolved_respawns {
+            hash.update(stream.slot.to_le_bytes());
+            hash.update(stream.uniform_state.to_le_bytes());
+        }
     }
     hash.finalize().into()
 }
@@ -2773,6 +2781,7 @@ mod tests {
 
     fn rng() -> RngStateBundle {
         RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(11.0).export_state(),
             evolution: StatefulRng::new(12.0).export_state(),

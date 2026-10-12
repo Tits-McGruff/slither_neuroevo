@@ -217,10 +217,12 @@
           <button id="apply">Apply and reset</button>
           <button id="defaults">Defaults</button>
         </div>
+        <div id="finishGenerationStatus" class="meta" role="status" hidden></div>
         <div id="resetStatus" class="meta reset-status" role="status" hidden></div>
 
         <div class="btnrow">
           <button id="newRun">New Run (new seed)</button>
+          <button id="finishGeneration" hidden>Finish generation now</button>
         </div>
         <div class="meta">Starts and checkpoints a new seed without deleting earlier saves.</div>
 
@@ -263,6 +265,7 @@
         <h3>God Mode Log</h3>
         <p class="meta">Recent interactions (last 10)</p>
       </div>
+      <label class="meta"><input id="followIndividual" type="checkbox" checked> Follow population individual across lives</label>
       <div id="godModeLog" class="god-mode-log" style="font-family: monospace; font-size: 11px; color: #aaa; max-height: 150px; overflow-y: auto;"></div>
     </div>
 

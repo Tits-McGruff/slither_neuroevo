@@ -208,6 +208,8 @@ pub struct RunningGenerationStartResolution {
 /// One retained scheduler and complete-step coordinator around running authority.
 #[derive(Debug)]
 pub struct RunningAuthorityLoop {
+    /// Ordered mutations retire capture until a new control evaluation publishes.
+    visualization_invalidated: bool,
     authority: AuthoritativeState,
     scheduler: FixedStepScheduler,
     coordinator: RunningStepCoordinator,
@@ -220,6 +222,7 @@ pub struct RunningAuthorityLoop {
     background_clock: Option<std::time::Instant>,
     pending_reclaim: Option<(u64, super::state::PreparedControllerReclaim)>,
     pending_join: Option<(u64, super::state::PreparedControllerJoin)>,
+    pending_finish: Option<(String, String, u64)>,
     work_limits: RunningStepWorkLimits,
 }
 
@@ -272,6 +275,7 @@ impl RunningAuthorityLoop {
         prepared: PreparedRunningAuthorityLoop,
     ) -> Self {
         Self {
+            visualization_invalidated: false,
             authority,
             scheduler: prepared.scheduler,
             coordinator: prepared.coordinator,
@@ -284,8 +288,43 @@ impl RunningAuthorityLoop {
             background_clock: None,
             pending_reclaim: None,
             pending_join: None,
+            pending_finish: None,
             work_limits: prepared.work_limits,
         }
+    }
+
+    /// Admit one idempotent run/generation-scoped request at a fresh boundary.
+    pub(crate) fn request_finish_generation(
+        &mut self,
+        request_id: String,
+        expected_run_id: String,
+        expected_generation: u64,
+    ) -> Result<u64, String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("finish generation requires a fresh authoritative boundary".to_owned());
+        }
+        let source = self.authority.state();
+        if source.identity.run_id != expected_run_id
+            || source.generation.generation != expected_generation
+        {
+            return Err("stale finish generation run or generation".to_owned());
+        }
+        let request = (request_id, expected_run_id, expected_generation);
+        if self
+            .pending_finish
+            .as_ref()
+            .is_some_and(|pending| pending != &request)
+        {
+            return Err("another finish generation request is already pending".to_owned());
+        }
+        let effective_step = source
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or_else(|| "finish generation step overflow".to_owned())?;
+        self.pending_finish = Some(request);
+        self.coordinator.request_manual_finish();
+        Ok(effective_step)
     }
 
     /// Service one already-drained command/action boundary and at most one step.
@@ -418,28 +457,66 @@ impl RunningAuthorityLoop {
 
     /// Copy a newly published focused snapshot into the independent display cache.
     pub(crate) fn publish_visualization(
-        &self,
+        &mut self,
         display: &super::display::RunningDisplayCache,
     ) -> Result<(), super::error::EngineError> {
-        if let Some(visualization) = self
-            .coordinator
-            .visualization()
-            .filter(|value| value.completed_step == self.completed_step())
-        {
+        if let Some(visualization) = self.coordinator.visualization().filter(|value| {
+            value.completed_step == self.completed_step()
+                && self.authority.state().world.snakes.iter().any(|snake| {
+                    snake.alive
+                        && snake.id == value.physical_id
+                        && snake.frame_v1_id == value.frame_v1_id
+                })
+        }) {
+            if self.visualization_invalidated && !display.clear_visualization()? {
+                return Ok(());
+            }
             display.publish_visualization(self.world_epoch(), visualization)?;
+            self.visualization_invalidated = false;
+        } else if self.visualization_invalidated {
+            display.clear_visualization()?;
+        } else {
+            display.retain_current_visualization(self.world_epoch(), |id, frame| {
+                self.authority
+                    .state()
+                    .world
+                    .snakes
+                    .iter()
+                    .any(|snake| snake.alive && snake.id == id && snake.frame_v1_id == frame)
+            })?;
         }
         Ok(())
+    }
+
+    /// Resolve a selection only in the expected run/generation at a clean boundary.
+    pub(crate) fn select_entity(
+        &self,
+        target: super::state::EntitySelectionTarget,
+        expected_run_id: &str,
+        expected_generation: u64,
+    ) -> Result<Option<super::state::EntitySelection>, String> {
+        self.require_action_state("select entity", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        if self.authority.state().identity.run_id != expected_run_id
+            || self.authority.state().generation.generation != expected_generation
+        {
+            return Err("entity selection refers to a replaced run or generation".to_owned());
+        }
+        Ok(self.authority.select_entity(target))
     }
 
     /// Apply one ordered God Mode move before the next fixed step is prepared.
     pub(crate) fn apply_god_mode_move(
         &mut self,
+        token: super::state::EntitySelectionToken,
         frame_v1_id: u32,
         x: f64,
         y: f64,
     ) -> Result<(super::god_mode::GodModeMovePublication, u64), String> {
         self.require_action_state("apply God Mode move", RunningAuthorityLoopState::Ready)
             .map_err(|error| error.to_string())?;
+        self.authority
+            .validate_entity_selection(token, frame_v1_id)?;
         let effective_step = self
             .authority
             .state()
@@ -451,16 +528,21 @@ impl RunningAuthorityLoop {
             .authority
             .apply_god_mode_move(frame_v1_id, x, y)
             .map_err(|error| error.to_string())?;
+        self.coordinator.invalidate_visualization();
+        self.visualization_invalidated = true;
         Ok((publication, effective_step))
     }
 
     /// Kill one live snake with normal corpse, RNG, allocator, and later lifecycle handling.
     pub(crate) fn apply_god_mode_kill(
         &mut self,
+        token: super::state::EntitySelectionToken,
         frame_v1_id: u32,
     ) -> Result<(super::god_mode::GodModeKillPublication, u64), String> {
         self.require_action_state("apply God Mode kill", RunningAuthorityLoopState::Ready)
             .map_err(|error| error.to_string())?;
+        self.authority
+            .validate_entity_selection(token, frame_v1_id)?;
         let effective_step = self
             .authority
             .state()
@@ -478,6 +560,8 @@ impl RunningAuthorityLoop {
             .authority
             .apply_god_mode_kill(frame_v1_id, physics)
             .map_err(|error| error.to_string())?;
+        self.coordinator.invalidate_visualization();
+        self.visualization_invalidated = true;
         Ok((publication, effective_step))
     }
 
@@ -1189,6 +1273,7 @@ impl RunningAuthorityLoop {
         }
         self.coordinator
             .commit_published_generation_rebind(prepared_rebind);
+        self.pending_finish = None;
         self.pending_step = None;
         self.pending_due_steps = None;
         let frame = match frame {

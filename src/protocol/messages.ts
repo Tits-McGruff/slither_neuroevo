@@ -1,3 +1,4 @@
+import type { GenerationExperimentSummary, HallOfFameAssessment } from './experimentRecords.ts';
 /** Fitness summary for a single generation. */
 export interface FitnessData {
   gen: number;
@@ -8,6 +9,8 @@ export interface FitnessData {
 
 /** Historical fitness metrics used by charts and UI. */
 export interface FitnessHistoryEntry {
+  /** Optional native experiment summary; absent for preserved legacy history. */
+  experiment?: GenerationExperimentSummary;
   gen: number;
   best: number;
   avg: number;
@@ -43,6 +46,8 @@ export interface VizData {
 
 /** Hall of Fame entry for resurrecting elite snakes. */
 export interface HallOfFameEntry {
+  /** Explicit version-two assessment and display-length semantics. */
+  assessment?: HallOfFameAssessment;
   gen: number;
   seed: number;
   fitness: number;

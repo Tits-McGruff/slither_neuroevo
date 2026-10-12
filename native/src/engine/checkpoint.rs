@@ -13,10 +13,10 @@ use super::rng::SerializedRngState;
 use super::state::{
     preflight_generation_boundary_allocation, AllocatorState, AuthoritativeState, AuthorityPhase,
     BaselineRngState, BrainHandle, BrainOwner, BrainRuntimeState, ContractVersions,
-    FixedStepContinuationState, GenerationBoundaryKind, GenerationBoundaryView, GenerationState,
-    GenomeLineage, NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue,
-    PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate,
-    StateError, WorldState, CHECKPOINT_VERSION,
+    EvolvedRespawnRngState, FixedStepContinuationState, GenerationBoundaryKind,
+    GenerationBoundaryView, GenerationState, GenomeLineage, NormalizedEngineConfig,
+    NormalizedSetting, NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity,
+    StateAdmissionPolicy, StateCandidate, StateError, WorldState, CHECKPOINT_VERSION,
 };
 use super::work_progress::{advance as advance_work_progress, ArchivePhase, ArchivePhaseScope};
 use serde::{Deserialize, Serialize};
@@ -2245,6 +2245,21 @@ fn encode_rng_bundle(
     value: &RngStateBundle,
     limits: &CheckpointLimits,
 ) -> Result<(), CheckpointError> {
+    if !matches!(
+        value.version,
+        super::state::RNG_BUNDLE_VERSION | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+    ) {
+        return Err(CheckpointError::format(
+            "RNG_VERSION",
+            "unsupported RNG bundle encoding",
+        ));
+    }
+    if value.version == super::state::RNG_BUNDLE_VERSION && !value.evolved_respawns.is_empty() {
+        return Err(CheckpointError::format(
+            "RNG_STATE",
+            "frozen RNG bundle has evolved streams",
+        ));
+    }
     if value.baselines.len() > limits.max_baseline_rng_count {
         return Err(CheckpointError::format(
             "RNG_LIMIT",
@@ -2259,6 +2274,30 @@ fn encode_rng_bundle(
     for baseline in &value.baselines {
         output.u32(baseline.slot)?;
         encode_rng(output, &baseline.state)?;
+    }
+    if value.version == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        if value.evolved_respawns.len() > limits.max_population_count
+            || value.evolved_respawns.len() > 300
+        {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "evolved RNG count exceeds checkpoint limit",
+            ));
+        }
+        output.u32(usize_to_u32(
+            value.evolved_respawns.len(),
+            "evolved RNG count",
+        )?)?;
+        for (slot, stream) in value.evolved_respawns.iter().enumerate() {
+            if stream.slot as usize != slot || stream.uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "evolved RNG slots must be dense and nonzero",
+                ));
+            }
+            output.u32(stream.slot)?;
+            output.u32(stream.uniform_state)?;
+        }
     }
     Ok(())
 }
@@ -2485,6 +2524,15 @@ fn decode_rng_bundle(
     limits: &CheckpointLimits,
 ) -> Result<RngStateBundle, CheckpointError> {
     let version = input.u32()?;
+    if !matches!(
+        version,
+        super::state::RNG_BUNDLE_VERSION | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+    ) {
+        return Err(CheckpointError::format(
+            "RNG_VERSION",
+            "unsupported RNG bundle encoding",
+        ));
+    }
     let world = decode_rng(input)?;
     let evolution = decode_rng(input)?;
     let external_controller = decode_rng(input)?;
@@ -2505,7 +2553,40 @@ fn decode_rng_bundle(
             state: decode_rng(input)?,
         });
     }
+    let mut evolved_respawns = Vec::new();
+    if version == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        let count = u32_to_usize(input.u32()?, "evolved RNG count")?;
+        if count > limits.max_population_count || count > 300 {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "declared evolved RNG count exceeds limit",
+            ));
+        }
+        let packed_length = count
+            .checked_mul(8)
+            .ok_or_else(|| CheckpointError::format("ARITHMETIC", "evolved RNG bytes overflow"))?;
+        // Prove the complete packed record range exists before reserving storage.
+        let packed = input.raw(packed_length)?;
+        evolved_respawns.try_reserve_exact(count).map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve evolved RNG states")
+        })?;
+        for (slot, record) in packed.chunks_exact(8).enumerate() {
+            let actual_slot = u32::from_le_bytes([record[0], record[1], record[2], record[3]]);
+            let uniform_state = u32::from_le_bytes([record[4], record[5], record[6], record[7]]);
+            if actual_slot as usize != slot || uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "evolved RNG slots must be dense and nonzero",
+                ));
+            }
+            evolved_respawns.push(EvolvedRespawnRngState {
+                slot: actual_slot,
+                uniform_state,
+            });
+        }
+    }
     Ok(RngStateBundle {
+        evolved_respawns,
         version,
         world,
         evolution,
@@ -4422,6 +4503,23 @@ pub(super) fn scan_strict_ustar_roles(
     file: &mut File,
     archive_length: u64,
     entry_count: usize,
+    validate_role: impl FnMut(&str, u64) -> Result<(), CheckpointError>,
+) -> Result<Vec<ScannedEntry>, CheckpointError> {
+    scan_strict_ustar_role_range(
+        file,
+        archive_length,
+        entry_count,
+        entry_count,
+        validate_role,
+    )
+}
+
+/// Scan a bounded version-dispatched role count; each caller validates its exact manifest set.
+pub(super) fn scan_strict_ustar_role_range(
+    file: &mut File,
+    archive_length: u64,
+    minimum_entry_count: usize,
+    entry_count: usize,
     mut validate_role: impl FnMut(&str, u64) -> Result<(), CheckpointError>,
 ) -> Result<Vec<ScannedEntry>, CheckpointError> {
     file.seek(SeekFrom::Start(0))?;
@@ -4514,7 +4612,8 @@ pub(super) fn scan_strict_ustar_roles(
         offset = next;
         file.seek(SeekFrom::Start(offset))?;
     }
-    if entries.len() != entry_count
+    if entries.len() < minimum_entry_count
+        || entries.len() > entry_count
         || entries
             .last()
             .is_none_or(|entry| entry.name != MANIFEST_PATH)
@@ -5420,6 +5519,7 @@ mod tests {
             expected_rustc_version: "rustc-test".into(),
             expected_build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
             expected_math_backend: "scalar-test".into(),
+            allowed_settings_schema_sha256: Vec::new(),
             expected_settings_schema_sha256: settings_schema_sha256,
         }
     }
@@ -5556,6 +5656,7 @@ mod tests {
             },
             fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
+                evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: rng(),
                 evolution: rng(),
@@ -5602,6 +5703,86 @@ mod tests {
         .expect("checkpoint publication must succeed");
         let path = directory.path.join(&descriptor.relative_filename);
         (path, descriptor)
+    }
+
+    #[test]
+    fn rng_bundle_v2_roundtrips_dense_evolved_continuation_without_changing_v1_encoding() {
+        let (authority, graph, policy) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let legacy_bytes = encode_state(authority.state(), &limits).unwrap();
+        let legacy = decode_state(&legacy_bytes, &limits).unwrap();
+        assert!(legacy.rng.evolved_respawns.is_empty());
+        assert_eq!(legacy.rng.version, super::super::state::RNG_BUNDLE_VERSION);
+        let mut candidate = authority.state().clone();
+        candidate.versions.rng_bundle = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        candidate.rng.version = candidate.versions.rng_bundle;
+        candidate.rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(
+            candidate.identity.seed,
+            candidate.generation.generation,
+            candidate.population.len(),
+        )
+        .unwrap();
+        let mut runtime = candidate.rng.evolved_respawns[0].runtime().unwrap();
+        for _ in 0..17 {
+            runtime.next_f64();
+        }
+        candidate.rng.evolved_respawns[0].uniform_state = runtime.uniform_state();
+        let encoded = encode_state(&candidate, &limits).unwrap();
+        assert_eq!(decode_state(&encoded, &limits).unwrap().rng, candidate.rng);
+        assert_eq!(
+            encode_state(authority.state(), &limits).unwrap(),
+            legacy_bytes
+        );
+        let owned = AuthoritativeState::validate_and_own(candidate, graph, &policy).unwrap();
+        let directory = TestDirectory::new("evolved-rng-v2");
+        let (file, descriptor) = publish_fixture(
+            &directory,
+            &owned,
+            &policy,
+            "abababababababababababababababab",
+        );
+        let restored = restore_checkpoint(&file, &limits, &graph_limits(), &policy).unwrap();
+        assert_eq!(restored.state.state().rng, owned.state().rng);
+        assert_eq!(
+            restored.content.logical_root_sha256,
+            descriptor.logical_root_sha256
+        );
+    }
+
+    #[test]
+    fn rng_bundle_v2_rejects_oversized_truncated_and_invalid_packed_records() {
+        let (authority, _, _) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut rng = authority.state().rng.clone();
+        rng.version = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(7, 1, 2).unwrap();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let original = writer.bytes;
+        let records_start = original.len() - 16;
+        for (offset, replacement, expected_code) in [
+            (records_start - 4, 301_u32, "RNG_LIMIT"),
+            (records_start, 1, "RNG_STATE"),
+            (records_start + 4, 0, "RNG_STATE"),
+        ] {
+            let mut bytes = original.clone();
+            bytes[offset..offset + 4].copy_from_slice(&replacement.to_le_bytes());
+            let error =
+                decode_rng_bundle(&mut BinaryReader::new(&bytes, &limits), &limits).unwrap_err();
+            assert!(matches!(error, CheckpointError::Format { code, .. } if code == expected_code));
+        }
+        assert!(decode_rng_bundle(
+            &mut BinaryReader::new(&original[..original.len() - 1], &limits),
+            &limits
+        )
+        .is_err());
+        rng.version = super::super::state::RNG_BUNDLE_VERSION;
+        assert!(encode_rng_bundle(
+            &mut BinaryWriter::new(limits.max_state_bytes, &limits),
+            &rng,
+            &limits
+        )
+        .is_err());
     }
 
     /// Origin records survive binary state saves while old states remain readable.

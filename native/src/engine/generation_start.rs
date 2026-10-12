@@ -352,7 +352,19 @@ impl GenerationStartWorkspace {
             world_step.baseline,
             &self.world,
         )?;
+        let evolved_generation = super::evolved_lives::EvolvedGenerationState::initialize(
+            &self.world,
+            population_count,
+            world_step.prefix.baseline_spawn.snake_start_len,
+        )
+        .map_err(|error| {
+            GenerationStartError::State(Box::new(StateError::InvalidField {
+                field: "fixed_step.evolved_generation",
+                reason: error.to_string(),
+            }))
+        })?;
         self.fixed_step = Some(FixedStepContinuationState {
+            evolved_generation,
             ambient_pellet_accumulator: 0.0,
             baseline_lifecycle: lifecycle,
             sensor_generation: super::sensors::SensorGenerationState::new(),

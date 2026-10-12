@@ -39,8 +39,8 @@ use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERRO
 use crate::engine::export_archive::prepare_legacy_sqlite_population_import;
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_checkpoint_restore, prepare_stage6a_p0_compatible_checkpoint_restore,
-    prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest,
+    prepare_configured_fresh_run_with_settings_and_graph, prepare_stage6a_p0_checkpoint_restore,
+    prepare_stage6a_p0_compatible_checkpoint_restore, Stage6aP0FreshRunRequest,
 };
 use crate::engine::generation::GenerationCommitRecord;
 use crate::engine::physics::PhysicsStepKey;
@@ -246,9 +246,29 @@ pub struct Stage6HallOfFameRecord {
     pub successor_genome_id: String,
 }
 
+/// Exact versioned terminal chronology persisted beside compact generation history.
+#[napi(object)]
+pub struct Stage6GenerationCompletionRecord {
+    pub version: u32,
+    pub reason: String,
+    pub actual_elapsed_f64_hex: String,
+    pub configured_duration_f64_hex: String,
+    pub completed_step: String,
+}
+
+/// Fixed metadata extension; byte order and all numeric bits are Rust-authored.
+#[napi(object)]
+pub struct Stage6GenerationExperimentRecord {
+    pub version: u32,
+    pub history_hex: String,
+    pub hall_of_fame_hex: String,
+}
+
 /// Complete scalar-only generation commit assembled by Rust admission.
 #[napi(object)]
 pub struct Stage6GenerationCommitRecord {
+    pub experiment: Option<Stage6GenerationExperimentRecord>,
+    pub completion: Option<Stage6GenerationCompletionRecord>,
     pub summary: Stage6GenerationSummaryRecord,
     pub hall_of_fame: Stage6HallOfFameRecord,
 }
@@ -443,6 +463,19 @@ pub struct BackgroundControllerReceiptResolution {
     pub published_completed_step: Option<String>,
 }
 
+/// On-demand native identity and presentation scalars for one live entity.
+#[napi(object)]
+pub struct BackgroundEntitySelection {
+    pub token: String,
+    pub snake_id: u32,
+    pub population_slot: Option<u32>,
+    pub life_ordinal: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub radius: f64,
+    pub skin: u32,
+}
+
 /// Small authoritative result of one in-bounds God Mode translation.
 #[napi(object)]
 pub struct BackgroundGodModeMove {
@@ -487,6 +520,8 @@ pub struct Stage6BackgroundGenerationEvent {
     pub settings_config_revision: Option<String>,
     pub settings_config_hash: Option<String>,
     pub settings_effective_step: Option<String>,
+    pub finish_generation_effective_step: Option<String>,
+    pub entity_selection: Option<BackgroundEntitySelection>,
     pub god_mode_move: Option<BackgroundGodModeMove>,
     pub god_mode_kill: Option<BackgroundGodModeKill>,
     pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
@@ -1302,8 +1337,14 @@ impl Task for InitializeExperimentalFreshRunTask {
                     )
                     .map_err(|error| error.to_string())?
                 }
-                FreshRunInitialization::Fresh => prepare_stage6a_p0_fresh_run(self.request.clone())
-                    .map_err(|error| error.to_string())?,
+                FreshRunInitialization::Fresh => {
+                    prepare_configured_fresh_run_with_settings_and_graph(
+                        self.request.clone(),
+                        &[],
+                        crate::engine::graph::typescript_default_graph_spec(),
+                    )
+                    .map_err(|error| error.to_string())?
+                }
             };
             transition.configure_calculation_workers(self.calculation_workers)?;
             let mut inner = lock_recover(&self.inner);
@@ -3195,6 +3236,26 @@ pub(crate) fn parse_background_sequence(value: JsString<'_>) -> Result<u64> {
 /// Convert the Rust-owned compact generation record without numeric narrowing.
 fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6GenerationCommitRecord {
     Stage6GenerationCommitRecord {
+        experiment: record.experiment.map(|record| {
+            let bytes = record.encode();
+            let hex = |source: &[u8]| -> String {
+                source.iter().map(|byte| format!("{byte:02x}")).collect()
+            };
+            Stage6GenerationExperimentRecord {
+                version: 1,
+                history_hex: hex(&bytes[..512]),
+                hall_of_fame_hex: hex(&bytes[512..]),
+            }
+        }),
+        completion: record
+            .completion
+            .map(|completion| Stage6GenerationCompletionRecord {
+                version: 1,
+                reason: generation_transition_reason_name(completion.reason).to_owned(),
+                actual_elapsed_f64_hex: u64_hex(completion.actual_elapsed_f64_bits),
+                configured_duration_f64_hex: u64_hex(completion.configured_duration_f64_bits),
+                completed_step: u64_hex(completion.completed_step),
+            }),
         summary: Stage6GenerationSummaryRecord {
             completed_generation: u64_hex(record.summary.completed_generation),
             best_f64_hex: u64_hex(record.summary.best_f64_bits),
@@ -3365,6 +3426,31 @@ fn running_authority_event_to_napi(
             output.settings_config_hash = Some(config_hash);
             output.settings_effective_step = Some(u64_hex(effective_step));
         }
+        RunningAuthorityEvent::FinishGenerationAccepted {
+            command_sequence,
+            effective_step,
+        } => {
+            output.kind = "finishGenerationAccepted".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.finish_generation_effective_step = Some(u64_hex(effective_step));
+        }
+        RunningAuthorityEvent::EntitySelected {
+            command_sequence,
+            selection,
+        } => {
+            output.kind = "entitySelected".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.entity_selection = selection.map(|value| BackgroundEntitySelection {
+                token: value.token.encode(),
+                snake_id: value.frame_v1_id,
+                population_slot: value.population_slot,
+                life_ordinal: value.life_ordinal.map(u64_hex),
+                x: value.x,
+                y: value.y,
+                radius: value.radius,
+                skin: value.skin,
+            });
+        }
         RunningAuthorityEvent::GodModeMoved {
             command_sequence,
             frame_v1_id,
@@ -3498,7 +3584,7 @@ fn running_authority_event_to_napi(
                 hall_of_fame_weights: hall_of_fame_weights_descriptor_to_napi(
                     *hall_of_fame_weights,
                 ),
-                generation_commit: generation_commit_to_napi(commit_record),
+                generation_commit: generation_commit_to_napi(*commit_record),
             });
         }
         RunningAuthorityEvent::GenerationPersistenceAcknowledged {
@@ -3684,6 +3770,8 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         settings_config_revision: None,
         settings_config_hash: None,
         settings_effective_step: None,
+        finish_generation_effective_step: None,
+        entity_selection: None,
         god_mode_move: None,
         god_mode_kill: None,
         hall_of_fame_resurrection: None,
@@ -3828,6 +3916,7 @@ fn sha256_hex(bytes: [u8; 32]) -> String {
 
 const fn generation_transition_reason_name(reason: GenerationTransitionReason) -> &'static str {
     match reason {
+        GenerationTransitionReason::Manual => "manual",
         GenerationTransitionReason::Duration => "duration",
         GenerationTransitionReason::EarlyAliveCount => "earlyAliveCount",
     }
@@ -5033,6 +5122,7 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::contract::RunningAuthorityCommand;
     use crate::engine::queues::WakeSink;
     use std::sync::atomic::AtomicU64;
     use std::time::{Duration, Instant};
@@ -5092,6 +5182,22 @@ mod tests {
             .checked_mul(std::mem::size_of::<SequencedCommand>())
             .expect("supported command metadata multiplication is representable");
         assert!(metadata_bytes <= MAX_NAPI_BATCH_METADATA_BYTES);
+        let token = crate::engine::state::EntitySelectionToken::parse(&"1".repeat(64)).unwrap();
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 1,
+                command: EngineCommand::RunningAuthority(RunningAuthorityCommand::GodModeKill {
+                    frame_v1_id: 1,
+                    token: Box::new(token),
+                }),
+            }]
+            .into_boxed_slice(),
+        };
+        assert_eq!(
+            batch.validate().unwrap().owned_bytes,
+            std::mem::size_of::<crate::engine::state::EntitySelectionToken>()
+        );
         assert_eq!(
             metadata_bytes
                 .checked_add(MAX_NAPI_BATCH_OWNED_BYTES)

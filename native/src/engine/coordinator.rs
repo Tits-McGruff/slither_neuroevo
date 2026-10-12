@@ -1068,8 +1068,16 @@ fn execute_running_authority_command(
                     effective_step,
                 }
             }),
-        RunningAuthorityCommand::GodModeMove { frame_v1_id, x, y } => running
-            .apply_god_mode_move(frame_v1_id, x, y)
+        RunningAuthorityCommand::FinishGeneration { request_id, expected_run_id, expected_generation } => running
+            .request_finish_generation(request_id, expected_run_id, expected_generation)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|effective_step| RunningAuthorityEvent::FinishGenerationAccepted { command_sequence, effective_step }),
+        RunningAuthorityCommand::SelectEntity { target, expected_run_id, expected_generation } => running
+            .select_entity(target, &expected_run_id, expected_generation)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|selection| RunningAuthorityEvent::EntitySelected { command_sequence, selection }),
+        RunningAuthorityCommand::GodModeMove { token, frame_v1_id, x, y } => running
+            .apply_god_mode_move(*token, frame_v1_id, x, y)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|(publication, effective_step)| RunningAuthorityEvent::GodModeMoved {
                 command_sequence,
@@ -1078,8 +1086,8 @@ fn execute_running_authority_command(
                 y: publication.y,
                 effective_step,
             }),
-        RunningAuthorityCommand::GodModeKill { frame_v1_id } => running
-            .apply_god_mode_kill(frame_v1_id)
+        RunningAuthorityCommand::GodModeKill { token, frame_v1_id } => running
+            .apply_god_mode_kill(*token, frame_v1_id)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|(publication, effective_step)| RunningAuthorityEvent::GodModeKilled {
                 command_sequence,
@@ -1119,7 +1127,7 @@ fn execute_running_authority_command(
                     command_sequence,
                     descriptor: Box::new(publication.descriptor),
                     hall_of_fame_weights: Box::new(publication.hall_of_fame_weights),
-                    commit_record: publication.commit_record,
+                    commit_record: Box::new(publication.commit_record),
                 },
             ),
         RunningAuthorityCommand::AcknowledgeGenerationPersistence { descriptor } => {
@@ -1260,7 +1268,8 @@ fn running_response_owned_byte_bound(
                         }
                     };
                     size_of::<super::checkpoint::CheckpointDescriptor>()
-                        .checked_add(descriptor_bytes)
+                        .checked_add(size_of::<super::generation::GenerationCommitRecord>())
+                        .and_then(|bytes| bytes.checked_add(descriptor_bytes))
                         .and_then(|bytes| {
                             bytes.checked_add(size_of::<
                                 super::checkpoint::HallOfFameWeightsDescriptor,
@@ -1302,6 +1311,8 @@ fn running_response_owned_byte_bound(
         | RunningAuthorityCommand::DisconnectController(_) => 0,
         // A canonical `sha256:` identity is 71 bytes; allow allocator rounding too.
         RunningAuthorityCommand::ApplyLiveSettings { .. } => 128,
+        RunningAuthorityCommand::FinishGeneration { .. } => 0,
+        RunningAuthorityCommand::SelectEntity { .. } => 0,
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
         RunningAuthorityCommand::SetVisualization { .. } => 0,
@@ -2705,9 +2716,15 @@ mod tests {
             let running = background_generation_handoff_fixture().unwrap().running;
             let mut init = background_generation_handoff_runtime_init();
             init.output.max_reliable = if byte_pressure { 8 } else { 2 };
-            init.output.max_event_owned_bytes = 2048;
-            init.output.max_reliable_owned_bytes = 2048;
-            init.inbound.max_batch_owned_bytes = 2048;
+            let mut publication_probe = background_generation_handoff_fixture().unwrap().running;
+            advance_to_transition(&mut publication_probe);
+            let publication_bound =
+                running_response_owned_byte_bound(&managed.publish_command(), &publication_probe)
+                    .unwrap();
+            drop(publication_probe);
+            init.output.max_event_owned_bytes = publication_bound;
+            init.output.max_reliable_owned_bytes = publication_bound;
+            init.inbound.max_batch_owned_bytes = publication_bound;
             let runtime =
                 EngineRuntime::new_running_authority(init, running, Arc::new(NoopWakeSink))
                     .unwrap();
@@ -2719,7 +2736,7 @@ mod tests {
                     1,
                     EngineCommand::Probe {
                         correlation_id: 1,
-                        payload: vec![0; 2048 - size_of::<RunningAuthorityEvent>()],
+                        payload: vec![0; publication_bound - size_of::<RunningAuthorityEvent>()],
                     },
                 );
                 wait_for_runtime(&runtime, || runtime.health().processed_commands == 1);

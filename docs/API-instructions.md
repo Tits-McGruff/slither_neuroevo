@@ -106,7 +106,7 @@ printed LAN address when the bot runs on another trusted home device:
    `snakeId`.
 
 A UI client may join as a `spectator` or `player`. The authoritative control
-messages `settings`, `godMode`, `reset`, and `newRun` require a joined UI
+messages `settings`, `selectEntity`, `godMode`, `reset`, and `newRun` require a joined UI
 client. Bots cannot invoke them.
 
 The server does not implement an application-level idle timeout. `ping` is
@@ -259,6 +259,38 @@ normalized and applied atomically, or rejected without incrementing
 `configRevision`. Successful results are broadcast to all joined UIs as
 `settingsApplied`; rejection is returned to the requester.
 
+### `selectEntity` (joined UI only)
+
+Resolve a displayed snake before a physical mutation:
+
+```json
+{
+  "type": "selectEntity",
+  "requestId": "select-42",
+  "expectedSessionId": "<welcome.sessionId>",
+  "expectedRunId": "<welcome.runId>",
+  "expectedGeneration": 1,
+  "snakeId": 42
+}
+```
+
+Use the exact generation from scalar `stats`, which does not lose precision
+in the binary frame header. Supply exactly one selector: a positive frame ID
+`snakeId` (at most 16777216), or `populationSlot` (0..299) to reacquire the
+current life of a persistent evolved owner. Slots are distinct from frame IDs.
+
+The reliable `entitySelected` reply contains `requestId`, `found`, and, when
+found, an `entity` with `token`, `snakeId`, optional `populationSlot` and
+`lifeOrdinal`, and scalar `x`, `y`, `radius`, `skin`. `lifeOrdinal` is an exact
+16-character lowercase hexadecimal counter. A dead/pending owner returns
+`found: false`. Stale scope or busy admission also returns `found: false` with
+a reason. At most one request per connection and 128 globally remain pending.
+
+Copy the returned opaque 64-character lowercase hexadecimal token unchanged.
+Rust binds it to an ephemeral world incarnation and the full physical ID.
+Resolve again after death, replacement, generation change or reconnect; frame
+IDs can wrap. Token allocation consumes no gameplay RNG and is not checkpointed.
+
 ### `godMode` (joined UI only)
 
 Kill one snake through the normal death path:
@@ -268,7 +300,8 @@ Kill one snake through the normal death path:
   "type": "godMode",
   "requestId": "god-8",
   "action": "kill",
-  "snakeId": 42
+  "snakeId": 42,
+  "selectionToken": "<entity.token from selectEntity>"
 }
 ```
 
@@ -280,13 +313,16 @@ Or translate its complete body:
   "requestId": "god-9",
   "action": "move",
   "snakeId": 42,
+  "selectionToken": "<entity.token from selectEntity>",
   "x": 125.5,
   "y": -80
 }
 ```
 
 The command is queued for a fixed-step boundary. Movement is clamped so the
-body remains within the world. The requester receives `godModeResult`.
+body remains within the world. Rust revalidates the token before any mutation.
+Missing/stale tokens reject without changing the game. The requester receives
+`godModeResult`; successful results echo `selectionToken`.
 
 ### `reset` (joined UI only)
 
@@ -310,10 +346,44 @@ All fields after `type` are optional. `settings` accepts only the core settings
 defined in `server/protocol.ts`; `updates` accepts the reset/import paths in
 `src/protocol/settings.ts`; `graphSpec` is an object or `null`.
 
+Life experiments are reset-only numeric updates. A legacy configuration has no
+`evolvedRespawn.contractVersion` update in welcome. To opt in, send all 17 paths
+in `EVOLVED_SETTING_PATHS` from `src/protocol/settingDefinitions.ts`, including
+`evolvedRespawn.contractVersion: 1`. Partial legacy upgrades reject atomically.
+An already selected life contract can update a subset; omitted values remain
+recorded. Enum codes are the explicit option values in the shared definitions;
+unknown/fractional codes, duplicate life paths and out-of-range life values reject.
+Reset/New Run and archive restore preserve the selected contract. Enabling
+respawn does not implicitly change `world.pelletOverflow`.
+
 Reset is a deterministic experiment restart: the same seed and authoritative
 configuration reconstruct the same initial state. Before the new run is made
 current, the server writes a durable run-start checkpoint. A failed transition
 produces `error`; there is no separate successful reset acknowledgement.
+
+### `finishGeneration` (joined UI only)
+
+When welcome advertises `capabilities.finishGeneration`, the UI may request
+completion of the observed run and generation:
+
+```json
+{
+  "type": "finishGeneration",
+  "requestId": "finish-7",
+  "expectedRunId": "active-run-id",
+  "expectedGeneration": 7
+}
+```
+
+Rust retains one idempotent generation-scoped request. It completes the next
+eligible full fixed step, evaluates Manual before Duration and early completion,
+and uses ordinary evolution, checkpoint, metadata and successor publication.
+Stale or competing requests are rejected. `finishGenerationResult` reports
+`pending`, `completed` or `rejected`, with the request ID, run ID and generation;
+completion is reported only after the durability and delivery barriers pass.
+Duration remains numeric seconds on the wire (8..604800); text parsing belongs
+to the browser. New save archives containing completion chronology use archive
+version 2 with a bounded generation-completion role; version 1 remains readable.
 
 ### `newRun` (joined UI only)
 
@@ -699,7 +769,25 @@ in the JSON request.
 - `POST /api/graph-presets` accepts `{ "name": string, "spec": object }` and
   returns `presetId`.
 
+#### `GET /api/history`
+
+Returns `{ version: 1, runId, history }` with at most 120 completed-generation
+rows from the active run and its retained ancestry. Legacy rows retain their
+existing fitness fields. Modern rows add the native fixed experiment summary:
+completion cause/times, life counts, economic score reductions, exclusive death
+causes, pending/exhausted state, actual corpse output, fitness components and
+the winner assessment. Exact u64 counters use 16-character lowercase hex.
+These are generation-boundary summaries, not a durable mid-round journal.
+Experiment summaries are served on demand; frame-cadence stats retain compact
+fitness history.
+
 #### `GET /api/hof`
+
+Modern entries include `assessment.version: 2`, the actual point/bundle methods,
+economic values, exact life counts and labelled length semantics. Their displayed
+`points` is the selected assessment; `length` is latest-life length for Reset,
+generation peak for Cumulative, or selected-life peak for Best Life. Entries
+without the extension retain legacy physical score/length meanings.
 
 Returns `{ "hof": [...] }` with compact retained Hall-of-Fame metadata.
 Production does not accept `POST /api/hof`, `POST /api/save` or the retired

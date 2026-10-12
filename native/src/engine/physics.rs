@@ -11,8 +11,10 @@
 
 use super::collision::{CollisionConfig, CollisionError, CollisionWorkspace};
 use super::effects::{
-    BaselineDeathEvent, DeathDropConfig, EffectError, EffectWorkspace, PreparedEffects,
+    BaselineDeathEvent, DeathDropConfig, EffectError, EffectLifecyclePolicy, EffectWorkspace,
+    PreparedEffects,
 };
+use super::evolved_lives::{EvolvedDeathCause, EvolvedPhysicsDelta};
 use super::fixed_step::{
     controller_text_capacity, copy_controller_leases_reusing, copy_rng_bundle_reusing,
     rng_text_capacity, FixedStepPrefixError, RngCopyScratch,
@@ -539,6 +541,11 @@ impl PhysicsPipelineWorkspace {
         self.substep.diagnostics()
     }
 
+    /// Last complete effect phase, including storage discards.
+    pub(crate) fn effect_diagnostics(&self) -> super::effects::EffectDiagnostics {
+        self.effects.diagnostics()
+    }
+
     /// Retained complete pellet-index storage from the last attempted substep.
     #[must_use]
     pub fn pellet_index_diagnostics(&self) -> PelletIndexDiagnostics {
@@ -590,6 +597,7 @@ struct PhysicsSubstepWorkspace {
     next_allocators: Option<AllocatorState>,
     death_markers: Vec<bool>,
     baseline_deaths: Vec<BaselineDeathEvent>,
+    evolved_deltas: Vec<EvolvedPhysicsDelta>,
     ready: Option<PhysicsSubstepKey>,
     staged_config: Option<PhysicsConfig>,
     validation: PhysicalValidationScratch,
@@ -642,6 +650,54 @@ impl PhysicsSubstepWorkspace {
             effects.baseline_deaths().len(),
             "physics baseline events",
         )?;
+        reserve_for(
+            &mut self.evolved_deltas,
+            food.snakes().len(),
+            "substep economic deltas",
+        )?;
+        for (index, snake) in food.snakes().iter().enumerate() {
+            let source = &expected_source.snakes[index];
+            self.evolved_deltas.push(EvolvedPhysicsDelta {
+                population_slot: if source.alive && source.kind == super::state::SnakeKind::Evolved
+                {
+                    source.population_slot
+                } else {
+                    None
+                },
+                snake_id: snake.id,
+                wallet_after: snake.points,
+                length_after: snake.body.len,
+                alive_after: snake.alive,
+                ..EvolvedPhysicsDelta::default()
+            });
+        }
+        for movement in food.movement_proposals() {
+            self.evolved_deltas[movement.snake_index].boost_points_spent =
+                movement.boost_points_spent;
+        }
+        for claim in food.claims() {
+            let delta = &mut self.evolved_deltas[claim.snake_index];
+            delta.food += claim.value;
+            delta.credits += claim.value * config.food.points_per_food;
+        }
+        for emission in effects.corpse_emissions() {
+            let delta = &mut self.evolved_deltas[emission.snake_index];
+            if delta.snake_id != emission.snake_id {
+                return Err(PhysicsError::ShapeMismatch);
+            }
+            delta.corpse_emitted_count =
+                u64::try_from(emission.count).map_err(|_| PhysicsError::ArithmeticOverflow {
+                    context: "corpse emission count",
+                })?;
+            delta.corpse_emitted_value = emission.value;
+            delta.corpse_discarded_count =
+                u64::try_from(emission.discarded_count).map_err(|_| {
+                    PhysicsError::ArithmeticOverflow {
+                        context: "corpse discarded count",
+                    }
+                })?;
+            delta.corpse_discarded_value = emission.discarded_value;
+        }
         self.next_world.snakes.extend_from_slice(food.snakes());
         self.next_world
             .body_points
@@ -669,6 +725,19 @@ impl PhysicsSubstepWorkspace {
             }
             self.death_markers[death.victim_index] = true;
             snake.alive = false;
+            let delta = &mut self.evolved_deltas[death.victim_index];
+            delta.alive_after = false;
+            delta.death_flags = u8::from(death.wall)
+                | (u8::from(death.head_to_head) << 1)
+                | (u8::from(death.body_owner_id.is_some()) << 2);
+            delta.body_owner_id = death.body_owner_id;
+            delta.death = Some(if death.wall {
+                EvolvedDeathCause::Wall
+            } else if death.head_to_head {
+                EvolvedDeathCause::HeadToHead
+            } else {
+                EvolvedDeathCause::Body
+            });
             self.deaths += 1;
         }
 
@@ -709,6 +778,10 @@ impl PhysicsSubstepWorkspace {
             }
             killer.kills = next_kills;
             killer.points = next_points;
+            let delta = &mut self.evolved_deltas[killer_index];
+            delta.kills += 1;
+            delta.credits += config.points_per_kill;
+            delta.wallet_after = next_points;
             self.awards += 1;
         }
 
@@ -755,6 +828,7 @@ impl PhysicsSubstepWorkspace {
         self.next_world.controller_leases.clear();
         self.death_markers.clear();
         self.baseline_deaths.clear();
+        self.evolved_deltas.clear();
         self.staged_config = None;
         self.deaths = 0;
         self.awards = 0;
@@ -771,6 +845,7 @@ pub struct PhysicsStepWorkspace {
     allocators: Option<AllocatorState>,
     controlled_snake_ids: Vec<u64>,
     baseline_deaths: Vec<BaselineDeathEvent>,
+    evolved_deltas: Vec<EvolvedPhysicsDelta>,
     config: Option<PhysicsConfig>,
     validation: PhysicalValidationScratch,
     expected_substeps: usize,
@@ -859,6 +934,11 @@ impl PhysicsStepWorkspace {
         Ok(())
     }
 
+    /// Ordered deltas from the last completely accepted substep of this attempt.
+    pub(crate) fn evolved_deltas(&self) -> &[EvolvedPhysicsDelta] {
+        &self.evolved_deltas
+    }
+
     /// Current immutable physical boundary for movement/index construction.
     pub fn world(&self) -> Result<&WorldState, PhysicsError> {
         self.key
@@ -913,9 +993,34 @@ impl PhysicsStepWorkspace {
         pipeline: &mut PhysicsPipelineWorkspace,
         current_key: PhysicsStepKey,
     ) -> Result<(), PhysicsError> {
+        self.advance_substep_with_lifecycle(pipeline, current_key, None)
+    }
+
+    /// Modern effects retain the physical storage cap while admitting bounded attempted boost work.
+    pub(crate) fn advance_substep_with_lifecycle(
+        &mut self,
+        pipeline: &mut PhysicsPipelineWorkspace,
+        current_key: PhysicsStepKey,
+        lifecycle: Option<EffectLifecyclePolicy<'_>>,
+    ) -> Result<(), PhysicsError> {
         self.ensure_current_key(current_key)?;
         let prepared_key = self.next_substep_key()?;
         let config = self.config.ok_or(PhysicsError::StepNotStarted)?;
+        // Each boost attempt consumes a removed source body point. This larger bound
+        // applies only to requests/food preflight; realized pellets keep the original cap.
+        let attempt_limit = if lifecycle.is_some_and(|policy| {
+            policy.experiment.pellet_overflow
+                == super::evolved_lives::PelletOverflowMode::DiscardNewExcess
+        }) {
+            config
+                .maximum_pellets
+                .checked_add(self.world.body_points.len())
+                .ok_or(PhysicsError::ArithmeticOverflow {
+                    context: "effect attempt capacity",
+                })?
+        } else {
+            config.maximum_pellets
+        };
         {
             let world = &self.world;
             let rng = self.rng.as_ref().ok_or(PhysicsError::StepNotStarted)?;
@@ -960,7 +1065,7 @@ impl PhysicsStepWorkspace {
                 config.movement,
                 config.substep_dt,
                 config.maximum_body_points,
-                config.maximum_pellets,
+                attempt_limit,
             )?;
             #[cfg(feature = "engine-test-hooks")]
             {
@@ -981,7 +1086,7 @@ impl PhysicsStepWorkspace {
                 config.movement,
                 config.food,
                 config.maximum_body_points,
-                config.maximum_pellets,
+                attempt_limit,
             );
             *pellet_index = indexed.into_index();
             let food = food_result?;
@@ -1008,7 +1113,7 @@ impl PhysicsStepWorkspace {
             }
             #[cfg(feature = "engine-test-hooks")]
             let phase_started = Instant::now();
-            let effects = effects.prepare(
+            let effects = effects.prepare_with_lifecycle(
                 collision,
                 rng,
                 allocators,
@@ -1016,6 +1121,7 @@ impl PhysicsStepWorkspace {
                 config.food,
                 config.death,
                 config.maximum_pellets,
+                lifecycle,
             )?;
             #[cfg(feature = "engine-test-hooks")]
             {
@@ -1103,6 +1209,14 @@ impl PhysicsStepWorkspace {
             }
         }
 
+        reserve_for(
+            &mut self.evolved_deltas,
+            substep.evolved_deltas.len(),
+            "accepted substep economic deltas",
+        )?;
+        self.evolved_deltas.clear();
+        self.evolved_deltas
+            .extend_from_slice(&substep.evolved_deltas);
         std::mem::swap(&mut self.world.snakes, &mut substep.next_world.snakes);
         std::mem::swap(
             &mut self.world.body_points,
@@ -1215,6 +1329,7 @@ impl PhysicsStepWorkspace {
         self.world.pellets.clear();
         self.controlled_snake_ids.clear();
         self.baseline_deaths.clear();
+        self.evolved_deltas.clear();
         self.config = None;
         self.expected_substeps = 0;
         self.completed_substeps = 0;
@@ -1623,6 +1738,7 @@ mod tests {
 
     fn rng_bundle(baseline_count: usize) -> RngStateBundle {
         RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(11.0).export_state(),
             evolution: StatefulRng::new(22.0).export_state(),
@@ -1819,6 +1935,184 @@ mod tests {
         &world.body_points[snake.body.start..snake.body.start + snake.body.len]
     }
 
+    fn ecology_policy(
+        mode: super::super::evolved_lives::EvolvedCorpseMode,
+        maximum: u64,
+        overflow: super::super::evolved_lives::PelletOverflowMode,
+    ) -> super::super::evolved_lives::EvolvedExperimentConfig {
+        let mut policy = super::super::evolved_lives::EvolvedExperimentConfig::legacy(240.0);
+        policy.version = 1;
+        policy.enabled = true;
+        policy.max_lives = maximum;
+        policy.corpse_mode = mode;
+        policy.pellet_overflow = overflow;
+        policy
+    }
+
+    #[test]
+    fn ecology_modes_apply_only_to_replaceable_deaths_and_wall_deaths_still_emit_none() {
+        use super::super::evolved_lives::{
+            EvolvedCorpseMode as Mode, EvolvedGenerationState, PelletOverflowMode,
+        };
+        for maximum in [1, 2] {
+            for mode in [Mode::Normal, Mode::None, Mode::SubtractReplacementMass] {
+                let mut source = body_collision_world(SnakeKind::Evolved, false);
+                for (slot, snake) in source.snakes.iter_mut().enumerate() {
+                    snake.population_slot = Some(slot as u32);
+                }
+                let mut lives = EvolvedGenerationState::initialize(&source, 2, 5).unwrap();
+                let mut step = PhysicsStepWorkspace::new();
+                let mut phases = PhaseWorkspaces::default();
+                step.begin(
+                    key(1),
+                    &source,
+                    &rng_bundle(0),
+                    &allocators(),
+                    PhysicsConfig::typescript_defaults(),
+                    1,
+                )
+                .unwrap();
+                step.advance_substep_with_lifecycle(
+                    &mut phases,
+                    key(1),
+                    Some(EffectLifecyclePolicy {
+                        experiment: ecology_policy(mode, maximum, PelletOverflowMode::Fail),
+                        lives: &lives,
+                    }),
+                )
+                .unwrap();
+                lives.apply_physics(step.evolved_deltas()).unwrap();
+                assert_eq!(lives.slots[0].deaths, 1);
+                assert_eq!(lives.slots[1].total_kills, 1);
+                let emitted = lives.slots[0].corpse_emitted_count;
+                if maximum == 1 || mode == Mode::Normal {
+                    assert_eq!(emitted, 4);
+                } else if mode == Mode::None {
+                    assert_eq!(emitted, 0);
+                } else {
+                    assert!(emitted < 4);
+                }
+                assert_eq!(lives.slots[0].corpse_discarded_count, 0);
+            }
+        }
+        let position = WorldPoint { x: 3490.5, y: 0.0 };
+        let source = pack_world(vec![(
+            snake(7, SnakeKind::Evolved, position, 0.0, 5),
+            line_body(position, 0.0, 5),
+        )]);
+        let lives = EvolvedGenerationState::initialize(&source, 1, 5).unwrap();
+        let mut step = PhysicsStepWorkspace::new();
+        let mut phases = PhaseWorkspaces::default();
+        let rng = rng_bundle(0);
+        step.begin(
+            key(1),
+            &source,
+            &rng,
+            &allocators(),
+            PhysicsConfig::typescript_defaults(),
+            1,
+        )
+        .unwrap();
+        step.advance_substep_with_lifecycle(
+            &mut phases,
+            key(1),
+            Some(EffectLifecyclePolicy {
+                experiment: ecology_policy(Mode::Normal, 2, PelletOverflowMode::Fail),
+                lives: &lives,
+            }),
+        )
+        .unwrap();
+        assert!(!step.world().unwrap().snakes[0].alive);
+        assert_eq!(phases.effect_diagnostics().attempted_pellets, 0);
+        assert_eq!(step.finish(key(1)).unwrap().rng(), &rng);
+    }
+
+    #[test]
+    fn saturated_corpse_and_boost_effects_keep_existing_pellets_and_full_rng_continuation() {
+        use super::super::evolved_lives::{
+            EvolvedCorpseMode, EvolvedGenerationState, PelletOverflowMode,
+        };
+        for boost in [false, true] {
+            let mut source = if boost {
+                let position = WorldPoint { x: 0.0, y: 0.0 };
+                let mut boosted = snake(7, SnakeKind::Evolved, position, 0.0, 100);
+                boosted.input_boost = true;
+                boosted.points = 100.0;
+                boosted.target_length = 5.0;
+                pack_world(vec![(boosted, line_body(position, 0.0, 100))])
+            } else {
+                body_collision_world(SnakeKind::Evolved, false)
+            };
+            for (slot, snake) in source.snakes.iter_mut().enumerate() {
+                snake.population_slot = Some(slot as u32);
+            }
+            source.pellets.push(PelletState {
+                id: 900,
+                position: WorldPoint { x: 3000.0, y: 0.0 },
+                value: 1.0,
+                kind: 0,
+                color: 123,
+                owner: None,
+            });
+            let lives =
+                EvolvedGenerationState::initialize(&source, source.snakes.len(), 5).unwrap();
+            let rng = rng_bundle(0);
+            let mut full = PhysicsStepWorkspace::new();
+            let mut full_phases = PhaseWorkspaces::default();
+            full.begin(
+                key(1),
+                &source,
+                &rng,
+                &allocators(),
+                PhysicsConfig::typescript_defaults(),
+                1,
+            )
+            .unwrap();
+            full.advance_substep(&mut full_phases, key(1)).unwrap();
+            let reference = full.finish(key(1)).unwrap();
+            let mut bounded = PhysicsStepWorkspace::new();
+            let mut phases = PhaseWorkspaces::default();
+            let mut config = PhysicsConfig::typescript_defaults();
+            config.maximum_pellets = 1;
+            let mut exhausted = allocators();
+            exhausted.next_entity_id = EXTERNAL_ENTITY_ID_START;
+            bounded
+                .begin(key(1), &source, &rng, &exhausted, config, 1)
+                .unwrap();
+            bounded
+                .advance_substep_with_lifecycle(
+                    &mut phases,
+                    key(1),
+                    Some(EffectLifecyclePolicy {
+                        experiment: ecology_policy(
+                            EvolvedCorpseMode::Normal,
+                            2,
+                            PelletOverflowMode::DiscardNewExcess,
+                        ),
+                        lives: &lives,
+                    }),
+                )
+                .unwrap();
+            let result = bounded.finish(key(1)).unwrap();
+            assert_eq!(result.world().pellets, source.pellets);
+            assert_eq!(result.rng(), reference.rng());
+            assert_eq!(result.allocators(), &exhausted);
+            let emissions = phases.effect_diagnostics();
+            assert_eq!(
+                emissions.attempted_pellets,
+                reference.world().pellets.len() - 1
+            );
+            assert_eq!(emissions.discarded_pellets, emissions.attempted_pellets);
+            assert_eq!(emissions.emitted_value, 0.0);
+            assert!(emissions.discarded_value > 0.0);
+            if boost {
+                assert!(emissions.attempted_pellets > config.maximum_pellets);
+            } else {
+                assert_eq!(bounded.evolved_deltas()[0].corpse_discarded_count, 4);
+            }
+        }
+    }
+
     #[test]
     fn body_death_and_owner_credit_commit_only_to_the_working_transaction() {
         let source = body_collision_world(SnakeKind::Evolved, false);
@@ -1852,6 +2146,85 @@ mod tests {
         assert_ne!(prepared.rng().world, rng.world);
         assert_eq!(prepared.rng().evolution, rng.evolution);
         assert_eq!(prepared.diagnostics().completed_substeps, 1);
+    }
+
+    #[test]
+    fn accepted_substep_deltas_match_actual_boost_food_kill_and_death_chronology() {
+        let mut source = body_collision_world(SnakeKind::Evolved, false);
+        for (slot, snake) in source.snakes.iter_mut().enumerate() {
+            snake.population_slot = Some(slot as u32);
+        }
+        source.snakes[1].input_boost = true;
+        source.pellets.push(PelletState {
+            id: 900,
+            position: source.snakes[1].position,
+            value: 1.0,
+            kind: 0,
+            owner: None,
+            color: 0,
+        });
+        let original = source.clone();
+        let mut ledger =
+            super::super::evolved_lives::EvolvedGenerationState::initialize(&source, 2, 5).unwrap();
+        let mut step = PhysicsStepWorkspace::new();
+        let mut config = PhysicsConfig::typescript_defaults();
+        config.substep_dt = 1.0 / 180.0;
+        step.begin(key(1), &source, &rng_bundle(0), &allocators(), config, 2)
+            .unwrap();
+        let mut phases = PhaseWorkspaces::default();
+        stage_and_accept(&mut step, &mut phases).unwrap();
+        let killer = step
+            .evolved_deltas()
+            .iter()
+            .find(|delta| delta.snake_id == 20)
+            .unwrap();
+        assert!(killer.boost_points_spent > 0.0);
+        assert_eq!(killer.food, 1.0);
+        assert_eq!(killer.kills, 1);
+        assert_eq!(
+            killer.credits,
+            config.food.points_per_food + config.points_per_kill
+        );
+        assert_eq!(
+            killer.wallet_after,
+            10.0 - killer.boost_points_spent + config.food.points_per_food + config.points_per_kill
+        );
+        ledger.apply_physics(step.evolved_deltas()).unwrap();
+        let first_spend = ledger.slots[1].ledger.life_boost_spent;
+        assert_eq!(ledger.slots[0].deaths, 1);
+        assert!(ledger.slots[0].corpse_emitted_count > 0);
+        assert!(ledger.slots[0].corpse_emitted_value > 0.0);
+        assert_eq!(ledger.slots[0].last_body_owner_id, Some(20));
+        let record = ledger.transaction_life_ends[0];
+        assert_eq!(record.physical_id, source.snakes[0].id);
+        assert_eq!(record.cause, EvolvedDeathCause::Body);
+        assert_eq!(record.body_owner_id, Some(20));
+        assert_eq!(record.contact_flags, 4);
+        assert_eq!(
+            record.corpse_emitted_count,
+            ledger.slots[0].corpse_emitted_count
+        );
+        assert_eq!(
+            record.corpse_emitted_value,
+            ledger.slots[0].corpse_emitted_value
+        );
+        assert_eq!(
+            record.life_net_points,
+            ledger.slots[0].ledger.life_net_points()
+        );
+
+        stage_and_accept(&mut step, &mut phases).unwrap();
+        ledger.apply_physics(step.evolved_deltas()).unwrap();
+        assert_eq!(ledger.slots[0].deaths, 1);
+        assert!(ledger.slots[1].ledger.life_boost_spent > first_spend);
+        ledger
+            .validate(step.finish(key(1)).unwrap().world(), 2)
+            .unwrap();
+        assert_eq!(source, original);
+        let capacity = step.evolved_deltas.capacity();
+        step.discard();
+        assert!(step.evolved_deltas().is_empty());
+        assert_eq!(step.evolved_deltas.capacity(), capacity);
     }
 
     #[test]

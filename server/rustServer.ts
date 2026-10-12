@@ -57,7 +57,7 @@ import {
   normalizeLiveSettingsUpdates,
   type LiveSettingsUpdate
 } from '../src/protocol/settings.ts';
-import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
+import { normalizeSettingValue, EVOLVED_SETTING_PATHS } from '../src/protocol/settingDefinitions.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -224,6 +224,19 @@ function replacementSettings(
   const current = createRustSettings(metadata);
   const core = current.core as unknown as Record<string, number>;
   const replacements = new Map<string, number>();
+  const seenLifePaths = new Set<string>();
+  for (const update of message?.updates ?? []) if (EVOLVED_SETTING_PATHS.has(update.path)) {
+    if (seenLifePaths.has(update.path)) throw new Error('duplicate life setting: ' + update.path);
+    seenLifePaths.add(update.path);
+  }
+  const selectedLives = message?.updates?.some(update => EVOLVED_SETTING_PATHS.has(update.path)) ?? false;
+  const upgradingLives = selectedLives && !metadata.settings.some(setting => setting.path === 'evolvedRespawn.contractVersion');
+  if (upgradingLives) {
+    if (message?.updates?.find(update => update.path === 'evolvedRespawn.contractVersion')?.value !== 1 ||
+        [...EVOLVED_SETTING_PATHS].some(path => !message.updates?.some(update => update.path === path))) {
+      throw new Error('Selecting life experiments requires the complete version-one life settings.');
+    }
+  }
   for (const [key, value] of Object.entries(message?.settings ?? {})) {
     const definition = getLiveSettingDefinition(key);
     if (!definition || typeof value !== 'number') throw new Error(`reset setting ${key} is invalid`);
@@ -247,12 +260,13 @@ function replacementSettings(
       continue;
     }
     const definition = getLiveSettingDefinition(update.path);
-    if (!definition || !metadata.settings.some(setting => setting.path === update.path)) {
+    if (!definition || (!metadata.settings.some(setting => setting.path === update.path) &&
+        !(upgradingLives && EVOLVED_SETTING_PATHS.has(update.path)))) {
       throw new Error(`reset setting ${update.path} is not supported by the current Rust graph`);
     }
     replacements.set(update.path, normalizeSettingValue(definition, update.value));
   }
-  return metadata.settings.map(setting => {
+  const result = metadata.settings.map(setting => {
     const replacement = replacements.get(setting.path);
     const currentValue = typeof setting.value === 'boolean' ? Number(setting.value) : setting.value;
     if (typeof currentValue !== 'number' || !Number.isFinite(currentValue)) {
@@ -260,6 +274,8 @@ function replacementSettings(
     }
     return { path: setting.path, value: replacement ?? currentValue };
   });
+  if (upgradingLives) for (const path of EVOLVED_SETTING_PATHS) result.push({ path, value: replacements.get(path)! });
+  return result;
 }
 
 /** Project the durable old-checkpoint conversion without exposing persistence internals. */
@@ -327,6 +343,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let activeCheckpointId = owner.runStart.checkpointId;
   let retention: CheckpointRetentionInventory;
   let fitnessHistory: ManagedBrowserHistoryEntry[];
+  /** Fixed experiment summaries retained only for bounded on-demand HTTP reads. */
+  let experimentHistory: ManagedBrowserHistoryEntry[];
+  /** Refresh compact stats once per history change, keeping sidecars out of the frame cadence. */
+  const setHistory = (history: ManagedBrowserHistoryEntry[]): void => {
+    experimentHistory = history;
+    fitnessHistory = history.map(({ experiment: _experiment, ...entry }) => entry);
+  };
   let hallOfFame: ManagedBrowserHallOfFameEntry[];
   let storage: ManagedStorageDiagnostics;
   let managedDisk: ManagedDiskDiagnostics;
@@ -334,12 +357,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   try {
     const initialCleanup = await owner.persistence.applyRetention();
     retention = initialCleanup.inventory;
-    [fitnessHistory, hallOfFame, storage, managedDisk] = await Promise.all([
+    [experimentHistory, hallOfFame, storage, managedDisk] = await Promise.all([
       owner.persistence.readBrowserHistory(activeMetadata.runId),
       owner.persistence.readBrowserHallOfFame(activeMetadata.runId),
       owner.persistence.inspectStorage(),
       inspectManagedDisk(owner.managedDirectory)
     ]);
+    setHistory(experimentHistory);
     retentionCleanup = { deletedCheckpointCount: initialCleanup.deletedCheckpointCount,
       deletedStoredByteCount: initialCleanup.deletedStoredByteCount };
   }
@@ -366,15 +390,24 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     requestId: string;
     updates: LiveSettingsUpdate[];
   }>();
+  /** One retained manual request; completion follows the native durable successor. */
+  let pendingFinish: {
+    connection: number; requestId: string; runId: string; generation: number;
+    sequence: string; accepted: boolean; step?: number;
+  } | undefined;
+  /** At most one unresolved selection per connection, capped globally at 128. */
+  const pendingSelections = new Map<string, { connection: number; requestId: string }>();
   const pendingGodModeMoves = new Map<string, {
     connection: number;
     requestId: string;
     snakeId: number;
+    token: string;
   }>();
   const pendingGodModeKills = new Map<string, {
     connection: number;
     requestId: string;
     snakeId: number;
+    token: string;
   }>();
   const pendingResurrections = new Map<string, {
     resolve(snakeId: number): void;
@@ -600,6 +633,11 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       }).finally(() => { activeExportResponse = undefined; exportOperation = undefined; });
       return;
     }
+    if (request.method === 'GET' && pathname === '/api/history') {
+      response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ version: 1, runId: activeMetadata.runId, history: experimentHistory }));
+      return;
+    }
     if (request.method === 'GET' && pathname === '/api/hof') {
       response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({
@@ -770,6 +808,29 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       send: (id, message) => sockets.sendJsonTo(Number(BigInt(`0x${id}`)), message),
       event(event) {
         routing.event(event);
+        if (pendingFinish && pendingFinish.sequence === event.commandSequence &&
+            (event.kind === 'finishGenerationAccepted' || event.kind === 'commandRejected')) {
+          const pending = pendingFinish;
+          if (event.kind === 'finishGenerationAccepted' && event.finishGenerationEffectiveStep) {
+            pending.accepted = true;
+            pending.step = wireInteger(event.finishGenerationEffectiveStep);
+            sockets.sendJsonTo(pending.connection, { type: 'finishGenerationResult',
+              requestId: pending.requestId, runId: pending.runId, generation: pending.generation,
+              status: 'pending', step: pending.step });
+          } else {
+            sockets.sendJsonTo(pending.connection, { type: 'finishGenerationResult',
+              requestId: pending.requestId, runId: pending.runId, generation: pending.generation,
+              status: 'rejected', reason: event.rejectionDetail ?? 'Rust rejected manual completion' });
+            pendingFinish = undefined;
+          }
+        }
+        if (pendingFinish?.accepted && event.kind === 'generationStartPublished') {
+          const pending = pendingFinish;
+          sockets.sendJsonTo(pending.connection, { type: 'finishGenerationResult',
+            requestId: pending.requestId, runId: pending.runId, generation: pending.generation,
+            status: 'completed', ...(pending.step !== undefined ? { step: pending.step } : {}) });
+          pendingFinish = undefined;
+        }
         if (event.commandSequence && (event.kind === 'liveSettingsApplied' || event.kind === 'commandRejected')) {
           const pending = pendingSettings.get(event.commandSequence);
           if (pending) {
@@ -804,6 +865,16 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             }
           }
         }
+        if (event.commandSequence && (event.kind === 'entitySelected' || event.kind === 'commandRejected')) {
+          const pending = pendingSelections.get(event.commandSequence);
+          if (pending) {
+            pendingSelections.delete(event.commandSequence);
+            sockets.sendJsonTo(pending.connection, { type: 'entitySelected', requestId: pending.requestId,
+              found: event.kind === 'entitySelected' && !!event.entitySelection,
+              ...(event.entitySelection ? { entity: event.entitySelection } : {}),
+              ...(event.kind === 'commandRejected' ? { reason: event.rejectionDetail ?? 'Rust rejected selection' } : {}) });
+          }
+        }
         if (event.commandSequence && (event.kind === 'godModeMoved' || event.kind === 'commandRejected')) {
           const pending = pendingGodModeMoves.get(event.commandSequence);
           if (pending) {
@@ -812,7 +883,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             if (event.kind === 'godModeMoved' && moved) {
               sockets.sendJsonTo(pending.connection, {
                 type: 'godModeResult', requestId: pending.requestId, action: 'move',
-                snakeId: moved.snakeId, applied: true,
+                snakeId: moved.snakeId, selectionToken: pending.token, applied: true,
                 sequence: wireInteger(event.commandSequence), step: wireInteger(moved.effectiveStep),
                 x: moved.x, y: moved.y
               });
@@ -833,7 +904,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             if (event.kind === 'godModeKilled' && killed) {
               sockets.sendJsonTo(pending.connection, {
                 type: 'godModeResult', requestId: pending.requestId, action: 'kill',
-                snakeId: killed.snakeId, applied: true,
+                snakeId: killed.snakeId, selectionToken: pending.token, applied: true,
                 sequence: wireInteger(event.commandSequence), step: wireInteger(killed.effectiveStep),
                 pelletsDropped: wireInteger(killed.pelletsDropped)
               });
@@ -909,7 +980,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           retention = result.inventory;
           retentionCleanup = { deletedCheckpointCount: result.deletedCheckpointCount,
             deletedStoredByteCount: result.deletedStoredByteCount };
-          fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+          setHistory(await owner.persistence.readBrowserHistory(activeMetadata.runId));
           hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
         });
         try { await retentionMaintenance; }
@@ -937,6 +1008,17 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
       const failure = error instanceof Error ? error : new Error(String(error));
+      if (pendingFinish) {
+        sockets.sendJsonTo(pendingFinish.connection, { type: 'finishGenerationResult',
+          requestId: pendingFinish.requestId, runId: pendingFinish.runId, generation: pendingFinish.generation,
+          status: 'rejected', reason: failure.message });
+        pendingFinish = undefined;
+      }
+      for (const pending of pendingSelections.values()) {
+        sockets.sendJsonTo(pending.connection, { type: 'entitySelected', requestId: pending.requestId,
+          found: false, reason: failure.message });
+      }
+      pendingSelections.clear();
       for (const pending of pendingResurrections.values()) pending.reject(failure);
       pendingResurrections.clear();
       if (!fault) sockets.broadcastError(error instanceof Error ? error.message : String(error));
@@ -1077,7 +1159,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         await output.publishPreparedImport(durable.descriptor, branchRunId ?? undefined);
         telemetry.rebase(previousHealth, durable.descriptor.completedStep, metadata.fixedStepSeconds);
         activeMetadata = branchRunId === null ? metadata : { ...metadata, runId: branchRunId };
-        fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+        setHistory(await owner.persistence.readBrowserHistory(activeMetadata.runId));
         hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
@@ -1212,7 +1294,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         await output.publishPreparedImport(durable.descriptor);
         telemetry.rebase(previousHealth, durable.descriptor.completedStep, metadata.fixedStepSeconds);
         activeMetadata = metadata;
-        fitnessHistory = [];
+        setHistory([]);
         hallOfFame = [];
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
@@ -1341,6 +1423,9 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         if (!fault && !stopping) routing.action(connection, message);
       }); },
       onDisconnect(connection) { route(() => {
+        for (const [sequence, pending] of pendingSelections) {
+          if (pending.connection === connection) pendingSelections.delete(sequence);
+        }
         visualizationConnections.delete(connection);
         if (visualizationConnections.size === 0) latestVisualization = undefined;
         flushVisualization();
@@ -1390,12 +1475,72 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         });
         schedule();
       },
+      onFinishGeneration(connection, message) {
+        /** Return a bounded rejection to the requesting peer. */
+        const rejection = (reason: string): void => {
+          sockets.sendJsonTo(connection, { type: 'finishGenerationResult', requestId: message.requestId,
+            runId: message.expectedRunId, generation: message.expectedGeneration, status: 'rejected', reason });
+        };
+        if (pendingFinish) {
+          if (pendingFinish.requestId === message.requestId && pendingFinish.runId === message.expectedRunId &&
+              pendingFinish.generation === message.expectedGeneration) {
+            pendingFinish.connection = connection;
+            if (pendingFinish.accepted) sockets.sendJsonTo(connection, { type: 'finishGenerationResult',
+              requestId: message.requestId, runId: pendingFinish.runId, generation: pendingFinish.generation,
+              status: 'pending', ...(pendingFinish.step !== undefined ? { step: pendingFinish.step } : {}) });
+          } else rejection('another finish generation request is already pending');
+          return;
+        }
+        let admittedSequence: string | undefined;
+        const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+          output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitFinishGeneration(sequence, message.requestId, message.expectedRunId,
+              BigInt(message.expectedGeneration).toString(16).padStart(16, '0'));
+            admittedSequence = sequence;
+          });
+        if (!admitted || !admittedSequence) {
+          rejection(fault ?? (stopping ? 'server is stopping' : 'authoritative command queue is busy'));
+          return;
+        }
+        pendingFinish = { connection, requestId: message.requestId, runId: message.expectedRunId,
+          generation: message.expectedGeneration, sequence: admittedSequence, accepted: false };
+        schedule();
+      },
+      onSelectEntity(connection, message) {
+        if (message.expectedSessionId !== sessionId || pendingSelections.size >= 128 ||
+            [...pendingSelections.values()].some(pending => pending.connection === connection)) {
+          sockets.sendJsonTo(connection, { type: 'entitySelected', requestId: message.requestId,
+            found: false, reason: 'entity selection session is stale or another request is pending' });
+          return;
+        }
+        let admittedSequence: string | undefined;
+        const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+          output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitEntitySelection(sequence, message.snakeId !== undefined ? 'frame' : 'slot',
+              message.snakeId ?? message.populationSlot!, message.expectedRunId,
+              BigInt(message.expectedGeneration).toString(16).padStart(16, '0'));
+            admittedSequence = sequence;
+          });
+        if (!admitted || !admittedSequence) {
+          sockets.sendJsonTo(connection, { type: 'entitySelected', requestId: message.requestId,
+            found: false, reason: fault ?? 'authoritative command queue is busy' });
+          return;
+        }
+        pendingSelections.set(admittedSequence, { connection, requestId: message.requestId });
+        schedule();
+      },
       onGodMode(connection, message: GodModeMsg) {
+        if (!message.selectionToken) {
+          sockets.sendJsonTo(connection, { type: 'godModeResult', requestId: message.requestId,
+            action: message.action, snakeId: message.snakeId, applied: false,
+            reason: 'resolve selectEntity before mutating a physical life' });
+          return;
+        }
         if (message.action === 'kill') {
           let admittedSequence: string | undefined;
           const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
             output.admission.trySubmitControl(sequence => {
-              owner.runtime.submitGodModeKill(sequence, message.snakeId);
+              owner.runtime.submitGodModeKill(sequence, message.snakeId, message.selectionToken!);
               admittedSequence = sequence;
             });
           if (!admitted || !admittedSequence) {
@@ -1407,7 +1552,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             return;
           }
           pendingGodModeKills.set(admittedSequence, {
-            connection, requestId: message.requestId, snakeId: message.snakeId
+            connection, requestId: message.requestId, snakeId: message.snakeId, token: message.selectionToken
           });
           schedule();
           return;
@@ -1415,7 +1560,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         let admittedSequence: string | undefined;
         const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
           output.admission.trySubmitControl(sequence => {
-            owner.runtime.submitGodModeMove(sequence, message.snakeId, message.x, message.y);
+            owner.runtime.submitGodModeMove(sequence, message.snakeId, message.x, message.y, message.selectionToken!);
             admittedSequence = sequence;
           });
         if (!admitted || !admittedSequence) {
@@ -1427,7 +1572,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           return;
         }
         pendingGodModeMoves.set(admittedSequence, {
-          connection, requestId: message.requestId, snakeId: message.snakeId
+          connection, requestId: message.requestId, snakeId: message.snakeId, token: message.selectionToken
         });
         schedule();
       },

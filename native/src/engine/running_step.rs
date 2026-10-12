@@ -21,8 +21,9 @@ use super::control_phase::{
 use super::external_replacement::{AssignmentResolution, UnavailableControllerReservation};
 use super::fixed_step::{FixedStepPrefixError, FixedStepPrefixInputs, FixedStepPrefixWorkspace};
 use super::generation::{
-    admit_prepared_generation_boundary, prepare_generation_boundary, AdmittedGenerationBoundary,
-    GenerationCommitRecord, GenerationTransitionError, PreparedGenerationMetadata,
+    admit_prepared_generation_boundary_with_evolved, prepare_generation_boundary_with_evolved,
+    AdmittedGenerationBoundary, GenerationCommitRecord, GenerationTransitionError,
+    PreparedGenerationMetadata,
 };
 use super::generation_start::{
     GenerationStartConfig, GenerationStartError, GenerationStartWorkspace, PreparedGenerationStart,
@@ -472,6 +473,8 @@ pub(crate) struct PreparedCoordinatorGenerationRebind {
 /// Reason a completed physical step must enter the later generation transition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GenerationTransitionReason {
+    /// Explicit generation-scoped completion after a complete physical step.
+    Manual,
     /// Configured generation duration was reached.
     Duration,
     /// The evolved alive count reached the configured early-end rule.
@@ -530,8 +533,12 @@ pub struct RunningStepCoordinator {
     control: ControlPhaseWorkspace,
     control_commit: ControlCommitWorkspace,
     world_step: WorldStepWorkspace,
+    staged_evolved_generation: super::evolved_lives::EvolvedGenerationState,
+    staged_sensor_generation: super::sensors::SensorGenerationState,
+    staged_assessment_points: Vec<f64>,
     generation_start: GenerationStartWorkspace,
     pending_generation: Option<PendingGenerationTransition>,
+    manual_finish_requested: bool,
     pending_key: Option<PhysicsStepKey>,
     pending_inputs: Option<RunningStepInputs>,
     pending_preflight: Option<RunningStepPreflight>,
@@ -601,8 +608,12 @@ impl RunningStepCoordinator {
             control: ControlPhaseWorkspace::new(neural)?,
             control_commit: ControlCommitWorkspace::new(),
             world_step: WorldStepWorkspace::new(),
+            staged_evolved_generation: super::evolved_lives::EvolvedGenerationState::default(),
+            staged_sensor_generation: super::sensors::SensorGenerationState::default(),
+            staged_assessment_points: Vec::new(),
             generation_start: GenerationStartWorkspace::new(),
             pending_generation: None,
+            manual_finish_requested: false,
             pending_key: None,
             pending_inputs: None,
             pending_preflight: None,
@@ -642,6 +653,7 @@ impl RunningStepCoordinator {
             });
         }
         let mut replacement = Self::try_new(authority, self.work_limits)?;
+        replacement.manual_finish_requested = self.manual_finish_requested;
         replacement.last_wall_now_ms = self.last_wall_now_ms;
         replacement.next_external_event_sequence = self.next_external_event_sequence;
         replacement.last_published_diagnostics = self.last_published_diagnostics;
@@ -659,6 +671,11 @@ impl RunningStepCoordinator {
         Ok(replacement)
     }
 
+    /// Retain manual completion across config changes until durable successor publication.
+    pub(crate) fn request_manual_finish(&mut self) {
+        self.manual_finish_requested = true;
+    }
+
     /// Exact numeric implementation bound by the admitted run identity.
     #[must_use]
     pub const fn math_backend(&self) -> InferenceMathBackend {
@@ -668,6 +685,11 @@ impl RunningStepCoordinator {
     /// Toggle focused capture without altering authoritative game state.
     pub fn set_visualization_enabled(&mut self, enabled: bool) {
         self.control.set_visualization_enabled(enabled);
+    }
+
+    /// Retire stale physical capture after an ordered world mutation.
+    pub(crate) fn invalidate_visualization(&mut self) {
+        self.control.invalidate_visualization();
     }
 
     /// Whether focused capture is requested for future due brains.
@@ -739,28 +761,97 @@ impl RunningStepCoordinator {
         }
         let staged = (|| -> Result<StagedStep, RunningStepError> {
             let state = authority.state();
+            if state.fixed_step.evolved_generation.slots.is_empty() {
+                self.staged_evolved_generation =
+                    super::evolved_lives::EvolvedGenerationState::initialize(
+                        &state.world,
+                        state.population.len(),
+                        self.projection
+                            .world_step
+                            .prefix
+                            .baseline_spawn
+                            .snake_start_len,
+                    )
+                    .map_err(evolved_accounting_error)?;
+            } else {
+                self.staged_evolved_generation
+                    .stage_from(&state.fixed_step.evolved_generation)
+                    .map_err(evolved_accounting_error)?;
+            }
+            self.staged_evolved_generation
+                .apply_prefix(
+                    &state.world,
+                    self.projection.world_step.prefix.fixed_dt,
+                    self.projection.world_step.prefix.fixed_dt
+                        * self
+                            .projection
+                            .world_step
+                            .prefix
+                            .accounting
+                            .points_per_second_alive,
+                )
+                .map_err(evolved_accounting_error)?;
             #[cfg(feature = "engine-test-hooks")]
             let prefix_started = Instant::now();
-            let prefix = self.prefix.prepare(FixedStepPrefixInputs {
-                key,
-                world: &state.world,
-                rng: &state.rng,
-                allocators: &state.allocators,
-                generation_elapsed_seconds: state.generation.elapsed_seconds,
-                ambient_accumulator: state.fixed_step.ambient_pellet_accumulator,
-                baseline_lifecycle: &state.fixed_step.baseline_lifecycle,
-                config: self.projection.world_step.prefix,
-            })?;
+            let prefix = self.prefix.prepare_with_evolved(
+                FixedStepPrefixInputs {
+                    key,
+                    world: &state.world,
+                    rng: &state.rng,
+                    allocators: &state.allocators,
+                    generation_elapsed_seconds: state.generation.elapsed_seconds,
+                    ambient_accumulator: state.fixed_step.ambient_pellet_accumulator,
+                    baseline_lifecycle: &state.fixed_step.baseline_lifecycle,
+                    config: self.projection.world_step.prefix,
+                },
+                &mut self.staged_evolved_generation,
+                self.projection.evolved,
+                self.projection
+                    .world_step
+                    .control
+                    .initial_neural_accumulator_seconds(),
+            )?;
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.prefix_ms = elapsed_ms(prefix_started);
                 self.last_phase_allocations.prefix =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
+            self.staged_sensor_generation = state.fixed_step.sensor_generation;
+            self.staged_assessment_points.clear();
+            let selected_score_context = self.projection.evolved.version != 0
+                && (self.projection.evolved.enabled
+                    || self.projection.evolved.points
+                        != super::evolved_lives::PointAssessmentMode::Reset);
+            if selected_score_context {
+                let count = self.staged_evolved_generation.slots.len();
+                if self.staged_assessment_points.capacity() < count {
+                    self.staged_assessment_points
+                        .try_reserve_exact(count)
+                        .map_err(|_| {
+                            evolved_accounting_error(
+                                super::evolved_lives::EvolvedLifeError::Allocation,
+                            )
+                        })?;
+                }
+                for life in &self.staged_evolved_generation.slots {
+                    self.staged_assessment_points.push(
+                        life.assessment(
+                            self.projection.evolved.points,
+                            self.projection.evolved.nonpoints,
+                        )
+                        .points,
+                    );
+                }
+                self.staged_sensor_generation
+                    .observe_assessments(&self.staged_assessment_points)?;
+            }
             let control_started = Instant::now();
             let selected = self.control.prepare(ControlPhaseInputs {
                 prefix,
-                generation: &state.fixed_step.sensor_generation,
+                generation: &self.staged_sensor_generation,
+                assessment_points: selected_score_context
+                    .then_some(self.staged_assessment_points.as_slice()),
                 population: &state.population,
                 brains: &state.brains,
                 wall_now_ms: inputs.wall_now_ms,
@@ -780,6 +871,20 @@ impl RunningStepCoordinator {
             }
             #[cfg(feature = "engine-test-hooks")]
             let commit_started = Instant::now();
+            for update in selected.control_updates() {
+                if update.source() == super::control_phase::SelectedControlSource::NeuralEvaluated {
+                    let snake = &selected.prefix().world().snakes[update.snake_index()];
+                    if snake.kind == SnakeKind::Evolved {
+                        let slot = snake.population_slot.ok_or_else(|| {
+                            evolved_accounting_error(
+                                super::evolved_lives::EvolvedLifeError::Identity,
+                            )
+                        })?;
+                        self.staged_evolved_generation.slots[slot as usize]
+                            .pending_recurrent_reset = false;
+                    }
+                }
+            }
             let committed = self.control_commit.prepare(selected)?;
             #[cfg(feature = "engine-test-hooks")]
             {
@@ -788,9 +893,12 @@ impl RunningStepCoordinator {
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
             let world_step_started = Instant::now();
-            let prepared = self
-                .world_step
-                .prepare_deferred_external_replacement(committed, self.projection.world_step)?;
+            let prepared = self.world_step.prepare_deferred_external_replacement(
+                committed,
+                self.projection.world_step,
+                &mut self.staged_evolved_generation,
+                self.projection.evolved,
+            )?;
             self.last_step_cost.world_step =
                 u64::try_from(world_step_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             #[cfg(feature = "engine-test-hooks")]
@@ -799,12 +907,21 @@ impl RunningStepCoordinator {
                 self.last_phase_allocations.world_step =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
+            self.prefix
+                .seal_evolved(key, prepared.rng())
+                .map_err(evolved_accounting_error)?;
+            self.staged_evolved_generation
+                .validate(prepared.world(), state.population.len())
+                .map_err(evolved_accounting_error)?;
             #[cfg(feature = "engine-test-hooks")]
             let guard_started = Instant::now();
             if let Some((reason, alive_evolved)) = generation_transition_required(
                 prepared.world(),
                 prepared.generation_elapsed_seconds(),
                 self.projection.generation_guard,
+                self.manual_finish_requested,
+                self.projection.evolved,
+                &self.staged_evolved_generation,
             ) {
                 #[cfg(feature = "engine-test-hooks")]
                 {
@@ -814,13 +931,15 @@ impl RunningStepCoordinator {
                 }
                 let elapsed_seconds = prepared.generation_elapsed_seconds();
                 let preparation_started = Instant::now();
-                let next = prepare_generation_boundary(
+                let next = prepare_generation_boundary_with_evolved(
                     state,
                     prepared.world(),
                     prepared.rng(),
                     prepared.allocators(),
                     elapsed_seconds,
                     authority.graph(),
+                    &self.staged_evolved_generation,
+                    self.projection.evolved,
                 )?;
                 self.last_step_cost.generation_preparation =
                     u64::try_from(preparation_started.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -829,7 +948,25 @@ impl RunningStepCoordinator {
                 self.last_step_cost.generation_evolution_summary = evolution_cost.summary;
                 self.last_step_cost.generation_evolution_reproduction = evolution_cost.reproduction;
                 let admission_started = Instant::now();
-                let boundary = admit_prepared_generation_boundary(authority, key, next)?;
+                let mut boundary = admit_prepared_generation_boundary_with_evolved(
+                    authority,
+                    key,
+                    next,
+                    prepared.world(),
+                    prepared.rng(),
+                    prepared.allocators(),
+                    self.prefix.evolved_proof(),
+                )?;
+                boundary.record_completion(
+                    reason,
+                    elapsed_seconds,
+                    self.projection.generation_guard.generation_seconds,
+                );
+                boundary.record_experiment(
+                    prepared.world(),
+                    &self.staged_evolved_generation,
+                    self.projection.evolved,
+                )?;
                 self.last_step_cost.generation_admission =
                     u64::try_from(admission_started.elapsed().as_micros()).unwrap_or(u64::MAX);
                 return Ok(StagedStep::Generation(Box::new(
@@ -1705,6 +1842,7 @@ impl RunningStepCoordinator {
     ) {
         debug_assert_eq!(self.world_epoch, prepared.source_world_epoch);
         self.world_epoch = prepared.successor_world_epoch;
+        self.manual_finish_requested = false;
     }
 
     /// Explicitly discard one exact pending transition without changing authority.
@@ -2192,12 +2330,13 @@ impl RunningStepCoordinator {
                 rng: buffers.rng,
                 allocators: buffers.allocators,
                 brains,
+                evolved_generation: &mut self.staged_evolved_generation,
                 baseline_lifecycle: buffers.baseline_lifecycle,
                 ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
                 sensor_generation: buffers.sensor_generation,
                 generation_elapsed_seconds: buffers.generation_elapsed_seconds,
                 wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-                mutation: buffers.mutation,
+                mutation: buffers.mutation.with_evolved(self.prefix.evolved_proof()),
             },
         )?;
         Ok(())
@@ -2225,12 +2364,13 @@ impl RunningStepCoordinator {
                 rng: buffers.rng,
                 allocators: buffers.allocators,
                 brains,
+                evolved_generation: &mut self.staged_evolved_generation,
                 baseline_lifecycle: buffers.baseline_lifecycle,
                 ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
                 sensor_generation: buffers.sensor_generation,
                 generation_elapsed_seconds: buffers.generation_elapsed_seconds,
                 wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-                mutation: buffers.mutation,
+                mutation: buffers.mutation.with_evolved(self.prefix.evolved_proof()),
             })?)
         })();
         self.world_step.invalidate_publication();
@@ -2267,12 +2407,13 @@ impl RunningStepCoordinator {
             rng: buffers.rng,
             allocators: buffers.allocators,
             brains,
+            evolved_generation: &mut self.staged_evolved_generation,
             baseline_lifecycle: buffers.baseline_lifecycle,
             ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
             sensor_generation: buffers.sensor_generation,
             generation_elapsed_seconds: buffers.generation_elapsed_seconds,
             wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-            mutation: buffers.mutation,
+            mutation: buffers.mutation.with_evolved(self.prefix.evolved_proof()),
         };
         Ok(authority.preflight_running_step(&mut replacement)?)
     }
@@ -2300,12 +2441,13 @@ impl RunningStepCoordinator {
             rng: buffers.rng,
             allocators: buffers.allocators,
             brains,
+            evolved_generation: &mut self.staged_evolved_generation,
             baseline_lifecycle: buffers.baseline_lifecycle,
             ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
             sensor_generation: buffers.sensor_generation,
             generation_elapsed_seconds: buffers.generation_elapsed_seconds,
             wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-            mutation: buffers.mutation,
+            mutation: buffers.mutation.with_evolved(self.prefix.evolved_proof()),
         });
         let publication = authority.publish_prevalidated_running_step(preflight, resolved);
         self.world_step.invalidate_publication();
@@ -2447,10 +2589,21 @@ fn copy_string_reusing(
     Ok(())
 }
 
+/// Convert ledger rejection into the existing reversible authority error path.
+fn evolved_accounting_error(error: super::evolved_lives::EvolvedLifeError) -> RunningStepError {
+    RunningStepError::State(Box::new(StateError::InvalidField {
+        field: "fixed_step.evolved_generation",
+        reason: error.to_string(),
+    }))
+}
+
 fn generation_transition_required(
     world: &WorldState,
     elapsed_seconds: f64,
     config: GenerationGuardConfig,
+    manual_finish_requested: bool,
+    policy: super::evolved_lives::EvolvedExperimentConfig,
+    lives: &super::evolved_lives::EvolvedGenerationState,
 ) -> Option<(GenerationTransitionReason, usize)> {
     let alive_evolved = world
         .snakes
@@ -2459,12 +2612,27 @@ fn generation_transition_required(
             snake.alive && snake.kind == SnakeKind::Evolved && snake.population_slot.is_some()
         })
         .count();
+    if manual_finish_requested {
+        return Some((GenerationTransitionReason::Manual, alive_evolved));
+    }
     if elapsed_seconds >= config.generation_seconds {
         return Some((GenerationTransitionReason::Duration, alive_evolved));
     }
-    if elapsed_seconds >= config.early_end_minimum_seconds
-        && alive_evolved <= config.early_end_alive_threshold
-    {
+    let early = match policy.early_completion {
+        super::evolved_lives::EarlyCompletionMode::DurationOnly => false,
+        super::evolved_lives::EarlyCompletionMode::PhysicalAlive => {
+            alive_evolved <= config.early_end_alive_threshold
+        }
+        super::evolved_lives::EarlyCompletionMode::Automatic if policy.enabled => {
+            policy.max_lives != 0
+                && lives
+                    .slots
+                    .iter()
+                    .all(|slot| slot.status == super::evolved_lives::EvolvedLifeStatus::Exhausted)
+        }
+        _ => alive_evolved <= config.early_end_alive_threshold,
+    };
+    if elapsed_seconds >= config.early_end_minimum_seconds && early {
         return Some((GenerationTransitionReason::EarlyAliveCount, alive_evolved));
     }
     None

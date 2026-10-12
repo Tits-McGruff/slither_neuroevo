@@ -1,3 +1,6 @@
+import type { GenerationExperimentSummary, HallOfFameAssessment } from '../../src/protocol/experimentRecords.ts';
+import type { GenerationExperimentRecord } from '../../src/protocol/experimentRecords.ts';
+import { parseGenerationExperimentRecord, encodeExperimentRecord } from './experimentRecords.ts';
 import type { RecoveryBranchCommit, RecoveryBranchResult, RecoveryScanCursor, RecoveryScanResult } from './recoveryProtocol.ts';
 import type { CheckpointPruneResult, CheckpointRetentionInventory } from './checkpointRetention.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
@@ -204,8 +207,26 @@ export interface ManagedHallOfFameWeightsDescriptor {
   weightCount: U64Hex;
 }
 
+/** Versioned terminal chronology, independent of the legacy 56-byte summary. */
+export interface ManagedGenerationCompletion {
+  /** Record schema revision. */
+  version: 1;
+  /** Authoritative completion guard. */
+  reason: 'manual' | 'duration' | 'earlyAliveCount';
+  /** Actual completed physical time, exact Float64 bits. */
+  actualElapsedF64Hex: F64Hex;
+  /** Configured duration used by objective scaling, exact Float64 bits. */
+  configuredDurationF64Hex: F64Hex;
+  /** Completed-step boundary of the durable successor. */
+  completedStep: U64Hex;
+}
+
 /** Complete small metadata that must commit with one generation checkpoint pointer. */
 export interface ManagedGenerationCommit {
+  /** Native fixed-size history/assessment extension, absent on recorded legacy runs. */
+  experiment?: GenerationExperimentRecord;
+  /** Absent on pre-completion-contract generation handoffs. */
+  completion?: ManagedGenerationCompletion;
   /** Compact eight-field chart/history record. */
   summary: ManagedGenerationSummary;
   /** Run-scoped identity of the selected elite inside the same checkpoint. */
@@ -230,6 +251,8 @@ export interface CommitManagedCheckpointRequest {
 
 /** Bounded browser-chart projection decoded by the SQLite worker from compact history. */
 export interface ManagedBrowserHistoryEntry {
+  /** Optional native experiment summary; absent for preserved legacy history. */
+  experiment?: GenerationExperimentSummary;
   /** Completed generation, narrowed only within the browser-safe range. */
   gen: number;
   /** Best fitness for the generation. */
@@ -250,6 +273,8 @@ export interface ManagedBrowserHistoryEntry {
 
 /** Bounded Hall-of-Fame row shown by the browser without transferring genome weights. */
 export interface ManagedBrowserHallOfFameEntry {
+  /** Explicit version-two assessment and display-length semantics. */
+  assessment?: HallOfFameAssessment;
   /** Exact run-scoped generation key used by later resurrection requests. */
   entryId: U64Hex;
   /** Completed generation narrowed to the browser-safe range. */
@@ -396,7 +421,7 @@ export interface ManagedCheckpointExportLease {
 /** Fixed-width history/Hall-of-Fame inventory spooled for one exact export lease. */
 export interface ManagedExportInventoryDescriptor {
   /** Binary inventory contract version. */
-  version: 1;
+  version: 1 | 2 | 3;
   /** Operation-derived direct child of the controlled managed directory. */
   relativeFilename: string;
   /** SHA-256 of the complete inventory bytes. */
@@ -412,7 +437,7 @@ export interface ManagedExportInventoryDescriptor {
 /** Rust-validated fixed-width metadata used by one exact import transaction. */
 export interface ManagedImportInventoryDescriptor {
   /** Inventory contract version. */
-  version: 1;
+  version: 1 | 2 | 3;
   /** Operation-derived direct child of the controlled managed directory. */
   relativeFilename: string;
   /** SHA-256 of the complete trusted inventory bytes. */
@@ -937,8 +962,8 @@ export function parseManagedExportInventoryDescriptor(
     'version', 'relativeFilename', 'sha256', 'storedByteCount',
     'historyCount', 'hallOfFameCount'
   ]);
-  if (descriptor['version'] !== 1 ||
-      descriptor['relativeFilename'] !== `.${operationId}.export-inventory-v1` ||
+  if ((descriptor['version'] !== 1 && descriptor['version'] !== 2 && descriptor['version'] !== 3) ||
+      descriptor['relativeFilename'] !== `.${operationId}.export-inventory-v${String(descriptor['version'])}` ||
       typeof descriptor['sha256'] !== 'string' || !SHA256_HEX.test(descriptor['sha256'])) {
     reject('export inventory has invalid identity');
   }
@@ -947,13 +972,13 @@ export function parseManagedExportInventoryDescriptor(
   const hallOfFameCount = asU64Hex(descriptor['hallOfFameCount'], 'exportInventory.hallOfFameCount');
   const history = BigInt(`0x${historyCount}`);
   const hallOfFame = BigInt(`0x${hallOfFameCount}`);
-  const expectedBytes = 32n + history * 56n + hallOfFame * 120n;
+  const expectedBytes = 32n + history * 56n + hallOfFame * 120n + (descriptor['version'] >= 2 ? history * 40n : 0n) + (descriptor['version'] === 3 ? history * 776n : 0n);
   if (hallOfFame > history || expectedBytes > 0xffff_ffff_ffff_ffffn ||
       BigInt(`0x${storedByteCount}`) !== expectedBytes) {
     reject('export inventory has inconsistent counts');
   }
   return {
-    version: 1,
+    version: descriptor['version'],
     relativeFilename: descriptor['relativeFilename'] as string,
     sha256: descriptor['sha256'],
     storedByteCount,
@@ -982,8 +1007,8 @@ export function parseManagedImportInventoryDescriptor(
     'version', 'relativeFilename', 'sha256', 'storedByteCount',
     'historyCount', 'hallOfFameCount'
   ]);
-  if (descriptor['version'] !== 1 ||
-      descriptor['relativeFilename'] !== `.${operationId}.import-inventory-v1` ||
+  if ((descriptor['version'] !== 1 && descriptor['version'] !== 2 && descriptor['version'] !== 3) ||
+      descriptor['relativeFilename'] !== `.${operationId}.import-inventory-v${String(descriptor['version'])}` ||
       typeof descriptor['sha256'] !== 'string' || !SHA256_HEX.test(descriptor['sha256'])) {
     reject('import inventory has invalid identity');
   }
@@ -992,13 +1017,13 @@ export function parseManagedImportInventoryDescriptor(
   const hallOfFameCount = asU64Hex(descriptor['hallOfFameCount'], 'importInventory.hallOfFameCount');
   const history = BigInt(`0x${historyCount}`);
   const hallOfFame = BigInt(`0x${hallOfFameCount}`);
-  const expectedBytes = 32n + history * 56n + hallOfFame * 120n;
+  const expectedBytes = 32n + history * 56n + hallOfFame * 120n + (descriptor['version'] >= 2 ? history * 40n : 0n) + (descriptor['version'] === 3 ? history * 776n : 0n);
   if (hallOfFame > history || expectedBytes > 0xffff_ffff_ffff_ffffn ||
       BigInt(`0x${storedByteCount}`) !== expectedBytes) {
     reject('import inventory has inconsistent counts');
   }
   return {
-    version: 1,
+    version: descriptor['version'],
     relativeFilename: descriptor['relativeFilename'] as string,
     sha256: descriptor['sha256'],
     storedByteCount,
@@ -1102,12 +1127,51 @@ export function parseManagedGenerationCommit(
     return null;
   }
   const commit = asRecord(value, 'generationCommit');
-  requireOnlyKeys(commit, ['summary', 'hallOfFame', 'hallOfFameWeights']);
+  requireOnlyKeys(commit, ['summary', 'hallOfFame', 'hallOfFameWeights',
+    ...(Object.hasOwn(commit, 'completion') ? ['completion'] : []),
+    ...(Object.hasOwn(commit, 'experiment') ? ['experiment'] : [])]);
+  let completion: ManagedGenerationCompletion | undefined;
+  if (commit['completion'] !== undefined && commit['completion'] !== null) {
+    const record = asRecord(commit['completion'], 'completion');
+    requireOnlyKeys(record, ['version', 'reason', 'actualElapsedF64Hex', 'configuredDurationF64Hex', 'completedStep']);
+    if (record['version'] !== 1 || !['manual', 'duration', 'earlyAliveCount'].includes(String(record['reason']))) {
+      reject('unsupported generation completion version or reason');
+    }
+    const actualElapsedF64Hex = asFiniteF64Hex(record['actualElapsedF64Hex'], 'actualElapsedF64Hex');
+    const configuredDurationF64Hex = asFiniteF64Hex(record['configuredDurationF64Hex'], 'configuredDurationF64Hex');
+    const completedStep = asU64Hex(record['completedStep'], 'completion.completedStep');
+    if ((BigInt('0x' + actualElapsedF64Hex) >> 63n) !== 0n ||
+        (BigInt('0x' + configuredDurationF64Hex) >> 63n) !== 0n || completedStep !== descriptor.completedStep) {
+      reject('generation completion has invalid chronology');
+    }
+    completion = { version: 1, reason: record['reason'] as ManagedGenerationCompletion['reason'],
+      actualElapsedF64Hex, configuredDurationF64Hex, completedStep };
+  }
   const summary = parseManagedGenerationSummary(commit['summary'], descriptor);
   if (summary === null) reject('generation checkpoint is missing compact history');
+  const hallOfFame = parseManagedHallOfFameReference(commit['hallOfFame'], descriptor, summary);
+  const experiment = commit['experiment'] != null ? parseGenerationExperimentRecord(commit['experiment']) : undefined;
+  if (experiment) {
+    if (!completion) reject('experiment record requires terminal chronology');
+    const bytes = encodeExperimentRecord(experiment);
+    if (bytes.readBigUInt64LE(16) !== BigInt('0x' + summary.completedGeneration) ||
+        bytes.readBigUInt64LE(24) !== BigInt('0x' + descriptor.completedStep) ||
+        bytes.readBigUInt64LE(56) !== BigInt('0x' + descriptor.populationCount) ||
+        bytes.readBigUInt64LE(40) !== BigInt('0x' + completion.actualElapsedF64Hex) ||
+        bytes.readBigUInt64LE(48) !== BigInt('0x' + completion.configuredDurationF64Hex) ||
+        bytes.readBigUInt64LE(32) !== BigInt(completion.reason === 'manual' ? 0 : completion.reason === 'duration' ? 1 : 2) ||
+        bytes.readBigUInt64LE(528) !== BigInt('0x' + hallOfFame.sourcePopulationSlot) ||
+        bytes.readBigUInt64LE(536) !== BigInt('0x' + hallOfFame.sourceSnakeId) ||
+        bytes.readBigUInt64LE(672) !== BigInt('0x' + hallOfFame.pointsF64Hex) ||
+        bytes.readBigUInt64LE(704) !== BigInt('0x' + hallOfFame.length)) {
+      reject('experiment record disagrees with its checkpoint/completion/physical winner');
+    }
+  }
   return {
     summary,
-    hallOfFame: parseManagedHallOfFameReference(commit['hallOfFame'], descriptor, summary),
+    hallOfFame,
+    ...(experiment ? { experiment } : {}),
+    ...(completion ? { completion } : {}),
     hallOfFameWeights: parseManagedHallOfFameWeightsDescriptor(commit['hallOfFameWeights'], descriptor)
   };
 }

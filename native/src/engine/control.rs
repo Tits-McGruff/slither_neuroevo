@@ -109,6 +109,8 @@ pub struct NeuralControlBatchInputs<'a, 'world> {
     pub indexed_world: &'a IndexedSensorWorld<'world>,
     /// Generation-scoped best-points state initialized before sensing.
     pub generation: &'a SensorGenerationState,
+    /// Optional dense life assessments from the same pre-control boundary.
+    pub assessment_points: Option<&'a [f64]>,
     /// Dense heterogeneous genome slab.
     pub population: &'a [PopulationGenome],
     /// Stable brain handles and recurrent state before this operation.
@@ -454,11 +456,20 @@ impl NeuralControlPipeline {
             candidates,
             indexed_world,
             generation,
+            assessment_points,
             population,
             brains,
             reset_brains,
         } = inputs;
         self.ready = None;
+        if assessment_points.is_some_and(|points| {
+            points.len() != population.len()
+                || points
+                    .iter()
+                    .any(|point| !point.is_finite() || *point < 0.0)
+        }) {
+            return Err(NeuralControlError::InvalidAssessmentScores);
+        }
         self.last_cost = NeuralBatchCostMicros::default();
         self.workspace.begin(key);
         for candidate in candidates {
@@ -519,12 +530,16 @@ impl NeuralControlPipeline {
                         run_calculation_worker("sensing", partition, || {
                             for (ordinal, unit) in units.iter().enumerate() {
                                 let offset = ordinal * sensor.layout().input_size;
-                                match sensor.sample(
+                                match sensor.sample_with_assessment(
                                     indexed_world,
                                     generation,
                                     unit.snake_index(),
                                     &mut observations[offset..offset + sensor.layout().input_size],
                                     scratch,
+                                    unit.population_slot().and_then(|slot| {
+                                        assessment_points
+                                            .and_then(|points| points.get(slot as usize).copied())
+                                    }),
                                 ) {
                                     Ok(sample) => {
                                         deliveries[ordinal] = Some(sample.delivery);
@@ -548,12 +563,15 @@ impl NeuralControlPipeline {
         } else {
             for (ordinal, unit) in work.iter().enumerate() {
                 let offset = ordinal * self.inference.input_size();
-                let sample = self.sensor.sample(
+                let sample = self.sensor.sample_with_assessment(
                     indexed_world,
                     generation,
                     unit.snake_index(),
                     &mut self.observations[offset..offset + self.inference.input_size()],
                     sensor_scratch,
+                    unit.population_slot().and_then(|slot| {
+                        assessment_points.and_then(|points| points.get(slot as usize).copied())
+                    }),
                 )?;
                 self.deliveries[ordinal] = Some(sample.delivery);
                 self.diagnostics[ordinal] = sample.diagnostics;
@@ -976,6 +994,8 @@ impl NeuralControlPipeline {
 /// Sensing-to-inference staging, identity, or commit failure.
 #[derive(Debug)]
 pub enum NeuralControlError {
+    /// Life-score context must be a finite, nonnegative dense population slab.
+    InvalidAssessmentScores,
     /// Requested calculation-thread count is outside the supported envelope.
     InvalidCalculationWorkers(CalculationWorkerCountError),
     /// The bounded persistent calculation pool could not start.
@@ -1103,6 +1123,7 @@ impl fmt::Display for NeuralControlError {
             Self::AllocationFailed { buffer, elements } => {
                 write!(formatter, "could not allocate {elements} elements for {buffer}")
             }
+            Self::InvalidAssessmentScores => write!(formatter, "invalid population life-assessment sensor context"),
             Self::BatchNotReady => write!(formatter, "no complete neural-control batch is ready"),
             Self::BatchKeyMismatch { staged, current } => write!(
                 formatter,
@@ -1520,6 +1541,7 @@ mod tests {
                     candidates: &candidates,
                     indexed_world: &indexed_world,
                     generation: &generation,
+                    assessment_points: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1535,6 +1557,57 @@ mod tests {
         assert_eq!(world, original_world);
         assert_eq!(brains, original_brains);
         assert!(pipeline.ready.is_none());
+    }
+
+    #[test]
+    fn selected_life_scores_match_across_real_sensing_workers_and_keep_wallet_delivery() {
+        let plan = graph_plan(51);
+        let scores = [80.0, 30.0, 10.0, 5.0];
+        let mut reference = None;
+        for workers in [1, 2] {
+            let (mut world, mut brains, population) = fixture_with_count(&plan, EPOCH, 4);
+            let mut generation = SensorGenerationState::new();
+            generation.observe_assessments(&scores).unwrap();
+            let sensor = SensorEvaluator::new(sensor_config()).unwrap();
+            let mut pipeline =
+                NeuralControlPipeline::try_new(4, sensor, plan.clone(), workers, usize::MAX)
+                    .unwrap();
+            let indexed = indexed(&world);
+            let candidates = (0..4)
+                .rev()
+                .map(|index| CalculationCandidateIndex::new(index, index))
+                .collect::<Vec<_>>();
+            let key = CalculationBatchKey::new(4, 99, EPOCH);
+            let batch = pipeline
+                .prepare_and_evaluate(
+                    NeuralControlBatchInputs {
+                        key,
+                        candidates: &candidates,
+                        indexed_world: &indexed,
+                        generation: &generation,
+                        assessment_points: Some(&scores),
+                        population: &population,
+                        brains: &brains,
+                        reset_brains: &[],
+                    },
+                    &mut SensorScratch::default(),
+                )
+                .unwrap();
+            let observations = batch.observations().to_vec();
+            let outputs = batch.outputs().to_vec();
+            let _ = batch;
+            drop(indexed);
+            pipeline.commit_state(key, &mut world, &mut brains).unwrap();
+            for snake in &world.snakes {
+                assert_eq!(snake.delivered_observation_points, snake.points);
+            }
+            let result = (observations, outputs, world, brains);
+            if let Some(expected) = &reference {
+                assert_eq!(&result, expected);
+            } else {
+                reference = Some(result);
+            }
+        }
     }
 
     #[test]
@@ -1564,6 +1637,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &old_indexed,
                     generation: &generation,
+                    assessment_points: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1642,6 +1716,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &reset_indexed,
                     generation: &generation,
+                    assessment_points: None,
                     population: &population,
                     brains: &reset_brains,
                     reset_brains: &[reset_handle],
@@ -1658,6 +1733,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &reference_indexed,
                     generation: &generation,
+                    assessment_points: None,
                     population: &population,
                     brains: &reference_brains,
                     reset_brains: &[],
@@ -1728,6 +1804,7 @@ mod tests {
                         candidates: &candidates(),
                         indexed_world: &indexed,
                         generation: &generation,
+                        assessment_points: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &invalid,
@@ -1755,6 +1832,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &indexed,
                     generation: &generation,
+                assessment_points: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[stale],
@@ -1797,6 +1875,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &original_indexed,
                     generation: &generation,
+                    assessment_points: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1858,6 +1937,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &original_indexed,
                     generation: &generation,
+                assessment_points: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1909,6 +1989,7 @@ mod tests {
                         candidates: &due,
                         indexed_world: &current_indexed,
                         generation: &generation,
+                        assessment_points: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &[],
@@ -1948,6 +2029,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &original_indexed,
                     generation: &generation,
+                    assessment_points: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -2034,6 +2116,7 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &replacement_indexed,
                     generation: &replacement_generation,
+                    assessment_points: None,
                     population: &replacement_population,
                     brains: &replacement_brains,
                     reset_brains: &[],

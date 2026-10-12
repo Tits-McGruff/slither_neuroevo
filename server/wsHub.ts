@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
+import type { SelectEntityMsg } from '../src/protocol/entitySelection.ts';
 import type { Server } from 'node:http';
 import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
 import { createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
@@ -9,6 +10,7 @@ import type {
   ActionMsg,
   ClientType,
   GodModeMsg,
+  FinishGenerationMsg,
   JoinMode,
   JoinMsg,
   LiveSettingsMsg,
@@ -117,6 +119,10 @@ export interface WsHubHandlers {
   onSettings?: (connId: number, msg: LiveSettingsMsg) => void;
   /** Optional handler for authoritative God Mode requests. */
   onGodMode?: (connId: number, msg: GodModeMsg) => void;
+  /** On-demand identity resolution for a joined UI client. */
+  onSelectEntity?: (connId: number, msg: SelectEntityMsg) => void;
+  /** Manual completion is admitted only for joined UI peers. */
+  onFinishGeneration?: (connId: number, msg: FinishGenerationMsg) => void;
   /** Optional handler for explicit New Run requests. */
   onNewRun?: (connId: number, msg: NewRunMsg) => void;
   onDisconnect?: (connId: number) => void;
@@ -667,12 +673,26 @@ export class WsHub {
         }
         this.handlers?.onSettings?.(state.id, msg);
         return;
+      case 'selectEntity':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'entity selection requires a joined ui client');
+          return;
+        }
+        this.handlers?.onSelectEntity?.(state.id, msg);
+        return;
       case 'godMode':
         if (!state.joined || state.clientType !== 'ui') {
           this.protocolError(state, 'God Mode requires a joined ui client');
           return;
         }
         this.handlers?.onGodMode?.(state.id, msg);
+        return;
+      case 'finishGeneration':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'finish generation requires a joined ui client');
+          return;
+        }
+        this.handlers?.onFinishGeneration?.(state.id, msg);
         return;
       case 'newRun':
         if (!state.joined || state.clientType !== 'ui') {

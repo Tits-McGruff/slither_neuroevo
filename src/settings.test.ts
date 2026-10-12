@@ -3,10 +3,13 @@ import {
   buildSettingsUI,
   applyValuesToSlidersFromCFG,
   hookSliderEvents,
-  updateCFGFromUI
+  updateCFGFromUI,
+  createSettingControl,
+  readSettingChoice, stageEvolvedRespawnPreset
 } from './settings.ts';
 import { CFG } from './config.ts';
 import { fmtNumber } from './utils.ts';
+import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
 
 /** Minimal DOM element stub for settings UI tests. */
 class FakeElement {
@@ -156,6 +159,87 @@ describe('settings.ts', () => {
     expect(output.textContent).toBe(fmtNumber(CFG.boost.minPointsToBoost, 1));
 
     CFG.boost.minPointsToBoost = original;
+  });
+
+  it('blocks all draft updates when duration is invalid and accepts unit text', () => {
+    const original = CFG.generationSeconds;
+    const originalRadius = CFG.worldRadius;
+    const input = { dataset: { path: 'generationSeconds', controlType: 'duration' }, type: 'text',
+      value: '2m,,3s', setCustomValidity: vi.fn(), setAttribute: vi.fn(), reportValidity: vi.fn() };
+    const radius = { dataset: { path: 'worldRadius' }, value: '8000' };
+    const root = { querySelectorAll: () => [radius, input] } as unknown as HTMLElement;
+    try {
+      updateCFGFromUI(root);
+      expect(CFG.generationSeconds).toBe(original);
+      expect(CFG.worldRadius).toBe(originalRadius);
+      expect(input.reportValidity).toHaveBeenCalledOnce();
+      input.value = '1h, 2m';
+      updateCFGFromUI(root);
+      expect(CFG.generationSeconds).toBe(3720);
+      expect(CFG.worldRadius).toBe(8000);
+    } finally { CFG.generationSeconds = original; CFG.worldRadius = originalRadius; }
+  });
+
+  it('renders dropdown labels while retaining explicit integer wire codes and reset metadata', () => {
+    const control = createSettingControl({ group: 'Lives', path: 'test.choice', label: 'Memory',
+      type: 'select', requiresReset: true, options: [{ value: 0, label: 'Reset' }, { value: 1, label: 'Preserve' }] }) as unknown as FakeElement;
+    expect(control.tagName).toBe('select');
+    expect(control.dataset).toMatchObject({ path: 'test.choice', controlType: 'select', requiresReset: '1' });
+    expect(control.children.map(option => [option.value, option.textContent])).toEqual([['0', 'Reset'], ['1', 'Preserve']]);
+    const select = { value: '1', options: [{ value: '0' }, { value: '1' }] };
+    expect(readSettingChoice(select as unknown as HTMLSelectElement)).toBe(1);
+    for (const value of ['', '2', '0.5', 'NaN']) {
+      select.value = value; expect(readSettingChoice(select as unknown as HTMLSelectElement)).toBeNull();
+    }
+  });
+
+  it('invalid dropdown choices block all reset draft changes and valid zero codes apply', () => {
+    const originalRadius = CFG.worldRadius; const originalMode = CFG.brain.gruCrossoverMode;
+    const choice = { dataset: { path: 'brain.gruCrossoverMode', controlType: 'select' },
+      value: '2', options: [{ value: '0' }, { value: '1' }],
+      setCustomValidity: vi.fn(), setAttribute: vi.fn(), reportValidity: vi.fn() };
+    const radius = { dataset: { path: 'worldRadius' }, value: '8000' };
+    const root = { querySelectorAll: () => [radius, choice] } as unknown as HTMLElement;
+    try {
+      updateCFGFromUI(root);
+      expect(CFG.worldRadius).toBe(originalRadius); expect(CFG.brain.gruCrossoverMode).toBe(originalMode);
+      expect(choice.reportValidity).toHaveBeenCalledOnce();
+      choice.value = '0'; updateCFGFromUI(root);
+      expect(CFG.worldRadius).toBe(8000); expect(CFG.brain.gruCrossoverMode).toBe(0);
+      expect(choice.setCustomValidity).toHaveBeenLastCalledWith('');
+    } finally { CFG.worldRadius = originalRadius; CFG.brain.gruCrossoverMode = originalMode; }
+  });
+
+  it('life preset opts in explicitly while preserving unrelated pending drafts', () => {
+    const original = JSON.parse(JSON.stringify(CFG)) as typeof CFG;
+    const enabled = { dataset: { path: 'evolvedRespawn.enabled' }, type: 'checkbox', checked: false, value: '0' };
+    const overflow = { dataset: { path: 'world.pelletOverflow', controlType: 'select' }, value: '0', options: [{ value: '0', label: 'Fail' }, { value: '1', label: 'Discard' }] };
+    const radius = { dataset: { path: 'worldRadius' }, value: '9000' };
+    const root = { querySelectorAll: () => [enabled, overflow, radius] } as unknown as HTMLElement;
+    try {
+      CFG.evolvedRespawn.contractVersion = 0; stageEvolvedRespawnPreset(root);
+      expect(CFG.evolvedRespawn.contractVersion).toBe(1); expect(enabled.checked).toBe(true);
+      expect(overflow.value).toBe('1'); expect(radius.value).toBe('9000');
+    } finally { Object.assign(CFG, original); }
+  });
+
+  it('legacy panels preserve the old contract until a life control changes and do not change overflow', () => {
+    const original = JSON.parse(JSON.stringify(CFG)) as typeof CFG;
+    let listener: (() => void) | undefined;
+    const enabled = { dataset: { path: 'evolvedRespawn.enabled', lifeContract: '1', requiresReset: '1' },
+      type: 'checkbox', checked: false, value: '0', setCustomValidity: vi.fn(), setAttribute: vi.fn(), reportValidity: vi.fn(),
+      addEventListener: (_type: string, callback: () => void) => { listener = callback; } };
+    const root = { querySelectorAll: () => [enabled] } as unknown as HTMLElement;
+    try {
+      CFG.evolvedRespawn.contractVersion = 0; CFG.world.pelletOverflow = 0;
+      updateCFGFromUI(root); expect(CFG.evolvedRespawn.contractVersion).toBe(0);
+      hookSliderEvents(root, vi.fn()); enabled.checked = true; listener?.(); updateCFGFromUI(root);
+      expect(CFG.evolvedRespawn.enabled).toBe(true); expect(CFG.evolvedRespawn.contractVersion).toBe(1);
+      expect(CFG.world.pelletOverflow).toBe(0);
+      const container = new FakeElement('div'); buildSettingsUI(container as unknown as HTMLElement);
+      expect(collectInputs(container).some(input => input.dataset['path'] === 'evolvedRespawn.contractVersion')).toBe(false);
+      expect([...EVOLVED_SETTING_PATHS]).toHaveLength(17);
+    } finally { Object.assign(CFG, original); }
   });
 
   it('updateCFGFromUI writes slider values back into CFG', () => {

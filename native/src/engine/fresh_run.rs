@@ -26,17 +26,18 @@ use super::sensor_layout::{SENSOR_CHANNEL_COUNT, SENSOR_SCALAR_COUNT};
 use super::state::{
     normalized_config_hash, normalized_settings_schema_hash,
     preflight_generation_boundary_allocation, AllocatorState, AuthorityPhase, BrainHandle,
-    BrainOwner, BrainRuntimeState, ContractVersions, FixedStepContinuationState,
-    GenerationBoundaryKind, GenerationState, GenomeLineage, NormalizedEngineConfig,
-    NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy,
-    StateCandidate, StateError, WorldState, ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START,
-    CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
+    BrainOwner, BrainRuntimeState, ContractVersions, EvolvedRespawnRngState,
+    FixedStepContinuationState, GenerationBoundaryKind, GenerationState, GenomeLineage,
+    NormalizedEngineConfig, NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity,
+    StateAdmissionPolicy, StateCandidate, StateError, WorldState, ALLOCATOR_VERSION,
+    BASELINE_ENTITY_ID_START, CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
     GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION,
-    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, SENSOR_VERSION, SERIALIZER_VERSION,
+    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, RNG_BUNDLE_WITH_EVOLVED_VERSION,
+    SENSOR_VERSION, SERIALIZER_VERSION,
 };
 use super::step_config::{
-    project_baseline_generation_config, project_running_step_config, typescript_default_settings,
-    RunningStepWorkLimits, StepConfigError,
+    production_default_settings, project_baseline_generation_config, project_running_step_config,
+    typescript_default_settings, RunningStepWorkLimits, StepConfigError,
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -148,6 +149,29 @@ pub fn prepare_stage6a_p0_fresh_run_with_settings_and_graph(
     .map_err(FreshRunError::from)
 }
 
+/// Select a complete modern life contract, or preserve explicitly recorded legacy settings.
+/// Empty inputs denote a genuinely new default configuration, not a recorded reset.
+pub fn prepare_configured_fresh_run_with_settings_and_graph(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let modern = settings.is_empty()
+        || settings
+            .iter()
+            .any(|setting| setting.path == "evolvedRespawn.contractVersion");
+    let prepared = prepare_fresh_boundary(request, settings, graph, modern)?;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
 /// Build a new generation-one lineage around an old browser-exported population.
 ///
 /// Legacy JSON does not contain the exact Rust continuation state required for a
@@ -212,13 +236,10 @@ pub fn prepare_stage6a_p0_checkpoint_restore(
     descriptor: &super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let schema = normalized_settings_schema_hash(&settings)?;
     PendingRunStartTransition::restore_committed(
         managed_directory,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema, true),
+        production_restore_policy(memory_ceiling_bytes, true)?,
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
@@ -233,13 +254,10 @@ pub fn prepare_stage6a_p0_compatible_checkpoint_restore(
     descriptor: &super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let schema = normalized_settings_schema_hash(&settings)?;
     PendingRunStartTransition::restore_committed(
         managed_directory,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema, false),
+        production_restore_policy(memory_ceiling_bytes, false)?,
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
@@ -254,13 +272,10 @@ pub(crate) fn prepare_stage6a_p0_validated_import(
     descriptor: super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let schema = normalized_settings_schema_hash(&settings)?;
     PendingRunStartTransition::restore_validated_import(
         restored,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema, true),
+        production_restore_policy(memory_ceiling_bytes, true)?,
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
@@ -284,13 +299,44 @@ fn prepare_stage6a_p0_boundary(
     replacement_settings: &[FreshRunSettingUpdate],
     graph_spec: GraphSpec,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    prepare_fresh_boundary(request, replacement_settings, graph_spec, false)
+}
+
+/// Construct one explicit schema without changing the frozen fixture constructor.
+fn prepare_fresh_boundary(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
     let graph = Arc::new(GraphBundle::compile(graph_spec, &graph_limits)?);
 
     let work_limits = RunningStepWorkLimits::provisional_defaults();
-    let mut settings =
+    let legacy =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    let mut settings = if modern {
+        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT)
+    } else {
+        legacy.clone()
+    };
+    if modern && !replacement_settings.is_empty() {
+        for setting in settings
+            .iter()
+            .filter(|setting| !legacy.iter().any(|old| old.path == setting.path))
+        {
+            if !replacement_settings
+                .iter()
+                .any(|update| update.path == setting.path)
+            {
+                return Err(FreshRunError::Settings(format!(
+                    "modern settings require {}",
+                    setting.path
+                )));
+            }
+        }
+    }
     apply_fresh_run_settings(&mut settings, replacement_settings)?;
     let population_count = fresh_setting_integer(&settings, "snakeCount")?;
     let baseline_count = fresh_setting_integer(&settings, "baselineBots.count")?;
@@ -353,6 +399,12 @@ fn prepare_stage6a_p0_boundary(
         &graph,
         baseline_config,
     )?;
+    if modern {
+        candidate.versions.rng_bundle = RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        candidate.rng.version = RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        candidate.rng.evolved_respawns =
+            EvolvedRespawnRngState::derive_generation(request.seed, 1, population_count)?;
+    }
     let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
         FreshRunError::ArithmeticOverflow {
             context: "fresh-run population weight count",
@@ -560,8 +612,28 @@ fn current_build_policy(
         expected_rustc_version: crate::native_addon_rustc_version(),
         expected_build_contract_sha256: crate::native_addon_build_contract_sha256(),
         expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     }
+}
+
+/// Production restore recognizes only complete frozen or complete life-contract schemas.
+fn production_restore_policy(
+    memory_ceiling_bytes: usize,
+    require_exact_build_identity: bool,
+) -> Result<StateAdmissionPolicy, FreshRunError> {
+    let legacy = normalized_settings_schema_hash(&typescript_default_settings(
+        STAGE6A_P0_POPULATION_COUNT,
+        STAGE6A_P0_BASELINE_COUNT,
+    ))?;
+    let modern = normalized_settings_schema_hash(&production_default_settings(
+        STAGE6A_P0_POPULATION_COUNT,
+        STAGE6A_P0_BASELINE_COUNT,
+    ))?;
+    let mut policy =
+        current_build_policy(memory_ceiling_bytes, legacy, require_exact_build_identity);
+    policy.allowed_settings_schema_sha256.push(modern);
+    Ok(policy)
 }
 
 /// Rebuild the fixed P0 archive validation contract without a second population.
@@ -569,17 +641,10 @@ pub(crate) fn stage6a_p0_archive_validation_contract(
     memory_ceiling_bytes: usize,
     require_exact_build_identity: bool,
 ) -> Result<(CheckpointLimits, GraphLimits, StateAdmissionPolicy), FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
     Ok((
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
-        current_build_policy(
-            memory_ceiling_bytes,
-            settings_schema_sha256,
-            require_exact_build_identity,
-        ),
+        production_restore_policy(memory_ceiling_bytes, require_exact_build_identity)?,
     ))
 }
 
@@ -676,6 +741,7 @@ fn boundary_shell(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(f64::from(seed), "world").export_state(),
             evolution: labelled_stream(f64::from(seed), "evolution").export_state(),
@@ -1475,6 +1541,146 @@ mod tests {
         }
     }
 
+    fn numeric_settings(
+        settings: Vec<super::super::state::NormalizedSetting>,
+    ) -> Vec<FreshRunSettingUpdate> {
+        settings
+            .into_iter()
+            .map(|setting| FreshRunSettingUpdate {
+                path: setting.path,
+                value: match setting.value {
+                    NormalizedSettingValue::Bool(value) => f64::from(value),
+                    NormalizedSettingValue::Integer(value) => value as f64,
+                    NormalizedSettingValue::Float(value) => value,
+                    NormalizedSettingValue::Text(_) => panic!("numeric fresh setting"),
+                },
+            })
+            .collect()
+    }
+
+    #[test]
+    fn configured_fresh_life_contract_is_complete_and_preserves_frozen_numeric_initialization() {
+        let legacy =
+            prepare_stage6a_p0_boundary(request(42), &[], typescript_default_graph_spec()).unwrap();
+        let modern =
+            prepare_fresh_boundary(request(42), &[], typescript_default_graph_spec(), true)
+                .unwrap();
+        assert_eq!(
+            modern.candidate.rng.version,
+            RNG_BUNDLE_WITH_EVOLVED_VERSION
+        );
+        assert_eq!(
+            modern.candidate.versions.rng_bundle,
+            RNG_BUNDLE_WITH_EVOLVED_VERSION
+        );
+        assert_eq!(
+            modern.candidate.rng.evolved_respawns.len(),
+            STAGE6A_P0_POPULATION_COUNT
+        );
+        assert_eq!(modern.candidate.population, legacy.candidate.population);
+        assert_eq!(modern.candidate.rng.world, legacy.candidate.rng.world);
+        assert_eq!(
+            modern.candidate.rng.evolution,
+            legacy.candidate.rng.evolution
+        );
+        assert_eq!(
+            modern.candidate.rng.baselines,
+            legacy.candidate.rng.baselines
+        );
+        let old = numeric_settings(typescript_default_settings(
+            STAGE6A_P0_POPULATION_COUNT,
+            STAGE6A_P0_BASELINE_COUNT,
+        ));
+        let configured = prepare_configured_fresh_run_with_settings_and_graph(
+            request(42),
+            &old,
+            typescript_default_graph_spec(),
+        )
+        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_str(&configured.startup_metadata_json().unwrap()).unwrap();
+        assert!(!metadata["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|setting| setting["path"] == "evolvedRespawn.contractVersion"));
+        for partial in [
+            vec![FreshRunSettingUpdate {
+                path: "evolvedRespawn.contractVersion".into(),
+                value: 1.0,
+            }],
+            vec![FreshRunSettingUpdate {
+                path: "evolvedRespawn.enabled".into(),
+                value: 1.0,
+            }],
+        ] {
+            assert!(prepare_configured_fresh_run_with_settings_and_graph(
+                request(42),
+                &partial,
+                typescript_default_graph_spec()
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn production_restore_roundtrips_the_selected_life_contract_and_rejects_unknown_schemas() {
+        let managed = TestDirectory::create("life-contract-restore");
+        let mut settings = numeric_settings(production_default_settings(3, 0));
+        for setting in &mut settings {
+            if setting.path == "evolvedRespawn.enabled" {
+                setting.value = 1.0;
+            }
+            if setting.path == "evolvedRespawn.recurrentState" {
+                setting.value = 1.0;
+            }
+        }
+        let mut pending = prepare_configured_fresh_run_with_settings_and_graph(
+            request(42),
+            &settings,
+            typescript_default_graph_spec(),
+        )
+        .unwrap();
+        let before: serde_json::Value =
+            serde_json::from_str(&pending.startup_metadata_json().unwrap()).unwrap();
+        let descriptor = pending
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("89898989898989898989898989898989").unwrap(),
+            )
+            .unwrap();
+        let mut restored =
+            prepare_stage6a_p0_checkpoint_restore(managed.path(), &descriptor, TEST_MEMORY_CEILING)
+                .unwrap();
+        let after: serde_json::Value =
+            serde_json::from_str(&restored.startup_metadata_json().unwrap()).unwrap();
+        assert_eq!(before["settings"], after["settings"]);
+        assert_eq!(before["seed"], after["seed"]);
+        restored.publish_running_authority().unwrap();
+        assert_eq!(restored.snake_count(), 3);
+        restored
+            .publish_first_scheduled_frame_v1(&mut Vec::new())
+            .unwrap();
+        let mut prepared = prepare_fresh_boundary(
+            request(42),
+            &settings,
+            typescript_default_graph_spec(),
+            true,
+        )
+        .unwrap();
+        prepared.candidate.config.settings.pop();
+        prepared.candidate.config.settings_schema_sha256 =
+            normalized_settings_schema_hash(&prepared.candidate.config.settings).unwrap();
+        prepared.candidate.identity.config_hash =
+            normalized_config_hash(&prepared.candidate.config).unwrap();
+        assert!(super::super::state::AuthoritativeState::validate_and_own(
+            prepared.candidate,
+            prepared.graph,
+            &production_restore_policy(TEST_MEMORY_CEILING, true).unwrap()
+        )
+        .is_err());
+    }
+
     #[test]
     fn startup_metadata_preserves_the_unpublished_run_boundary() {
         let transition = prepare_stage6a_p0_fresh_run(request(42)).unwrap();
@@ -1526,8 +1732,17 @@ mod tests {
         let mut running = pending
             .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
             .unwrap();
+        let token = running
+            .select_entity(
+                crate::engine::state::EntitySelectionTarget::Frame(snake_id),
+                &request(42).run_id,
+                1,
+            )
+            .unwrap()
+            .unwrap()
+            .token;
         let (death, effective_step) = running
-            .apply_god_mode_kill(snake_id)
+            .apply_god_mode_kill(token, snake_id)
             .expect("the supported ambient target must leave space for the full normal corpse");
         assert!(death.pellets_dropped > 0);
         assert_eq!(effective_step, 1);

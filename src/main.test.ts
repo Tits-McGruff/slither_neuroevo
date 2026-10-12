@@ -38,18 +38,24 @@ interface SmokeElement {
   width: number;
   /** Canvas height. */
   height: number;
+  /** Retained option children for synthetic dropdown controls. */
+  options: SmokeElement[];
   /** Register an event listener. */
   addEventListener: (type: string, listener: (event: Event) => void) => void;
   /** Dispatch one synthetic event to registered listeners. */
   dispatch: (type: string, event: Event) => void;
   /** Append a child node. */
-  appendChild: () => void;
+  appendChild: (child: SmokeElement) => void;
   /** Append one or more direct-download elements. */
   append: (...children: SmokeElement[]) => void;
   /** Remove a temporary direct-download element. */
   remove: () => void;
   /** Set one attribute. */
   setAttribute: (name: string, value: string) => void;
+  /** Record browser input validation. */
+  setCustomValidity: (message: string) => void;
+  /** Surface browser validation without a real browser. */
+  reportValidity: () => boolean;
   /** Read one attribute. */
   getAttribute: (name: string) => string | null;
   /** Query descendants. */
@@ -121,6 +127,7 @@ function makeElement(id: string): SmokeElement {
     classList,
     width: 800,
     height: 600,
+    options: [],
     addEventListener(type, listener) {
       const registered = listeners.get(type) ?? [];
       registered.push(listener);
@@ -129,10 +136,12 @@ function makeElement(id: string): SmokeElement {
     dispatch(type, event) {
       for (const listener of listeners.get(type) ?? []) listener(event);
     },
-    appendChild() { },
+    appendChild(child) { this.options.push(child); },
     append() { },
     remove() { },
     setAttribute(name, value) { attributes.set(name, value); },
+    setCustomValidity(message) { attributes.set('validationMessage', message); },
+    reportValidity() { return !attributes.get('validationMessage'); },
     getAttribute(name) { return attributes.get(name) ?? null; },
     querySelectorAll: () => [],
     closest: () => null,
@@ -414,6 +423,11 @@ describe('main.ts startup smoke', () => {
     const { canvas, socket } = await openCameraSession();
     const zoom = window.currentWorld.zoom;
     canvas.dispatch('click', cameraMouse(400 + 200 * zoom, 300 + 100 * zoom));
+    const selection = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'selectEntity');
+    expect(selection).toMatchObject({ snakeId: 7 });
+    expect(socket.sent.map(payload => JSON.parse(payload)).some(packet => packet.type === 'godMode')).toBe(false);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'entitySelected', requestId: selection.requestId, found: true,
+      entity: { token: '1'.repeat(64), snakeId: 7, x: 200, y: 100, radius: 5, skin: 0 } }) });
     canvas.dispatch('mousedown', cameraMouse(400, 300));
     canvas.dispatch('mousemove', cameraMouse(480, 340));
     canvas.dispatch('mouseup', cameraMouse(480, 340));
@@ -426,6 +440,37 @@ describe('main.ts startup smoke', () => {
     for (const listener of windowListeners.get('mouseup') ?? []) listener(cameraMouse(550, 390, 0, true));
     const moves = socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'godMode');
     expect(moves.at(-1)).toMatchObject({ action: 'move', snakeId: 7, x: 150 / zoom, y: 90 / zoom });
+  });
+
+  it('follows the selected population owner and holds the camera during a life boundary', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'] });
+    const { canvas, socket } = await openCameraSession();
+    /** Pack only presentation frames; all identity changes arrive through native replies. */
+    const frame = (ids: number[]): ArrayBuffer => new Float32Array([1, ids.length, ids.length, 10000, 0, 0, 1,
+      ...ids.flatMap(id => { const x = id === 7 ? 200 : id === 8 ? 500 : 900; const y = id === 7 ? 100 : id === 8 ? 400 : 700;
+        return [id, 9, 0, x, y, 0, 0, 2, x, y, x + 10, y]; }), 0]).buffer;
+    socket.onmessage?.({ data: frame([7, 8]) });
+    const zoom = window.currentWorld.zoom;
+    canvas.dispatch('click', cameraMouse(400 + 500 * zoom, 300 + 400 * zoom));
+    const request = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'selectEntity');
+    expect(request).toMatchObject({ snakeId: 8 });
+    socket.onmessage?.({ data: JSON.stringify({ type: 'entitySelected', requestId: request.requestId, found: true,
+      entity: { token: '1'.repeat(64), snakeId: 8, populationSlot: 0, lifeOrdinal: '0000000000000001', x: 500, y: 400, radius: 9, skin: 0 } }) });
+    elements.get('toggle')!.click(); renderCameraFrame();
+    expect(window.currentWorld.cameraX).toBe(500); expect(window.currentWorld.cameraY).toBe(400);
+    socket.onmessage?.({ data: frame([7]) });
+    const waiting = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'selectEntity');
+    expect(waiting).toMatchObject({ populationSlot: 0 });
+    socket.onmessage?.({ data: JSON.stringify({ type: 'entitySelected', requestId: waiting.requestId, found: false }) });
+    renderCameraFrame();
+    expect(window.currentWorld.cameraX).toBe(500); expect(window.currentWorld.cameraY).toBe(400);
+    await vi.advanceTimersByTimeAsync(250);
+    socket.onmessage?.({ data: frame([7]) });
+    const replacement = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'selectEntity');
+    socket.onmessage?.({ data: JSON.stringify({ type: 'entitySelected', requestId: replacement.requestId, found: true,
+      entity: { token: '2'.repeat(64), snakeId: 9, populationSlot: 0, lifeOrdinal: '0000000000000002', x: 900, y: 700, radius: 9, skin: 0 } }) });
+    socket.onmessage?.({ data: frame([7, 9]) }); renderCameraFrame();
+    expect(window.currentWorld.cameraX).toBe(900); expect(window.currentWorld.cameraY).toBe(700);
   });
 
   it('attempts the resolved server connection when the entry module loads', async () => {
@@ -480,6 +525,17 @@ describe('main.ts startup smoke', () => {
         { path: 'observer.earlyEndAliveThreshold', value: CFG.observer.earlyEndAliveThreshold }
       ]));
     expect(reset.updates.filter((update: { path: string }) => update.path.startsWith('observer.'))).toHaveLength(2);
+    expect(reset.updates.some((update: { path: string }) => update.path.startsWith('evolvedRespawn.'))).toBe(false);
+    const enabled = panelInputs().find(element => element.dataset['path'] === 'evolvedRespawn.enabled')!;
+    enabled.checked = true; enabled.dispatch('input', new Event('input'));
+    elements.get('apply')!.click();
+    const experiment = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
+    expect(experiment.updates).toEqual(expect.arrayContaining([
+      { path: 'evolvedRespawn.contractVersion', value: 1 }, { path: 'evolvedRespawn.enabled', value: 1 },
+      { path: 'world.pelletOverflow', value: 0 }
+    ]));
+    const { EVOLVED_SETTING_PATHS } = await import('./protocol/settingDefinitions.ts');
+    expect(experiment.updates.filter((update: { path: string }) => EVOLVED_SETTING_PATHS.has(update.path))).toHaveLength(17);
   });
 
   it('shows rejected resets beside Apply and acknowledges a successful retry', async () => {
@@ -624,6 +680,8 @@ describe('main.ts startup smoke', () => {
       alive: 12, fps: 60 };
     socket.onmessage?.({ data: JSON.stringify(stats) });
     await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('Gen 1'));
+    expect(elements.get('hofTable')?.innerHTML).toContain('Legacy physical score: 2.0');
+    expect(elements.get('hofTable')?.innerHTML).toContain('legacy physical length: 4');
     const loads = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes('/api/hof')).length;
     socket.onmessage?.({ data: JSON.stringify({ ...stats, tick: 481 }) });
     await Promise.resolve();
@@ -683,6 +741,37 @@ describe('main.ts startup smoke', () => {
     expect(uploadUrl).toBe('http://localhost:5174/api/import/archive');
     const fetchCalls = vi.mocked(fetch).mock.calls.map(([request]) => String(request));
     expect(fetchCalls.filter(url => url.includes('/api/import'))).toEqual([]);
+  });
+
+  it('confirms the observed generation and holds manual completion until native durability', async () => {
+    vi.useFakeTimers();
+    await import('./main.ts');
+    elements.get('toggleSettingsLock')?.click();
+    const socket = activeSocket!;
+    socket.onopen?.();
+    socket.onmessage?.({ data: JSON.stringify({ type: 'welcome', protocolVersion: 2,
+      worldSeed: 42, runId: 'finish-run', configRevision: 0, capabilities: { finishGeneration: true },
+      settings: { core: { simSpeed: 1 }, updates: [] },
+      inferenceMode: { activeBackend: 'native', activeWorkerCount: 0 } }) });
+    socket.onmessage?.({ data: JSON.stringify({ type: 'stats', gen: 7, generationTime: 3723,
+      generationSeconds: 604800, alive: 10, fps: 60, tick: 1 }) });
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
+    const button = elements.get('finishGeneration')!;
+    expect(button.hidden).toBe(false);
+    button.click();
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('generation 7'));
+    const command = socket.sent.map(payload => JSON.parse(payload)).find(packet => packet.type === 'finishGeneration');
+    expect(command).toMatchObject({ expectedRunId: 'finish-run', expectedGeneration: 7 });
+    expect(button.disabled).toBe(true);
+    socket.onmessage?.({ data: JSON.stringify({ type: 'finishGenerationResult', requestId: command.requestId,
+      runId: 'finish-run', generation: 7, status: 'pending' }) });
+    expect(button.disabled).toBe(true);
+    expect(elements.get('finishGenerationStatus')!.textContent).toContain('checkpoint');
+    socket.onmessage?.({ data: JSON.stringify({ type: 'finishGenerationResult', requestId: command.requestId,
+      runId: 'finish-run', generation: 7, status: 'completed' }) });
+    expect(button.disabled).toBe(false);
+    expect(elements.get('finishGenerationStatus')!.textContent).toContain('finished and saved');
   });
 
   it('sends New Run and refreshes the visible seed after acknowledgement', async () => {

@@ -11,7 +11,8 @@ use super::checkpoint::{
     CheckpointLimits, CheckpointOperationId, HallOfFameWeightsDescriptor,
 };
 use super::evolution::{
-    prepare_evolution, EvolutionError, GenerationSummary, HallOfFameCandidate, NextGenomeOrigin,
+    prepare_evolution, prepare_evolution_with_assessments, EvolutionError,
+    EvolvedFitnessAssessment, GenerationSummary, HallOfFameCandidate, NextGenomeOrigin,
 };
 use super::graph::{CompiledGraph, GraphLimits};
 use super::physics::PhysicsStepKey;
@@ -90,9 +91,22 @@ pub struct HallOfFameCommitRecord {
     pub successor_genome_id: u64,
 }
 
+/// Versioned completed-generation chronology; absent on legacy fixture handoffs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GenerationCompletionRecord {
+    pub reason: super::running_step::GenerationTransitionReason,
+    pub actual_elapsed_f64_bits: u64,
+    pub configured_duration_f64_bits: u64,
+    pub completed_step: u64,
+}
+
 /// Complete bounded generation metadata constructed solely by Rust admission.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GenerationCommitRecord {
+    /// Fixed history-v1 / assessment-v2 extension, absent on frozen legacy handoffs.
+    pub experiment: Option<super::experiment_records::GenerationExperimentRecords>,
+    /// Completion contract recorded with the ordinary durable handoff.
+    pub completion: Option<GenerationCompletionRecord>,
     /// Compact eight-field generation result.
     pub summary: GenerationSummaryCommitRecord,
     /// Run-scoped reference to the elite already stored in the checkpoint.
@@ -173,6 +187,82 @@ impl AdmittedGenerationBoundary {
     #[must_use]
     pub const fn commit_record(&self) -> &GenerationCommitRecord {
         &self.commit_record
+    }
+
+    /// Attach terminal chronology before exposing the admitted checkpoint handoff.
+    pub(crate) fn record_completion(
+        &mut self,
+        reason: super::running_step::GenerationTransitionReason,
+        actual_elapsed: f64,
+        configured_duration: f64,
+    ) {
+        self.commit_record.completion = Some(GenerationCompletionRecord {
+            reason,
+            actual_elapsed_f64_bits: actual_elapsed.to_bits(),
+            configured_duration_f64_bits: configured_duration.to_bits(),
+            completed_step: self.candidate().generation.completed_step,
+        });
+    }
+
+    /// Attach bounded experiment records before exposing the durable handoff.
+    pub(crate) fn record_experiment(
+        &mut self,
+        world: &WorldState,
+        lives: &super::evolved_lives::EvolvedGenerationState,
+        policy: super::evolved_lives::EvolvedExperimentConfig,
+    ) -> Result<(), GenerationTransitionError> {
+        if policy.version == 0 {
+            return Ok(());
+        }
+        let completion = self.commit_record.completion.ok_or(
+            GenerationTransitionError::InvalidContinuation {
+                field: "experiment completion",
+            },
+        )?;
+        let cumulative_gross = match self
+            .candidate()
+            .config
+            .settings
+            .iter()
+            .find(|setting| setting.path == "lifeScoring.cumulativeBasis")
+            .map(|setting| &setting.value)
+        {
+            Some(super::state::NormalizedSettingValue::Integer(0)) => false,
+            Some(super::state::NormalizedSettingValue::Integer(1)) => true,
+            _ => {
+                return Err(GenerationTransitionError::InvalidContinuation {
+                    field: "experiment cumulative basis",
+                })
+            }
+        };
+        let records = super::experiment_records::GenerationExperimentRecords::build(
+            super::experiment_records::ExperimentRecordInputs {
+                generation: self.commit_record.summary.completed_generation,
+                config_revision: self.candidate().identity.config_revision,
+                completion,
+                world,
+                lives,
+                policy,
+                cumulative_gross,
+                evolution: project_evolution_config(
+                    &self.candidate().config,
+                    self.successor.authority().graph().total_parameters,
+                )?,
+                winner_slot: self.metadata.hall_of_fame.source_slot,
+            },
+        )
+        .map_err(GenerationTransitionError::Experiment)?;
+        if records.hall_of_fame[3] != self.commit_record.hall_of_fame.source_snake_id {
+            return Err(GenerationTransitionError::InvalidContinuation {
+                field: "experiment physical winner",
+            });
+        }
+        // Old index fields keep their physical meanings. The version-two
+        // extension explicitly supplies selected score/bundle/display length.
+        self.commit_record.hall_of_fame.points_f64_bits = records.hall_of_fame[20];
+        self.commit_record.hall_of_fame.length = records.hall_of_fame[24];
+        self.commit_record.experiment = Some(records);
+        Ok(())
     }
 
     /// Conservative current-plus-successor state memory charged during staging.
@@ -282,12 +372,52 @@ pub(crate) fn admit_prepared_generation_boundary(
     source_key: PhysicsStepKey,
     prepared: PreparedGenerationBoundary,
 ) -> Result<AdmittedGenerationBoundary, GenerationTransitionError> {
+    admit_generation_boundary_internal(current_source, source_key, prepared, None)
+}
+
+/// Admit newborn terminal identities only with the sealed replacement witness.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn admit_prepared_generation_boundary_with_evolved(
+    current_source: &AuthoritativeState,
+    source_key: PhysicsStepKey,
+    prepared: PreparedGenerationBoundary,
+    completed_world: &WorldState,
+    completed_rng: &RngStateBundle,
+    completed_allocators: &AllocatorState,
+    proof: Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof>,
+) -> Result<AdmittedGenerationBoundary, GenerationTransitionError> {
+    if let Some(proof) = proof {
+        if !proof.matches(
+            source_key,
+            current_source.state(),
+            completed_world,
+            completed_rng,
+            completed_allocators,
+        ) {
+            return Err(GenerationTransitionError::InvalidContinuation {
+                field: "evolved terminal replacement witness",
+            });
+        }
+    }
+    if proof.is_none() {
+        return admit_prepared_generation_boundary(current_source, source_key, prepared);
+    }
+    admit_generation_boundary_internal(current_source, source_key, prepared, proof)
+}
+
+fn admit_generation_boundary_internal(
+    current_source: &AuthoritativeState,
+    source_key: PhysicsStepKey,
+    prepared: PreparedGenerationBoundary,
+    evolved: Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof>,
+) -> Result<AdmittedGenerationBoundary, GenerationTransitionError> {
     let (candidate, metadata) = prepared.into_parts();
     let successor = current_source.admit_generation_successor(source_key, candidate)?;
     let commit_record = generation_commit_record(
         current_source.state(),
         successor.authority().state(),
         metadata,
+        evolved,
     )?;
     Ok(AdmittedGenerationBoundary {
         successor,
@@ -301,6 +431,7 @@ fn generation_commit_record(
     source: &StateCandidate,
     successor: &StateCandidate,
     metadata: PreparedGenerationMetadata,
+    evolved: Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof>,
 ) -> Result<GenerationCommitRecord, GenerationTransitionError> {
     let summary = metadata.summary;
     let hall_of_fame = metadata.hall_of_fame;
@@ -367,10 +498,14 @@ fn generation_commit_record(
                 reason: "generation commit source population slot is out of bounds",
             })?;
     if source_genome.slot != hall_of_fame.source_slot
-        || !source.world.snakes.iter().any(|snake| {
+        || !(source.world.snakes.iter().any(|snake| {
             snake.id == hall_of_fame.snake_id
                 && snake.population_slot == Some(hall_of_fame.source_slot)
-        })
+        }) || evolved
+            .and_then(|proof| proof.record(hall_of_fame.source_slot))
+            .is_some_and(|record| {
+                record.new_id == hall_of_fame.snake_id && record.brain == source_genome.brain
+            }))
     {
         return Err(GenerationTransitionError::PopulationShape {
             reason: "generation commit source identity is not present in the terminal authority",
@@ -405,6 +540,8 @@ fn generation_commit_record(
         }
     })?;
     Ok(GenerationCommitRecord {
+        completion: None,
+        experiment: None,
         summary: GenerationSummaryCommitRecord {
             completed_generation: summary.generation,
             best_f64_bits: summary.best.to_bits(),
@@ -440,6 +577,8 @@ fn f32_slices_equal_bits(left: &[f32], right: &[f32]) -> bool {
 /// Generation projection, staged-world, allocation, or evolution failure.
 #[derive(Debug)]
 pub enum GenerationTransitionError {
+    /// Invalid bounded experiment summary or economic identity.
+    Experiment(String),
     /// Required admitted settings were missing, mistyped, or inconsistent.
     Config(Box<StepConfigError>),
     /// Fitness, selection, crossover, mutation, or RNG preparation failed.
@@ -466,6 +605,7 @@ pub enum GenerationTransitionError {
 impl Display for GenerationTransitionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Experiment(detail) => write!(formatter, "generation experiment: {detail}"),
             Self::Config(error) => write!(formatter, "invalid generation configuration: {error}"),
             Self::Evolution(error) => write!(formatter, "generation evolution failed: {error}"),
             Self::State(error) => {
@@ -550,6 +690,76 @@ pub fn prepare_generation_boundary(
     completed_elapsed_seconds: f64,
     graph: &CompiledGraph,
 ) -> Result<PreparedGenerationBoundary, GenerationTransitionError> {
+    prepare_generation_boundary_internal(
+        source,
+        completed_world,
+        completed_rng,
+        completed_allocators,
+        completed_elapsed_seconds,
+        graph,
+        None,
+    )
+}
+
+/// Reduce committed life assessments to evolution at the ordinary terminal boundary.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_generation_boundary_with_evolved(
+    source: &StateCandidate,
+    completed_world: &WorldState,
+    completed_rng: &RngStateBundle,
+    completed_allocators: &AllocatorState,
+    completed_elapsed_seconds: f64,
+    graph: &CompiledGraph,
+    lives: &super::evolved_lives::EvolvedGenerationState,
+    policy: super::evolved_lives::EvolvedExperimentConfig,
+) -> Result<PreparedGenerationBoundary, GenerationTransitionError> {
+    let use_assessments = policy.uses_life_assessments();
+    let mut assessments = reserve_vec(
+        if use_assessments {
+            lives.slots.len()
+        } else {
+            0
+        },
+        "evolved terminal assessments",
+    )?;
+    if use_assessments {
+        lives
+            .validate(completed_world, source.population.len())
+            .map_err(|_| GenerationTransitionError::InvalidContinuation {
+                field: "evolved terminal assessments",
+            })?;
+        for slot in &lives.slots {
+            assessments.push(EvolvedFitnessAssessment {
+                assessment: slot.assessment(policy.points, policy.nonpoints),
+                deaths: slot.deaths,
+                successful_respawns: slot.successful_respawns,
+            });
+        }
+    }
+    prepare_generation_boundary_internal(
+        source,
+        completed_world,
+        completed_rng,
+        completed_allocators,
+        completed_elapsed_seconds,
+        graph,
+        use_assessments.then_some((&assessments, policy.objective)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_generation_boundary_internal(
+    source: &StateCandidate,
+    completed_world: &WorldState,
+    completed_rng: &RngStateBundle,
+    completed_allocators: &AllocatorState,
+    completed_elapsed_seconds: f64,
+    graph: &CompiledGraph,
+    evolved: Option<(
+        &[EvolvedFitnessAssessment],
+        super::evolution::EvolvedFitnessObjective,
+    )>,
+) -> Result<PreparedGenerationBoundary, GenerationTransitionError> {
     if source.phase != AuthorityPhase::Running {
         return Err(GenerationTransitionError::InvalidSource {
             reason: "generation transition requires running authority",
@@ -570,15 +780,29 @@ pub fn prepare_generation_boundary(
     let evolution_config = project_evolution_config(&source.config, graph.total_parameters)?;
     let baseline_config = project_baseline_generation_config(&source.config)?;
     let evolution_started = std::time::Instant::now();
-    let prepared = prepare_evolution(
-        completed_world,
-        &source.population,
-        graph,
-        &completed_rng.evolution,
-        source.generation.generation,
-        source.generation.best_fitness_ever,
-        evolution_config,
-    )?;
+    let prepared = if let Some((assessments, objective)) = evolved {
+        prepare_evolution_with_assessments(
+            completed_world,
+            &source.population,
+            graph,
+            &completed_rng.evolution,
+            source.generation.generation,
+            source.generation.best_fitness_ever,
+            evolution_config,
+            assessments,
+            objective,
+        )?
+    } else {
+        prepare_evolution(
+            completed_world,
+            &source.population,
+            graph,
+            &completed_rng.evolution,
+            source.generation.generation,
+            source.generation.best_fitness_ever,
+            evolution_config,
+        )?
+    };
     let evolution_micros =
         u64::try_from(evolution_started.elapsed().as_micros()).unwrap_or(u64::MAX);
     let evolution_cost_micros = prepared.cost_micros();
@@ -728,6 +952,17 @@ pub fn prepare_generation_boundary(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            evolved_respawns: if completed_rng.version
+                == super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+            {
+                super::state::EvolvedRespawnRngState::derive_generation(
+                    source.identity.seed,
+                    next_generation,
+                    source.population.len(),
+                )?
+            } else {
+                Vec::new()
+            },
             version: completed_rng.version,
             world: completed_rng.world.clone(),
             evolution: parts.next_evolution_rng,
@@ -1200,6 +1435,7 @@ mod tests {
             },
             fixed_step,
             rng: RngStateBundle {
+                evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: stream(42, "world"),
                 evolution: stream(42, "evolution"),
@@ -1241,6 +1477,7 @@ mod tests {
             expected_rustc_version: source.identity.rustc_version.clone(),
             expected_build_contract_sha256: source.identity.build_contract_sha256.clone(),
             expected_math_backend: source.identity.math_backend.clone(),
+            allowed_settings_schema_sha256: Vec::new(),
             expected_settings_schema_sha256: source.config.settings_schema_sha256.clone(),
         }
     }
