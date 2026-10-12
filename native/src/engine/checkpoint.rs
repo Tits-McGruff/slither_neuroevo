@@ -2570,7 +2570,7 @@ fn decode_rng_bundle(
         evolved_respawns.try_reserve_exact(count).map_err(|_| {
             CheckpointError::format("ALLOCATION", "unable to reserve evolved RNG states")
         })?;
-        for (slot, record) in packed.chunks_exact(8).enumerate() {
+        for (slot, record) in packed.as_chunks::<8>().0.iter().enumerate() {
             let actual_slot = u32::from_le_bytes([record[0], record[1], record[2], record[3]]);
             let uniform_state = u32::from_le_bytes([record[4], record[5], record[6], record[7]]);
             if actual_slot as usize != slot || uniform_state == 0 {

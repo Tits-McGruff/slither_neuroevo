@@ -388,7 +388,7 @@ impl GenerationExperimentRecords {
             .history
             .iter()
             .chain(&self.hall_of_fame)
-            .zip(bytes.chunks_exact_mut(8))
+            .zip(bytes.as_chunks_mut::<8>().0.iter_mut())
         {
             chunk.copy_from_slice(&word.to_le_bytes());
         }
@@ -407,9 +407,9 @@ impl GenerationExperimentRecords {
             .history
             .iter_mut()
             .chain(&mut result.hall_of_fame)
-            .zip(bytes.chunks_exact(8))
+            .zip(bytes.as_chunks::<8>().0.iter())
         {
-            *word = u64::from_le_bytes(chunk.try_into().expect("exact chunk"));
+            *word = u64::from_le_bytes(*chunk);
         }
         result.validate()?;
         Ok(result)
