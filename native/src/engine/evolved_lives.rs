@@ -393,6 +393,39 @@ pub struct EvolvedLifeEndRecord {
     pub corpse_discarded_value: f64,
 }
 
+/// Bounded work facts from the last committed newborn boundary. These are
+/// ephemeral diagnostics, never generation-boundary checkpoint payloads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EvolvedPlacementWork {
+    pub step: u64,
+    pub eligible_slots: u16,
+    pub attempted_slots: u16,
+    pub placed_slots: u16,
+    pub pending_no_placement: u16,
+    pub pending_work_limit: u16,
+    pub candidates: u16,
+    pub geometry_checks: u32,
+}
+impl EvolvedPlacementWork {
+    /// Validate the fixed internal admission limits and complete outcome partition.
+    pub fn validate(self) -> Result<(), EvolvedLifeError> {
+        if self.eligible_slots > 300
+            || self.attempted_slots > 8
+            || self.attempted_slots > self.eligible_slots
+            || self.placed_slots > 8
+            || self.pending_no_placement > 8
+            || self.pending_work_limit > 8
+            || self.placed_slots + self.pending_no_placement + self.pending_work_limit
+                != self.attempted_slots
+            || self.candidates > 2048
+            || self.geometry_checks > 250_000
+        {
+            return Err(EvolvedLifeError::Lifecycle);
+        }
+        Ok(())
+    }
+}
+
 /// Maximum recent life ends retained independently of generation duration.
 pub const MAX_RECENT_LIFE_ENDS: usize = 256;
 
@@ -719,6 +752,8 @@ pub struct EvolvedGenerationState {
     pub transaction_life_ends: Vec<EvolvedLifeEndRecord>,
     /// Oldest-first diagnostic ring; never encoded into a boundary checkpoint.
     pub recent_life_ends: VecDeque<EvolvedLifeEndRecord>,
+    /// Last complete placement work; cold commands retain its original step identity.
+    pub placement_work: EvolvedPlacementWork,
 }
 
 impl Default for EvolvedGenerationState {
@@ -729,6 +764,7 @@ impl Default for EvolvedGenerationState {
             life_end_count: 0,
             transaction_life_ends: Vec::new(),
             recent_life_ends: VecDeque::new(),
+            placement_work: EvolvedPlacementWork::default(),
         }
     }
 }
@@ -753,6 +789,7 @@ impl EvolvedGenerationState {
         self.version = source.version;
         self.slots.clone_from(&source.slots);
         self.life_end_count = source.life_end_count;
+        self.placement_work = source.placement_work;
         self.recent_life_ends.clone_from(&source.recent_life_ends);
         self.transaction_life_ends.clear();
         self.reserve_events()
@@ -924,7 +961,7 @@ impl EvolvedGenerationState {
         target_step: u64,
         fixed_dt: f64,
         due: &mut Vec<u32>,
-    ) -> Result<(), EvolvedLifeError> {
+    ) -> Result<usize, EvolvedLifeError> {
         let retry_steps = delay_steps(0.25, fixed_dt)?;
         due.clear();
         if due.capacity() < self.slots.len() {
@@ -965,8 +1002,9 @@ impl EvolvedGenerationState {
                 owner.population_slot,
             )
         });
+        let eligible = due.len();
         due.truncate(8);
-        Ok(())
+        Ok(eligible)
     }
 
     /// Record one unsuccessful admitted attempt without consuming a physical life.
@@ -1239,6 +1277,7 @@ impl EvolvedGenerationState {
         population_count: usize,
     ) -> Result<(), EvolvedLifeError> {
         self.validate_events()?;
+        self.placement_work.validate()?;
         if self.version != EVOLVED_LIVES_VERSION || self.slots.len() != population_count {
             return Err(EvolvedLifeError::Identity);
         }
@@ -1536,6 +1575,77 @@ mod tests {
     }
 
     #[test]
+    fn committed_lifecycle_telemetry_preserves_state_partition_work_and_exact_counters() {
+        use super::super::evolved_telemetry::EvolvedLifecycleTelemetry;
+        let mut lives = EvolvedGenerationState::default();
+        for (slot, status) in [
+            EvolvedLifeStatus::Alive,
+            EvolvedLifeStatus::Waiting,
+            EvolvedLifeStatus::PendingPlacement,
+            EvolvedLifeStatus::Exhausted,
+            EvolvedLifeStatus::DeadNoRespawn,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut owner = runtime();
+            owner.population_slot = slot as u32;
+            owner.status = status;
+            if status != EvolvedLifeStatus::Alive {
+                owner.deaths = 1;
+                owner.pending_seconds = 2.5;
+            }
+            owner.failed_placements = slot as u64;
+            lives.slots.push(owner);
+        }
+        lives.placement_work = EvolvedPlacementWork {
+            step: 10,
+            eligible_slots: 5,
+            attempted_slots: 3,
+            placed_slots: 1,
+            pending_no_placement: 1,
+            pending_work_limit: 1,
+            candidates: 768,
+            geometry_checks: 250_000,
+        };
+        let prior = lives.clone();
+        let report = EvolvedLifecycleTelemetry::capture(&lives, 10).unwrap();
+        assert_eq!(
+            (
+                report.population,
+                report.alive,
+                report.waiting,
+                report.pending_placement,
+                report.exhausted,
+                report.dead_no_respawn
+            ),
+            (5, 1, 1, 1, 1, 1)
+        );
+        assert_eq!(
+            (
+                report.lives,
+                report.deaths,
+                report.respawns,
+                report.failed_placements
+            ),
+            (5, 4, 0, 10)
+        );
+        assert_eq!(report.pending_seconds, 10.0);
+        assert_eq!(report.placement, lives.placement_work);
+        assert_eq!(lives, prior);
+        assert!(std::mem::size_of::<EvolvedLifecycleTelemetry>() <= 256);
+        assert!(EvolvedLifecycleTelemetry::capture(&lives, 11).is_err());
+        lives.placement_work.candidates = 2049;
+        assert!(EvolvedLifecycleTelemetry::capture(&lives, 10).is_err());
+        lives.placement_work = EvolvedPlacementWork::default();
+        lives.slots[0].lives_started = u64::MAX;
+        assert_eq!(
+            EvolvedLifecycleTelemetry::capture(&lives, 10),
+            Err(EvolvedLifeError::Overflow)
+        );
+    }
+
+    #[test]
     fn life_end_capture_keeps_simultaneous_contacts_and_actual_economics() {
         let mut state = EvolvedGenerationState {
             slots: vec![runtime()],
@@ -1643,6 +1753,13 @@ mod tests {
         }
         assert_eq!(published.life_end_count, 600);
         assert_eq!(published.recent_life_ends.len(), 256);
+        let report =
+            super::super::evolved_telemetry::EvolvedLifecycleTelemetry::capture(&published, 600)
+                .unwrap();
+        assert_eq!(
+            (report.recent_event_count, report.life_end_cursor),
+            (256, 600)
+        );
         assert_eq!(
             published.recent_life_ends.front().unwrap().life_ordinal,
             345

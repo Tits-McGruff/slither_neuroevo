@@ -74,6 +74,7 @@ export function createRustStats(
     type: 'stats', tick: wireInteger(display.completedStep), gen: wireInteger(display.generation),
     generationTime: display.generationTime, generationSeconds: nativeSetting(metadata, 'generationSeconds'),
     alive: display.alivePopulation, aliveTotal: display.aliveSnakes,
+    ...(display.evolved ? { evolved: display.evolved } : {}),
     baselineBotsAlive: display.baselineBotsAlive, baselineBotsTotal: display.baselineBotsTotal,
     fps: pumpsPerSecond, fitnessHistory,
     ...(visualization ? { viz: visualization } : {})

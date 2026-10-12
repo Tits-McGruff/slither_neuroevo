@@ -1,5 +1,6 @@
 /** Entry point for the simulation UI, canvas, and client networking. */
 
+import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
 import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
 import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
 import {
@@ -3730,6 +3731,9 @@ wsClient = createWsClient({
       baselineBotsTotal,
       fps: msg.fps
     };
+    const evolved = parseEvolvedLifecycleTelemetry(msg.evolved);
+    if (evolved) currentStats.evolved = evolved;
+    else delete currentStats.evolved;
     proxyWorld.generation = msg.gen;
     if (msg.fitnessHistory) {
       fitnessHistory.length = 0;
@@ -4576,12 +4580,21 @@ function frame(): void {
     ? currentStats.baselineBotsTotal
     : 0;
   const stepInfo = `Gen: ${currentStats.gen}  Alive: ${currentStats.alive}  Total: ${aliveTotal}  Baseline: ${baselineBotsAlive}/${baselineBotsTotal}  FPS: ${Math.round(currentStats.fps)}`;
+  const life = currentStats.evolved;
+  const lifeInfoHtml = life ?
+    `<div class="stat-box"><span class="label">Waiting / pending</span><span class="val">${life.waiting} / ${life.pendingPlacement}</span></div>` +
+    `<div class="stat-box"><span class="label">Exhausted individuals</span><span class="val">${life.exhausted}</span></div>` +
+    `<div class="stat-box"><span class="label">Deaths / respawns</span><span class="val">${BigInt('0x' + life.deaths)} / ${BigInt('0x' + life.respawns)}</span></div>` +
+    `<div class="stat-box"><span class="label">Individual waiting total</span><span class="val">${life.pendingSeconds.toFixed(1)} sim s</span></div>` +
+    `<div class="stat-box"><span class="label">Failed placements</span><span class="val">${BigInt('0x' + life.failedPlacements)}</span></div>` +
+    `<div class="note">Placement step ${BigInt('0x' + life.placement.step)}: ${life.placement.attempted} attempted, ${life.placement.deferred} deferred; ${life.placement.candidates}/2048 candidates, ${life.placement.geometryChecks}/250000 geometry checks.</div>` : '';
   const statsInfoHtml =
     `<div class="stat-box"><span class="label">Generation</span><span class="val">${currentStats.gen}</span></div>` +
     `<div class="stat-box"><span class="label">Alive (Pop)</span><span class="val">${currentStats.alive}</span></div>` +
     `<div class="stat-box"><span class="label">Alive (Total)</span><span class="val">${aliveTotal}</span></div>` +
     `<div class="stat-box"><span class="label">Baseline Bots</span><span class="val">${baselineBotsAlive}/${baselineBotsTotal}</span></div>` +
     `<div class="stat-box"><span class="label">Sim Speed</span><span class="val">${Math.round(currentStats.fps)} FPS</span></div>` +
+    lifeInfoHtml +
     `<div class="note" style="margin-top: 10px; font-size: 11px;">${stepInfo}</div>`;
 
   const statsEl = document.getElementById('statsInfo');

@@ -48,6 +48,8 @@ pub mod evolution;
 pub mod evolved_lives;
 /// Private bounded in-place population replacement and publication witnesses.
 mod evolved_replacement;
+/// Constant-sized committed life diagnostics for replaceable display stats.
+pub mod evolved_telemetry;
 /// Bounded versioned experiment-history and assessment records.
 pub mod experiment_records;
 /// Self-contained save archive assembly from one leased managed checkpoint.

@@ -122,6 +122,15 @@ impl EvolvedReplacementWorkspace {
         initial_accumulator: f64,
     ) -> Result<(), FixedStepPrefixError> {
         self.clear();
+        let target_step = key.source_completed_step().checked_add(1).ok_or(
+            FixedStepPrefixError::ArithmeticOverflow {
+                context: "evolved target step",
+            },
+        )?;
+        lives.placement_work = super::evolved_lives::EvolvedPlacementWork {
+            step: target_step,
+            ..Default::default()
+        };
         if !policy.enabled {
             return Ok(());
         }
@@ -137,14 +146,11 @@ impl EvolvedReplacementWorkspace {
                 config.fixed_dt,
             )
             .map_err(FixedStepPrefixError::Evolved)?;
-        let target_step = key.source_completed_step().checked_add(1).ok_or(
-            FixedStepPrefixError::ArithmeticOverflow {
-                context: "evolved target step",
-            },
-        )?;
-        lives
+        let eligible = lives
             .collect_due(target_step, config.fixed_dt, &mut self.due)
             .map_err(FixedStepPrefixError::Evolved)?;
+        lives.placement_work.eligible_slots = u16::try_from(eligible)
+            .map_err(|_| FixedStepPrefixError::Evolved(EvolvedLifeError::Overflow))?;
         reserve(
             &mut self.proof.records,
             self.due.len(),
@@ -221,10 +227,24 @@ impl EvolvedReplacementWorkspace {
                     spawns.diagnostics().geometry_checks,
                 )
             };
+            lives.placement_work.attempted_slots += 1;
             candidates += used_candidates;
             geometry += used_geometry;
+            lives.placement_work.candidates = u16::try_from(candidates)
+                .map_err(|_| FixedStepPrefixError::Evolved(EvolvedLifeError::Overflow))?;
+            lives.placement_work.geometry_checks = u32::try_from(geometry)
+                .map_err(|_| FixedStepPrefixError::Evolved(EvolvedLifeError::Overflow))?;
             publish_rng(rng, slot, policy.rng_mode, &next_rng)?;
             if status != EvolvedPlacementStatus::Placed {
+                match status {
+                    EvolvedPlacementStatus::PendingNoPlacement => {
+                        lives.placement_work.pending_no_placement += 1
+                    }
+                    EvolvedPlacementStatus::PendingWorkLimit => {
+                        lives.placement_work.pending_work_limit += 1
+                    }
+                    EvolvedPlacementStatus::Placed => unreachable!(),
+                }
                 lives
                     .record_failed_attempt(
                         slot,
@@ -324,7 +344,12 @@ impl EvolvedReplacementWorkspace {
                 self.resets.push(brain);
             }
             body_count = final_count;
+            lives.placement_work.placed_slots += 1;
         }
+        lives
+            .placement_work
+            .validate()
+            .map_err(FixedStepPrefixError::Evolved)?;
         if !self.proof.records.is_empty() {
             for pellet in &mut world.pellets {
                 if pellet.owner.is_some_and(|owner| {

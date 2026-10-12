@@ -42,6 +42,39 @@ use crate::napi_engine::{
     Stage6BackgroundGenerationHealth,
 };
 
+/// Fixed-size work facts, copied only after complete authoritative publication.
+#[napi(object)]
+pub struct BackgroundEvolvedPlacement {
+    pub step: String,
+    pub eligible: u32,
+    pub attempted: u32,
+    pub placed: u32,
+    pub pending_no_placement: u32,
+    pub pending_work_limit: u32,
+    pub deferred: u32,
+    pub candidates: u32,
+    pub geometry_checks: u32,
+}
+/// Compact life counters; hexadecimal words preserve exact long-generation values.
+#[napi(object)]
+pub struct BackgroundEvolvedLifeStatus {
+    pub version: u32,
+    pub population: u32,
+    pub alive: u32,
+    pub waiting: u32,
+    pub pending_placement: u32,
+    pub exhausted: u32,
+    pub dead_no_respawn: u32,
+    pub lives: String,
+    pub deaths: String,
+    pub respawns: String,
+    pub failed_placements: String,
+    pub pending_seconds: f64,
+    pub recent_event_count: u32,
+    pub life_end_cursor: String,
+    pub placement: BackgroundEvolvedPlacement,
+}
+
 /// Cached frame chronology and basic stats; no population or world objects.
 #[napi(object)]
 pub struct BackgroundDisplayStatus {
@@ -50,6 +83,7 @@ pub struct BackgroundDisplayStatus {
     pub completed_step: String,
     pub generation: String,
     pub generation_time: f64,
+    pub evolved: Option<BackgroundEvolvedLifeStatus>,
     pub alive_population: u32,
     pub baseline_bots_alive: u32,
     pub baseline_bots_total: u32,
@@ -66,6 +100,7 @@ pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> Background
         completed_step: u64_hex(status.completed_step),
         generation: u64_hex(status.frame.generation),
         generation_time: status.generation_time,
+        evolved: status.evolved.map(evolved_status_to_napi),
         alive_population: status.alive_population as u32,
         baseline_bots_alive: status.baseline_bots_alive as u32,
         baseline_bots_total: status.baseline_bots_total as u32,
@@ -73,6 +108,40 @@ pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> Background
         alive_snakes: status.frame.alive_snakes as u32,
         pellets: status.frame.pellets as u32,
         frame_byte_length: status.frame.byte_length as f64,
+    }
+}
+
+/// Serialize already captured facts; no traversal or simulation runs on the Node thread.
+fn evolved_status_to_napi(
+    status: crate::engine::evolved_telemetry::EvolvedLifecycleTelemetry,
+) -> BackgroundEvolvedLifeStatus {
+    let placement = status.placement;
+    BackgroundEvolvedLifeStatus {
+        version: 1,
+        population: status.population as u32,
+        alive: status.alive as u32,
+        waiting: status.waiting as u32,
+        pending_placement: status.pending_placement as u32,
+        exhausted: status.exhausted as u32,
+        dead_no_respawn: status.dead_no_respawn as u32,
+        lives: u64_hex(status.lives),
+        deaths: u64_hex(status.deaths),
+        respawns: u64_hex(status.respawns),
+        failed_placements: u64_hex(status.failed_placements),
+        pending_seconds: status.pending_seconds,
+        recent_event_count: status.recent_event_count as u32,
+        life_end_cursor: u64_hex(status.life_end_cursor),
+        placement: BackgroundEvolvedPlacement {
+            step: u64_hex(placement.step),
+            eligible: placement.eligible_slots as u32,
+            attempted: placement.attempted_slots as u32,
+            placed: placement.placed_slots as u32,
+            pending_no_placement: placement.pending_no_placement as u32,
+            pending_work_limit: placement.pending_work_limit as u32,
+            deferred: (placement.eligible_slots - placement.attempted_slots) as u32,
+            candidates: placement.candidates as u32,
+            geometry_checks: placement.geometry_checks,
+        },
     }
 }
 

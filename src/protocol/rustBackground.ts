@@ -1,3 +1,4 @@
+import type { EvolvedLifecycleTelemetry } from './evolvedLives.ts';
 import type { SelectedEntity } from './entitySelection.ts';
 import type { VizData } from './messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
@@ -150,6 +151,8 @@ export interface RustStartupMetadata {
 
 /** Cached stats from the same committed boundary as the Rust-packed frame. */
 export interface RustBackgroundDisplay {
+  /** Optional bounded life diagnostics from the same committed frame. */
+  evolved?: EvolvedLifecycleTelemetry;
   /** Monotonic display publication, independent of command sequences. */
   sequence: RustBackgroundIdentity;
   /** Published authority incarnation. */

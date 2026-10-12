@@ -802,6 +802,20 @@ impl RunningAuthorityLoop {
         sequence: u64,
         output: &mut Vec<u8>,
     ) -> Result<RunningDisplayStatus, FrameV1Error> {
+        let lives = &self.authority.state().fixed_step.evolved_generation;
+        let evolved = if lives.slots.is_empty() {
+            None
+        } else {
+            Some(
+                super::evolved_telemetry::EvolvedLifecycleTelemetry::capture(
+                    lives,
+                    self.completed_step(),
+                )
+                .map_err(|_| FrameV1Error::ArithmeticOverflow {
+                    context: "committed life telemetry",
+                })?,
+            )
+        };
         let frame = super::frame_v1::pack_authoritative_frame_v1_bounded_into(
             &self.authority,
             FrameV1ViewDescriptor::default(),
@@ -825,6 +839,7 @@ impl RunningAuthorityLoop {
             alive_population,
             baseline_bots_alive,
             baseline_bots_total: state.config.baseline_count,
+            evolved,
             frame,
         })
     }

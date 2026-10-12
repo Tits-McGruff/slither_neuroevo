@@ -18,6 +18,8 @@ pub struct RunningDisplayStatus {
     pub alive_population: usize,
     pub baseline_bots_alive: usize,
     pub baseline_bots_total: usize,
+    /// Optional until the first physical-life ledger is initialized.
+    pub evolved: Option<super::evolved_telemetry::EvolvedLifecycleTelemetry>,
     pub frame: FrameV1Metadata,
 }
 
@@ -367,6 +369,7 @@ mod tests {
             alive_population: 0,
             baseline_bots_alive: 0,
             baseline_bots_total: 0,
+            evolved: None,
             frame: FrameV1Metadata {
                 generation: 1,
                 total_snakes: 0,

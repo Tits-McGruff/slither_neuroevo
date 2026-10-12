@@ -1,3 +1,4 @@
+import type { EvolvedLifecycleTelemetry } from './evolvedLives.ts';
 import type { GenerationExperimentSummary, HallOfFameAssessment } from './experimentRecords.ts';
 /** Fitness summary for a single generation. */
 export interface FitnessData {
@@ -61,6 +62,8 @@ export interface HallOfFameEntry {
 
 /** Stats emitted alongside frame buffers. */
 export interface FrameStats {
+  /** Optional bounded life diagnostics from the same committed frame. */
+  evolved?: EvolvedLifecycleTelemetry;
   gen: number;
   generationTime: number;
   generationSeconds: number;

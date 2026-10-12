@@ -1,3 +1,4 @@
+import { parseEvolvedLifecycleTelemetry } from '../src/protocol/evolvedLives.ts';
 import { parseDurationDraft } from '../src/protocol/duration.ts';
 import { mkdir, mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -401,6 +402,13 @@ describeNetworkSuite('Rust server real sockets', () => {
       const nextLife = await selectPhysical(viewer, 'life-follow', { populationSlot: lifeSelection.populationSlot! });
       expect(nextLife).toMatchObject({ snakeId: 3, lifeOrdinal: '0000000000000002' });
       expect(nextLife.token).not.toBe(lifeSelection.token);
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'stats' && parseEvolvedLifecycleTelemetry(packet['evolved'])?.respawns === '0000000000000001'));
+      const lifeStats = viewer.packets.findLast(packet => packet['type'] === 'stats' && parseEvolvedLifecycleTelemetry(packet['evolved'])?.respawns === '0000000000000001')!;
+      const telemetry = parseEvolvedLifecycleTelemetry(lifeStats['evolved'])!;
+      expect(telemetry).toMatchObject({ version: 1, population: 2, alive: 2, lives: '0000000000000003', deaths: '0000000000000001', respawns: '0000000000000001', lifeEndCursor: '0000000000000001', recentEventCount: 1 });
+      expect(BigInt('0x' + telemetry.placement.step)).toBe(BigInt(lifeStats['tick'] as number));
+      expect(telemetry.placement.candidates).toBeLessThanOrEqual(2048);
+      expect(telemetry.placement.geometryChecks).toBeLessThanOrEqual(250000);
       viewer.socket.send(JSON.stringify({ type: 'godMode', action: 'kill', requestId: 'life-stale-kill',
         snakeId: nextLife.snakeId, selectionToken: lifeSelection.token }));
       await until(viewer, () => viewer!.packets.some(packet => packet['requestId'] === 'life-stale-kill'));
@@ -2519,13 +2527,21 @@ describeNetworkSuite('Rust server real sockets', () => {
       await healthUntil(target.port, health =>
         BigInt(`0x${health['generation'] as string}`) > BigInt(`0x${unchanged.generation}`));
       expect(cleanupSpy).toHaveBeenCalledOnce();
+      expect(await cleanupSpy.mock.results[0]!.value).toMatchObject({ completed: true });
       expect(await readdir(managedDirectory)).not.toContain(`${initialCheckpointId}.checkpoint-v3`);
       cleanupSpy.mockRestore();
+      // The cleanup boundary has completed. Hold its successor before archive
+      // preparation so an accelerated next boundary cannot race the retry.
+      targetViewer!.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-valid-import-retry',
+        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+      await until(targetViewer!, () => targetViewer!.packets.some(packet =>
+        packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-valid-import-retry'));
       const validRetry = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
         method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: initialArchive
       });
-      expect(validRetry.status).toBe(200);
-      expect(await validRetry.json()).toMatchObject({ ok: true, checkpointId: initialCheckpointId });
+      const retryResult = await validRetry.json();
+      expect(validRetry.status, JSON.stringify(retryResult)).toBe(200);
+      expect(retryResult).toMatchObject({ ok: true, checkpointId: initialCheckpointId });
     } finally {
       releaseSpy?.mockRestore();
       stageSpy?.mockRestore();

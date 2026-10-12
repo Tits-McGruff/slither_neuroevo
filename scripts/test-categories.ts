@@ -50,6 +50,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/hallOfFame.test.ts',
     'src/protocol/settings.test.ts',
     'src/protocol/duration.test.ts',
+    'src/protocol/evolvedLives.test.ts',
     'src/render.test.ts',
     'src/storage.test.ts',
     'src/theme.test.ts',

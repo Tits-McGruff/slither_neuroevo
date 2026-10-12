@@ -1,3 +1,4 @@
+import type { EvolvedLifecycleTelemetry } from '../protocol/evolvedLives.ts';
 import type { SelectEntityMsg, EntitySelectedMsg } from '../protocol/entitySelection.ts';
 import type { FinishGenerationResultMsg } from '../protocol/generation.ts';
 import type {
@@ -72,6 +73,8 @@ export interface WelcomeMsg {
 
 /** Stats message payload from the server. */
 export interface StatsMsg {
+  /** Optional bounded life diagnostics from the same committed frame. */
+  evolved?: EvolvedLifecycleTelemetry;
   type: 'stats';
   tick: number;
   gen: number;

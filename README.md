@@ -663,6 +663,12 @@ Life shows the selected life peak. Older entries keep their legacy physical
 score and length labels. A multi-hour round is durable when its generation
 boundary commits; restarting during a round returns to the saved boundary.
 
+The Stats tab reports waiting and pending owners, exhausted individuals, deaths,
+respawns, total individual waiting time and failed placements. Placement work
+shows its committed step, attempts, deferred owners, candidate count and geometry
+checks. Failed placements consume work without consuming a life. These live
+diagnostics are sampled with server frames.
+
 ### World and food
 
 - **World radius**: Arena size. Larger maps spread snakes and food farther apart.

@@ -4067,6 +4067,19 @@ fn validate_fixed_step_continuation(candidate: &StateCandidate) -> Result<(), St
             field: "fixed_step.evolved_generation.life_ends",
             reason: error.to_string(),
         })?;
+    let placement = continuation.evolved_generation.placement_work;
+    placement
+        .validate()
+        .map_err(|error| StateError::InvalidField {
+            field: "fixed_step.evolved_generation.placement_work",
+            reason: error.to_string(),
+        })?;
+    if (continuation.evolved_generation.slots.is_empty()
+        && placement != super::evolved_lives::EvolvedPlacementWork::default())
+        || (placement.step != 0 && placement.step != candidate.generation.completed_step)
+    {
+        return invalid("fixed_step.evolved_generation.placement_work", "placement report must belong to the committed step and be empty before life initialization");
+    }
     if !continuation.evolved_generation.slots.is_empty() {
         if matches!(candidate.phase, AuthorityPhase::GenerationBoundary(_)) {
             return invalid(
@@ -8071,6 +8084,21 @@ mod tests {
         let genomes = source.population.clone();
         let (authority, diagnostics) = one_respawn_step(source, graph);
         let state = authority.state();
+        let placement = state.fixed_step.evolved_generation.placement_work;
+        assert_eq!(
+            (
+                placement.step,
+                placement.eligible_slots,
+                placement.attempted_slots,
+                placement.placed_slots
+            ),
+            (state.generation.completed_step, 1, 1, 1)
+        );
+        assert!(placement.candidates <= 256 && placement.geometry_checks <= 250_000);
+        assert!(
+            placement.geometry_checks >= 5,
+            "newborn wall checks must be reported"
+        );
         assert_eq!(state.world.snakes.len(), 1);
         let newborn = &state.world.snakes[0];
         assert!(newborn.alive);

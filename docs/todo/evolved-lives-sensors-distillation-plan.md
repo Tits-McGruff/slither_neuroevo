@@ -14,7 +14,9 @@ Stage A acceptance passed 501 native tests plus the doctest, the 721-test
 JavaScript aggregate (18 existing skips), and the 169-test required-native
 overlay (6 existing skips), with type/lint/client-build checks. Oxygen passed
 its seven-day clock, manual scope, checkpoint/archive and real HTTP roundtrip
-checks. No CI push was performed.
+checks. The implementation is now committed and pushed on
+`evolved-lives-sensors-distillation`, beginning with `9275610` and the
+checkpoint-codec Clippy correction `0031b70`; GitHub CI runs on this branch.
 
 Stage B's native accounting core is implemented: dense population-slot lives,
 ordered prefix/substep credits and actual burn attribution, independent
@@ -77,7 +79,19 @@ selections even when frame IDs wrap. Run/generation/reconnect/import boundaries
 invalidate pending intent. Native visualization retains valid captures between
 neural deliveries, keys lifetime to full physical ID/world, and emits bounded
 sequenced clear markers on retirement. Frame-v1 remains unchanged.
-Lifecycle telemetry remains open.
+Committed display stats now include fixed-size lifecycle telemetry: the five
+owner-state counts, exact u64 life/death/respawn/failure counters, pending time,
+bounded recent-event count/cursor, and actual placement work with explicit
+eight-slot, 2,048-candidate and 250,000-geometry limits. The retained native
+projection stays below 256 bytes and does not copy life logs or advance RNG.
+The Stats tab validates this optional version-one contract and clears absent
+or unsupported projections. Frame-v1 and boundary checkpoints are unchanged.
+Windows qualification passes 595 release library tests with hooks, three
+benchmark checks and the doctest, plus 43 focused protocol/UI tests and the
+rebuilt addon real-server legacy/respawn/New Run and archive-retry scenarios.
+TypeScript, Clippy, rustfmt, repository ESLint and the client build pass.
+The final geometry-counter ordering correction reuses this broad release
+evidence and passes the focused newborn-work regression after rebuilding.
 
 Modern terminal generations now construct a 512-byte experiment history v1
 and a 256-byte HoF assessment v2 from committed terminal inputs. The existing

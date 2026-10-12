@@ -348,6 +348,31 @@ describe('main.ts startup smoke', () => {
     return { clientX, clientY, button, shiftKey, preventDefault() {} } as unknown as Event;
   }
 
+  it('shows committed lifecycle work and clears unsupported or absent telemetry', async () => {
+    const statsTab = makeElement('statsTab'); statsTab.dataset['tab'] = 'tab-stats';
+    /** Expose one stats-tab button through the startup selector. */
+    document.querySelectorAll = ((selector: string) => selector === '.tab-btn' ? [statsTab] : []) as unknown as typeof document.querySelectorAll;
+    const { socket } = await openCameraSession();
+    statsTab.dispatch('click', new Event('click'));
+    const stats = { type: 'stats', tick: 10, gen: 1, generationTime: 1, generationSeconds: 240, alive: 1, aliveTotal: 1, baselineBotsAlive: 0, baselineBotsTotal: 0, fps: 30 };
+    const evolved = { version: 1, population: 5, alive: 1, waiting: 1, pendingPlacement: 1, exhausted: 1, deadNoRespawn: 1,
+      lives: '0000000000000005', deaths: '0000000000000004', respawns: '0000000000000000', failedPlacements: '000000000000000a', pendingSeconds: 10,
+      recentEventCount: 4, lifeEndCursor: '0000000000000004', placement: { step: '000000000000000a', eligible: 5, attempted: 3, placed: 1, pendingNoPlacement: 1, pendingWorkLimit: 1, deferred: 2, candidates: 768, geometryChecks: 250000 } };
+    socket.onmessage?.({ data: JSON.stringify({ ...stats, evolved }) }); renderCameraFrame();
+    const info = elements.get('statsInfo')!;
+    expect(info.innerHTML).toContain('Waiting / pending');
+    expect(info.innerHTML).toContain('Deaths / respawns');
+    expect(info.innerHTML).toContain('4 / 0');
+    expect(info.innerHTML).toContain('10.0 sim s');
+    expect(info.innerHTML).toContain('Placement step 10: 3 attempted, 2 deferred');
+    socket.onmessage?.({ data: JSON.stringify({ ...stats, evolved: { ...evolved, version: 2 } }) }); renderCameraFrame();
+    expect(info.innerHTML).not.toContain('Waiting / pending');
+    socket.onmessage?.({ data: JSON.stringify({ ...stats, evolved }) }); renderCameraFrame();
+    expect(info.innerHTML).toContain('Waiting / pending');
+    socket.onmessage?.({ data: JSON.stringify(stats) }); renderCameraFrame();
+    expect(info.innerHTML).not.toContain('Waiting / pending');
+  });
+
   it('zooms around the cursor and preserves the manual camera across rendering frames', async () => {
     const { canvas, socket } = await openCameraSession();
     const camera = window.currentWorld;

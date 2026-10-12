@@ -519,11 +519,28 @@ pose.
 
 ### `stats`
 
-Broadcast about once per wall-clock second to every joined client. It contains
-the last committed `tick`, generation number and timing, population and
-baseline-bot alive counts, pump rate, and optional fitness, bounded history,
-visualization, and Hall-of-Fame data. Optional payloads are omitted when there
-is no new value to send.
+Replaceable stats follow the committed display cadence, bounded by the configured
+UI rate (at most 60 Hz). They contain the last committed `tick`, generation
+number and timing, population and baseline-bot alive counts, pump rate, and
+optional fitness, bounded history, visualization and Hall-of-Fame data.
+
+Optional `evolved.version: 1` supplies a constant-sized population-life summary:
+`population`, `alive`, `waiting`, `pendingPlacement`, `exhausted`,
+`deadNoRespawn`, `lives`, `deaths`, `respawns`, `failedPlacements`,
+`pendingSeconds`, `recentEventCount`, `lifeEndCursor` and `placement`.
+Lifetime counters and `placement.step` are exact lowercase 16-character hex
+u64 words. `placement` also reports `eligible`, `attempted`, `placed`,
+`pendingNoPlacement`, `pendingWorkLimit`, `deferred`, `candidates`
+(at most 2048) and `geometryChecks` (at most 250000). Its step is the same
+committed step as the display, or zero before the first replacement boundary.
+Cold commands retain the last placement boundary. Individual waiting time is
+a sum across owners, in simulated seconds.
+
+The recent-event count is bounded to 256; events and placement diagnostics
+are ephemeral and do not constitute a durable mid-round journal. No life-event
+array is sent with frame-cadence stats. Diagnostics may be absent before the
+first physical-life ledger initializes; clients should clear an older projection
+when they are absent or use an unsupported schema.
 
 ### `settingsApplied`
 
