@@ -665,7 +665,7 @@ impl PendingRunStartTransition {
 }
 
 /// Encode the Rust-admitted source graph into the current browser schema.
-fn graph_spec_metadata(spec: &GraphSpec) -> serde_json::Value {
+pub(crate) fn graph_spec_metadata(spec: &GraphSpec) -> serde_json::Value {
     let nodes = spec
         .nodes
         .iter()

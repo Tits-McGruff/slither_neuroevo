@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use napi::bindgen_prelude::{Array, AsyncTask, JsObjectValue, Object, Task};
 use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
-use serde::Deserialize;
 
 use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
 use crate::engine::contract::{
@@ -28,7 +27,7 @@ use crate::engine::fresh_run::{
     prepare_configured_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
     FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
 };
-use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
+use crate::engine::graph::GraphSpec;
 use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::EngineRuntime;
 use crate::engine::work_progress::{ArchivePhaseTrace, ProgressScope};
@@ -1863,208 +1862,11 @@ fn parse_fresh_run_settings(updates: &Array<'_>) -> Result<Box<[FreshRunSettingU
     Ok(parsed.into_boxed_slice())
 }
 
-/// Bounded JSON graph root accepted only by private fresh-run construction.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphWire {
-    #[serde(rename = "type")]
-    graph_type: String,
-    nodes: Vec<FreshRunGraphNodeWire>,
-    edges: Vec<FreshRunGraphEdgeWire>,
-    outputs: Vec<FreshRunGraphOutputWire>,
-    output_size: usize,
-}
-
-/// One current browser graph node before conversion to compiler-owned types.
-#[derive(Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
-enum FreshRunGraphNodeWire {
-    Input {
-        id: String,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-    },
-    Dense {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-    },
-    #[serde(rename = "MLP")]
-    Mlp {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-        #[serde(rename = "hiddenSizes", default)]
-        hidden_sizes: Vec<usize>,
-    },
-    #[serde(rename = "GRU")]
-    Gru {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    #[serde(rename = "LSTM")]
-    Lstm {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    #[serde(rename = "RRU")]
-    Rru {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    Concat {
-        id: String,
-    },
-    Split {
-        id: String,
-        #[serde(rename = "outputSizes")]
-        output_sizes: Vec<usize>,
-    },
-}
-
-/// One browser graph edge with optional explicit zero-based ports.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphEdgeWire {
-    from: String,
-    to: String,
-    from_port: Option<i64>,
-    to_port: Option<i64>,
-}
-
-/// One ordered browser graph output reference.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphOutputWire {
-    node_id: String,
-    port: Option<i64>,
-}
-
 /// Decode one bounded graph document before the background task owns it.
 fn parse_fresh_run_graph(encoded: JsString<'_>) -> Result<GraphSpec> {
     let encoded = bounded_js_string(encoded, "graphSpecJson", 1024 * 1024, false)?;
-    let wire: FreshRunGraphWire = serde_json::from_str(&encoded)
-        .map_err(|_| Error::new(Status::InvalidArg, "fresh-run graph JSON is invalid"))?;
-    if wire.graph_type != "graph"
-        || wire.nodes.is_empty()
-        || wire.nodes.len() > 64
-        || wire.edges.len() > 128
-        || wire.outputs.is_empty()
-        || wire.outputs.len() > 8
-    {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "fresh-run graph exceeds its structural limits",
-        ));
-    }
-    let nodes = wire
-        .nodes
-        .into_iter()
-        .map(|node| {
-            let (id, kind) = match node {
-                FreshRunGraphNodeWire::Input { id, output_size } => {
-                    (id, GraphNodeKind::Input { output_size })
-                }
-                FreshRunGraphNodeWire::Dense {
-                    id,
-                    input_size,
-                    output_size,
-                } => (
-                    id,
-                    GraphNodeKind::Dense {
-                        input_size,
-                        output_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Mlp {
-                    id,
-                    input_size,
-                    output_size,
-                    hidden_sizes,
-                } => (
-                    id,
-                    GraphNodeKind::Mlp {
-                        input_size,
-                        hidden_sizes,
-                        output_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Gru {
-                    id,
-                    input_size,
-                    hidden_size,
-                } => (
-                    id,
-                    GraphNodeKind::Gru {
-                        input_size,
-                        hidden_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Lstm {
-                    id,
-                    input_size,
-                    hidden_size,
-                } => (
-                    id,
-                    GraphNodeKind::Lstm {
-                        input_size,
-                        hidden_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Rru {
-                    id,
-                    input_size,
-                    hidden_size,
-                } => (
-                    id,
-                    GraphNodeKind::Rru {
-                        input_size,
-                        hidden_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Concat { id } => (id, GraphNodeKind::Concat),
-                FreshRunGraphNodeWire::Split { id, output_sizes } => {
-                    (id, GraphNodeKind::Split { output_sizes })
-                }
-            };
-            GraphNodeSpec { id, kind }
-        })
-        .collect();
-    Ok(GraphSpec {
-        nodes,
-        edges: wire
-            .edges
-            .into_iter()
-            .map(|edge| GraphEdge {
-                from: edge.from,
-                to: edge.to,
-                from_port: edge.from_port,
-                to_port: edge.to_port,
-            })
-            .collect(),
-        outputs: wire
-            .outputs
-            .into_iter()
-            .map(|output| GraphOutputRef {
-                node_id: output.node_id,
-                port: output.port,
-            })
-            .collect(),
-        output_size: wire.output_size,
-    })
+    crate::engine::graph_json::decode_graph_json(encoded.as_bytes())
+        .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
 /// Validate a fresh legacy identity and stamp its native receipt time.
