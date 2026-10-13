@@ -261,8 +261,9 @@ Float32 half-second budget, safe route and complete geometry. Deterministic mode
 preserves its behavior RNG word; stochastic wander uses a separate versioned
 run/seed/full-generation/slot label. Four real native sensor fixtures and eleven
 policy/contract tests pass, alongside all ten retained v1 strategy and thirteen
-RNG regressions. Authoritative due scheduling, atomic policy/control publication,
-settings propagation and full tactical batches remain open; production uses v1.
+RNG regressions. The native due/quota/control join is described below. UI
+selector propagation and full tactical batches remain open; ordinary fresh
+defaults remain v1 until workload qualification.
 The policy checkpoint passes all 661 release library tests, 20 focused rebuilt-
 addon source/surface/fresh-run checks, rustfmt and all-target Clippy. The previous
 checkpoint's broader JS/type/lint/client-build and unchanged benchmark/doctest
@@ -277,12 +278,34 @@ rejects missing/zero/reordered streams or silent elision into older versions.
 State admission binds the complete v4/v2 setting group to exactly bundle v3;
 managed checkpoint restoration preserves exact words and subsequent draws.
 Retained phase copies reuse capacity, generation successors derive both roles,
-and memory/replacement witnesses cover the added streams. The running coordinator
-explicitly rejects v2 until its due/quota/policy/control join is implemented.
-Production selectors and restore-schema propagation remain part of that join.
+and memory/replacement witnesses cover the added streams. That checkpoint
+rejected v2 activation until the native control join described below.
 The RNG checkpoint passes 668 release library tests, three benchmark checks and
 the doctest; the rebuilt production/hooks addons pass all 13 required-native
 files (170 tests, six existing skips), rustfmt and all-target Clippy.
+
+V2 now joins native shared control with immediate first-life evaluation and the
+same bounded cadence algorithm as neural deployment. Held actions retain their
+motor history and consume no observation or behavior RNG. Due baseline slots
+join evolved/external consumers in the canonical fair quota ring before any v4
+sampling. The policy reads only decoded fields; no v2 world/target scan is added.
+Each existing lifecycle slot carries bounded physical-life policy and consumed-
+step state, reset on replacement. Private control commitment seals exact policy
+and behavior words; pending/resolved publication checks preserve that seal across
+physics and reliable delivery. Late neural failure preserves source/cursor/state.
+A real sixteen-step cold run agrees across one/three workers; mixed-controller
+fixtures prove cadence, actual grants, held-state preservation and stale-seal
+rejection in both profiles/modes. Explicit cold candidate construction performs
+ordinary preflight and production restore recognizes all six complete schemas,
+with a bounded excess-list rejection test. Workload/tactical qualification and
+production/UI selection remain open; public defaults stay recorded v3/v1.
+The control checkpoint passes 671 release library tests, three benchmark checks
+and the doctest, rustfmt and all-target Clippy. The process allocation guard
+measures zero warmed policy allocations for Basic/Motion, B8/B16/B32 and both
+modes; whole-v2-workload performance qualification remains separate.
+The rebuilt production/hooks addons pass all 13 required-native files (170 tests,
+six existing skips), including actual sockets, checkpoint/archive and multiworker
+continuations.
 
 Stages D through J and the remaining B/C integration and qualification gates
 remain open. Baseline v2 integration, canonical PyTorch distillation, capture/jobs/shadows,

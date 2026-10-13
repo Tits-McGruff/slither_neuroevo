@@ -348,10 +348,15 @@ impl GenerationStartWorkspace {
         self.prepare_baselines(source, world_step, baseline_ids, frame_ids)?;
         self.prepare_initial_pellets(world_step)?;
 
-        let lifecycle = BaselineLifecycleState::initialize_after_complete_spawn(
+        let mut lifecycle = BaselineLifecycleState::initialize_after_complete_spawn(
             world_step.baseline,
             &self.world,
         )?;
+        if world_step.control.baseline_v2.is_some() {
+            for slot in &mut lifecycle.slots {
+                slot.v2_policy = Some(super::baseline_v2::BaselineV2State::default());
+            }
+        }
         let evolved_generation = super::evolved_lives::EvolvedGenerationState::initialize(
             &self.world,
             population_count,

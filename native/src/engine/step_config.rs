@@ -572,7 +572,12 @@ pub(crate) fn project_running_step_config(
         })?;
     let controller_timing = ControllerTiming::from_config(config)
         .map_err(|_| StepConfigError::InvalidControllerTiming)?;
+    let baseline_v2 = super::baseline_v2::BaselineV2Settings::from_settings(&config.settings)
+        .map_err(|_| StepConfigError::UnsupportedSetting {
+            path: "baselineBots.controlVersion",
+        })?;
     let control = ControlPhaseConfig {
+        baseline_v2,
         neural_control_interval_seconds: settings.float("brain.controlDt", 0.008, 0.06)?,
         controller_timing,
         baseline: BaselineControlConfig {

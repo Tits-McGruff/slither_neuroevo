@@ -152,7 +152,7 @@ impl Default for BaselineV2State {
     }
 }
 impl BaselineV2State {
-    fn validate(self) -> Result<(), BaselineV2Error> {
+    pub(crate) fn validate(self) -> Result<(), BaselineV2Error> {
         if self.version != BASELINE_V2_VERSION
             || self
                 .committed_heading
