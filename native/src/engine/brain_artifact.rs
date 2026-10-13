@@ -255,8 +255,10 @@ pub fn validate_brain_artifact(bytes: &[u8]) -> Result<ValidatedBrainArtifact, S
         return Err("brain decoded weight length mismatch".into());
     }
     let weights: Vec<f32> = raw
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four bytes")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
         .collect();
     if weights.iter().any(|value| !value.is_finite()) {
         return Err("nonfinite brain weights".into());
