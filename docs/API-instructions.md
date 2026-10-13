@@ -938,6 +938,10 @@ headroom respectively. Native admission can reject a budget too small for that
 selection. Start/stop use the existing ordered command sequence; sample delivery
 uses the independent diagnostic queue and never reserves controller output.
 
+`runSeed` records the authoritative unsigned 32-bit run seed for reproducible
+trainer partitioning. Diagnostic databases from before seed recording migrate
+with `runSeed: null`; consumers must not guess it for an exact restart.
+
 `productionWatermark` includes durably observed native assignments that dropped;
 `storageWatermark` is the highest historically published object, not a contiguous
 guarantee. `retentionFloor` is below all currently available objects.
@@ -954,7 +958,9 @@ After interruption the store retains only its last durably observed production
 tail, labels the epoch interrupted and never resumes it. Retained complete
 objects remain available for offline jobs. This is diagnostic/training
 durability, not a mid-round world checkpoint. Candidate upload/native validation
-and the PyRL `DistillationClient` remain subsequent integration work.
+remain subsequent integration work. PyRL now provides the independent HTTP
+`DistillationClient` and strict binary decoder, including local cursor proposals,
+checkpoint identity checks, explicit gaps and storage-pin cleanup.
 
 ## Common integration mistakes
 

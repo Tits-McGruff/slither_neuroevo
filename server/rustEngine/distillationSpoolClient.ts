@@ -65,14 +65,15 @@ export class DistillationSpoolClient {
   }
 
   /** Transfer an exclusive bounded copy; caller/native bytes retain their ownership. */
-  async ingest(value: TeacherCaptureDrain): Promise<DistillationDataset> {
+  async ingest(value: TeacherCaptureDrain, runSeed: number): Promise<DistillationDataset> {
+    distillationInteger(runSeed, 0, 0xffff_ffff, 'native run seed');
     if (this.ingestActive) throw new Error('distillation ingestion already active');
     this.ingestActive = true;
     try {
       const parsed = parseTeacherDrain(value);
       const chunks = parsed.chunks.map(chunk => ({ descriptor: chunk.descriptor, bytes: new Uint8Array(chunk.bytes) }));
       const transfer = chunks.map(chunk => chunk.bytes.buffer);
-      return await this.request('ingest', [{ ...parsed, chunks }], transfer) as DistillationDataset;
+      return await this.request('ingest', [{ ...parsed, chunks }, runSeed], transfer) as DistillationDataset;
     } finally { this.ingestActive = false; }
   }
 

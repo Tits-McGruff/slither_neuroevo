@@ -390,7 +390,14 @@ partial publication/retry recovery, interrupted epochs and coherent paginated
 watermarks have direct and actual-worker coverage. The server opens this path
 lazily through `/api/distillation/v1/`; metadata, leased immutable downloads and
 ordered capture controls do not instantiate an actor or acquire a controller
-lease. Real HTTP/native-server tests cover these boundaries. PyRL consumption,
+lease. Real HTTP/native-server tests cover these boundaries. PyRL now decodes
+Rust-encoded bytes through an independent bounded HTTP consumer, validates exact
+manifest/descriptor identities, releases finite storage pins on success/failure,
+and proposes local cursors with explicit settled gaps. Restart binds the native
+run seed, full contract and exact canonical sensor bytes. The spool records seeds
+and migrates older diagnostic metadata with an explicit unknown seed. Frozen
+codec fixtures are synthetic; they do not prove committed-world provenance.
+Replay/sampling integration,
 candidate upload/validation and the remaining training/job/shadow integrations
 remain open.
 Codec validation alone remains insufficient proof of a committed example.

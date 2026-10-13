@@ -24,7 +24,7 @@ port.postMessage({ kind: 'ready' });
 /** Serialize one bounded request and return only metadata or an opaque complete object. */
 function dispatch(operation: string, args: unknown[]): unknown {
   switch (operation) {
-    case 'ingest': return store.ingest(args[0] as TeacherCaptureDrain);
+    case 'ingest': return store.ingest(args[0] as TeacherCaptureDrain, args[1] as number);
     case 'dataset': return store.dataset(args[0] as string);
     case 'datasets': return store.datasets(args[0] as string, args[1] as number);
     case 'list': return store.list(args[0] as string, args[1] as string, args[2] as number);

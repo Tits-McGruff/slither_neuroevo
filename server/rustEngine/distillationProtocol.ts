@@ -40,6 +40,8 @@ export const DISTILLATION_SPOOL_DEFAULTS: Readonly<DistillationSpoolLimits> = {
 export interface DistillationDataset {
   /** Portable metadata schema. */
   schemaVersion: 1;
+  /** Native run seed used by stable stream partitioning; legacy manifests may lack it. */
+  runSeed: number | null;
   /** Exact Rust capture identity. */
   contract: TeacherCaptureContract;
   /** Exact Rust canonical bytes represented as UTF-8 JSON. */

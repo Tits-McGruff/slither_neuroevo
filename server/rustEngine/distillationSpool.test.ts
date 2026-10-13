@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -71,10 +72,37 @@ afterEach(async () => {
 });
 
 describe('durable distillation spool', () => {
+  it('binds the recorded run seed and rejects mismatched immutable provenance', () => {
+    const store = fixture();
+    const source = drain([1]);
+    expect(store.ingest(source, 0xffff_ffff).runSeed).toBe(0xffff_ffff);
+    expect(() => store.ingest(source, 42)).toThrow(/run seed mismatch/u);
+    expect(() => store.ingest(source, -1)).toThrow(/run seed/u);
+    expect(store.dataset(source.contract!.captureEpoch).runSeed).toBe(0xffff_ffff);
+  });
+
+  it('migrates old diagnostic metadata without guessing a missing run seed', () => {
+    const store = fixture();
+    const source = drain([1], { stopped: true });
+    store.ingest(source, 42);
+    const lease = store.lease(source.contract!.captureEpoch, [word(1)], 1000);
+    store.close();
+    const old = new Database(join(store.root, 'metadata.sqlite'));
+    old.exec('ALTER TABLE datasets DROP COLUMN run_seed');
+    old.pragma('user_version = 1');
+    old.close();
+    const reopened = new DistillationSpoolStore(store.root);
+    stores.push(reopened);
+    expect(reopened.dataset(lease.captureEpoch).runSeed).toBeNull();
+    expect([...reopened.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
+    reopened.ingest(source, 42);
+    expect(reopened.dataset(lease.captureEpoch).runSeed).toBeNull();
+  });
+
   it('preserves exact opaque bytes, visible gaps and paginated coherent watermarks', () => {
     const store = fixture();
     const source = drain([1, 3], { production: 4, released: 4 });
-    const dataset = store.ingest(source);
+    const dataset = store.ingest(source, 42);
     expect(dataset).toMatchObject({ productionWatermark: word(4), storageWatermark: word(3), resolvedThrough: word(4),
       retentionFloor: word(1), nativeDroppedChunks: word(2), retainedChunks: 2 });
     const first = store.list(source.contract!.captureEpoch, DISTILLATION_ZERO, 1);
@@ -86,7 +114,7 @@ describe('durable distillation spool', () => {
     const lease = store.lease(source.contract!.captureEpoch, [word(1)], 1000);
     expect([...store.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
     expect(() => store.download(lease.captureEpoch, word(3), lease.id)).toThrow(/unavailable|expired/u);
-    store.ingest(source);
+    store.ingest(source, 42);
     expect(store.dataset(lease.captureEpoch)).toEqual(dataset);
   });
 
@@ -94,40 +122,40 @@ describe('durable distillation spool', () => {
     const store = fixture();
     const source = drain([1, 2]);
     source.chunks[1]!.bytes[0] = 99;
-    expect(() => store.ingest(source)).toThrow(/digest/u);
+    expect(() => store.ingest(source, 42)).toThrow(/digest/u);
     expect(readdirSync(store.root).filter(name => name.endsWith('.teacher'))).toEqual([]);
     expect(() => store.dataset(source.contract!.captureEpoch)).toThrow(/not found/u);
     const invalid = drain([1]);
     invalid.sensorContractJson += ' ';
     expect(() => parseTeacherDrain(invalid)).toThrow(/digest/u);
     const unordered = drain([2, 1]);
-    expect(() => store.ingest(unordered)).toThrow(/ordering/u);
+    expect(() => store.ingest(unordered, 42)).toThrow(/ordering/u);
   });
 
   it('rotates only oldest unpinned complete objects and never reinstalls settled evictions', () => {
     const store = fixture({ maxChunks: 2, maxBytes: 64 });
     const first = drain([1, 2]);
-    store.ingest(first);
+    store.ingest(first, 42);
     const lease = store.lease(first.contract!.captureEpoch, [word(1)], 1000);
-    const third = store.ingest(drain([3]));
+    const third = store.ingest(drain([3]), 42);
     expect(store.list(lease.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(1), word(3)]);
     expect(third.retentionFloor).toBe(word(1));
-    store.ingest(first);
+    store.ingest(first, 42);
     expect(store.list(lease.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(1), word(3)]);
     store.releaseLease(lease.id);
-    store.ingest(drain([4]));
+    store.ingest(drain([4]), 42);
     expect(store.list(lease.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(3), word(4)]);
     expect(store.dataset(lease.captureEpoch).retentionFloor).toBe(word(3));
   });
 
   it('drops new objects under pinned saturation while settling production independently of storage', () => {
     const store = fixture({ maxChunks: 1, maxBytes: 32 });
-    const source = drain([1]); store.ingest(source);
+    const source = drain([1]); store.ingest(source, 42);
     const lease = store.lease(source.contract!.captureEpoch, [word(1)], 1000);
-    const dropped = store.ingest(drain([2]));
+    const dropped = store.ingest(drain([2]), 42);
     expect(dropped).toMatchObject({ productionWatermark: word(2), storageWatermark: word(1), resolvedThrough: word(2),
       spoolDroppedChunks: word(1), retainedChunks: 1 });
-    store.ingest(drain([2]));
+    store.ingest(drain([2]), 42);
     expect(store.dataset(lease.captureEpoch).spoolDroppedChunks).toBe(word(1));
     expect([...store.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
   });
@@ -135,33 +163,33 @@ describe('durable distillation spool', () => {
   it.each(['after-write', 'after-rename'] as const)('never advertises a publication interrupted %s', failpoint => {
     const store = fixture({}, failpoint);
     const source = drain([1]);
-    expect(() => store.ingest(source)).toThrow(/injected/u);
+    expect(() => store.ingest(source, 42)).toThrow(/injected/u);
     expect(store.list(source.contract!.captureEpoch).chunks).toEqual([]);
     expect(readdirSync(store.root).filter(name => name.includes('.teacher'))).toEqual([]);
-    expect(store.ingest(source).retainedChunks).toBe(1);
+    expect(store.ingest(source, 42).retainedChunks).toBe(1);
   });
 
   it('keeps a committed object after a lost reply and deduplicates exact retry', () => {
     const store = fixture({}, 'after-metadata');
     const source = drain([1]);
-    expect(() => store.ingest(source)).toThrow(/injected/u);
+    expect(() => store.ingest(source, 42)).toThrow(/injected/u);
     expect(store.dataset(source.contract!.captureEpoch)).toMatchObject({ productionWatermark: word(1), storageWatermark: word(1),
       resolvedThrough: DISTILLATION_ZERO, retainedChunks: 1 });
-    expect(store.ingest(source)).toMatchObject({ resolvedThrough: word(1), retainedChunks: 1 });
+    expect(store.ingest(source, 42)).toMatchObject({ resolvedThrough: word(1), retainedChunks: 1 });
   });
 
   it('labels interrupted recovery using only the durable watermark and retains offline downloads', () => {
-    const store = fixture(); const source = drain([1]); store.ingest(source); store.close();
+    const store = fixture(); const source = drain([1]); store.ingest(source, 42); store.close();
     const restored = new DistillationSpoolStore(store.root); stores.push(restored);
     expect(restored.dataset(source.contract!.captureEpoch)).toMatchObject({ state: 'interrupted', productionWatermark: word(1), resolvedThrough: word(1) });
-    expect(() => restored.ingest(drain([2]))).toThrow(/cannot resume/u);
+    expect(() => restored.ingest(drain([2]), 42)).toThrow(/cannot resume/u);
     const lease = restored.lease(source.contract!.captureEpoch, [word(1)], 1000);
     expect([...restored.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
-    expect(restored.ingest(source).state).toBe('interrupted');
+    expect(restored.ingest(source, 42).state).toBe('interrupted');
   });
 
   it('reconciles corrupt retained bytes as unavailable without advertising a partial object', () => {
-    const store = fixture(); const source = drain([1]); store.ingest(source); store.close();
+    const store = fixture(); const source = drain([1]); store.ingest(source, 42); store.close();
     const filename = readdirSync(store.root).find(name => name.endsWith('.teacher'))!;
     writeFileSync(join(store.root, filename), Uint8Array.of(1));
     const restored = new DistillationSpoolStore(store.root); stores.push(restored);
@@ -171,7 +199,7 @@ describe('durable distillation spool', () => {
 
   it('bounds leases, renewals and expired downloads independently of game ownership', () => {
     const store = fixture({ maxLeases: 1, maxPinnedChunks: 1, maxPinnedBytes: 32 });
-    const source = drain([1, 2]); store.ingest(source);
+    const source = drain([1, 2]); store.ingest(source, 42);
     expect(() => store.lease(source.contract!.captureEpoch, [word(1), word(2)], 1000)).toThrow(/pin quota/u);
     const now = Date.now();
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -191,16 +219,16 @@ describe('durable distillation spool', () => {
     refused.bytes = new Uint8Array(64).fill(2);
     refused.descriptor.byteCount = 64;
     refused.descriptor.sha256 = createHash('sha256').update(refused.bytes).digest('hex');
-    expect(() => store.ingest(source)).toThrow(/injected/u);
+    expect(() => store.ingest(source, 42)).toThrow(/injected/u);
     expect(store.dataset(source.contract!.captureEpoch)).toMatchObject({ spoolDroppedChunks: word(1),
       productionWatermark: word(3), storageWatermark: word(3), resolvedThrough: DISTILLATION_ZERO });
-    expect(store.ingest(source)).toMatchObject({ spoolDroppedChunks: word(1), resolvedThrough: word(3), retainedChunks: 1 });
+    expect(store.ingest(source, 42)).toMatchObject({ spoolDroppedChunks: word(1), resolvedThrough: word(3), retainedChunks: 1 });
   });
 
   it('preserves the actual filesystem reserve and records an unavailable object without a file', () => {
     const store = fixture({ diskReserveBytes: Number.MAX_SAFE_INTEGER });
     const source = drain([1]);
-    expect(store.ingest(source)).toMatchObject({ spoolDroppedChunks: word(1), retainedChunks: 0,
+    expect(store.ingest(source, 42)).toMatchObject({ spoolDroppedChunks: word(1), retainedChunks: 0,
       productionWatermark: word(1), storageWatermark: DISTILLATION_ZERO, resolvedThrough: word(1) });
     expect(readdirSync(store.root).filter(name => name.endsWith('.teacher'))).toEqual([]);
   });
@@ -210,8 +238,8 @@ describe('durable distillation spool', () => {
     const client = new DistillationSpoolClient(root); clients.push(client); await client.ready;
     const source = drain([1, 3], { production: 4 });
     const original = new Uint8Array(source.chunks[0]!.bytes);
-    const active = client.ingest(source);
-    await expect(client.ingest(source)).rejects.toThrow(/already active/u);
+    const active = client.ingest(source, 42);
+    await expect(client.ingest(source, 42)).rejects.toThrow(/already active/u);
     await active;
     expect(source.chunks[0]!.bytes).toEqual(original); // Transferring the worker copy never detaches native/caller bytes.
     const page = await client.list(source.contract!.captureEpoch, DISTILLATION_ZERO, 1);
@@ -227,7 +255,7 @@ describe('durable distillation spool', () => {
   networkTest('serves independent metadata/pagination, leased immutable bytes and expiry over real HTTP', async () => {
     const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
     const client = new DistillationSpoolClient(root); clients.push(client); await client.ready;
-    const source = drain([1, 3], { production: 4 }); await client.ingest(source);
+    const source = drain([1, 3], { production: 4 }); await client.ingest(source, 42);
     const router = new DistillationHttpRouter(client);
     const server = createServer((request, response) => {
       if (!router.handle(request, response, new URL(request.url ?? '/', 'http://localhost'))) { response.writeHead(404); response.end(); }
@@ -286,7 +314,7 @@ describe('durable distillation spool', () => {
       }
     } as unknown as ExperimentalRunningAuthorityNativeHandle;
     const admission = new BackgroundCommandAdmission(native);
-    capture = new DistillationCapture(() => native, admission, client);
+    capture = new DistillationCapture(() => native, admission, client, () => ({ runId: 'run', seed: 42 }));
     try {
       const dataset = await capture.start({ expectedRunId: 'run', expectedConfigRevision: word(1), baselineSlots: [7],
         pendingBytes: 1024 * 1024, queueChunks: 4, queueBytes: 16 * 1024 * 1024 });
