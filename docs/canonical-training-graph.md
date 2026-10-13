@@ -3,8 +3,10 @@
 The offline Rust tool exports a training manifest, initializes or validates one
 flat canonical Float32 weight vector, and evaluates a contiguous sequence with
 the deployed whole-graph executor. It owns no world or controller and does not
-advance any live gameplay RNG. This is Stage F's Rust contract; PyTorch training,
-optimizer roundtrip and CPU/CUDA parity qualification remain pending.
+advance any live gameplay RNG. This is Stage F's Rust contract. The corresponding
+[PyRL canonical graph and optimizer roundtrip](https://github.com/Tits-McGruff/PyRL-trainer/commit/6e3bdd840389594db1387ca0d23eed76e5968dda)
+passes CPU/RTX4080 parity with both native math backends. Bounded sequence training,
+teacher transport and normal deployed-candidate acceptance remain in progress.
 
 Build and run from the repository root:
 
