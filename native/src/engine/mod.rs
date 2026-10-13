@@ -148,6 +148,8 @@ pub mod step_fixture;
 /// Thread-local panic injection compiled only into Rust unit tests.
 #[cfg(test)]
 pub(crate) mod task_panic_fixture;
+/// Bounded Rust-owned committed-teacher chunk encoding and structural validation.
+pub mod teacher_samples;
 /// Canonical cold training metadata derived from the authoritative graph compiler.
 pub mod training_graph;
 /// Bounded offline complete-graph inference using the deployed native executor.
