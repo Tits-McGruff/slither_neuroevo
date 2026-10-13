@@ -559,7 +559,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       if (!distillationHttp) {
         if (!distillationAdmission || stopping) { response.writeHead(503); response.end(); return; }
         const spool = new DistillationSpoolClient(`${config.dbPath}.distillation`);
-        distillation = new DistillationCapture(() => owner.runtime, distillationAdmission, spool);
+        distillation = new DistillationCapture(() => owner.runtime, distillationAdmission, spool,
+          () => ({ runId: activeMetadata.runId, seed: activeMetadata.seed }));
         distillationHttp = new DistillationHttpRouter(spool, distillation);
       }
       distillationHttp.handle(request, response, requestUrl);

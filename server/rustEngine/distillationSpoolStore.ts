@@ -10,6 +10,8 @@ import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationHex, distil
 
 /** SQLite metadata retained separately from the owner's game database. */
 interface DatasetRow {
+  /** Native run seed; old diagnostic stores retain an explicit unknown value. */
+  run_seed: number | null;
   /** Immutable native identity. */
   epoch: string;
   /** Bounded immutable native contract JSON. */
@@ -86,11 +88,10 @@ export class DistillationSpoolStore {
       const applicationId = this.db.pragma('application_id', { simple: true });
       const version = this.db.pragma('user_version', { simple: true });
       const tables = this.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table'").get() as { count: number };
-      if ((applicationId !== 0x534c5448 || version !== 1) && (applicationId !== 0 || version !== 0 || tables.count !== 0)) {
+      if ((applicationId !== 0x534c5448 || (version !== 1 && version !== 2)) && (applicationId !== 0 || version !== 0 || tables.count !== 0)) {
         throw new Error('unsupported distillation spool database');
       }
       this.db.pragma('application_id = 1397511240');
-      this.db.pragma('user_version = 1');
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('synchronous = FULL');
       this.db.pragma('foreign_keys = ON');
@@ -99,7 +100,7 @@ export class DistillationSpoolStore {
           epoch TEXT PRIMARY KEY, contract TEXT NOT NULL, sensors TEXT NOT NULL, state TEXT NOT NULL,
           production TEXT NOT NULL, storage TEXT NOT NULL, resolved TEXT NOT NULL,
           dropped_chunks TEXT NOT NULL, dropped_samples TEXT NOT NULL, dropped_bytes TEXT NOT NULL,
-          spool_drops INTEGER NOT NULL DEFAULT 0, error TEXT
+          spool_drops INTEGER NOT NULL DEFAULT 0, error TEXT, run_seed INTEGER
         );
         CREATE TABLE IF NOT EXISTS chunks (
           ordinal INTEGER PRIMARY KEY AUTOINCREMENT, epoch TEXT NOT NULL REFERENCES datasets(epoch),
@@ -113,6 +114,10 @@ export class DistillationSpoolStore {
         CREATE TABLE IF NOT EXISTS lease_chunks (lease_id TEXT NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
           ordinal INTEGER NOT NULL REFERENCES chunks(ordinal), PRIMARY KEY(lease_id, ordinal));
       `);
+      this.db.transaction(() => {
+        if (version === 1) this.db.exec('ALTER TABLE datasets ADD COLUMN run_seed INTEGER');
+        this.db.pragma('user_version = 2');
+      })();
       this.db.prepare("UPDATE datasets SET state = 'interrupted', resolved = production WHERE state = 'active'").run();
       this.db.prepare('DELETE FROM unavailable WHERE sequence <= (SELECT resolved FROM datasets WHERE epoch = unavailable.epoch)').run();
       this.expireLeases();
@@ -121,7 +126,8 @@ export class DistillationSpoolStore {
   }
 
   /** Validate all metadata/digests first, then publish whole immutable objects. */
-  ingest(input: TeacherCaptureDrain): DistillationDataset {
+  ingest(input: TeacherCaptureDrain, runSeed: number): DistillationDataset {
+    distillationInteger(runSeed, 0, 0xffff_ffff, 'native run seed');
     const drain = parseTeacherDrain(input);
     const epoch = drain.contract.captureEpoch;
     let dataset = this.datasetRow(epoch);
@@ -129,13 +135,14 @@ export class DistillationSpoolStore {
     if (dataset && (dataset.contract !== contract || dataset.sensors !== drain.sensorContractJson)) {
       throw new Error('immutable dataset contract mismatch');
     }
+    if (dataset && dataset.run_seed !== null && dataset.run_seed !== runSeed) throw new Error('immutable dataset run seed mismatch');
     if (!dataset) {
       const count = this.db.prepare('SELECT COUNT(*) AS count FROM datasets').get() as { count: number };
       if (count.count >= this.limits.maxDatasets) throw new Error('dataset manifest quota exhausted');
       this.db.prepare(`INSERT INTO datasets(epoch, contract, sensors, state, production, storage, resolved,
-        dropped_chunks, dropped_samples, dropped_bytes) VALUES(?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`).run(
+        dropped_chunks, dropped_samples, dropped_bytes, run_seed) VALUES(?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`).run(
         epoch, contract, drain.sensorContractJson, DISTILLATION_ZERO, DISTILLATION_ZERO, DISTILLATION_ZERO,
-        DISTILLATION_ZERO, DISTILLATION_ZERO, DISTILLATION_ZERO);
+        DISTILLATION_ZERO, DISTILLATION_ZERO, DISTILLATION_ZERO, runSeed);
       dataset = this.datasetRow(epoch)!;
     }
     if (dataset.state === 'interrupted' && (drain.productionWatermark > dataset.production ||
@@ -185,7 +192,7 @@ export class DistillationSpoolStore {
     const retained = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes, MIN(sequence) AS floor FROM chunks WHERE epoch = ?')
       .get(epoch) as { count: number; bytes: number; floor: string | null };
     const floor = retained.floor ?? this.nextWord(row.resolved);
-    return { schemaVersion: 1, contract: JSON.parse(row.contract) as DistillationDataset['contract'],
+    return { schemaVersion: 1, runSeed: row.run_seed, contract: JSON.parse(row.contract) as DistillationDataset['contract'],
       sensorContractJson: row.sensors, state: row.state, productionWatermark: row.production,
       storageWatermark: row.storage, resolvedThrough: row.resolved, retentionFloor: floor,
       nativeDroppedChunks: row.dropped_chunks, nativeDroppedSamples: row.dropped_samples,

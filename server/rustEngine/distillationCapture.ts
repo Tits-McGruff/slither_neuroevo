@@ -47,7 +47,8 @@ export class DistillationCapture {
   constructor(
     private readonly native: () => ExperimentalRunningAuthorityNativeHandle,
     private readonly admission: BackgroundCommandAdmission,
-    private readonly spool: DistillationSpoolClient
+    private readonly spool: DistillationSpoolClient,
+    private readonly runIdentity: () => { runId: string; seed: number }
   ) {}
 
   /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
@@ -163,7 +164,9 @@ export class DistillationCapture {
         for (let count = 0; count < 2048; count += 1) {
           const drain = this.native().drainTeacherChunks(64, 1024 * 1024);
           if (!drain.contract) break;
-          await this.spool.ingest(drain);
+          const identity = this.runIdentity();
+          if (identity.runId !== drain.contract.runId) continue;
+          await this.spool.ingest(drain, identity.seed);
           if (!drain.moreWork) break;
         }
       }
@@ -180,7 +183,9 @@ export class DistillationCapture {
     const drain = this.native().drainTeacherChunks(64, 1024 * 1024);
     if (!drain.contract) return;
     if (this.epoch && drain.contract.captureEpoch !== this.epoch) return;
-    const dataset = await this.spool.ingest(drain);
+    const identity = this.runIdentity();
+    if (identity.runId !== drain.contract.runId) return;
+    const dataset = await this.spool.ingest(drain, identity.seed);
     if (this.epoch && dataset.contract.captureEpoch !== this.epoch) return;
     this.epoch = dataset.contract.captureEpoch;
     this.stopped = dataset.state !== 'active';
