@@ -382,7 +382,17 @@ drain. Its owner uses a nonblocking handoff and a coalesced diagnostic wake, so
 drains can progress at a retained generation barrier without resolving it.
 Native tests exercise a disconnected consumer, whole-chunk overflow, exact sensor
 metadata, partial drains, shutdown tails and no additional authority commands.
-The durable Node spool/HTTP and PyRL consumer integration remain open.
+The Node spool now keeps opaque objects and bounded SQLite metadata in a
+dedicated diagnostic directory. Its worker validates whole handoffs before
+publication, fsyncs bytes, publishes final names, then commits descriptor
+visibility. Oldest unpinned retention, bounded expiring/renewable storage leases,
+partial publication/retry recovery, interrupted epochs and coherent paginated
+watermarks have direct and actual-worker coverage. The server opens this path
+lazily through `/api/distillation/v1/`; metadata, leased immutable downloads and
+ordered capture controls do not instantiate an actor or acquire a controller
+lease. Real HTTP/native-server tests cover these boundaries. PyRL consumption,
+candidate upload/validation and the remaining training/job/shadow integrations
+remain open.
 Codec validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.

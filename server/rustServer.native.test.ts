@@ -327,6 +327,31 @@ async function selectPhysical(peer: Peer, requestId: string, target: { snakeId: 
 }
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it('opens independent distillation discovery lazily and rejects v3 capture without controller ownership', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-distillation-'));
+    const databasePath = join(root, 'source.sqlite');
+    const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath: databasePath });
+    const base = `http://127.0.0.1:${server.port}`;
+    try {
+      const initial = await (await fetch(`${base}/api/health`)).json() as { runId: string; configRevision: number; completedStep: string };
+      const discovery = await fetch(`${base}/api/distillation/v1/datasets`);
+      expect(discovery.status).toBe(200);
+      expect(await discovery.json()).toMatchObject({ datasets: [], hasMore: false });
+      const capture = await fetch(`${base}/api/distillation/v1/capture/start`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          expectedRunId: initial.runId, expectedConfigRevision: initial.configRevision.toString(16).padStart(16, '0'),
+          baselineSlots: [0], pendingBytes: 1024 * 1024, queueChunks: 4, queueBytes: 16 * 1024 * 1024
+        }) });
+      expect(capture.status).toBe(400);
+      expect(await capture.text()).toMatch(/baseline-v2|v4/u);
+      const later = await (await fetch(`${base}/api/health`)).json() as { runId: string; completedStep: string; outbound: { connections: number } };
+      expect(later.runId).toBe(initial.runId);
+      expect(BigInt(`0x${later.completedStep}`)).toBeGreaterThanOrEqual(BigInt(`0x${initial.completedStep}`));
+      expect(later.outbound.connections).toBe(0);
+      expect((await fetch(`${base}/api/distillation/v1/datasets/${'12'.repeat(16)}/manifest`)).status).toBe(404);
+    } finally { await server.close(); await rm(root, { recursive: true, force: true }); }
+  }, 30_000);
+
   it('preserves legacy resets and explicitly selects complete life experiments through real respawn and New Run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-life-contract-'));
     let server: Awaited<ReturnType<typeof startRustServer>> | undefined;

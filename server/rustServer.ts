@@ -21,6 +21,10 @@ import { serveBrowserAsset } from './browserAssets.ts';
 import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins.ts';
 import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
+import { DistillationSpoolClient } from './rustEngine/distillationSpoolClient.ts';
+import { DistillationCapture } from './rustEngine/distillationCapture.ts';
+import { DistillationHttpRouter } from './rustEngine/distillationHttp.ts';
+import type { BackgroundCommandAdmission } from './rustEngine/commandAdmission.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustSettings, createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
@@ -375,6 +379,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let timer: NodeJS.Timeout | undefined;
   let stopAuthorityWatch: (() => void) | undefined;
   let draining: Promise<boolean> | undefined;
+  /** Lazily opened diagnostic store; ordinary capture-off startup creates no spool. */
+  let distillation: DistillationCapture | undefined;
+  /** Dedicated transport installed only when its namespace is requested. */
+  let distillationHttp: DistillationHttpRouter | undefined;
+  /** The existing shared command owner, available before the HTTP listener starts. */
+  let distillationAdmission: BackgroundCommandAdmission | undefined;
   let lastFrame = 0;
   let lastStats = 0;
   let pumpStart = performance.now();
@@ -545,6 +555,16 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     if (!admitBrowserRequest(request, response, browserOrigins)) return;
     const requestUrl = new URL(request.url ?? '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if (pathname.startsWith('/api/distillation/v1/')) {
+      if (!distillationHttp) {
+        if (!distillationAdmission || stopping) { response.writeHead(503); response.end(); return; }
+        const spool = new DistillationSpoolClient(`${config.dbPath}.distillation`);
+        distillation = new DistillationCapture(() => owner.runtime, distillationAdmission, spool);
+        distillationHttp = new DistillationHttpRouter(spool, distillation);
+      }
+      distillationHttp.handle(request, response, requestUrl);
+      return;
+    }
     if (pathname === '/api/health' || pathname === '/health') {
       refreshStorage();
       const nativeHealth = owner.runtime.health(true);
@@ -791,6 +811,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       await draining?.catch(() => {});
       try { await owner.close(); }
       finally {
+        await distillation?.close().catch(error => { console.error('[distillation.shutdown]', error instanceof Error ? error.message : error); });
         telemetry.close();
         if (server.listening) await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
       }
@@ -808,6 +829,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       send: (id, message) => sockets.sendJsonTo(Number(BigInt(`0x${id}`)), message),
       event(event) {
         routing.event(event);
+        distillation?.event(event);
         if (pendingFinish && pendingFinish.sequence === event.commandSequence &&
             (event.kind === 'finishGenerationAccepted' || event.kind === 'commandRejected')) {
           const pending = pendingFinish;
@@ -987,6 +1009,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         finally { retentionMaintenance = undefined; }
       }
     });
+    distillationAdmission = output.admission;
     routing = new ExternalControllerRouting({ native: owner.runtime, admission: output.admission,
       maxControllers: MAX_CONTROLLERS, maxActionsPerSecond: config.maxActionsPerSecond, maxActionsPerTick: config.maxActionsPerTick,
       send: (connection, message) => sockets.sendJsonTo(connection, message),
@@ -1170,6 +1193,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
         const welcome = { ...createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
+        void distillation?.runReplaced().catch(error => { console.error('[distillation.replacement]', error instanceof Error ? error.message : error); });
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
@@ -1305,6 +1329,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
         const welcome = createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
+        void distillation?.runReplaced().catch(error => { console.error('[distillation.replacement]', error instanceof Error ? error.message : error); });
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome

@@ -82,6 +82,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/rustEngine/experimentalNativeBridge.native.test.ts',
     'server/rustEngine/experimentalFreshRunSession.native.test.ts',
     'server/rustEngine/checkpointPersistence.test.ts',
+    'server/rustEngine/distillationSpool.test.ts',
     'server/rustEngine/checkpointPersistence.native.test.ts',
     'server/wsHub.priority.test.ts',
     'scripts/stage2/database-baseline.test.ts',

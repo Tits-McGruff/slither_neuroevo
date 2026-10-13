@@ -887,6 +887,75 @@ socket.on('close', (code, reason) => {
 });
 ```
 
+## Distillation dataset transport v1
+
+Teacher capture uses `/api/distillation/v1/` HTTP routes independently of
+Protocol 2 actor/player control. A distillation consumer does not open
+`ActorClient`, join a snake, submit actions, or obtain a gameplay controller
+lease. Capture requires an explicitly admitted baseline-v2/v4 run; ordinary v3
+production defaults reject arm requests. This API does not change those defaults.
+
+The server lazily opens a separate `<db-path>.distillation/` diagnostic store.
+Its worker stores opaque Rust-encoded objects and SQLite metadata. It does not
+parse/reconstruct observation rows or populations. The initial configurable
+storage envelope is 4 GiB/65,536 complete objects, with bounded storage leases,
+four download buffers and a one-MiB native-to-worker handoff. The operating disk
+reserve remains one GiB. Spool limits are supplied to `DistillationSpoolClient`;
+native pending/queue budgets are supplied per arm request.
+
+| Method and path | Request/result |
+|---|---|
+| `POST /capture/start` | Exact six-field request below; server generates a new capture epoch and returns its dataset manifest after native admission |
+| `POST /capture/<epoch>/stop` | Ordered stop for that epoch; no trainer-consumption acknowledgement |
+| `GET /datasets?after=<epoch>&limit=N` | Bounded dataset summaries and discovery cursor; default limit 100, maximum 256 |
+| `GET /datasets/<epoch>/manifest` | Exact native contract/sensor JSON, closure status, durable watermarks and drop counters |
+| `GET /datasets/<epoch>/chunks?after=<sequence>&limit=N` | Coherent manifest snapshot and available immutable descriptors, `nextCursor`, `hasMore` |
+| `POST /datasets/<epoch>/leases` | `{ "sequences": ["<u64 hex>", ...], "durationMs": N }`; at most 256 unique available objects, interval at most 300,000 ms |
+| `POST /leases/<id>/renew` | `{ "durationMs": N }`; renews a still-live storage pin |
+| `DELETE /leases/<id>` | Idempotent storage-pin release |
+| `GET /datasets/<epoch>/chunks/<sequence>?lease=<id>` | Complete immutable binary object protected by that live storage lease |
+
+Paths in the table are relative to `/api/distillation/v1/`. Epoch/lease IDs are
+32 lowercase hex digits; long sequences/revisions are exact 16-digit unsigned
+hex words. Unknown fields, malformed cursors, invalid limits and unavailable or
+expired pins reject. Storage leases protect retention; they are not controller
+ownership or authentication.
+
+```json
+{
+  "expectedRunId": "current run ID",
+  "expectedConfigRevision": "0000000000000001",
+  "baselineSlots": [0, 1],
+  "pendingBytes": 16777216,
+  "queueChunks": 1024,
+  "queueBytes": 16777216
+}
+```
+
+Slot selection must strictly increase and refer to existing baseline-v2 owners.
+The budgets include cold row/sealing storage and native queue/handoff/metadata
+headroom respectively. Native admission can reject a budget too small for that
+selection. Start/stop use the existing ordered command sequence; sample delivery
+uses the independent diagnostic queue and never reserves controller output.
+
+`productionWatermark` includes durably observed native assignments that dropped;
+`storageWatermark` is the highest historically published object, not a contiguous
+guarantee. `retentionFloor` is below all currently available objects.
+`resolvedThrough` means every sequence at/below it has a settled stored or
+unavailable disposition. Finish listing pagination before treating a missing
+sequence at/below that watermark as a gap. Missing above it may still be pending.
+Download responses include exact `Content-Length`, `X-Slither-Chunk-Sha256` and a
+digest ETag; consumers must validate digest/length before using bytes. The binary
+format is specified in [teacher-chunk-v1.md](teacher-chunk-v1.md).
+
+Slow consumers can cause complete native drops or spool eviction; pinned
+saturation drops new objects. Repeated exact handoffs/downloads are idempotent.
+After interruption the store retains only its last durably observed production
+tail, labels the epoch interrupted and never resumes it. Retained complete
+objects remain available for offline jobs. This is diagnostic/training
+durability, not a mid-round world checkpoint. Candidate upload/native validation
+and the PyRL `DistillationClient` remain subsequent integration work.
+
 ## Common integration mistakes
 
 - Sending Protocol 1 or omitting `hello`.
