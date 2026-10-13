@@ -76,6 +76,8 @@ pub struct ControlPhaseConfig {
     pub controller_timing: ControllerTiming,
     /// Baseline strategy settings.
     pub baseline: BaselineControlConfig,
+    /// Reset-only v2 policy/cadence identity; None preserves frozen v1.
+    pub baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
     /// Complete stable-boundary sensor index settings.
     pub sensor_index: SensorIndexConfig,
     /// Maximum admitted world records and staged controls.
@@ -95,6 +97,7 @@ impl ControlPhaseConfig {
             neural_control_interval_seconds: 1.0 / 60.0,
             controller_timing: ControllerTiming::approved_defaults(),
             baseline: BaselineControlConfig::typescript_defaults(),
+            baseline_v2: None,
             sensor_index: SensorIndexConfig {
                 body_cell_size: 70.0,
                 pellet_cell_size: 120.0,
@@ -153,6 +156,12 @@ impl ControlPhaseConfig {
             });
         }
         self.baseline.validate()?;
+        if let Some(spec) = self.baseline_v2 {
+            spec.validate()
+                .map_err(|_| ControlPhaseError::InvalidConfig {
+                    field: "baseline-v2 settings",
+                })?;
+        }
         Ok(())
     }
 }
@@ -189,6 +198,8 @@ pub struct V4BoundaryContext<'source> {
 pub enum SelectedControlSource {
     /// Built-in baseline strategy consumed one corrected observation.
     Baseline,
+    /// Prior v2 action held until its shared cadence is due.
+    BaselineHeld,
     /// Latest accepted external action remains within its hold window.
     ExternalHeld,
     /// External ownership remains exclusive with neutral steering.
@@ -289,6 +300,7 @@ pub struct PreparedBaselineControl {
     next_slot: BaselineSlotRuntime,
     next_strategy: BaselineStrategyState,
     next_rng: BaselineRngState,
+    next_behavior_word: Option<u32>,
     delivery: ObservationDeliveryMarker,
     diagnostics: BaselineControlDiagnostics,
     sensor_diagnostics: SensorSampleDiagnostics,
@@ -529,6 +541,8 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
     wall_now_ms: u64,
     config: ControlPhaseConfig,
     ray_proposal: Option<super::ray_work::RayQuotaProposal>,
+    ray_keys: &'workspace [super::ray_work::RayObservationOwner],
+    ray_owner_grants: &'workspace [u32],
     neural: &'workspace NeuralControlPipeline,
     controls: &'workspace [PreparedControlUpdate],
     controller_transitions: &'workspace [PreparedControllerTransition],
@@ -540,6 +554,14 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
 }
 
 impl PreparedControlPhase<'_, '_, '_> {
+    /// Actual fair grant for one due owner; held and legacy observations have none.
+    pub fn ray_grant(&self, owner: super::ray_work::RayObservationOwner) -> Option<u32> {
+        self.ray_proposal?;
+        self.ray_keys
+            .binary_search(&owner)
+            .ok()
+            .and_then(|i| self.ray_owner_grants.get(i).copied())
+    }
     /// Complete authority/config/operation identity prepared.
     #[must_use]
     pub const fn key(&self) -> PhysicsStepKey {
@@ -762,10 +784,79 @@ impl<'workspace> PreparedControlCommit<'workspace> {
     }
 }
 
+/// Private seal of the consumed v2 policy/RNG continuation. Physics/deaths may
+/// neutralize actions but cannot edit these fields after control commitment.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct BaselineV2ControlProof {
+    key: Option<PhysicsStepKey>,
+    digest: [u8; 32],
+}
+impl BaselineV2ControlProof {
+    pub(crate) const fn identity(self) -> (Option<PhysicsStepKey>, [u8; 32]) {
+        (self.key, self.digest)
+    }
+    pub(crate) fn matches(
+        &self,
+        key: PhysicsStepKey,
+        rng: &RngStateBundle,
+        lifecycle: &BaselineLifecycleState,
+    ) -> bool {
+        self.key == Some(key) && self.digest == baseline_v2_continuation_digest(rng, lifecycle)
+    }
+}
+fn baseline_v2_continuation_digest(
+    rng: &RngStateBundle,
+    lifecycle: &BaselineLifecycleState,
+) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"slither.baseline-v2-control.v1\0");
+    hash.update(rng.version.to_le_bytes());
+    hash.update((rng.baseline_behaviors.len() as u64).to_le_bytes());
+    for stream in &rng.baseline_behaviors {
+        hash.update(stream.slot.to_le_bytes());
+        hash.update(stream.uniform_state.to_le_bytes());
+    }
+    hash.update((lifecycle.slots.len() as u64).to_le_bytes());
+    for slot in &lifecycle.slots {
+        hash.update(slot.slot.to_le_bytes());
+        hash.update(slot.snake_id.to_le_bytes());
+        hash.update([u8::from(slot.v2_last_control_step.is_some())]);
+        hash.update(slot.v2_last_control_step.unwrap_or(0).to_le_bytes());
+        hash.update([u8::from(slot.v2_policy.is_some())]);
+        if let Some(policy) = slot.v2_policy {
+            hash.update(policy.version.to_le_bytes());
+            hash.update([u8::from(policy.committed_heading.is_some())]);
+            hash.update(
+                policy
+                    .committed_heading
+                    .unwrap_or(0.0)
+                    .to_bits()
+                    .to_le_bytes(),
+            );
+            for value in [
+                policy.commitment_remaining_seconds,
+                policy.wander_angle,
+                policy.wander_remaining_seconds,
+            ] {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+            hash.update([match policy.strategy {
+                BaselineStrategyState::Roam => 0,
+                BaselineStrategyState::Seek => 1,
+                BaselineStrategyState::Avoid => 2,
+                BaselineStrategyState::Boost => 3,
+            }]);
+        }
+    }
+    hash.finalize().into()
+}
+
 /// Reusable working owner that applies one complete control phase without authority writes.
 #[derive(Debug, Default)]
 pub struct ControlCommitWorkspace {
     key: Option<PhysicsStepKey>,
+    v2_proof: Option<BaselineV2ControlProof>,
     world: WorldState,
     rng: Option<RngStateBundle>,
     rng_copy_scratch: RngCopyScratch,
@@ -783,6 +874,14 @@ pub struct ControlCommitWorkspace {
 }
 
 impl ControlCommitWorkspace {
+    pub(crate) fn baseline_v2_proof(&self) -> Option<BaselineV2ControlProof> {
+        if self.ready {
+            self.v2_proof
+        } else {
+            None
+        }
+    }
+
     /// Construct empty reusable control-commit scratch.
     #[must_use]
     pub fn new() -> Self {
@@ -799,6 +898,7 @@ impl ControlCommitWorkspace {
         phase: PreparedControlPhase<'_, '_, '_>,
     ) -> Result<PreparedControlCommit<'workspace>, ControlPhaseError> {
         self.key = None;
+        self.v2_proof = None;
         self.ready = false;
         self.diagnostics = ControlCommitDiagnostics::default();
         let prefix = phase.prefix;
@@ -853,6 +953,15 @@ impl ControlCommitWorkspace {
                 .map_err(ControlPhaseError::RayWork)?;
         }
         self.publish_phase(&phase);
+        if phase.config.baseline_v2.is_some() {
+            self.v2_proof = Some(BaselineV2ControlProof {
+                key: Some(phase.key),
+                digest: baseline_v2_continuation_digest(
+                    self.rng.as_ref().expect("prevalidated RNG"),
+                    self.lifecycle.as_ref().expect("prevalidated lifecycle"),
+                ),
+            });
+        }
         self.key = Some(phase.key);
         self.ready = true;
         self.diagnostics = self.collect_diagnostics(phase.diagnostics);
@@ -906,8 +1015,18 @@ impl ControlCommitWorkspace {
                         });
                     }
                 }
-                SelectedControlSource::Baseline
-                | SelectedControlSource::ExternalHeld
+                SelectedControlSource::Baseline | SelectedControlSource::BaselineHeld => {
+                    if snake.kind != SnakeKind::Baseline
+                        || (phase.config.baseline_v2.is_none()
+                            && update.next_control_accumulator_seconds.to_bits()
+                                != 0.0f64.to_bits())
+                    {
+                        return Err(ControlPhaseError::CommitShapeMismatch {
+                            field: "baseline cadence",
+                        });
+                    }
+                }
+                SelectedControlSource::ExternalHeld
                 | SelectedControlSource::ExternalReservedNeutral
                 | SelectedControlSource::ExternalOnlyNeutral => {
                     if update.next_control_accumulator_seconds.to_bits() != 0.0_f64.to_bits() {
@@ -917,9 +1036,11 @@ impl ControlCommitWorkspace {
                     }
                 }
             }
-            if update.source == SelectedControlSource::NeuralHeld
-                && (snake.turn.to_bits() != update.turn.to_bits()
-                    || snake.input_boost != update.boost)
+            if matches!(
+                update.source,
+                SelectedControlSource::NeuralHeld | SelectedControlSource::BaselineHeld
+            ) && (snake.turn.to_bits() != update.turn.to_bits()
+                || snake.input_boost != update.boost)
             {
                 return Err(ControlPhaseError::CommitShapeMismatch {
                     field: "held neural action",
@@ -998,6 +1119,31 @@ impl ControlCommitWorkspace {
                 return Err(ControlPhaseError::CommitShapeMismatch {
                     field: "baseline result identity",
                 });
+            }
+            if result.next_slot.v2_policy.is_some() != phase.config.baseline_v2.is_some()
+                || result.next_behavior_word.is_some() != phase.config.baseline_v2.is_some()
+            {
+                return Err(ControlPhaseError::CommitShapeMismatch {
+                    field: "baseline policy version",
+                });
+            }
+            if let Some(word) = result.next_behavior_word {
+                let stream = self
+                    .rng
+                    .as_ref()
+                    .and_then(|rng| rng.baseline_behaviors.get(slot_index))
+                    .ok_or(ControlPhaseError::CommitShapeMismatch {
+                        field: "v2 behavior slot",
+                    })?;
+                if stream.slot != result.slot
+                    || word == 0
+                    || result.next_rng != *baseline_rng
+                    || result.next_slot.v2_last_control_step != Some(phase.calculation_key.step())
+                {
+                    return Err(ControlPhaseError::CommitShapeMismatch {
+                        field: "v2 behavior result",
+                    });
+                }
             }
             validate_strategy_runtime(result.next_slot, result.next_strategy)?;
             result.delivery.validate(snake)?;
@@ -1096,6 +1242,14 @@ impl ControlCommitWorkspace {
                     field: "baseline RNG copy scratch",
                 })?;
             copy_serialized_rng_reusing(&mut target.state, &result.next_rng.state, spare)?;
+            if let Some(word) = result.next_behavior_word {
+                rng.baseline_behaviors
+                    .get_mut(slot_index)
+                    .ok_or(ControlPhaseError::CommitShapeMismatch {
+                        field: "v2 behavior commit",
+                    })?
+                    .uniform_state = word;
+            }
         }
         Ok(())
     }
@@ -1125,7 +1279,8 @@ impl ControlCommitWorkspace {
             match update.source {
                 SelectedControlSource::ExternalHeld
                 | SelectedControlSource::ExternalReservedNeutral
-                | SelectedControlSource::NeuralHeld => {}
+                | SelectedControlSource::NeuralHeld
+                | SelectedControlSource::BaselineHeld => {}
                 SelectedControlSource::NeuralTakeover => {
                     snake.turn = update.turn;
                     snake.input_boost = update.boost;
@@ -1281,6 +1436,9 @@ impl ControlCommitWorkspace {
 pub struct ControlPhaseWorkspace {
     neural: NeuralControlPipeline,
     baseline: BaselineControlWorkspace,
+    baseline_v2_policy: Option<super::baseline_v2::BaselineV2Policy>,
+    baseline_v2_settings: Option<super::baseline_v2::BaselineV2Settings>,
+    baseline_v2_due: Vec<usize>,
     sensor_scratch: SensorScratch,
     ray_index: super::sensor_rays::BodyRayIndexWorkspace,
     ray_owners: Vec<(super::ray_work::RayObservationOwner, usize)>,
@@ -1336,6 +1494,9 @@ impl ControlPhaseWorkspace {
         Ok(Self {
             neural,
             baseline: BaselineControlWorkspace::new(),
+            baseline_v2_policy: None,
+            baseline_v2_settings: None,
+            baseline_v2_due: Vec::new(),
             sensor_scratch: SensorScratch::default(),
             ray_index: super::sensor_rays::BodyRayIndexWorkspace::default(),
             ray_owners: Vec::new(),
@@ -1417,6 +1578,27 @@ impl ControlPhaseWorkspace {
         self.clear_active();
         self.last_cost = ControlPhaseCostMicros::default();
         inputs.config.validate()?;
+        if inputs.config.baseline_v2 != self.baseline_v2_settings {
+            self.baseline_v2_policy = match inputs.config.baseline_v2 {
+                Some(spec) => Some(
+                    super::baseline_v2::BaselineV2Policy::new(
+                        self.neural.sensor().layout(),
+                        self.neural.sensor().config().clone(),
+                        spec.mode,
+                    )
+                    .map_err(|_| ControlPhaseError::InvalidConfig {
+                        field: "baseline-v2 sensor contract",
+                    })?,
+                ),
+                None => None,
+            };
+            self.baseline_v2_settings = inputs.config.baseline_v2;
+        }
+        if inputs.config.baseline_v2.is_some() && inputs.v4.is_none() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "baseline-v2 requires shared v4 quotas",
+            });
+        }
         if self.neural.sensor().is_v4() != inputs.v4.is_some() {
             return Err(ControlPhaseError::InvalidConfig {
                 field: "sensor-v4 boundary context",
@@ -1472,15 +1654,17 @@ impl ControlPhaseWorkspace {
             &mut self.lease_order,
             inputs.config,
         )?;
+        let baseline_width = if inputs.config.baseline_v2.is_some() {
+            self.neural.sensor().layout().input_size
+        } else {
+            self.neural.sensor().legacy_evaluator().layout().input_size
+        };
         reserve_for(
             &mut self.baseline_observation,
-            self.neural.sensor().legacy_evaluator().layout().input_size,
+            baseline_width,
             "baseline observation",
         )?;
-        self.baseline_observation.resize(
-            self.neural.sensor().legacy_evaluator().layout().input_size,
-            0.0,
-        );
+        self.baseline_observation.resize(baseline_width, 0.0);
         let maximum_external_values = inputs
             .config
             .maximum_external_observations
@@ -1551,7 +1735,11 @@ impl ControlPhaseWorkspace {
             }
             match snake.kind {
                 SnakeKind::Baseline => {
-                    self.prepare_baseline(inputs, indexed, snake_index)?;
+                    if inputs.config.baseline_v2.is_some() {
+                        self.prepare_baseline_v2_due(inputs, snake_index, fixed_dt)?;
+                    } else {
+                        self.prepare_baseline(inputs, indexed, snake_index)?;
+                    }
                 }
                 SnakeKind::External => {
                     self.prepare_external(inputs, indexed, snake_index, fixed_dt)?;
@@ -1589,7 +1777,9 @@ impl ControlPhaseWorkspace {
                 self.ray_keys.clear();
                 reserve_for(
                     &mut self.ray_owners,
-                    self.neural_candidates.len() + self.external_events.len(),
+                    self.neural_candidates.len()
+                        + self.external_events.len()
+                        + self.baseline_v2_due.len(),
                     "ray owners",
                 )?;
                 for index in self
@@ -1597,6 +1787,7 @@ impl ControlPhaseWorkspace {
                     .iter()
                     .map(|unit| unit.snake_index())
                     .chain(self.external_events.iter().map(|event| event.snake_index))
+                    .chain(self.baseline_v2_due.iter().copied())
                 {
                     let owner = super::ray_work::RayObservationOwner::of(&world.snakes[index])
                         .map_err(ControlPhaseError::RayWork)?;
@@ -1638,6 +1829,15 @@ impl ControlPhaseWorkspace {
             } else {
                 None
             };
+            for position in 0..self.baseline_v2_due.len() {
+                self.prepare_baseline_v2_action(
+                    inputs,
+                    indexed,
+                    self.baseline_v2_due[position],
+                    prepared_v4,
+                    calculation_key,
+                )?;
+            }
             for event in &mut self.external_events {
                 let end = event.observation_start + event.observation_len;
                 let sample = self.neural.sensor().sample_prepared(
@@ -1804,6 +2004,7 @@ impl ControlPhaseWorkspace {
             result.slot = slot;
             result.next_slot = next_slot;
             result.next_strategy = next_strategy;
+            result.next_behavior_word = None;
             result.next_rng.slot = evaluation.next_rng().slot;
             copy_serialized_rng_reusing(
                 &mut result.next_rng.state,
@@ -1826,6 +2027,7 @@ impl ControlPhaseWorkspace {
                 next_slot,
                 next_strategy,
                 next_rng: evaluation.next_rng().clone(),
+                next_behavior_word: None,
                 delivery: sample.delivery,
                 diagnostics,
                 sensor_diagnostics: sample.diagnostics,
@@ -1843,6 +2045,205 @@ impl ControlPhaseWorkspace {
             },
             inputs.config.maximum_snakes,
         )
+    }
+
+    fn prepare_baseline_v2_due(
+        &mut self,
+        inputs: &ControlPhaseInputs<'_, '_>,
+        snake_index: usize,
+        fixed_dt: f64,
+    ) -> Result<(), ControlPhaseError> {
+        let snake = &inputs.prefix.world().snakes[snake_index];
+        let spec = inputs
+            .config
+            .baseline_v2
+            .ok_or(ControlPhaseError::InvalidConfig {
+                field: "baseline-v2 settings",
+            })?;
+        let (due, next) = next_neural_boundary(
+            snake.control_accumulator_seconds,
+            fixed_dt,
+            spec.control_interval_seconds,
+            !snake.observation_delivered,
+        )?;
+        if due {
+            let required = self.baseline_v2_due.len().saturating_add(1);
+            reserve_for(&mut self.baseline_v2_due, required, "v2 due baselines")?;
+            self.baseline_v2_due.push(snake_index);
+        }
+        self.push_control(
+            PreparedControlUpdate {
+                snake_index,
+                snake_id: snake.id,
+                source: if due {
+                    SelectedControlSource::Baseline
+                } else {
+                    SelectedControlSource::BaselineHeld
+                },
+                turn: snake.turn,
+                boost: snake.input_boost,
+                next_control_accumulator_seconds: next,
+            },
+            inputs.config.maximum_snakes,
+        )
+    }
+
+    fn prepare_baseline_v2_action(
+        &mut self,
+        inputs: &ControlPhaseInputs<'_, '_>,
+        indexed: &IndexedSensorWorld<'_>,
+        snake_index: usize,
+        v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+        key: CalculationBatchKey,
+    ) -> Result<(), ControlPhaseError> {
+        let world = inputs.prefix.world();
+        let snake = &world.snakes[snake_index];
+        let slot = snake
+            .baseline_slot
+            .ok_or(ControlPhaseError::BaselineMapping {
+                snake_id: snake.id,
+                field: "v2 slot",
+            })?;
+        let source_slot = inputs
+            .prefix
+            .baseline_lifecycle()
+            .slots
+            .get(slot as usize)
+            .filter(|state| {
+                state.slot == slot
+                    && state.snake_id == snake.id
+                    && state.respawn_remaining_seconds.is_none()
+            })
+            .ok_or(ControlPhaseError::BaselineMapping {
+                snake_id: snake.id,
+                field: "v2 lifecycle",
+            })?;
+        let source_policy = source_slot
+            .v2_policy
+            .ok_or(ControlPhaseError::BaselineMapping {
+                snake_id: snake.id,
+                field: "v2 policy",
+            })?;
+        let source_rng = inputs
+            .prefix
+            .rng()
+            .baselines
+            .get(slot as usize)
+            .filter(|state| state.slot == slot)
+            .ok_or(ControlPhaseError::BaselineMapping {
+                snake_id: snake.id,
+                field: "v2 lifecycle RNG",
+            })?;
+        let behavior = inputs
+            .prefix
+            .rng()
+            .baseline_behaviors
+            .get(slot as usize)
+            .filter(|state| state.slot == slot)
+            .ok_or(ControlPhaseError::BaselineMapping {
+                snake_id: snake.id,
+                field: "v2 behavior RNG",
+            })?;
+        let sample = self.neural.sensor().sample_prepared(
+            indexed,
+            inputs.generation,
+            snake_index,
+            &mut self.baseline_observation,
+            &mut self.sensor_scratch,
+            None,
+            v4,
+        )?;
+        let step = key.step();
+        let elapsed = match source_slot.v2_last_control_step {
+            Some(previous) => {
+                step.checked_sub(previous)
+                    .ok_or(ControlPhaseError::CommitShapeMismatch {
+                        field: "v2 control chronology",
+                    })? as f64
+                    * inputs.prefix.config().fixed_dt
+            }
+            None => 0.0,
+        };
+        let action = self
+            .baseline_v2_policy
+            .as_ref()
+            .ok_or(ControlPhaseError::InvalidConfig { field: "v2 policy" })?
+            .evaluate(
+                &self.baseline_observation,
+                source_policy,
+                behavior.uniform_state,
+                elapsed,
+            )
+            .map_err(|_| ControlPhaseError::InvalidConfig {
+                field: "v2 policy evaluation",
+            })?;
+        let mut next_slot = *source_slot;
+        next_slot.v2_policy = Some(action.next_state);
+        next_slot.v2_last_control_step = Some(step);
+        next_slot.turn = action.turn;
+        next_slot.boost = action.boost;
+        let diagnostics = BaselineControlDiagnostics {
+            world_snakes: 0,
+            canonical_order_capacity: 0,
+            uniform_draws: usize::from(action.uniform_draws),
+            target_snake_id: None,
+        };
+        let index = self.baseline_control_count;
+        reserve_for(
+            &mut self.baseline_controls,
+            index.saturating_add(1),
+            "v2 baseline results",
+        )?;
+        reserve_for(
+            &mut self.baseline_rng_gaussian_spares,
+            index.saturating_add(1),
+            "v2 baseline RNG spare buffers",
+        )?;
+        while self.baseline_rng_gaussian_spares.len() <= index {
+            self.baseline_rng_gaussian_spares.push(String::new());
+        }
+        if index < self.baseline_controls.len() {
+            let result = &mut self.baseline_controls[index];
+            result.snake_index = snake_index;
+            result.snake_id = snake.id;
+            result.slot = slot;
+            result.next_slot = next_slot;
+            result.next_strategy = action.next_state.strategy;
+            result.next_rng.slot = slot;
+            copy_serialized_rng_reusing(
+                &mut result.next_rng.state,
+                &source_rng.state,
+                &mut self.baseline_rng_gaussian_spares[index],
+            )?;
+            result.next_behavior_word = Some(action.next_behavior_rng_word);
+            result.delivery = sample.delivery;
+            result.diagnostics = diagnostics;
+            result.sensor_diagnostics = sample.diagnostics;
+        } else {
+            self.baseline_controls.push(PreparedBaselineControl {
+                snake_index,
+                snake_id: snake.id,
+                slot,
+                next_slot,
+                next_strategy: action.next_state.strategy,
+                next_rng: source_rng.clone(),
+                next_behavior_word: Some(action.next_behavior_rng_word),
+                delivery: sample.delivery,
+                diagnostics,
+                sensor_diagnostics: sample.diagnostics,
+            });
+        }
+        self.baseline_control_count += 1;
+        let update = self
+            .controls
+            .iter_mut()
+            .find(|update| update.snake_id == snake.id)
+            .ok_or(ControlPhaseError::CommitShapeMismatch {
+                field: "v2 selected control",
+            })?;
+        update.turn = action.turn;
+        update.boost = action.boost;
+        Ok(())
     }
 
     fn prepare_external(
@@ -2123,6 +2524,8 @@ impl ControlPhaseWorkspace {
             wall_now_ms: inputs.wall_now_ms,
             config: inputs.config,
             ray_proposal: self.ray_proposal,
+            ray_keys: &self.ray_keys,
+            ray_owner_grants: &self.ray_owner_grants,
             neural: &self.neural,
             controls: &self.controls,
             controller_transitions: &self.controller_transitions,
@@ -2139,6 +2542,7 @@ impl ControlPhaseWorkspace {
         self.neural.discard();
         self.ray_proposal = None;
         self.baseline_control_count = 0;
+        self.baseline_v2_due.clear();
         self.external_observations.clear();
         self.controls.clear();
         self.controller_transitions.clear();
@@ -3085,6 +3489,8 @@ mod tests {
         let lifecycle = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 20,
                 strategy_timer_seconds: 0.0,
@@ -3364,6 +3770,150 @@ mod tests {
         let neural =
             NeuralControlPipeline::try_new(8, sensor, plan.clone(), workers, usize::MAX).unwrap();
         (plan, ControlPhaseWorkspace::new(neural).unwrap())
+    }
+
+    #[test]
+    fn baseline_v2_due_quota_commit_holds_and_late_failures_preserve_source() {
+        use crate::engine::baseline_v2::{BaselineV2Mode, BaselineV2Settings, BaselineV2State};
+        use crate::engine::evolved_lives::{EvolvedExperimentConfig, EvolvedGenerationState};
+        use crate::engine::ray_work::{RayObservationOwner, RayWorkLimits};
+        use crate::engine::sensor_contract::SensorProfile;
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for mode in [BaselineV2Mode::Deterministic, BaselineV2Mode::Stochastic] {
+                let (plan, mut selection) = v4_workspace(profile, 16, 1);
+                let mut fixture = fixture(&plan);
+                make_fixture_bodies_physics_ready(&mut fixture.world);
+                fixture.world.pellets.clear();
+                fixture.rng.version = crate::engine::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+                fixture.rng.baseline_behaviors =
+                    crate::engine::rng::derive_baseline_v2_behaviors(42, 1, 3, 1, false).unwrap();
+                fixture.lifecycle.slots[0].v2_policy = Some(BaselineV2State::default());
+                fixture.lifecycle.slots[0].wander_timer_seconds = 0.0;
+                let baseline_id = fixture.lifecycle.slots[0].snake_id;
+                let config = ControlPhaseConfig {
+                    baseline_v2: Some(BaselineV2Settings {
+                        mode,
+                        control_interval_seconds: 0.06,
+                    }),
+                    ..control_config()
+                };
+                let lives = EvolvedGenerationState::default();
+                let mut commits = ControlCommitWorkspace::new();
+                let mut delivered = Vec::new();
+                for ordinal in 0..12u64 {
+                    let step_key =
+                        PhysicsStepKey::new(7, 3, 40 + ordinal, EPOCH, 9, [0x5a; 32], 80 + ordinal);
+                    let source_world = fixture.world.clone();
+                    let source_rng = fixture.rng.clone();
+                    let source_lifecycle = fixture.lifecycle.clone();
+                    let mut prefix_workspace = FixedStepPrefixWorkspace::new();
+                    let prefix = prefix_workspace
+                        .prepare(FixedStepPrefixInputs {
+                            key: step_key,
+                            world: &fixture.world,
+                            rng: &fixture.rng,
+                            allocators: &fixture.allocators,
+                            generation_elapsed_seconds: 2.0 + ordinal as f64 * DT,
+                            ambient_accumulator: 0.0,
+                            baseline_lifecycle: &fixture.lifecycle,
+                            config: prefix_config(),
+                        })
+                        .unwrap();
+                    let mut generation = SensorGenerationState::new();
+                    generation.update_after_step(prefix.world()).unwrap();
+                    let boundary = V4BoundaryContext {
+                        context: crate::engine::sensors_v4::V4ObservationContext {
+                            generation_elapsed_seconds: prefix.generation_elapsed_seconds(),
+                            evolved: &lives,
+                            experiment: EvolvedExperimentConfig::legacy(240.0),
+                        },
+                        limits: RayWorkLimits::new(1, 256, 767, 8).unwrap(),
+                    };
+                    if ordinal == 0 {
+                        let mut malformed = fixture.population.clone();
+                        malformed[0].weights[0] = f32::NAN;
+                        assert!(selection
+                            .prepare(ControlPhaseInputs {
+                                prefix,
+                                generation: &generation,
+                                assessment_points: None,
+                                v4: Some(boundary),
+                                population: &malformed,
+                                brains: &fixture.brains,
+                                wall_now_ms: 31000,
+                                config
+                            })
+                            .is_err());
+                        assert!(!selection.is_ready());
+                        assert_eq!(fixture.world, source_world);
+                        assert_eq!(fixture.rng, source_rng);
+                        assert_eq!(fixture.lifecycle, source_lifecycle);
+                    }
+                    let phase = selection
+                        .prepare(ControlPhaseInputs {
+                            prefix,
+                            generation: &generation,
+                            assessment_points: None,
+                            v4: Some(boundary),
+                            population: &fixture.population,
+                            brains: &fixture.brains,
+                            wall_now_ms: 31000,
+                            config,
+                        })
+                        .unwrap();
+                    let due = phase.baseline_controls().len() == 1;
+                    let grant = phase.ray_grant(RayObservationOwner::Baseline(0));
+                    if due {
+                        delivered.push(ordinal);
+                        let result = &phase.baseline_controls()[0];
+                        assert!(result.sensor_diagnostics.ray_work.charged() > 0);
+                        assert_eq!(result.diagnostics.world_snakes, 0);
+                        assert_eq!(result.diagnostics.canonical_order_capacity, 0);
+                        assert_eq!(result.next_rng, source_rng.baselines[0]);
+                        assert_eq!(result.next_slot.v2_last_control_step, Some(41 + ordinal));
+                        if mode == BaselineV2Mode::Deterministic {
+                            assert_eq!(
+                                result.next_behavior_word,
+                                Some(source_rng.baseline_behaviors[0].uniform_state)
+                            );
+                        }
+                        assert!(grant.is_some());
+                    } else {
+                        assert!(grant.is_none());
+                        assert_eq!(
+                            find_control(phase.control_updates(), baseline_id)
+                                .unwrap()
+                                .source(),
+                            SelectedControlSource::BaselineHeld
+                        );
+                    }
+                    let committed = commits.prepare(phase).unwrap();
+                    let world = committed.world().clone();
+                    let rng = committed.rng().clone();
+                    let lifecycle = committed.baseline_lifecycle().clone();
+                    let brains = committed.brains().to_vec();
+                    let _ = committed;
+                    let proof = commits.baseline_v2_proof().unwrap();
+                    assert!(proof.matches(step_key, &rng, &lifecycle));
+                    let mut stale_rng = rng.clone();
+                    stale_rng.baseline_behaviors[0].uniform_state ^= 1;
+                    assert!(!proof.matches(step_key, &stale_rng, &lifecycle));
+                    let mut stale_policy = lifecycle.clone();
+                    stale_policy.slots[0].v2_last_control_step = None;
+                    assert!(!proof.matches(step_key, &rng, &stale_policy));
+                    assert_eq!(rng.baselines, source_rng.baselines);
+                    if !due {
+                        assert_eq!(rng.baseline_behaviors, source_rng.baseline_behaviors);
+                        assert_eq!(lifecycle.slots[0], source_lifecycle.slots[0]);
+                    }
+                    fixture.world = world;
+                    fixture.rng = rng;
+                    fixture.lifecycle = lifecycle;
+                    fixture.brains = brains;
+                }
+                assert_eq!(delivered, vec![0, 3, 7, 10]);
+            }
+        }
     }
 
     #[test]

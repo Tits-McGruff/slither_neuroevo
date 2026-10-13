@@ -1038,13 +1038,22 @@ pub(crate) struct InitialRunStartReplacement<'buffers> {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RunningStepMutationContract<'proof> {
     proof: Option<&'proof ExternalReplacementAuthorityProof>,
+    baseline_v2: Option<super::control_phase::BaselineV2ControlProof>,
     evolved: Option<&'proof super::evolved_replacement::EvolvedReplacementAuthorityProof>,
 }
 
 impl<'proof> RunningStepMutationContract<'proof> {
+    pub(crate) const fn with_baseline_v2(
+        mut self,
+        proof: Option<super::control_phase::BaselineV2ControlProof>,
+    ) -> Self {
+        self.baseline_v2 = proof;
+        self
+    }
     pub(crate) const fn external(proof: &'proof ExternalReplacementAuthorityProof) -> Self {
         Self {
             proof: Some(proof),
+            baseline_v2: None,
             evolved: None,
         }
     }
@@ -1077,7 +1086,13 @@ impl<'proof> RunningStepMutationContract<'proof> {
     }
 
     fn matches(self, replacement: &RunningStepReplacement<'_>) -> bool {
-        self.proof.is_none_or(|proof| {
+        self.baseline_v2.is_none_or(|proof| {
+            proof.matches(
+                replacement.key,
+                replacement.rng,
+                &*replacement.baseline_lifecycle,
+            )
+        }) && self.proof.is_none_or(|proof| {
             proof.matches(
                 replacement.key,
                 replacement.world,
@@ -1174,6 +1189,7 @@ struct RunningStepBufferIdentity {
     wall_accumulator_seconds: u64,
     mutation_proof: usize,
     evolved_mutation_proof: usize,
+    baseline_v2_proof: Option<(Option<PhysicsStepKey>, [u8; 32])>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2544,6 +2560,10 @@ fn running_step_buffer_identity(
         generation_elapsed_seconds: replacement.generation_elapsed_seconds.to_bits(),
         wall_accumulator_seconds: replacement.wall_accumulator_seconds.to_bits(),
         mutation_proof: replacement.mutation.proof_identity(),
+        baseline_v2_proof: replacement
+            .mutation
+            .baseline_v2
+            .map(|proof| proof.identity()),
         evolved_mutation_proof: replacement
             .mutation
             .evolved
@@ -2713,6 +2733,14 @@ fn validate_running_replacement_contract(
     candidate: &StateCandidate,
     replacement: &RunningStepReplacement<'_>,
 ) -> Result<(), StateError> {
+    if candidate.rng.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+        && replacement.mutation.baseline_v2.is_none()
+    {
+        return invalid(
+            "fixed_step.baseline_v2",
+            "complete v2 control seal is required",
+        );
+    }
     if !replacement.mutation.matches(replacement) {
         return invalid(
             "fixed_step.external_replacement",
@@ -2736,6 +2764,27 @@ fn validate_resolved_running_replacement_contract(
     external_replacements: usize,
     removed_dead_external_leases: usize,
 ) -> Result<(), StateError> {
+    if candidate.rng.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+        && replacement.mutation.baseline_v2.is_none()
+    {
+        return invalid(
+            "fixed_step.baseline_v2",
+            "resolved v2 control seal is required",
+        );
+    }
+    if replacement.mutation.baseline_v2.is_some_and(|proof| {
+        !proof.matches(
+            replacement.key,
+            replacement.rng,
+            &*replacement.baseline_lifecycle,
+        )
+    }) {
+        return invalid(
+            "fixed_step.baseline_v2",
+            "resolved v2 continuation changed after control",
+        );
+    }
+
     validate_running_replacement_contract_with_counts(
         candidate,
         replacement,
@@ -2843,7 +2892,8 @@ fn validate_running_replacement_contract_with_counts(
         );
     }
     if replacement.rng.version != candidate.rng.version
-        || replacement.rng.baseline_behaviors != candidate.rng.baseline_behaviors
+        || (replacement.mutation.baseline_v2.is_none()
+            && replacement.rng.baseline_behaviors != candidate.rng.baseline_behaviors)
         || replacement.rng.evolution != candidate.rng.evolution
         || (replacement.mutation.evolved.is_none()
             && replacement.rng.evolved_respawns != candidate.rng.evolved_respawns)
@@ -3857,10 +3907,11 @@ fn validate_policy(policy: &StateAdmissionPolicy) -> Result<(), StateError> {
         "admission.expected_settings_schema_sha256",
         &policy.expected_settings_schema_sha256,
     )?;
-    if policy.allowed_settings_schema_sha256.len() > 4 {
+    // Six supported families: one primary hash plus five explicit alternatives.
+    if policy.allowed_settings_schema_sha256.len() > 5 {
         return invalid(
             "admission.allowed_settings_schema_sha256",
-            "at most four explicitly admitted schemas",
+            "at most five explicitly admitted alternative schemas",
         );
     }
     for schema in &policy.allowed_settings_schema_sha256 {
@@ -4173,6 +4224,24 @@ fn validate_fixed_step_continuation(candidate: &StateCandidate) -> Result<(), St
             "fixed_step.sensor_generation",
             "generation best points cannot trail a live evolved snake",
         );
+    }
+    let v2 = super::baseline_v2::BaselineV2Settings::from_settings(&candidate.config.settings)
+        .map_err(|_| StateError::InvalidField {
+            field: "baselineBots.controlVersion",
+            reason: "invalid baseline-v2 settings".into(),
+        })?
+        .is_some();
+    for slot in &continuation.baseline_lifecycle.slots {
+        if slot.v2_policy.is_some() != v2
+            || slot
+                .v2_last_control_step
+                .is_some_and(|step| step == 0 || step > candidate.generation.completed_step)
+        {
+            return invalid(
+                "fixed_step.baseline_lifecycle",
+                "policy/cadence continuation differs from baseline contract",
+            );
+        }
     }
     continuation
         .baseline_lifecycle
@@ -6028,6 +6097,8 @@ mod tests {
         candidate.fixed_step.baseline_lifecycle = BaselineLifecycleState {
             version: crate::engine::baseline::BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id,
                 strategy_timer_seconds: 0.0,
@@ -7569,6 +7640,8 @@ mod tests {
             .baseline_lifecycle
             .slots
             .push(BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: BASELINE_ENTITY_ID_START,
                 strategy_timer_seconds: 0.0,

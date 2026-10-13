@@ -1754,6 +1754,8 @@ mod tests {
         let lifecycle = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: baseline.id,
                 strategy_timer_seconds: 0.0,
@@ -1984,6 +1986,8 @@ mod tests {
         let source_lifecycle = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: source_world.snakes[0].id,
                 strategy_timer_seconds: 0.0,
@@ -2103,6 +2107,8 @@ mod tests {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 0,
                     snake_id: BASELINE_ENTITY_ID_START + 10,
                     strategy_timer_seconds: 0.0,
@@ -2113,6 +2119,8 @@ mod tests {
                     respawn_remaining_seconds: Some(DT * 0.5),
                 },
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 1,
                     snake_id: BASELINE_ENTITY_ID_START + 20,
                     strategy_timer_seconds: 0.0,

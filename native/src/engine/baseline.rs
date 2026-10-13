@@ -78,6 +78,10 @@ impl BaselineLifecycleConfig {
 /// strategy value. It is deliberately not duplicated here.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BaselineSlotRuntime {
+    /// Physical-life v2 continuation; absent under frozen v1.
+    pub v2_policy: Option<super::baseline_v2::BaselineV2State>,
+    /// Global completed-step identity of the last consumed v2 observation.
+    pub v2_last_control_step: Option<u64>,
     /// Dense stable slot, equal to this record's array index.
     pub slot: u32,
     /// Current dead-or-alive snake entity assigned to the slot.
@@ -111,6 +115,10 @@ impl BaselineSlotRuntime {
         self.turn = 0.0;
         self.boost = false;
         self.respawn_remaining_seconds = None;
+        if self.v2_policy.is_some() {
+            self.v2_policy = Some(super::baseline_v2::BaselineV2State::default());
+        }
+        self.v2_last_control_step = None;
     }
 }
 
@@ -175,6 +183,8 @@ impl BaselineLifecycleState {
                 return Err(BaselineLifecycleError::DuplicateSnakeIdentity(snake.id));
             }
             let runtime = BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot,
                 snake_id: snake.id,
                 strategy_timer_seconds: 0.0,
@@ -278,6 +288,31 @@ pub(crate) fn validate_strategy_runtime(
     slot: BaselineSlotRuntime,
     strategy: BaselineStrategyState,
 ) -> Result<(), BaselineLifecycleError> {
+    if let Some(policy) = slot.v2_policy {
+        policy
+            .validate()
+            .map_err(|_| BaselineLifecycleError::InvalidSlotScalar {
+                slot: slot.slot,
+                field: "v2_policy",
+            })?;
+        if policy.strategy != strategy
+            || slot.strategy_timer_seconds != 0.0
+            || slot.wander_angle != 0.0
+            || slot.wander_timer_seconds != 0.0
+        {
+            return Err(BaselineLifecycleError::InvalidSlotScalar {
+                slot: slot.slot,
+                field: "v2 strategy identity",
+            });
+        }
+        return Ok(());
+    }
+    if slot.v2_last_control_step.is_some() {
+        return Err(BaselineLifecycleError::InvalidSlotScalar {
+            slot: slot.slot,
+            field: "v1 control step",
+        });
+    }
     if slot.wander_angle.abs() > MAXIMUM_WANDER_ANGLE {
         return Err(BaselineLifecycleError::InvalidSlotScalar {
             slot: slot.slot,
@@ -1184,6 +1219,43 @@ mod tests {
         world
     }
 
+    #[test]
+    fn v2_respawn_resets_physical_policy_and_consumed_step_without_touching_v1() {
+        use crate::engine::baseline_v2::BaselineV2State;
+        let mut slot = BaselineSlotRuntime {
+            slot: 0,
+            snake_id: 20,
+            strategy_timer_seconds: 0.0,
+            wander_angle: 0.0,
+            wander_timer_seconds: 0.0,
+            turn: 0.5,
+            boost: true,
+            respawn_remaining_seconds: Some(1.0),
+            v2_policy: Some(BaselineV2State {
+                committed_heading: Some(0.4),
+                commitment_remaining_seconds: 0.1,
+                wander_angle: 0.2,
+                wander_remaining_seconds: 1.0,
+                strategy: BaselineStrategyState::Boost,
+                ..BaselineV2State::default()
+            }),
+            v2_last_control_step: Some(77),
+        };
+        slot.reset_after_respawn(21);
+        assert_eq!(slot.snake_id, 21);
+        assert_eq!(slot.v2_policy, Some(BaselineV2State::default()));
+        assert_eq!(slot.v2_last_control_step, None);
+        assert_eq!(slot.turn, 0.0);
+        assert!(!slot.boost);
+        let mut v1 = BaselineSlotRuntime {
+            v2_policy: None,
+            ..slot
+        };
+        v1.reset_after_respawn(22);
+        assert_eq!(v1.v2_policy, None);
+        assert_eq!(v1.v2_last_control_step, None);
+    }
+
     fn config(count: usize) -> BaselineLifecycleConfig {
         BaselineLifecycleConfig {
             slot_count: count,
@@ -1284,6 +1356,8 @@ mod tests {
         let mut state = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 200,
                 strategy_timer_seconds: 0.0,
@@ -1373,6 +1447,8 @@ mod tests {
         let state = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 200,
                 strategy_timer_seconds: 0.0,
@@ -1417,6 +1493,8 @@ mod tests {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 0,
                     snake_id: 200,
                     strategy_timer_seconds: 0.0,
@@ -1427,6 +1505,8 @@ mod tests {
                     respawn_remaining_seconds: Some(20.0),
                 },
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 1,
                     snake_id: 201,
                     strategy_timer_seconds: 0.0,
@@ -1463,6 +1543,8 @@ mod tests {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 0,
                     snake_id: 200,
                     strategy_timer_seconds: 0.0,
@@ -1473,6 +1555,8 @@ mod tests {
                     respawn_remaining_seconds: Some(1.0),
                 },
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 1,
                     snake_id: 201,
                     strategy_timer_seconds: 0.0,
@@ -1505,6 +1589,8 @@ mod tests {
         let mut state = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 200,
                 strategy_timer_seconds: 0.0,
@@ -1537,6 +1623,8 @@ mod tests {
         let state = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 200,
                 strategy_timer_seconds: 0.1,
@@ -1571,6 +1659,8 @@ mod tests {
         let state = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 200,
                 strategy_timer_seconds: 0.0,
@@ -1619,6 +1709,8 @@ mod tests {
         let source_state = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: 200,
                 strategy_timer_seconds: 0.0,
@@ -1705,6 +1797,8 @@ mod tests {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 0,
                     snake_id: 200,
                     strategy_timer_seconds: 0.0,
@@ -1715,6 +1809,8 @@ mod tests {
                     respawn_remaining_seconds: Some(10.0),
                 },
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 1,
                     snake_id: 201,
                     strategy_timer_seconds: 0.0,
@@ -1761,6 +1857,8 @@ mod tests {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: (0..64)
                 .map(|slot| BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot,
                     snake_id: 200 + u64::from(slot),
                     strategy_timer_seconds: 0.0,

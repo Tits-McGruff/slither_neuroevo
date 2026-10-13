@@ -1125,6 +1125,8 @@ mod tests {
 
     fn runtime(id: u64) -> BaselineSlotRuntime {
         BaselineSlotRuntime {
+            v2_policy: None,
+            v2_last_control_step: None,
             slot: 0,
             snake_id: id,
             strategy_timer_seconds: 0.0,
