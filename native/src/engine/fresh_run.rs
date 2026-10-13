@@ -2105,7 +2105,7 @@ mod tests {
         #[cfg(feature = "engine-test-hooks")]
         {
             let mut continuations = Vec::new();
-            for workers in [1, 3] {
+            for (workers, capture) in [(1, false), (3, false), (1, true), (3, true)] {
                 let limits = RunningStepWorkLimits {
                     calculation_workers: workers,
                     ..prepared.work_limits
@@ -2138,6 +2138,13 @@ mod tests {
                         0,
                     )
                     .unwrap();
+                assert!(running.published_teacher_boundary().is_none());
+                if capture {
+                    assert!(running.configure_teacher_capture(&[0], 1).is_err());
+                    assert!(running.configure_teacher_capture(&[2], 65536).is_err());
+                    running.configure_teacher_capture(&[0], 65536).unwrap();
+                }
+                let mut captured_rows = 0;
                 for step in 1..=16 {
                     let outcome = running
                         .service_after_command_drain(
@@ -2151,10 +2158,22 @@ mod tests {
                         crate::engine::running_loop::RunningAuthorityLoopProgress::Published { .. }
                     ));
                     assert_eq!(running.completed_step(), step);
+                    if let Some(rows) = running.published_teacher_boundary() {
+                        assert!(capture);
+                        assert_eq!(rows.key.source_completed_step() + 1, step);
+                        for (index, decision) in rows.decisions.iter().enumerate() {
+                            assert_eq!(decision.baseline_slot, 0);
+                            assert_eq!(rows.observation(index).unwrap().len(), 144);
+                            captured_rows += 1;
+                        }
+                    }
+                }
+                if capture {
+                    assert!(captured_rows > 0);
                 }
                 continuations.push(running.qualification_continuation_sha256());
             }
-            assert_eq!(continuations[0], continuations[1]);
+            assert!(continuations.iter().all(|value| value == &continuations[0]));
         }
 
         for change in 0..4 {

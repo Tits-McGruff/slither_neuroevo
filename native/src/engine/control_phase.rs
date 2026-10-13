@@ -547,6 +547,7 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
     controls: &'workspace [PreparedControlUpdate],
     controller_transitions: &'workspace [PreparedControllerTransition],
     baseline_controls: &'workspace [PreparedBaselineControl],
+    teacher: super::teacher_capture::PreparedTeacherBoundary<'workspace>,
     external_events: &'workspace [PreparedExternalObservation],
     external_observations: &'workspace [f32],
     diagnostics: ControlPhaseDiagnostics,
@@ -554,6 +555,10 @@ pub struct PreparedControlPhase<'workspace, 'prefix, 'source> {
 }
 
 impl PreparedControlPhase<'_, '_, '_> {
+    /// Exact selected baseline rows, still pending whole-step publication.
+    pub const fn teacher_samples(&self) -> super::teacher_capture::PreparedTeacherBoundary<'_> {
+        self.teacher
+    }
     /// Actual fair grant for one due owner; held and legacy observations have none.
     pub fn ray_grant(&self, owner: super::ray_work::RayObservationOwner) -> Option<u32> {
         self.ray_proposal?;
@@ -1449,6 +1454,8 @@ pub struct ControlPhaseWorkspace {
     body_index: BodySpatialIndex,
     pellet_index: PelletSpatialIndex,
     baseline_observation: Vec<f32>,
+    teacher: super::teacher_capture::TeacherBoundaryWorkspace,
+    teacher_key: Option<PhysicsStepKey>,
     external_observations: Vec<f32>,
     controls: Vec<PreparedControlUpdate>,
     controller_transitions: Vec<PreparedControllerTransition>,
@@ -1471,6 +1478,28 @@ pub struct ControlPhaseWorkspace {
 }
 
 impl ControlPhaseWorkspace {
+    /// Reborrow only the exact still-retained successful control proposal.
+    pub(crate) fn teacher_boundary(
+        &self,
+        key: PhysicsStepKey,
+    ) -> Option<super::teacher_capture::PreparedTeacherBoundary<'_>> {
+        (self.ready && self.teacher_key == Some(key)).then(|| self.teacher.prepared(key))
+    }
+    /// Cold selection for pending rows; ordinary v3 production cannot activate it.
+    pub fn configure_teacher_capture(&mut self, slots: &[u32]) -> Result<(), ControlPhaseError> {
+        if !slots.is_empty() && !self.neural.sensor().is_v4() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher capture requires sensor v4",
+            });
+        }
+        self.teacher
+            .configure(slots, self.neural.sensor().layout().input_size)
+            .map_err(|_| ControlPhaseError::InvalidConfig {
+                field: "teacher capture selection",
+            })?;
+        self.clear_active();
+        Ok(())
+    }
     /// Forward the isolated test-build injection into the actual inference pipeline.
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
@@ -1507,6 +1536,8 @@ impl ControlPhaseWorkspace {
             body_index: BodySpatialIndex::empty(),
             pellet_index: PelletSpatialIndex::empty(),
             baseline_observation: Vec::new(),
+            teacher: super::teacher_capture::TeacherBoundaryWorkspace::default(),
+            teacher_key: None,
             external_observations: Vec::new(),
             controls: Vec::new(),
             controller_transitions: Vec::new(),
@@ -1578,6 +1609,11 @@ impl ControlPhaseWorkspace {
         self.clear_active();
         self.last_cost = ControlPhaseCostMicros::default();
         inputs.config.validate()?;
+        if self.teacher.enabled() && inputs.config.baseline_v2.is_none() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher capture requires baseline v2",
+            });
+        }
         if inputs.config.baseline_v2 != self.baseline_v2_settings {
             self.baseline_v2_policy = match inputs.config.baseline_v2 {
                 Some(spec) => Some(
@@ -1702,6 +1738,7 @@ impl ControlPhaseWorkspace {
         self.pellet_index = pellet_index;
         let calculation_key = prepare_result?;
         self.ready = true;
+        self.teacher_key = Some(inputs.prefix.key());
         self.diagnostics = self.collect_diagnostics();
         self.prepared(inputs, calculation_key)
     }
@@ -2178,6 +2215,17 @@ impl ControlPhaseWorkspace {
                 field: "v2 policy evaluation",
             })?;
         let mut next_slot = *source_slot;
+        self.teacher
+            .stage(
+                slot,
+                snake.id,
+                &self.baseline_observation,
+                action,
+                source_policy.strategy,
+            )
+            .map_err(|_| ControlPhaseError::CommitShapeMismatch {
+                field: "teacher pending observation",
+            })?;
         next_slot.v2_policy = Some(action.next_state);
         next_slot.v2_last_control_step = Some(step);
         next_slot.turn = action.turn;
@@ -2530,6 +2578,7 @@ impl ControlPhaseWorkspace {
             controls: &self.controls,
             controller_transitions: &self.controller_transitions,
             baseline_controls: &self.baseline_controls[..self.baseline_control_count],
+            teacher: self.teacher.prepared(inputs.prefix.key()),
             external_events: &self.external_events,
             external_observations: &self.external_observations,
             diagnostics: self.diagnostics,
@@ -2539,6 +2588,8 @@ impl ControlPhaseWorkspace {
 
     fn clear_active(&mut self) {
         self.ready = false;
+        self.teacher.clear();
+        self.teacher_key = None;
         self.neural.discard();
         self.ray_proposal = None;
         self.baseline_control_count = 0;
@@ -3781,6 +3832,8 @@ mod tests {
         for profile in [SensorProfile::Basic, SensorProfile::Motion] {
             for mode in [BaselineV2Mode::Deterministic, BaselineV2Mode::Stochastic] {
                 let (plan, mut selection) = v4_workspace(profile, 16, 1);
+                selection.configure_teacher_capture(&[0]).unwrap();
+                let (_, mut uncaptured_selection) = v4_workspace(profile, 16, 1);
                 let mut fixture = fixture(&plan);
                 make_fixture_bodies_physics_ready(&mut fixture.world);
                 fixture.world.pellets.clear();
@@ -3849,6 +3902,22 @@ mod tests {
                         assert_eq!(fixture.rng, source_rng);
                         assert_eq!(fixture.lifecycle, source_lifecycle);
                     }
+                    let reference = uncaptured_selection
+                        .prepare(ControlPhaseInputs {
+                            prefix,
+                            generation: &generation,
+                            assessment_points: None,
+                            v4: Some(boundary),
+                            population: &fixture.population,
+                            brains: &fixture.brains,
+                            wall_now_ms: 31000,
+                            config,
+                        })
+                        .unwrap();
+                    let expected_controls = reference.control_updates().to_vec();
+                    let expected_baselines = reference.baseline_controls().to_vec();
+                    let _ = reference;
+                    let expected_row = uncaptured_selection.baseline_observation.clone();
                     let phase = selection
                         .prepare(ControlPhaseInputs {
                             prefix,
@@ -3862,6 +3931,34 @@ mod tests {
                         })
                         .unwrap();
                     let due = phase.baseline_controls().len() == 1;
+                    assert_eq!(phase.control_updates(), expected_controls);
+                    assert_eq!(phase.baseline_controls(), expected_baselines);
+                    let pending = phase.teacher_samples();
+                    assert_eq!(pending.key, step_key);
+                    assert_eq!(pending.decisions.len(), usize::from(due));
+                    if due {
+                        assert_eq!(
+                            pending
+                                .observation(0)
+                                .unwrap()
+                                .iter()
+                                .map(|v| v.to_bits())
+                                .collect::<Vec<_>>(),
+                            expected_row.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+                        );
+                        assert_eq!(pending.decisions[0].physical_snake_id, baseline_id);
+                        assert_eq!(
+                            pending.decisions[0].applied_turn,
+                            phase.baseline_controls()[0].next_slot().turn
+                        );
+                        assert_eq!(
+                            pending.decisions[0].boost_request,
+                            phase.baseline_controls()[0].next_slot().boost
+                        );
+                    } else {
+                        assert!(pending.observation(0).is_none());
+                    }
+
                     let grant = phase.ray_grant(RayObservationOwner::Baseline(0));
                     if due {
                         delivered.push(ordinal);

@@ -237,6 +237,26 @@ pub(crate) struct PreparedRunningAuthorityLoop {
 }
 
 impl RunningAuthorityLoop {
+    /// Admit optional exact-row retention only at a clean running boundary.
+    pub fn configure_teacher_capture(
+        &mut self,
+        slots: &[u32],
+        pending_budget_bytes: usize,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("teacher capture requires a clean running boundary".into());
+        }
+        self.coordinator
+            .configure_teacher_capture(&self.authority, slots, pending_budget_bytes)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Exact retained rows from the latest complete published transaction.
+    pub fn published_teacher_boundary(
+        &self,
+    ) -> Option<super::teacher_capture::PreparedTeacherBoundary<'_>> {
+        self.coordinator.published_teacher_boundary()
+    }
     /// Arm a calculation failure while the test runtime still owns an unstarted loop.
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
