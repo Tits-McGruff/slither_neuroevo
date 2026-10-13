@@ -349,7 +349,16 @@ and full Python lint. The mandatory live roundtrip now exercises the actual
 Both native backends pass on CPU/RTX4080; maximum output/state error is 5.07e-7
 and 5.96e-7 respectively. Sequence reports remain in PyRL's evidence directory.
 Replay/sampling, committed transport and job integration remain open, as do
-normal deployed-candidate acceptance and later stages.
+normal deployed-candidate acceptance and later stages. Stage G now has a bounded
+Rust-owned teacher chunk v1 codec with exact Float32 bits, full stream/contract
+identities, request/outcome separation, explicit boundary reasons and strict
+chronology/size/finite validation. The
+[`teacher-chunk-v1.md`](../teacher-chunk-v1.md) wire contract records its field
+order and distinguishes cold life ends from post-step death labels. Seven
+focused native tests cover exact bytes/signed zero, every truncated prefix,
+trailing/reserved data, malformed dimensions and physical/capture boundaries.
+The actual staged-control/full-publication capture join remains in progress;
+codec validation alone is not evidence that an example committed.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
 The rebuilt production addon passes 14 fresh-run/source/surface tests and the
