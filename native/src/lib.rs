@@ -8,6 +8,7 @@ pub mod engine;
 mod napi_engine;
 mod napi_queue_diagnostics;
 mod napi_running_engine;
+mod napi_teacher_capture;
 mod simd_kernels;
 
 use napi_derive::napi;

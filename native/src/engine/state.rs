@@ -3085,7 +3085,10 @@ fn validate_running_recurrent_state(
 }
 
 /// Decode one already-versioned SHA-256 identity without allocating.
-fn decode_sha256_identity(field: &'static str, identity: &str) -> Result<[u8; 32], StateError> {
+pub(crate) fn decode_sha256_identity(
+    field: &'static str,
+    identity: &str,
+) -> Result<[u8; 32], StateError> {
     let Some(hex) = identity.strip_prefix("sha256:") else {
         return invalid(field, "must use the sha256:<64 lowercase hex> form");
     };

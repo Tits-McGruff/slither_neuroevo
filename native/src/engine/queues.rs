@@ -95,6 +95,7 @@ struct InboundState {
     fault_discarded_owned_bytes: u64,
     last_accepted_sequence: Option<u64>,
     fault_stop_requested: bool,
+    diagnostic_ready: bool,
 }
 
 #[derive(Debug)]
@@ -143,6 +144,7 @@ impl InboundQueue {
                 fault_discarded_owned_bytes: 0,
                 last_accepted_sequence: None,
                 fault_stop_requested: false,
+                diagnostic_ready: false,
             }),
             ready: Condvar::new(),
             fault_stop_initiated: AtomicBool::new(false),
@@ -301,17 +303,18 @@ impl InboundQueue {
         allow_actions: bool,
     ) -> InboundWaitResult {
         let eligible = |current: &InboundState| {
-            current.queue.iter().any(|queued| {
-                allow_actions
-                    || !queued
-                        .batch
-                        .commands
-                        .iter()
-                        .any(|item| item.command.requires_ready_boundary())
-            })
+            current.diagnostic_ready
+                || current.queue.iter().any(|queued| {
+                    allow_actions
+                        || !queued
+                            .batch
+                            .commands
+                            .iter()
+                            .any(|item| item.command.requires_ready_boundary())
+                })
         };
         let state = lock_recover(&self.state);
-        let state = match timeout {
+        let mut state = match timeout {
             Some(timeout) => {
                 let (state, _) =
                     wait_timeout_while_recover(&self.ready, state, timeout, |current| {
@@ -331,12 +334,21 @@ impl InboundQueue {
         if state.fault_stop_requested {
             InboundWaitResult::Stopped
         } else if eligible(&state) {
+            state.diagnostic_ready = false;
             InboundWaitResult::CommandsReady
         } else if self.stop_requested.load(Ordering::Acquire) {
             InboundWaitResult::Stopped
         } else {
             InboundWaitResult::TimedOut
         }
+    }
+
+    /// Wake diagnostic handoff service even while a gameplay transaction is retained.
+    /// The handshake consumes no command sequence, payload or reliable reservation.
+    pub(crate) fn request_diagnostic_service(&self) {
+        let mut state = lock_recover(&self.state);
+        state.diagnostic_ready = true;
+        self.ready.notify_one();
     }
 
     /// Drain every command accepted before one fixed-step boundary.
@@ -1847,6 +1859,25 @@ mod tests {
 
         queue.request_stop();
         assert_eq!(queue.wait_until_ready(None), InboundWaitResult::Stopped);
+    }
+
+    #[test]
+    fn diagnostic_wake_is_coalesced_and_consumes_no_command_or_reserved_bytes() {
+        let queue = InboundQueue::new(inbound_limits());
+        queue.request_diagnostic_service();
+        queue.request_diagnostic_service();
+        assert_eq!(
+            queue.wait_until_eligible(Some(Duration::from_millis(1)), false),
+            InboundWaitResult::CommandsReady
+        );
+        let metrics = queue.metrics();
+        assert_eq!(metrics.commands, 0);
+        assert_eq!(metrics.owned_bytes, 0);
+        assert!(metrics.last_accepted_sequence.is_none());
+        assert_eq!(
+            queue.wait_until_eligible(Some(Duration::from_millis(1)), false),
+            InboundWaitResult::TimedOut
+        );
     }
 
     #[test]

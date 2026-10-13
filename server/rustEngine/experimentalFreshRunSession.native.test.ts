@@ -873,6 +873,20 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       await expect(session.initialize()).rejects.toThrow(/already initialized/i);
       await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/not been initialized/i);
       expect(() => runtime.drainOutputs(-1, BACKGROUND_INIT.maxOutputEventOwnedBytes)).toThrow(/positive/i);
+      expect(runtime.drainTeacherChunks(1, 65536)).toMatchObject({
+        chunks: [], productionWatermark: '0000000000000000',
+        releasedThrough: '0000000000000000', stopped: false, moreWork: false
+      });
+      expect(() => runtime.drainTeacherChunks(257, 65536)).toThrow(/limits/i);
+      expect(() => runtime.drainTeacherChunks(1, 0)).toThrow(/positive/i);
+      expect(() => runtime.drainTeacherChunks(1, Number.POSITIVE_INFINITY)).toThrow(/finite|integer/i);
+      expect(() => runtime.submitStopTeacherCapture('0000000000000001', '00'.repeat(16))).toThrow(/zero/i);
+      expect(() => runtime.submitStartTeacherCapture('0000000000000001', {
+        captureEpoch: '12'.repeat(16), expectedRunId: startup.runId,
+        expectedConfigRevision: '0000000000000001', baselineSlots: [0, 0],
+        pendingBytes: 1024 * 1024, queueChunks: 4, queueBytes: 16 * 1024 * 1024
+      })).toThrow(/invalid teacher/i);
+      expect(runtime.health().processedCommands).toBe('0000000000000000');
       runtime.start();
       expect(() => runtime.start()).toThrow(/cannot start/i);
       const deadline = performance.now() + 10_000;

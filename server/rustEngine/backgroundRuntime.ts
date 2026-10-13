@@ -21,6 +21,7 @@ import type {
 } from './checkpointPersistenceProtocol.ts';
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
+import type { TeacherCaptureDrain, TeacherCaptureRequest } from '../../src/protocol/distillation.ts';
 
 /** One complete numeric setting supplied only to private fresh-run construction. */
 export interface RustFreshRunSetting {
@@ -76,6 +77,12 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitGodModeKill(sequence: U64Hex, snakeId: number, token: string): void;
   /** Toggle aggregate opt-in focused activation capture. */
   submitVisualization(sequence: U64Hex, enabled: boolean): void;
+  /** Admit automatic committed teacher capture on an ordered clean boundary. */
+  submitStartTeacherCapture(sequence: U64Hex, request: TeacherCaptureRequest): void;
+  /** Seal only the matching diagnostic epoch, preserving its queued objects. */
+  submitStopTeacherCapture(sequence: U64Hex, captureEpoch: string): void;
+  /** Transfer opaque complete objects through the separate bounded diagnostic queue. */
+  drainTeacherChunks(maxChunks: number, maxOwnedBytes: number): TeacherCaptureDrain;
   /** Decode and resurrect one worker-leased retained winner. */
   submitHallOfFameResurrection(
     sequence: U64Hex,
@@ -272,6 +279,7 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'archiveWorkProgress',
+  'submitStartTeacherCapture', 'submitStopTeacherCapture', 'drainTeacherChunks',
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitLiveSettings', 'submitFinishGeneration', 'submitEntitySelection', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',

@@ -526,6 +526,8 @@ pub struct Stage6BackgroundGenerationEvent {
     pub god_mode_kill: Option<BackgroundGodModeKill>,
     pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
     pub visualization_enabled: Option<bool>,
+    pub teacher_capture_epoch: Option<String>,
+    pub teacher_capture_enabled: Option<bool>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -3320,6 +3322,21 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::TeacherCaptureChanged {
+            command_sequence,
+            capture_epoch,
+            enabled,
+        } => {
+            output.kind = "teacherCaptureChanged".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.teacher_capture_epoch = Some(
+                capture_epoch
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            );
+            output.teacher_capture_enabled = Some(enabled);
+        }
         RunningAuthorityEvent::ControllerJoinAssignment {
             request_sequence,
             controller_kind,
@@ -3776,6 +3793,8 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         god_mode_kill: None,
         hall_of_fame_resurrection: None,
         visualization_enabled: None,
+        teacher_capture_epoch: None,
+        teacher_capture_enabled: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,

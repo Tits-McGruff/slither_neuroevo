@@ -150,8 +150,12 @@ pub mod step_fixture;
 pub(crate) mod task_panic_fixture;
 /// Pending exact teacher observations retained from shared control evaluation.
 pub mod teacher_capture;
+/// Nonblocking owner handoff to the separate diagnostic transport drain.
+pub mod teacher_mailbox;
 /// Separate bounded diagnostic queue for immutable teacher chunks.
 pub mod teacher_queue;
+/// Cold automatic teacher-capture admission from current native authority.
+pub mod teacher_runtime;
 /// Bounded Rust-owned committed-teacher chunk encoding and structural validation.
 pub mod teacher_samples;
 /// Committed physical-stream assembly without authority or trainer coupling.

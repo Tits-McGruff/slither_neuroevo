@@ -205,6 +205,8 @@ impl EngineCommand {
                     | RunningAuthorityCommand::ReclaimController(_)
                     | RunningAuthorityCommand::JoinController(_)
                     | RunningAuthorityCommand::ApplyLiveSettings { .. }
+                    | RunningAuthorityCommand::StartTeacherCapture(_)
+                    | RunningAuthorityCommand::StopTeacherCapture { .. }
                     | RunningAuthorityCommand::SelectEntity { .. }
                     | RunningAuthorityCommand::GodModeMove { .. }
                     | RunningAuthorityCommand::GodModeKill { .. }
@@ -393,6 +395,12 @@ pub enum RunningAuthorityCommand {
     SetVisualization {
         enabled: bool,
     },
+    /// Arm exact teacher capture without changing world/controller authority.
+    StartTeacherCapture(Box<super::teacher_runtime::TeacherCaptureRequest>),
+    /// Seal a specific diagnostic epoch at a clean source boundary.
+    StopTeacherCapture {
+        capture_epoch: [u8; 16],
+    },
     /// Restore one verified retained winner directly from its managed object.
     ResurrectHallOfFame {
         managed_directory: String,
@@ -442,6 +450,10 @@ pub enum RunningAuthorityCommand {
 impl RunningAuthorityCommand {
     fn validate(&self) -> Result<(), EngineError> {
         match self {
+            Self::StartTeacherCapture(request) => request.validate()
+                .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+            Self::StopTeacherCapture { capture_epoch } if *capture_epoch == [0; 16] =>
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid teacher capture epoch")),
             Self::JoinController(request) if request.connection_id == 0
                 || request.identity_key.is_empty() || request.identity_key.len() > 128
                 || request.identity_key.contains('\0') => {
@@ -552,6 +564,11 @@ impl RunningAuthorityCommand {
 
     fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
+            Self::StartTeacherCapture(request) => Ok(size_of::<
+                super::teacher_runtime::TeacherCaptureRequest,
+            >() + request.expected_run_id.capacity()
+                + request.baseline_slots.len() * size_of::<u32>()),
+            Self::StopTeacherCapture { .. } => Ok(0),
             Self::JoinController(request) => request
                 .identity_key
                 .capacity()
@@ -808,6 +825,12 @@ pub enum RunningAuthorityEvent {
         command_sequence: u64,
         enabled: bool,
     },
+    /// Ordered diagnostic arm/stop acknowledgement, distinct from gameplay delivery.
+    TeacherCaptureChanged {
+        command_sequence: u64,
+        capture_epoch: [u8; 16],
+        enabled: bool,
+    },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
     ControllerMessages {
         ticket_sequence: u64,
@@ -929,6 +952,7 @@ impl RunningAuthorityEvent {
             Self::GodModeKilled { .. } => 0,
             Self::HallOfFameResurrected { .. } => 0,
             Self::VisualizationChanged { .. } => 0,
+            Self::TeacherCaptureChanged { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {

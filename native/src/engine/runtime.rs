@@ -114,6 +114,7 @@ enum RuntimeMode {
         metrics: Arc<RunningAuthorityMetrics>,
         memory_bytes: usize,
         display: Option<Arc<RunningDisplayCache>>,
+        teachers: Arc<super::teacher_mailbox::TeacherMailbox>,
     },
     /// Exercise only the coarse bridge; no game state exists in this mode.
     ExperimentalProbe,
@@ -142,6 +143,46 @@ impl std::fmt::Debug for EngineRuntime {
 }
 
 impl EngineRuntime {
+    /// Drain the independent diagnostic handoff without reliable-output reservations.
+    pub fn drain_teacher_chunks(
+        &self,
+        max_chunks: usize,
+        max_owned_bytes: usize,
+    ) -> Result<super::teacher_mailbox::TeacherMailboxDrain, EngineError> {
+        if !(1..=256).contains(&max_chunks)
+            || max_owned_bytes == 0
+            || max_owned_bytes > 16 * 1024 * 1024
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidConfiguration,
+                "invalid teacher mailbox drain limits",
+            ));
+        }
+        let RuntimeMode::RunningAuthority {
+            loop_slot,
+            teachers,
+            ..
+        } = &self.mode
+        else {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidLifecycle,
+                "teacher drain requires running authority",
+            ));
+        };
+        if matches!(
+            self.coordinator.lifecycle(),
+            LifecycleState::Stopped | LifecycleState::Faulted
+        ) {
+            if let Some(running) = lock_recover(loop_slot).as_mut() {
+                teachers.service(running);
+            }
+        }
+        let drained = teachers
+            .drain(max_chunks, max_owned_bytes)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidConfiguration, detail))?;
+        self.inbound.request_diagnostic_service();
+        Ok(drained)
+    }
     /// Serialize test-only injection against start; never access live coordinator state.
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn arm_calculation_panic_for_test(&self) -> Result<(), EngineError> {
@@ -274,6 +315,7 @@ impl EngineRuntime {
                 metrics,
                 memory_bytes,
                 display,
+                teachers: Arc::new(super::teacher_mailbox::TeacherMailbox::default()),
             },
             wake_sink,
         ))
@@ -412,14 +454,20 @@ impl EngineRuntime {
                 loop_slot,
                 metrics,
                 display,
+                teachers,
                 ..
-            } => Some((Arc::clone(loop_slot), Arc::clone(metrics), display.clone())),
+            } => Some((
+                Arc::clone(loop_slot),
+                Arc::clone(metrics),
+                display.clone(),
+                Arc::clone(teachers),
+            )),
             RuntimeMode::Authoritative(_) | RuntimeMode::ExperimentalProbe => None,
         };
         let spawn = Builder::new()
             .name("slither-engine-coordinator".to_owned())
             .spawn(move || {
-                if let Some((loop_slot, metrics, display)) = running_work {
+                if let Some((loop_slot, metrics, display, teachers)) = running_work {
                     run_running_thread_root(
                         &inbound,
                         &output,
@@ -427,6 +475,7 @@ impl EngineRuntime {
                         &loop_slot,
                         &metrics,
                         display.as_deref(),
+                        &teachers,
                     );
                 } else {
                     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -626,6 +675,7 @@ fn run_running_thread_root(
     loop_slot: &Arc<Mutex<Option<RunningAuthorityLoop>>>,
     metrics: &Arc<RunningAuthorityMetrics>,
     display: Option<&RunningDisplayCache>,
+    teachers: &super::teacher_mailbox::TeacherMailbox,
 ) {
     let Some(mut running) = lock_recover(loop_slot).take() else {
         fault_and_stop(
@@ -641,8 +691,22 @@ fn run_running_thread_root(
     };
 
     let result = catch_unwind(AssertUnwindSafe(|| {
-        run_running_coordinator(inbound, output, coordinator, &mut running, metrics, display)
+        run_running_coordinator(
+            inbound,
+            output,
+            coordinator,
+            &mut running,
+            metrics,
+            display,
+            teachers,
+        )
     }));
+    running.end_teacher_capture(if matches!(&result, Ok(Ok(()))) {
+        super::teacher_samples::TeacherEndReason::CaptureStopped
+    } else {
+        super::teacher_samples::TeacherEndReason::Interrupted
+    });
+    teachers.service(&mut running);
     metrics.observe(&running);
     let prior = lock_recover(loop_slot).replace(running);
     if prior.is_some() {
