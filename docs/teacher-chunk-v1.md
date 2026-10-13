@@ -2,7 +2,9 @@
 
 `native/src/engine/teacher_samples.rs` owns the bounded encoder and decoder.
 The native publication/capture join, queue and coarse handoff are implemented.
-The durable Node spool and HTTP transport remain in progress.
+The Node worker stores/routes opaque objects; it never decodes their samples.
+The dedicated HTTP dataset/lease/download and arm/stop routes are implemented;
+PyRL consumption and candidate upload/validation remain in progress.
 A valid encoded chunk is descriptive data; codec validation does not certify
 that a world step committed.
 
@@ -127,4 +129,5 @@ no command sequence, reliable reservation or gameplay acknowledgement.
 Partial mailbox drains keep `releasedThrough` below any untransferred object.
 Orderly shutdown seals the last committed tail; failure labels it interrupted.
 Stopped runtimes retain bounded opaque drain access. These APIs do not yet
-provide the HTTP spool transport.
+provide candidate upload/validation; the dataset HTTP transport is described
+in `docs/API-instructions.md`.
