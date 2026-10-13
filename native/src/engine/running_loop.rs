@@ -224,6 +224,9 @@ pub struct RunningAuthorityLoop {
     pending_join: Option<(u64, super::state::PreparedControllerJoin)>,
     pending_finish: Option<(String, String, u64)>,
     work_limits: RunningStepWorkLimits,
+    teacher_capture: Option<super::teacher_stream::TeacherStreamCapture>,
+    teacher_capture_error: Option<String>,
+    teacher_sensor_metadata: Option<String>,
 }
 
 /// Fallible scheduler/coordinator construction completed before authority moves.
@@ -237,6 +240,152 @@ pub(crate) struct PreparedRunningAuthorityLoop {
 }
 
 impl RunningAuthorityLoop {
+    /// Exact Rust canonical bytes, retained cold for dataset metadata.
+    pub(crate) fn teacher_sensor_metadata(&self) -> Option<&str> {
+        self.teacher_sensor_metadata.as_deref()
+    }
+    /// Arm automatic capture only after all contract, owner and memory checks pass.
+    pub fn start_teacher_capture(
+        &mut self,
+        request: &super::teacher_runtime::TeacherCaptureRequest,
+    ) -> Result<super::teacher_samples::TeacherContractV1, String> {
+        if self.state != RunningAuthorityLoopState::Ready
+            || self.teacher_capture.as_ref().is_some_and(|capture| {
+                !capture.is_stopped() || capture.snapshot().queued_chunks != 0
+            })
+        {
+            return Err(
+                "teacher capture requires a clean boundary and a drained prior epoch".into(),
+            );
+        }
+        if self
+            .teacher_capture
+            .as_ref()
+            .is_some_and(|capture| capture.contract().capture_epoch == request.capture_epoch)
+        {
+            return Err("teacher capture epoch cannot be reused".into());
+        }
+        let (contract, sensor) =
+            super::teacher_runtime::capture_contract(&self.authority, request)?;
+        let sensor_bytes = sensor
+            .canonical_bytes()
+            .map_err(|error| error.to_string())?;
+        if sensor_bytes.len() > 65_536 {
+            return Err("teacher sensor metadata exceeds admission".into());
+        }
+        let sensor_json = String::from_utf8(sensor_bytes).map_err(|error| error.to_string())?;
+        let capture = super::teacher_stream::TeacherStreamCapture::new(
+            contract.clone(),
+            &sensor,
+            &request.baseline_slots,
+            request.limits.pending_bytes,
+            request.limits.queue_chunks,
+            request
+                .limits
+                .queue_bytes
+                .checked_sub(
+                    super::teacher_mailbox::TEACHER_MAILBOX_BYTES
+                        + super::teacher_mailbox::TEACHER_METADATA_HEADROOM,
+                )
+                .ok_or_else(|| {
+                    "teacher queue budget lacks diagnostic handoff headroom".to_owned()
+                })?,
+        )
+        .map_err(|error| error.to_string())?;
+        self.coordinator
+            .configure_teacher_capture(
+                &self.authority,
+                &request.baseline_slots,
+                request.limits.pending_bytes,
+            )
+            .map_err(|error| error.to_string())?;
+        self.teacher_capture = Some(capture);
+        self.teacher_capture_error = None;
+        self.teacher_sensor_metadata = Some(sensor_json);
+        Ok(contract)
+    }
+
+    /// Stop at an ordered clean boundary while retaining complete chunks for drain.
+    pub fn stop_teacher_capture(&mut self) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("teacher capture stop requires a clean running boundary".into());
+        }
+        if let Some(capture) = &mut self.teacher_capture {
+            capture
+                .stop(super::teacher_samples::TeacherEndReason::CaptureStopped)
+                .map_err(|error| error.to_string())?;
+        }
+        self.coordinator
+            .configure_teacher_capture(&self.authority, &[], 0)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Separate diagnostic transfer, independent of controller/generation delivery.
+    pub fn drain_teacher_chunks(
+        &mut self,
+        max_chunks: usize,
+        max_owned_bytes: usize,
+    ) -> Result<Option<super::teacher_queue::TeacherQueueDrain>, String> {
+        self.teacher_capture
+            .as_mut()
+            .map(|capture| {
+                capture
+                    .drain(max_chunks, max_owned_bytes)
+                    .map_err(|error| error.to_string())
+            })
+            .transpose()
+    }
+
+    /// Bounded transport identity and counters without borrowing any world records.
+    pub fn teacher_capture_status(
+        &self,
+    ) -> Option<(
+        &super::teacher_samples::TeacherContractV1,
+        super::teacher_queue::TeacherQueueSnapshot,
+        bool,
+        Option<&str>,
+    )> {
+        self.teacher_capture.as_ref().map(|capture| {
+            (
+                capture.contract(),
+                capture.snapshot(),
+                capture.is_stopped(),
+                self.teacher_capture_error.as_deref(),
+            )
+        })
+    }
+
+    /// End a diagnostic epoch on shutdown/fault/config replacement without gating authority.
+    pub(crate) fn end_teacher_capture(&mut self, reason: super::teacher_samples::TeacherEndReason) {
+        if let Some(capture) = &mut self.teacher_capture {
+            if !capture.is_stopped() {
+                if let Err(error) = capture.stop(reason) {
+                    self.teacher_capture_error = Some(error.to_string());
+                }
+            }
+        }
+    }
+
+    fn capture_teacher_publication(&mut self, generation_ended: bool) {
+        let Some(capture) = self
+            .teacher_capture
+            .as_mut()
+            .filter(|capture| !capture.is_stopped())
+        else {
+            return;
+        };
+        let result = self
+            .coordinator
+            .published_teacher_boundary()
+            .ok_or(super::teacher_samples::TeacherCodecError(
+                "published teacher boundary unavailable",
+            ))
+            .and_then(|boundary| capture.observe(boundary, generation_ended));
+        if let Err(error) = result {
+            self.teacher_capture_error = Some(error.to_string());
+            let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
+        }
+    }
     /// Admit optional exact-row retention only at a clean running boundary.
     pub fn configure_teacher_capture(
         &mut self,
@@ -245,6 +394,13 @@ impl RunningAuthorityLoop {
     ) -> Result<(), String> {
         if self.state != RunningAuthorityLoopState::Ready {
             return Err("teacher capture requires a clean running boundary".into());
+        }
+        if self
+            .teacher_capture
+            .as_ref()
+            .is_some_and(|capture| !capture.is_stopped())
+        {
+            return Err("automatic capture owns the selected pending teacher rows".into());
         }
         self.coordinator
             .configure_teacher_capture(&self.authority, slots, pending_budget_bytes)
@@ -296,6 +452,9 @@ impl RunningAuthorityLoop {
     ) -> Self {
         Self {
             visualization_invalidated: false,
+            teacher_capture: None,
+            teacher_capture_error: None,
+            teacher_sensor_metadata: None,
             authority,
             scheduler: prepared.scheduler,
             coordinator: prepared.coordinator,
@@ -456,6 +615,7 @@ impl RunningAuthorityLoop {
             self.authority.swap_prepared_live_settings(&mut prepared);
             return Err(error.to_string());
         }
+        self.end_teacher_capture(super::teacher_samples::TeacherEndReason::ContractChanged);
         self.coordinator = replacement;
         let state = self.authority.state();
         Ok((
@@ -580,6 +740,12 @@ impl RunningAuthorityLoop {
             .authority
             .apply_god_mode_kill(frame_v1_id, physics)
             .map_err(|error| error.to_string())?;
+        if let Some(capture) = &mut self.teacher_capture {
+            if let Err(error) = capture.observe_cold_deaths(&self.authority.state().world) {
+                self.teacher_capture_error = Some(error.to_string());
+                let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
+            }
+        }
         self.coordinator.invalidate_visualization();
         self.visualization_invalidated = true;
         Ok((publication, effective_step))
@@ -1260,6 +1426,7 @@ impl RunningAuthorityLoop {
                     });
                 }
                 let publication = outcome.publication;
+                self.capture_teacher_publication(false);
                 if let Err(error) = self
                     .scheduler
                     .commit_step(&self.authority, step, publication)
@@ -1359,6 +1526,7 @@ impl RunningAuthorityLoop {
         let publication = self
             .coordinator
             .publish_acknowledged_generation_start(&mut self.authority)?;
+        self.capture_teacher_publication(true);
         let prepared_rebind = match self
             .coordinator
             .prepare_published_generation_rebind(&self.authority, &publication)
@@ -1514,6 +1682,7 @@ impl RunningAuthorityLoop {
         {
             RunningStepProgress::Published(outcome) => {
                 let publication = outcome.publication;
+                self.capture_teacher_publication(false);
                 self.scheduler
                     .commit_step(&self.authority, step, publication)?;
                 self.pending_step = None;

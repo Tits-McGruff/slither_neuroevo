@@ -12,6 +12,7 @@ use super::teacher_samples::{
 const STREAM_ROWS: usize = 61;
 
 /// Reusable cold-admitted rows for one baseline stream; sample ordinal spans lives.
+#[derive(Debug)]
 struct TeacherStream {
     slot: u32,
     generation: u64,
@@ -24,6 +25,7 @@ struct TeacherStream {
 }
 
 /// Capture-local assembly and separate queue, with no authoritative fields or RNG.
+#[derive(Debug)]
 pub struct TeacherStreamCapture {
     contract: TeacherContractV1,
     streams: Vec<TeacherStream>,
@@ -32,6 +34,38 @@ pub struct TeacherStreamCapture {
     stopped: bool,
 }
 impl TeacherStreamCapture {
+    /// Immutable identity available to the coarse diagnostic transport.
+    pub fn contract(&self) -> &TeacherContractV1 {
+        &self.contract
+    }
+
+    /// A stopped epoch retains its queue until opaque ownership is drained.
+    pub fn is_stopped(&self) -> bool {
+        self.stopped
+    }
+
+    /// Ordered cold deaths seal old observations without changing their outcome labels.
+    pub fn observe_cold_deaths(
+        &mut self,
+        world: &super::state::WorldState,
+    ) -> Result<(), TeacherCodecError> {
+        if self.stopped {
+            return Ok(());
+        }
+        for index in 0..self.streams.len() {
+            let stream = &self.streams[index];
+            if stream.count > 0
+                && !world.snakes.iter().any(|snake| {
+                    snake.id == stream.physical_id
+                        && snake.baseline_slot == Some(stream.slot)
+                        && snake.alive
+                })
+            {
+                self.seal(index, TeacherEndReason::LifeEnded)?;
+            }
+        }
+        Ok(())
+    }
     /// Admit all reusable rows and encoding-copy headroom before capture begins.
     pub fn new(
         contract: TeacherContractV1,
@@ -318,10 +352,10 @@ impl TeacherStreamCapture {
         ) {
             return Err(TeacherCodecError("invalid capture stop reason"));
         }
+        self.stopped = true;
         for index in 0..self.streams.len() {
             self.seal(index, reason)?;
         }
-        self.stopped = true;
         Ok(())
     }
 

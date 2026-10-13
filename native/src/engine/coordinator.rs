@@ -661,6 +661,7 @@ pub(crate) fn run_running_coordinator(
     running: &mut RunningAuthorityLoop,
     metrics: &RunningAuthorityMetrics,
     display: Option<&super::display::RunningDisplayCache>,
+    teachers: &super::teacher_mailbox::TeacherMailbox,
 ) -> Result<(), EngineError> {
     running.validate_background_start().map_err(|error| {
         EngineError::new(
@@ -681,6 +682,7 @@ pub(crate) fn run_running_coordinator(
     let mut announced_generation_source = None;
     let mut announced_delivery_ticket = None;
     loop {
+        teachers.service(running);
         if let Some(display) = display {
             // The preceding command/service reservation has left scope. This
             // sample cannot precede its reliable result or describe staged work.
@@ -1102,6 +1104,19 @@ fn execute_running_authority_command(
                 enabled,
             })
         }
+        RunningAuthorityCommand::StartTeacherCapture(request) => running.start_teacher_capture(&request)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|contract| RunningAuthorityEvent::TeacherCaptureChanged {
+                command_sequence, capture_epoch: contract.capture_epoch, enabled: true,
+            }),
+        RunningAuthorityCommand::StopTeacherCapture { capture_epoch } => {
+            if running.teacher_capture_status().is_none_or(|status| status.0.capture_epoch != capture_epoch) {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "teacher capture epoch mismatch"))
+            } else {
+                running.stop_teacher_capture().map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                    .map(|()| RunningAuthorityEvent::TeacherCaptureChanged { command_sequence, capture_epoch, enabled: false })
+            }
+        }
         RunningAuthorityCommand::ResurrectHallOfFame {
             managed_directory,
             weights,
@@ -1316,6 +1331,8 @@ fn running_response_owned_byte_bound(
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
         RunningAuthorityCommand::SetVisualization { .. } => 0,
+        RunningAuthorityCommand::StartTeacherCapture(_)
+        | RunningAuthorityCommand::StopTeacherCapture { .. } => 0,
         RunningAuthorityCommand::ResurrectHallOfFame { .. } => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and

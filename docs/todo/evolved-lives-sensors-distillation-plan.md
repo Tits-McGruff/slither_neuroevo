@@ -373,8 +373,16 @@ physical death, generation end or capture stop. It assigns sample ordinals and
 chunk sequences before the separate queue admits whole immutable objects;
 overflow consumes sequences, records drops and labels the next fragment as a
 gap. The managed-checkpoint test also compares encoded chunks across one/three
-workers. The assembler/queue are native APIs; automatic runtime activation,
-the coarse drain bridge and durable Node spool/HTTP integration remain open.
+workers. Automatic capture now runs on ordinary, resolved-delivery and
+acknowledged-generation publications. Admission derives sensor/teacher/cadence
+identity from current native run settings. Cold deaths seal old physical streams;
+live configuration changes stop the old epoch without dropping retained bytes.
+The production handle exposes ordered arm/stop and a separate bounded opaque
+drain. Its owner uses a nonblocking handoff and a coalesced diagnostic wake, so
+drains can progress at a retained generation barrier without resolving it.
+Native tests exercise a disconnected consumer, whole-chunk overflow, exact sensor
+metadata, partial drains, shutdown tails and no additional authority commands.
+The durable Node spool/HTTP and PyRL consumer integration remain open.
 Codec validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.

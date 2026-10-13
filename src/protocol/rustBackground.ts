@@ -521,6 +521,10 @@ export interface RustBackgroundEvent {
   };
   /** Aggregate visualization subscription state confirmed by Rust. */
   visualizationEnabled?: boolean;
+  /** Exact capture epoch for a successful ordered arm/stop receipt. */
+  teacherCaptureEpoch?: string;
+  /** Whether the matching diagnostic epoch is accepting committed samples. */
+  teacherCaptureEnabled?: boolean;
   /** Exact close result; false means stale or already disconnected. */
   controllerDisconnect?: {
     /** Requested assignment epoch. */

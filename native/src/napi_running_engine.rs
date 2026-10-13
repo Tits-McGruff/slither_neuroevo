@@ -1428,6 +1428,55 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue cold admission of automatic exact teacher rows and a separate bounded queue.
+    #[napi(catch_unwind)]
+    pub fn submit_start_teacher_capture(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::StartTeacherCapture(Box::new(
+                crate::napi_teacher_capture::parse_request(&request)?,
+            )),
+        )
+    }
+
+    /// Seal one matching diagnostic epoch at the next clean boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_stop_teacher_capture(
+        &self,
+        sequence: JsString<'_>,
+        capture_epoch: JsString<'_>,
+    ) -> Result<()> {
+        let epoch = bounded_js_string(capture_epoch, "captureEpoch", 32, false)?;
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::StopTeacherCapture {
+                capture_epoch: crate::napi_teacher_capture::parse_epoch(&epoch)?,
+            },
+        )
+    }
+
+    /// Drain complete opaque objects from the independent diagnostic queue.
+    #[napi(catch_unwind)]
+    pub fn drain_teacher_chunks(
+        &self,
+        max_chunks: f64,
+        max_owned_bytes: f64,
+    ) -> Result<crate::napi_teacher_capture::TeacherCaptureDrain> {
+        self.root(|| {
+            let chunks = positive_usize(max_chunks, "maxChunks").map_err(engine_error_to_napi)?;
+            let bytes =
+                positive_usize(max_owned_bytes, "maxOwnedBytes").map_err(engine_error_to_napi)?;
+            self.runtime
+                .drain_teacher_chunks(chunks, bytes)
+                .map(crate::napi_teacher_capture::drain_to_napi)
+                .map_err(engine_error_to_napi)
+        })
+    }
+
     /// Queue an aggregate subscriber toggle for focused neural capture.
     #[napi(catch_unwind)]
     pub fn submit_visualization(&self, sequence: JsString<'_>, enabled: bool) -> Result<()> {

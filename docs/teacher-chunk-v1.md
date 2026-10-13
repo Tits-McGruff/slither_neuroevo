@@ -1,7 +1,8 @@
 # Teacher chunk v1 binary contract
 
 `native/src/engine/teacher_samples.rs` owns the bounded encoder and decoder.
-The publication/capture join, queue, spool and HTTP transport remain in progress.
+The native publication/capture join, queue and coarse handoff are implemented.
+The durable Node spool and HTTP transport remain in progress.
 A valid encoded chunk is descriptive data; codec validation does not certify
 that a world step committed.
 
@@ -87,5 +88,43 @@ descriptors, with no controller reservation or consumption acknowledgement.
 that have left native ownership or were dropped. The latter is **not** the
 durable spool's `resolvedThrough`: Node must settle storage independently after
 opaque bytes pass digest/length validation and complete durable publication.
-Runtime activation and the coarse drain bridge/spool are subsequent integration
-work; these native APIs do not yet expose the HTTP transport.
+The native background authority captures on ordinary complete publication,
+resolved external delivery and acknowledged generation publication. A pending
+generation's terminal observation is retained privately until its final
+publication succeeds. Cold God Mode deaths seal existing physical streams
+without rewriting the previous sample; a live config revision seals and stops
+the old epoch while retaining its queued bytes.
+
+The production `ExperimentalRunningAuthority` handle exposes:
+
+- `submitStartTeacherCapture(sequence, request)`: exact own fields
+  `captureEpoch`, `expectedRunId`, `expectedConfigRevision`, `baselineSlots`,
+  `pendingBytes`, `queueChunks`, `queueBytes`. Epoch is 32 lowercase hex digits;
+  revision/command sequence are exact 16-digit u64 words. Slot selection is
+  strictly increasing and bounded to existing baseline-v2 owners. Run/config
+  checks occur at the ordered clean boundary, followed by complete cold memory
+  admission. Ordinary production v3 does not admit this teacher capture.
+- `submitStopTeacherCapture(sequence, captureEpoch)`: rejects stale epochs and
+  seals only the matching capture at a clean boundary. An epoch retains its
+  queue after stopping; a new arm requires that prior queue to be drained.
+- `drainTeacherChunks(maxChunks, maxOwnedBytes)`: transfers complete Rust bytes
+  and descriptors independently of `drainOutputs`. Count is 1..256 and the
+  ownership ceiling is at most 16 MiB, including returned native metadata.
+  It returns the capture contract, exact `sensorContractJson`, native counters,
+  stopped/error status and `moreWork` even without a chunk.
+
+Teacher SHA-256 binds the `slither.baseline-teacher.v2\0` domain to the compiled
+native source SHA-256's lowercase ASCII hex. Mode/revision/cadence are separate
+contract fields. Node must persist unique epochs and exact native metadata; it
+must not reinterpret a valid source digest as gameplay qualification.
+
+The owner transfers at most 1 MiB through a separate mailbox using only
+`try_lock`; a busy or slow consumer leaves chunks in the native queue, where new
+whole chunks can drop. Queue admission also charges the mailbox and two bounded
+sensor metadata copies. A coalesced payload-free diagnostic wake requests more
+handoff service even when physics is blocked on delivery/durability. It consumes
+no command sequence, reliable reservation or gameplay acknowledgement.
+Partial mailbox drains keep `releasedThrough` below any untransferred object.
+Orderly shutdown seals the last committed tail; failure labels it interrupted.
+Stopped runtimes retain bounded opaque drain access. These APIs do not yet
+provide the HTTP spool transport.

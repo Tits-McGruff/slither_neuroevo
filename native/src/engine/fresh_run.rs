@@ -2140,41 +2140,35 @@ mod tests {
                     )
                     .unwrap();
                 assert!(running.published_teacher_boundary().is_none());
-                let sensor = SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap();
-                let config_sha256 = std::array::from_fn(|index| {
-                    let hex = prepared
-                        .candidate
-                        .identity
-                        .config_hash
-                        .strip_prefix("sha256:")
-                        .unwrap();
-                    u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap()
-                });
-                let mut stream = capture.then(|| {
-                    crate::engine::teacher_stream::TeacherStreamCapture::new(
-                        crate::engine::teacher_samples::TeacherContractV1 {
-                            capture_epoch: [17; 16],
-                            run_id: prepared.candidate.identity.run_id.clone(),
-                            config_sha256,
-                            sensor_sha256: sensor.sha256().unwrap(),
-                            teacher_sha256: [37; 32],
-                            teacher_revision: 2,
-                            teacher_mode: 1,
-                            control_interval_seconds: 0.06,
-                            input_size: 144,
-                        },
-                        &sensor,
-                        &[0],
-                        1024 * 1024,
-                        4,
-                        2 * 1024 * 1024,
-                    )
-                    .unwrap()
-                });
                 if capture {
                     assert!(running.configure_teacher_capture(&[0], 1).is_err());
                     assert!(running.configure_teacher_capture(&[2], 65536).is_err());
-                    running.configure_teacher_capture(&[0], 65536).unwrap();
+                    let request = crate::engine::teacher_runtime::TeacherCaptureRequest {
+                        capture_epoch: [17; 16],
+                        expected_run_id: prepared.candidate.identity.run_id.clone(),
+                        expected_config_revision: prepared.candidate.identity.config_revision,
+                        baseline_slots: vec![0].into_boxed_slice(),
+                        limits: crate::engine::teacher_runtime::TeacherCaptureLimits {
+                            pending_bytes: 1024 * 1024,
+                            queue_chunks: 4,
+                            queue_bytes: 4 * 1024 * 1024,
+                        },
+                    };
+                    let mut bad = request.clone();
+                    bad.expected_run_id = "wrong-run".into();
+                    assert!(running.start_teacher_capture(&bad).is_err());
+                    let contract = running.start_teacher_capture(&request).unwrap();
+                    assert_eq!(contract.teacher_mode, 1);
+                    assert_eq!(contract.control_interval_seconds, 0.06);
+                    assert_eq!(
+                        contract.sensor_sha256,
+                        SensorContractIdentity::new(SensorProfile::Motion, 8)
+                            .unwrap()
+                            .sha256()
+                            .unwrap()
+                    );
+                    assert!(running.start_teacher_capture(&request).is_err());
+                    assert!(running.configure_teacher_capture(&[], 0).is_err());
                 }
                 let mut captured_rows = 0;
                 for step in 1..=16 {
@@ -2203,16 +2197,14 @@ mod tests {
                             assert!(rows.outcome(index + rows.decisions.len()).is_none());
                             captured_rows += 1;
                         }
-                        stream.as_mut().unwrap().observe(rows, false).unwrap();
                     }
                 }
                 if capture {
                     assert!(captured_rows > 0);
-                    let stream = stream.as_mut().unwrap();
-                    stream
-                        .stop(crate::engine::teacher_samples::TeacherEndReason::CaptureStopped)
-                        .unwrap();
-                    let drained = stream.drain(4, 65536).unwrap();
+                    running.stop_teacher_capture().unwrap();
+                    let status = running.teacher_capture_status().unwrap();
+                    assert!(status.2 && status.3.is_none());
+                    let drained = running.drain_teacher_chunks(4, 65536).unwrap().unwrap();
                     assert_eq!(drained.chunks.len(), 1);
                     let decoded = crate::engine::teacher_samples::TeacherChunkV1::decode(
                         &drained.chunks[0].bytes,
@@ -2226,6 +2218,192 @@ mod tests {
             assert!(continuations.iter().all(|value| value == &continuations[0]));
             assert_eq!(captured_chunks.len(), 2);
             assert_eq!(captured_chunks[0], captured_chunks[1]);
+
+            // Exercise the actual background owner with no teacher consumer and
+            // no controller/generation acknowledgements during normal stepping.
+            let mut candidate = prepared.candidate.clone();
+            candidate.config.requested_sim_speed = 12.0;
+            // This tiny graph/population needs bounded scratch, while the existing
+            // 2 GiB test ceiling must still charge both generation authorities.
+            candidate.config.worker_scratch_bytes = 64 * 1024 * 1024;
+            candidate.config.checkpoint_scratch_bytes = 64 * 1024 * 1024;
+            candidate
+                .config
+                .settings
+                .iter_mut()
+                .find(|setting| setting.path == "simSpeed")
+                .unwrap()
+                .value = NormalizedSettingValue::Float(12.0);
+            candidate.identity.config_hash = normalized_config_hash(&candidate.config).unwrap();
+            let request = crate::engine::teacher_runtime::TeacherCaptureRequest {
+                capture_epoch: [19; 16],
+                expected_run_id: candidate.identity.run_id.clone(),
+                expected_config_revision: candidate.identity.config_revision,
+                baseline_slots: vec![0].into_boxed_slice(),
+                limits: crate::engine::teacher_runtime::TeacherCaptureLimits {
+                    pending_bytes: 1024 * 1024,
+                    queue_chunks: 1,
+                    queue_bytes: 4 * 1024 * 1024,
+                },
+            };
+            let mut pending = PendingRunStartTransition::admit(
+                candidate,
+                Arc::clone(&prepared.graph),
+                current_build_policy(
+                    TEST_MEMORY_CEILING,
+                    prepared.candidate.config.settings_schema_sha256.clone(),
+                    true,
+                ),
+                prepared.checkpoint_limits.clone(),
+                prepared.graph_limits.clone(),
+                prepared.work_limits,
+            )
+            .unwrap();
+            let runtime_directory = TestDirectory::create("v2-background-capture");
+            let checkpoint = pending
+                .publish_checkpoint(
+                    runtime_directory.path(),
+                    CheckpointOperationId::parse("35353535353535353535353535353535").unwrap(),
+                )
+                .unwrap();
+            pending.acknowledge_persistence(&checkpoint).unwrap();
+            pending.publish_running_authority().unwrap();
+            let running = pending
+                .into_running_loop(
+                    crate::engine::scheduler::FixedStepSchedulerPolicy::provisional_defaults(),
+                    0,
+                )
+                .unwrap();
+            let runtime = crate::engine::runtime::EngineRuntime::new_running_authority(
+                crate::engine::generation_handoff_fixture::background_generation_handoff_runtime_init(),
+                running, Arc::new(crate::engine::queues::NoopWakeSink),
+            ).unwrap();
+            runtime.start().unwrap();
+            runtime
+                .try_submit(crate::engine::contract::CommandBatch {
+                    contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
+                    commands: vec![crate::engine::contract::SequencedCommand {
+                        sequence: 1,
+                        command: crate::engine::contract::EngineCommand::RunningAuthority(
+                            crate::engine::contract::RunningAuthorityCommand::StartTeacherCapture(
+                                Box::new(request),
+                            ),
+                        ),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while runtime
+                .health()
+                .running_authority
+                .as_ref()
+                .unwrap()
+                .completed_step
+                < 240
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "background capture never reached target: {:?}",
+                    runtime.health()
+                );
+                assert!(runtime.health().fault.is_none());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            // Retain a real generation barrier without persistence acknowledgement;
+            // diagnostic wake/drain must still make progress and cannot publish it.
+            runtime
+                .try_submit(crate::engine::contract::CommandBatch {
+                    contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
+                    commands: vec![crate::engine::contract::SequencedCommand {
+                        sequence: 2,
+                        command: crate::engine::contract::EngineCommand::RunningAuthority(
+                            crate::engine::contract::RunningAuthorityCommand::FinishGeneration {
+                                request_id: "capture-retained-barrier".into(),
+                                expected_run_id: prepared.candidate.identity.run_id.clone(),
+                                expected_generation: 1,
+                            },
+                        ),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while runtime.health().running_authority.as_ref().unwrap().loop_state
+                != crate::engine::running_loop::RunningAuthorityLoopState::GenerationTransitionPending {
+                assert!(std::time::Instant::now() < deadline, "manual barrier not reached: {:?}", runtime.health());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let completed_step = runtime
+                .health()
+                .running_authority
+                .as_ref()
+                .unwrap()
+                .completed_step;
+            let teacher = runtime.drain_teacher_chunks(1, 65536).unwrap();
+            assert!(teacher.error.is_none(), "{:?}", teacher.error);
+            assert_eq!(teacher.contract.as_ref().unwrap().capture_epoch, [19; 16]);
+            assert_eq!(teacher.chunks.len(), 1);
+            assert!(teacher.snapshot.production_watermark >= 3);
+            assert!(teacher.snapshot.dropped_chunks > 0);
+            assert!(teacher.more_work);
+            let sensor = SensorContractIdentity::decode_supported(
+                teacher.sensor_contract_json.as_ref().unwrap().as_bytes(),
+            )
+            .unwrap();
+            assert_eq!(
+                sensor.sha256().unwrap(),
+                teacher.contract.as_ref().unwrap().sensor_sha256
+            );
+            let decoded =
+                crate::engine::teacher_samples::TeacherChunkV1::decode(&teacher.chunks[0].bytes)
+                    .unwrap();
+            assert_eq!(
+                decoded.contract.teacher_sha256,
+                teacher.contract.as_ref().unwrap().teacher_sha256
+            );
+            assert_eq!(runtime.health().processed_commands, 2);
+            let mut blocked_chunks = 0;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while blocked_chunks == 0 {
+                let drained = runtime.drain_teacher_chunks(16, 65536).unwrap();
+                blocked_chunks += drained.chunks.len();
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "diagnostic wake failed at retained generation barrier"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            assert_eq!(
+                runtime
+                    .health()
+                    .running_authority
+                    .as_ref()
+                    .unwrap()
+                    .completed_step,
+                completed_step
+            );
+            assert_eq!(
+                runtime
+                    .health()
+                    .running_authority
+                    .as_ref()
+                    .unwrap()
+                    .generation,
+                1
+            );
+            runtime.request_stop();
+            runtime.join().unwrap();
+            let mut count = teacher.chunks.len() + blocked_chunks;
+            for _ in 0..8 {
+                let drained = runtime.drain_teacher_chunks(16, 65536).unwrap();
+                count += drained.chunks.len();
+                if !drained.more_work {
+                    break;
+                }
+            }
+            assert!(count >= 2);
+            assert!(runtime.health().fault.is_none());
         }
 
         for change in 0..4 {
