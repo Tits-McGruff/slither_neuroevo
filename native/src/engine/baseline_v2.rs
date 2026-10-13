@@ -180,6 +180,8 @@ pub struct BaselineV2Action {
     pub life_stage: BaselineLifeStage,
     pub normalized_score: f64,
     pub unsafe_route: bool,
+    /// Exact tactical classification used by boost eligibility and capture strata.
+    pub escape_or_pursuit: bool,
     pub urgent_sectors: u32,
     pub next_state: BaselineV2State,
     pub next_behavior_rng_word: u32,
@@ -427,6 +429,7 @@ impl BaselineV2Policy {
             life_stage: stage,
             normalized_score: scores[best],
             unsafe_route: !safe[best],
+            escape_or_pursuit,
             urgent_sectors: urgent,
             next_state: state,
             next_behavior_rng_word: rng.uniform_state(),

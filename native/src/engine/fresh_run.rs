@@ -2105,6 +2105,7 @@ mod tests {
         #[cfg(feature = "engine-test-hooks")]
         {
             let mut continuations = Vec::new();
+            let mut captured_chunks = Vec::new();
             for (workers, capture) in [(1, false), (3, false), (1, true), (3, true)] {
                 let limits = RunningStepWorkLimits {
                     calculation_workers: workers,
@@ -2139,6 +2140,37 @@ mod tests {
                     )
                     .unwrap();
                 assert!(running.published_teacher_boundary().is_none());
+                let sensor = SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap();
+                let config_sha256 = std::array::from_fn(|index| {
+                    let hex = prepared
+                        .candidate
+                        .identity
+                        .config_hash
+                        .strip_prefix("sha256:")
+                        .unwrap();
+                    u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap()
+                });
+                let mut stream = capture.then(|| {
+                    crate::engine::teacher_stream::TeacherStreamCapture::new(
+                        crate::engine::teacher_samples::TeacherContractV1 {
+                            capture_epoch: [17; 16],
+                            run_id: prepared.candidate.identity.run_id.clone(),
+                            config_sha256,
+                            sensor_sha256: sensor.sha256().unwrap(),
+                            teacher_sha256: [37; 32],
+                            teacher_revision: 2,
+                            teacher_mode: 1,
+                            control_interval_seconds: 0.06,
+                            input_size: 144,
+                        },
+                        &sensor,
+                        &[0],
+                        1024 * 1024,
+                        4,
+                        2 * 1024 * 1024,
+                    )
+                    .unwrap()
+                });
                 if capture {
                     assert!(running.configure_teacher_capture(&[0], 1).is_err());
                     assert!(running.configure_teacher_capture(&[2], 65536).is_err());
@@ -2164,16 +2196,36 @@ mod tests {
                         for (index, decision) in rows.decisions.iter().enumerate() {
                             assert_eq!(decision.baseline_slot, 0);
                             assert_eq!(rows.observation(index).unwrap().len(), 144);
+                            assert_eq!(
+                                rows.outcome(index).unwrap().physical_snake_id,
+                                decision.physical_snake_id
+                            );
+                            assert!(rows.outcome(index + rows.decisions.len()).is_none());
                             captured_rows += 1;
                         }
+                        stream.as_mut().unwrap().observe(rows, false).unwrap();
                     }
                 }
                 if capture {
                     assert!(captured_rows > 0);
+                    let stream = stream.as_mut().unwrap();
+                    stream
+                        .stop(crate::engine::teacher_samples::TeacherEndReason::CaptureStopped)
+                        .unwrap();
+                    let drained = stream.drain(4, 65536).unwrap();
+                    assert_eq!(drained.chunks.len(), 1);
+                    let decoded = crate::engine::teacher_samples::TeacherChunkV1::decode(
+                        &drained.chunks[0].bytes,
+                    )
+                    .unwrap();
+                    assert_eq!(decoded.samples.len(), captured_rows);
+                    captured_chunks.push(drained.chunks[0].bytes.clone());
                 }
                 continuations.push(running.qualification_continuation_sha256());
             }
             assert!(continuations.iter().all(|value| value == &continuations[0]));
+            assert_eq!(captured_chunks.len(), 2);
+            assert_eq!(captured_chunks[0], captured_chunks[1]);
         }
 
         for change in 0..4 {

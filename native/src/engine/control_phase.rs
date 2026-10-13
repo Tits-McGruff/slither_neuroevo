@@ -1483,7 +1483,8 @@ impl ControlPhaseWorkspace {
         &self,
         key: PhysicsStepKey,
     ) -> Option<super::teacher_capture::PreparedTeacherBoundary<'_>> {
-        (self.ready && self.teacher_key == Some(key)).then(|| self.teacher.prepared(key))
+        (self.ready && self.teacher.enabled() && self.teacher_key == Some(key))
+            .then(|| self.teacher.prepared(key))
     }
     /// Cold selection for pending rows; ordinary v3 production cannot activate it.
     pub fn configure_teacher_capture(&mut self, slots: &[u32]) -> Result<(), ControlPhaseError> {

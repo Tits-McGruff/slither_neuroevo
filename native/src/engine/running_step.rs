@@ -545,6 +545,7 @@ pub struct RunningStepCoordinator {
     pending_delivery_context: Option<PendingDeliveryContext>,
     last_published_diagnostics: WorldStepDiagnostics,
     last_teacher_publication_key: Option<PhysicsStepKey>,
+    staged_teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes,
     last_step_cost: RunningStepCostMicros,
     pending_events: Vec<ExternalObservationEvent>,
     pending_statuses: Vec<ExternalDeliveryStatus>,
@@ -639,6 +640,7 @@ impl RunningStepCoordinator {
             pending_delivery_context: None,
             last_published_diagnostics: WorldStepDiagnostics::default(),
             last_teacher_publication_key: None,
+            staged_teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes::default(),
             last_step_cost: RunningStepCostMicros::default(),
             pending_events: Vec::new(),
             pending_statuses: Vec::new(),
@@ -781,19 +783,24 @@ impl RunningStepCoordinator {
             .into());
         }
         self.control.configure_teacher_capture(slots)?;
+        self.world_step
+            .set_teacher_capture_enabled(!slots.is_empty());
         self.last_teacher_publication_key = None;
         Ok(())
     }
 
     /// Borrow retained observations/actions only after their complete transaction succeeds.
-    /// Outcomes and committed stream sequencing are attached by the transport join.
+    /// Includes complete physical outcomes; stream sequencing belongs to transport.
     pub fn published_teacher_boundary(
         &self,
-    ) -> Option<super::teacher_capture::PreparedTeacherBoundary<'_>> {
+    ) -> Option<super::teacher_capture::PublishedTeacherBoundary<'_>> {
         let boundary = self
             .control
             .teacher_boundary(self.last_teacher_publication_key?)?;
-        (!boundary.decisions.is_empty()).then_some(boundary)
+        Some(super::teacher_capture::PublishedTeacherBoundary::new(
+            boundary,
+            &self.staged_teacher_outcomes,
+        ))
     }
 
     /// Stage one complete step and publish it immediately or await Node delivery.
@@ -1009,6 +1016,7 @@ impl RunningStepCoordinator {
                 &mut self.staged_evolved_generation,
                 self.projection.evolved,
             )?;
+            self.staged_teacher_outcomes = prepared.teacher_outcomes();
             self.last_step_cost.world_step =
                 u64::try_from(world_step_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             #[cfg(feature = "engine-test-hooks")]
