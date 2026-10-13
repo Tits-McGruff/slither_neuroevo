@@ -1,3 +1,4 @@
+import { MAX_BRAIN_ARTIFACT_BYTES, type BrainCandidateRecord } from '../../src/protocol/brainArtifacts.ts';
 import { Worker } from 'node:worker_threads';
 import type { TeacherCaptureDrain, TeacherChunkDescriptor } from '../../src/protocol/distillation.ts';
 import { DISTILLATION_SPOOL_DEFAULTS, distillationHex, distillationInteger, parseSpoolLimits,
@@ -26,6 +27,10 @@ export class DistillationSpoolClient {
   private sequence = 0;
   /** One ingestion handoff may own bytes at a time. */
   private ingestActive = false;
+  /** One complete candidate upload owns bytes at a time. */
+  private candidateUploadActive = false;
+  /** One complete candidate download owns bytes at a time. */
+  private candidateDownloadActive = false;
   /** One bounded download pool. */
   private downloads = 0;
   /** Terminal diagnostic failure, independent of the game. */
@@ -77,6 +82,32 @@ export class DistillationSpoolClient {
     } finally { this.ingestActive = false; }
   }
 
+  /** Transfer one exclusive opaque candidate for independent native file admission. */
+  async ingestCandidate(id: string, bytes: Uint8Array): Promise<BrainCandidateRecord> {
+    distillationHex(id, 64, 'candidate identity');
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength < 88 || bytes.byteLength > MAX_BRAIN_ARTIFACT_BYTES) throw new TypeError('candidate byte admission');
+    if (this.candidateUploadActive) throw new Error('candidate upload concurrency exhausted');
+    this.candidateUploadActive = true;
+    try {
+      const owned = new Uint8Array(bytes);
+      return await this.request('candidate-ingest', [id, owned], [owned.buffer]) as BrainCandidateRecord;
+    } finally { this.candidateUploadActive = false; }
+  }
+
+  /** Read only native-admitted immutable metadata. */
+  async candidate(id: string): Promise<BrainCandidateRecord> {
+    distillationHex(id, 64, 'candidate identity');
+    return await this.request('candidate-get', [id]) as BrainCandidateRecord;
+  }
+
+  /** Read one complete bounded object; response ownership is separately admitted by HTTP. */
+  async downloadCandidate(id: string): Promise<{ record: BrainCandidateRecord; bytes: Uint8Array }> {
+    distillationHex(id, 64, 'candidate identity');
+    if (this.candidateDownloadActive) throw new Error('candidate download concurrency exhausted');
+    this.candidateDownloadActive = true;
+    try { return await this.request('candidate-download', [id]) as { record: BrainCandidateRecord; bytes: Uint8Array }; }
+    finally { this.candidateDownloadActive = false; }
+  }
   /** Read immutable dataset metadata and current durable watermarks. */
   async dataset(epoch: string): Promise<DistillationDataset> {
     distillationHex(epoch, 32, 'capture epoch', true);

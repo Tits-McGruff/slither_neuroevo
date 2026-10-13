@@ -957,8 +957,13 @@ saturation drops new objects. Repeated exact handoffs/downloads are idempotent.
 After interruption the store retains only its last durably observed production
 tail, labels the epoch interrupted and never resumes it. Retained complete
 objects remain available for offline jobs. This is diagnostic/training
-durability, not a mid-round world checkpoint. Candidate upload/native validation
-remain subsequent integration work. PyRL now provides the independent HTTP
+durability, not a mid-round world checkpoint. Portable candidate uploads now use
+`POST /candidates/<sha256>` with an exact binary Content-Length; Rust independently
+validates the graph, numeric layout, sensors, cadence and finite weights in the
+spool worker. `GET /candidates/<sha256>` returns descriptor-only metadata. These
+records do not activate a brain or populate the saved library. See
+[brain-artifact-v1.md](brain-artifact-v1.md) for the portable format and quotas.
+PyRL now provides the independent HTTP
 `DistillationClient` and strict binary decoder, including local cursor proposals,
 checkpoint identity checks, explicit gaps and storage-pin cleanup.
 

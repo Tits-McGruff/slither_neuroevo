@@ -1,3 +1,4 @@
+import { MAX_BRAIN_ARTIFACT_BYTES } from '../../src/protocol/brainArtifacts.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readJsonBody } from '../readJsonBody.ts';
 import { DISTILLATION_ZERO, distillationInteger } from './distillationProtocol.ts';
@@ -15,6 +16,9 @@ export interface DistillationCaptureControl {
 export class DistillationHttpRouter {
   /** Retain download buffers until response completion/cancellation. */
   private downloads = 0;
+
+  /** One candidate upload owns bounded request bytes at a time. */
+  private candidateUploads = 0;
 
   /** Keep filesystem/database work in the separate asynchronous worker interface. */
   constructor(
@@ -40,6 +44,32 @@ export class DistillationHttpRouter {
   private async route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     const path = url.pathname.slice('/api/distillation/v1/'.length);
     const method = request.method;
+    const candidate = /^candidates\/([0-9a-f]{64})$/u.exec(path);
+    if (candidate && method === 'POST') {
+      if (this.candidateUploads >= 1) throw new Error('candidate upload concurrency exhausted');
+      this.candidateUploads += 1;
+      try {
+        const type = request.headers['content-type']?.split(';')[0]?.trim();
+        const length = request.headers['content-length'];
+        if (type !== 'application/octet-stream' || typeof length !== 'string' || !/^[0-9]{1,9}$/u.test(length)) throw new TypeError('candidate upload requires exact binary content length');
+        const expected = distillationInteger(Number(length), 88, MAX_BRAIN_ARTIFACT_BYTES, 'candidate bytes');
+        request.setTimeout(30_000, () => request.destroy());
+        const chunks: Buffer[] = [];
+        let received = 0;
+        for await (const value of request) {
+          const chunk = value as Buffer;
+          received += chunk.byteLength;
+          if (received > expected) throw new TypeError('candidate upload exceeds declared bytes');
+          chunks.push(chunk);
+        }
+        if (received !== expected || request.aborted) throw new Error('candidate upload incomplete');
+        const bytes = Buffer.concat(chunks, received);
+        chunks.length = 0;
+        this.json(response, 201, await this.spool.ingestCandidate(candidate[1]!, bytes));
+      } finally { this.candidateUploads -= 1; }
+      return;
+    }
+    if (candidate && method === 'GET') { this.json(response, 200, await this.spool.candidate(candidate[1]!)); return; }
     if (method === 'GET' && path === 'datasets') {
       const after = url.searchParams.get('after') ?? '0'.repeat(32);
       this.json(response, 200, await this.spool.datasets(after, this.limit(url)));
