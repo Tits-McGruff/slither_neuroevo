@@ -307,10 +307,29 @@ The rebuilt production/hooks addons pass all 13 required-native files (170 tests
 six existing skips), including actual sockets, checkpoint/archive and multiworker
 continuations.
 
-Stages D through J and the remaining B/C integration and qualification gates
-remain open. Baseline v2 integration, canonical PyTorch distillation, capture/jobs/shadows,
-the brain library and the new inspector are not yet implemented. Existing
-v3/v1 runtime defaults remain until their stages qualify.
+Stage F's Rust manifest and bounded offline whole-graph runner are implemented.
+Compiler-derived named parameter views include interleaved affine bias strides,
+exact recurrent gate/state layouts, resolved ports and ordered outputs. The
+manifest records canonical sensor bytes/digest, separately versioned equations,
+initializer semantics and deployment cadence/life/output rules. The shared
+source-graph decoder now serves production admission and the offline tool.
+The tool uses isolated Rust initialization or finite/count-validated canonical
+weights, evaluates up to 256 delivery rows, and writes immutable Float32 outputs,
+every next recurrent state and digest receipts. See
+[`canonical-training-graph.md`](../canonical-training-graph.md) for its bounded
+request and file contract. PyTorch implementation, optimizer roundtrip and
+CPU/CUDA parity qualification remain open.
+The manifest/runner checkpoint passes 678 release library tests, two offline-tool
+checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
+The rebuilt production addon passes 14 fresh-run/source/surface tests and the
+real-socket custom-graph reset/reconnect/resume regression. The focused metadata
+set passes 27 tests with three existing platform skips; CI supplies the full
+cross-platform native/JavaScript matrix.
+
+Stages D through J and the remaining B/C qualification gates remain open.
+Baseline v2 workload/tactical qualification, canonical PyTorch distillation,
+capture/jobs/shadows, the brain library and the new inspector remain unfinished.
+Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:
 

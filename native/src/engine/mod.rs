@@ -82,6 +82,8 @@ pub mod genome;
 pub mod god_mode;
 /// Deterministic graph validation, layout, and compilation contracts.
 pub mod graph;
+/// Bounded shared source-graph JSON decoder used by admission and offline tools.
+pub mod graph_json;
 /// Safe scalar complete-graph and heterogeneous-population inference.
 pub mod inference;
 /// Deterministic Stage 4 whole-population inference evidence.
@@ -146,6 +148,11 @@ pub mod step_fixture;
 /// Thread-local panic injection compiled only into Rust unit tests.
 #[cfg(test)]
 pub(crate) mod task_panic_fixture;
+/// Canonical cold training metadata derived from the authoritative graph compiler.
+pub mod training_graph;
+/// Bounded offline complete-graph inference using the deployed native executor.
+#[cfg(any(test, feature = "engine-test-hooks"))]
+pub mod training_runner;
 /// Worker-local archive byte counters visible to the Node watchdog.
 pub mod work_progress;
 /// Complete post-control world-step staging before one authority publication.

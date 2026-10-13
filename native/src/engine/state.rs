@@ -5292,7 +5292,7 @@ fn validate_generation_boundary(
     Ok(())
 }
 
-fn validate_f32_slice(
+pub(crate) fn validate_f32_slice(
     field: &'static str,
     outer_index: usize,
     values: &[f32],

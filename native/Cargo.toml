@@ -41,6 +41,11 @@ required-features = ["engine-test-hooks"]
 [features]
 engine-test-hooks = []
 
+[[bin]]
+name = "canonical-training-graph"
+path = "src/bin/canonical_training_graph.rs"
+required-features = ["engine-test-hooks"]
+
 [dependencies]
 getrandom = "0.4"
 flate2 = "1"
