@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-13)
+## Implementation progress (2026-10-14)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -397,7 +397,13 @@ and proposes local cursors with explicit settled gaps. Restart binds the native
 run seed, full contract and exact canonical sensor bytes. The spool records seeds
 and migrates older diagnostic metadata with an explicit unknown seed. Frozen
 codec fixtures are synthetic; they do not prove committed-world provenance.
-Replay/sampling integration,
+PyRL also has bounded whole-chunk replay, stable stream partitioning, independent
+window sampling and an initial standalone DistillationJobV1 owner. Self-contained
+checkpoints retain exact replay bytes with optimizer, private RNG, sampler/cursor,
+window recurrence, source/environment and metrics. CPU/CUDA restart tests compare
+the next actual optimizer update and private RNG draws. The runner supplies
+periodic/final checkpoints and unweighted validation. Immutable candidate
+publication, native shadows and integrated resource/gameplay qualification,
 candidate upload/validation and the remaining training/job/shadow integrations
 remain open.
 Codec validation alone remains insufficient proof of a committed example.
@@ -409,8 +415,8 @@ set passes 27 tests with three existing platform skips; CI supplies the full
 cross-platform native/JavaScript matrix.
 
 Stages D through J and the remaining B/C qualification gates remain open.
-Baseline v2 workload/tactical qualification, canonical PyTorch distillation,
-capture/jobs/shadows, the brain library and the new inspector remain unfinished.
+Baseline v2 workload/tactical qualification, complete candidate/job integration,
+native shadows, the brain library and the new inspector remain unfinished.
 Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:
