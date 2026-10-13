@@ -357,8 +357,17 @@ chronology/size/finite validation. The
 order and distinguishes cold life ends from post-step death labels. Seven
 focused native tests cover exact bytes/signed zero, every truncated prefix,
 trailing/reserved data, malformed dimensions and physical/capture boundaries.
-The actual staged-control/full-publication capture join remains in progress;
-codec validation alone is not evidence that an example committed.
+Exact selected baseline-v2 rows now copy from the existing evaluated observation
+into cold-reserved reusable buffers. Held intervals produce no row; preparing
+capture does not resample or consume another marker. Control proposals compare
+bit-for-bit with capture-disabled Basic/Motion and deterministic/stochastic
+preparations. The running coordinator exposes them only after the matching
+complete-step or acknowledged generation publication succeeds; failed/pending
+transactions have no published boundary. A managed-checkpoint test confirms
+equal full continuation hashes for capture on/off and one/three workers.
+The transport join must still attach post-step outcomes, assign committed
+stream/chunk sequences and feed the separate bounded queue/spool. Codec
+validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
 The rebuilt production addon passes 14 fresh-run/source/surface tests and the

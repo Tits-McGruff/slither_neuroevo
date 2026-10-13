@@ -544,6 +544,7 @@ pub struct RunningStepCoordinator {
     pending_preflight: Option<RunningStepPreflight>,
     pending_delivery_context: Option<PendingDeliveryContext>,
     last_published_diagnostics: WorldStepDiagnostics,
+    last_teacher_publication_key: Option<PhysicsStepKey>,
     last_step_cost: RunningStepCostMicros,
     pending_events: Vec<ExternalObservationEvent>,
     pending_statuses: Vec<ExternalDeliveryStatus>,
@@ -637,6 +638,7 @@ impl RunningStepCoordinator {
             pending_preflight: None,
             pending_delivery_context: None,
             last_published_diagnostics: WorldStepDiagnostics::default(),
+            last_teacher_publication_key: None,
             last_step_cost: RunningStepCostMicros::default(),
             pending_events: Vec::new(),
             pending_statuses: Vec::new(),
@@ -736,6 +738,64 @@ impl RunningStepCoordinator {
         self.control.visualization()
     }
 
+    /// Cold pending-row admission; no controller/world/RNG mutation or transport activation.
+    pub fn configure_teacher_capture(
+        &mut self,
+        authority: &AuthoritativeState,
+        slots: &[u32],
+        pending_budget_bytes: usize,
+    ) -> Result<(), RunningStepError> {
+        self.validate_authority(authority)?;
+        if self.pending_key.is_some() || self.pending_generation.is_some() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher capture requires a clean boundary",
+            }
+            .into());
+        }
+        if !slots.is_empty()
+            && (self.projection.world_step.control.baseline_v2.is_none()
+                || slots.iter().any(|slot| {
+                    *slot as usize >= authority.state().fixed_step.baseline_lifecycle.slots.len()
+                }))
+        {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher capture requires admitted baseline-v2 owners",
+            }
+            .into());
+        }
+        let width = self.control.sensor_input_size();
+        let required = slots
+            .len()
+            .checked_mul(
+                width * 4
+                    + std::mem::size_of::<super::teacher_capture::PreparedTeacherDecision>()
+                    + 4,
+            )
+            .ok_or(ControlPhaseError::InvalidConfig {
+                field: "teacher pending byte arithmetic",
+            })?;
+        if pending_budget_bytes > 16 * 1024 * 1024 || required > pending_budget_bytes {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher pending byte admission",
+            }
+            .into());
+        }
+        self.control.configure_teacher_capture(slots)?;
+        self.last_teacher_publication_key = None;
+        Ok(())
+    }
+
+    /// Borrow retained observations/actions only after their complete transaction succeeds.
+    /// Outcomes and committed stream sequencing are attached by the transport join.
+    pub fn published_teacher_boundary(
+        &self,
+    ) -> Option<super::teacher_capture::PreparedTeacherBoundary<'_>> {
+        let boundary = self
+            .control
+            .teacher_boundary(self.last_teacher_publication_key?)?;
+        (!boundary.decisions.is_empty()).then_some(boundary)
+    }
+
     /// Stage one complete step and publish it immediately or await Node delivery.
     ///
     /// Any failure changes reusable scratch and the process-local attempt epoch,
@@ -749,6 +809,7 @@ impl RunningStepCoordinator {
         inputs: RunningStepInputs,
     ) -> Result<RunningStepProgress<'workspace>, RunningStepError> {
         self.last_step_cost = RunningStepCostMicros::default();
+        self.last_teacher_publication_key = None;
         #[cfg(feature = "engine-test-hooks")]
         {
             self.last_phase_timings = RunningStepPhaseTimings::default();
@@ -1816,6 +1877,7 @@ impl RunningStepCoordinator {
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
+        self.last_teacher_publication_key = Some(key);
         Ok(publication)
     }
 
@@ -2434,6 +2496,9 @@ impl RunningStepCoordinator {
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
         self.last_published_diagnostics = diagnostics;
+        if publication.is_ok() {
+            self.last_teacher_publication_key = Some(key);
+        }
         #[cfg(feature = "engine-test-hooks")]
         {
             self.last_phase_timings.publication_ms = elapsed_ms(publication_started);
@@ -2515,6 +2580,9 @@ impl RunningStepCoordinator {
                 .with_baseline_v2(v2_proof),
         });
         let publication = authority.publish_prevalidated_running_step(preflight, resolved);
+        if publication.is_ok() {
+            self.last_teacher_publication_key = Some(key);
+        }
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
@@ -2526,6 +2594,7 @@ impl RunningStepCoordinator {
     }
 
     fn discard_staged(&mut self) {
+        self.last_teacher_publication_key = None;
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
