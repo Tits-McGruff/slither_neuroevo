@@ -317,8 +317,25 @@ The tool uses isolated Rust initialization or finite/count-validated canonical
 weights, evaluates up to 256 delivery rows, and writes immutable Float32 outputs,
 every next recurrent state and digest receipts. See
 [`canonical-training-graph.md`](../canonical-training-graph.md) for its bounded
-request and file contract. PyTorch implementation, optimizer roundtrip and
-CPU/CUDA parity qualification remain open.
+request and file contract. PyRL's canonical graph implementation is committed at
+[`6e3bdd8`](https://github.com/Tits-McGruff/PyRL-trainer/commit/6e3bdd840389594db1387ca0d23eed76e5968dda)
+on `canonical-graph-distillation`. It uses one flat Float32 parameter tensor and
+the supplied views, exact custom recurrences and routing/output order. Strict
+manifest bounds, equation revision/digest, sensor bytes/digest and complete
+parameter/state ownership are checked before tensor construction. Method-v1
+loss uses raw turn/boost outputs; deployed sigmoid/value heads are absent.
+All 81 local tests and full Python lint pass, including the existing PPO suite.
+Ten Rust reference sequences cover every operation and zero/nonzero state over
+256 deliveries. Live actual-optimizer/export/Rust-admission/exact-byte-reimport
+gates pass all six parameterized graph cases on CPU and RTX4080, each with both
+native scalar and SSE2 backends. Maximum output/state error is 6.56e-7 on CPU and
+5.29e-7 on CUDA; fixed tolerances were not widened. Torch 2.14.0+cu126, FP32 and
+disabled TF32/autocast define this envelope. Compact source/dataset/environment
+reports are retained in
+[PyRL's canonical graph evidence](https://github.com/Tits-McGruff/PyRL-trainer/tree/6e3bdd840389594db1387ca0d23eed76e5968dda/docs/performance/canonical_graph);
+its CI now builds the pinned native runner for a mandatory live CPU roundtrip.
+Bounded sequence training/burn-in/TBPTT and stream/life-boundary handling remain
+open, as do normal deployed-candidate acceptance and later stages.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
 The rebuilt production addon passes 14 fresh-run/source/surface tests and the
