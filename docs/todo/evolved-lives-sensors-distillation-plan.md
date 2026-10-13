@@ -402,10 +402,15 @@ window sampling and an initial standalone DistillationJobV1 owner. Self-containe
 checkpoints retain exact replay bytes with optimizer, private RNG, sampler/cursor,
 window recurrence, source/environment and metrics. CPU/CUDA restart tests compare
 the next actual optimizer update and private RNG draws. The runner supplies
-periodic/final checkpoints and unweighted validation. Immutable candidate
-publication, native shadows and integrated resource/gameplay qualification,
-candidate upload/validation and the remaining training/job/shadow integrations
-remain open.
+periodic/final checkpoints and unweighted validation. Shared PyRL v4 metadata
+now preserves complete structural identity and legacy v3 PPO compatibility.
+Portable .slither-brain candidates freeze every 250 successful updates, with
+four pending exports retained across job restart. Rust independently compiles
+complete graph/packing/sensor/deployment manifests and validates raw or shuffled-
+Zstandard weights. Bounded uploads reach that source-identified validator in the
+diagnostic worker and return idempotent receipts without controller actions.
+Native shadows, saved-library/spawn integration and integrated resource/gameplay
+qualification remain open.
 Codec validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.

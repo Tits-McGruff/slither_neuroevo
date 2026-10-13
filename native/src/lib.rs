@@ -5,6 +5,7 @@ compile_error!("the authoritative native addon requires panic=unwind");
 
 /// Rust-owned authoritative engine components under staged migration.
 pub mod engine;
+mod napi_brain_artifact;
 mod napi_engine;
 mod napi_queue_diagnostics;
 mod napi_running_engine;
@@ -13,6 +14,7 @@ mod simd_kernels;
 
 use napi_derive::napi;
 
+pub use napi_brain_artifact::validate_brain_artifact_file;
 pub use napi_engine::experimental_engine_contract_version;
 
 /// Return the crate, source-revision, and source-content identity embedded at build time.

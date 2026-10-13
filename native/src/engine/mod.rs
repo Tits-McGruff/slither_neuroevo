@@ -1,5 +1,8 @@
 //! Rust-owned authoritative simulation components.
 
+/// Portable independently compiled neural artifacts and bounded provenance.
+pub mod brain_artifact;
+
 /// Staged once-per-fixed-step generation and live-snake scalar accounting.
 pub mod accounting;
 /// Cold generation-boundary release of unused allocator pages.
