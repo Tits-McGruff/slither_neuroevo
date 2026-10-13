@@ -365,9 +365,17 @@ preparations. The running coordinator exposes them only after the matching
 complete-step or acknowledged generation publication succeeds; failed/pending
 transactions have no published boundary. A managed-checkpoint test confirms
 equal full continuation hashes for capture on/off and one/three workers.
-The transport join must still attach post-step outcomes, assign committed
-stream/chunk sequences and feed the separate bounded queue/spool. Codec
-validation alone remains insufficient proof of a committed example.
+Complete physics now attaches actual post-step death and boost realized in any
+collision substep, including boost exhausted before the final substep. A bounded
+Rust stream assembler consumes published boundaries, including held-control
+steps, retains exact rows in cold-reserved buffers, and seals on elapsed time,
+physical death, generation end or capture stop. It assigns sample ordinals and
+chunk sequences before the separate queue admits whole immutable objects;
+overflow consumes sequences, records drops and labels the next fragment as a
+gap. The managed-checkpoint test also compares encoded chunks across one/three
+workers. The assembler/queue are native APIs; automatic runtime activation,
+the coarse drain bridge and durable Node spool/HTTP integration remain open.
+Codec validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
 The rebuilt production addon passes 14 fresh-run/source/surface tests and the

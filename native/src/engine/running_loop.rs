@@ -254,7 +254,7 @@ impl RunningAuthorityLoop {
     /// Exact retained rows from the latest complete published transaction.
     pub fn published_teacher_boundary(
         &self,
-    ) -> Option<super::teacher_capture::PreparedTeacherBoundary<'_>> {
+    ) -> Option<super::teacher_capture::PublishedTeacherBoundary<'_>> {
         self.coordinator.published_teacher_boundary()
     }
     /// Arm a calculation failure while the test runtime still owns an unstarted loop.

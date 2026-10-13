@@ -63,3 +63,29 @@ versions/reasons/flags, malformed UTF-8, truncated or trailing bytes.
 SHA-256 covers the exact complete encoded bytes and belongs to the external
 descriptor. Storage/download validation must compare that digest and byte count
 before advertising a completed immutable object.
+
+The native publication join attaches outcomes only after complete world-step
+publication or acknowledged generation publication. Realized boost means that
+movement burned positive boost points in at least one collision substep. It is
+accumulated across the whole fixed step; the final snake boost flag alone can
+miss early boost followed by exhaustion. Death refers to the same physical snake
+at that step's end.
+
+`TeacherStreamCapture` consumes every published fixed step, including steps
+without a due observation. It seals an existing fragment after sixty elapsed
+steps or on physical death without creating an extra observation. Its row and
+observation capacities are admitted cold; normal appends reuse that storage.
+Sample ordinals continue across physical lives within each capture/baseline
+stream. One-second seals use Continuation. A dropped fragment consumes both
+sample and chunk sequences; the next fragment uses Gap.
+
+`TeacherChunkQueue` owns a separate admitted ring and encoded payload budget,
+including one maximum encoding buffer as headroom. Overflow drops the newly
+sealed whole object. Its bounded drain transfers complete bytes and Rust-built
+descriptors, with no controller reservation or consumption acknowledgement.
+`production_watermark` includes drops; `released_through` identifies sequences
+that have left native ownership or were dropped. The latter is **not** the
+durable spool's `resolvedThrough`: Node must settle storage independently after
+opaque bytes pass digest/length validation and complete durable publication.
+Runtime activation and the coarse drain bridge/spool are subsequent integration
+work; these native APIs do not yet expose the HTTP transport.

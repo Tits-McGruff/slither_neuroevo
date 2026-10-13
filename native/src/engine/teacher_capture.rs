@@ -7,6 +7,93 @@ use super::baseline_v2::BaselineV2Action;
 use super::physics::PhysicsStepKey;
 use super::state::BaselineStrategyState;
 
+/// Physical outcome accumulated over every collision substep of one fixed step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TeacherPhysicalOutcome {
+    pub physical_snake_id: u64,
+    pub realized_boost: bool,
+    pub post_step_death: bool,
+}
+
+/// Fixed-size diagnostic storage, independent of authoritative state and RNG.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TeacherPhysicalOutcomes(pub [TeacherPhysicalOutcome; 120]);
+impl Default for TeacherPhysicalOutcomes {
+    fn default() -> Self {
+        Self([TeacherPhysicalOutcome::default(); 120])
+    }
+}
+
+/// Exact retained control rows joined to a successfully published physical step.
+#[derive(Clone, Copy, Debug)]
+pub struct PublishedTeacherBoundary<'a> {
+    pub key: PhysicsStepKey,
+    pub input_size: usize,
+    pub decisions: &'a [PreparedTeacherDecision],
+    rows: PreparedTeacherBoundary<'a>,
+    outcomes: &'a TeacherPhysicalOutcomes,
+}
+impl<'a> PublishedTeacherBoundary<'a> {
+    pub(crate) fn new(
+        rows: PreparedTeacherBoundary<'a>,
+        outcomes: &'a TeacherPhysicalOutcomes,
+    ) -> Self {
+        Self {
+            key: rows.key,
+            input_size: rows.input_size,
+            decisions: rows.decisions,
+            rows,
+            outcomes,
+        }
+    }
+
+    /// Return the exact row evaluated by the committed teacher decision.
+    pub fn observation(&self, index: usize) -> Option<&[f32]> {
+        self.rows.observation(index)
+    }
+
+    /// Join only the matching physical snake, never a replacement in the same slot.
+    pub fn outcome(&self, index: usize) -> Option<TeacherPhysicalOutcome> {
+        let decision = self.decisions.get(index)?;
+        let outcome = *self.outcomes.0.get(decision.baseline_slot as usize)?;
+        (outcome.physical_snake_id == decision.physical_snake_id).then_some(outcome)
+    }
+
+    /// Include physical outcomes on held-control steps so deaths seal old rows promptly.
+    pub(crate) fn slot_outcome(&self, slot: u32) -> Option<TeacherPhysicalOutcome> {
+        let outcome = *self.outcomes.0.get(slot as usize)?;
+        (outcome.physical_snake_id != 0).then_some(outcome)
+    }
+}
+
+/// Accumulate actual movement burn and death without sampling or changing authority.
+pub(crate) fn record_teacher_physics(
+    outcomes: &mut TeacherPhysicalOutcomes,
+    source: &super::state::WorldState,
+    deltas: &[super::evolved_lives::EvolvedPhysicsDelta],
+) {
+    for (snake, delta) in source.snakes.iter().zip(deltas) {
+        if snake.kind != super::state::SnakeKind::Baseline {
+            continue;
+        }
+        let Some(slot) = snake
+            .baseline_slot
+            .and_then(|slot| outcomes.0.get_mut(slot as usize))
+        else {
+            continue;
+        };
+        debug_assert_eq!(snake.id, delta.snake_id);
+        if slot.physical_snake_id != snake.id {
+            *slot = TeacherPhysicalOutcome {
+                physical_snake_id: snake.id,
+                ..TeacherPhysicalOutcome::default()
+            };
+        }
+        slot.realized_boost |= delta.boost_points_spent > 0.0;
+        slot.post_step_death = !delta.alive_after;
+    }
+}
+
 /// Compact pending decision; observation floats live in one retained flat buffer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PreparedTeacherDecision {
@@ -17,6 +104,7 @@ pub struct PreparedTeacherDecision {
     pub strategy: BaselineStrategyState,
     pub life_stage: BaselineLifeStage,
     pub unsafe_route: bool,
+    pub escape_or_pursuit: bool,
     pub urgent_sectors: u32,
     pub strategy_transition: bool,
 }
@@ -53,6 +141,7 @@ mod tests {
             life_stage: BaselineLifeStage::Medium,
             normalized_score: 0.1,
             unsafe_route: false,
+            escape_or_pursuit: true,
             urgent_sectors: 1,
             next_state: BaselineV2State {
                 strategy: BaselineStrategyState::Boost,
@@ -202,6 +291,7 @@ impl TeacherBoundaryWorkspace {
             strategy: action.next_state.strategy,
             life_stage: action.life_stage,
             unsafe_route: action.unsafe_route,
+            escape_or_pursuit: action.escape_or_pursuit,
             urgent_sectors: action.urgent_sectors,
             strategy_transition: before_strategy != action.next_state.strategy,
         });

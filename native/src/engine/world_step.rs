@@ -234,6 +234,7 @@ pub struct PreparedWorldStep<'workspace, 'control> {
     lifecycle: &'workspace BaselineLifecycleState,
     sensor_generation: SensorGenerationState,
     diagnostics: WorldStepDiagnostics,
+    teacher_outcomes: &'workspace super::teacher_capture::TeacherPhysicalOutcomes,
 }
 
 /// Mutable complete-step buffers admitted for the one authoritative swap.
@@ -267,6 +268,10 @@ struct ExternalObservationResolution {
 }
 
 impl<'workspace, 'control> PreparedWorldStep<'workspace, 'control> {
+    /// Non-authoritative physical outcomes retained until complete publication.
+    pub(crate) fn teacher_outcomes(self) -> super::teacher_capture::TeacherPhysicalOutcomes {
+        *self.teacher_outcomes
+    }
     /// Exact authority/config/operation identity staged.
     #[must_use]
     pub const fn key(self) -> PhysicsStepKey {
@@ -377,11 +382,18 @@ pub struct WorldStepWorkspace {
     external_disconnects: Vec<ExternalObservationResolution>,
     ready: bool,
     diagnostics: WorldStepDiagnostics,
+    teacher_capture_enabled: bool,
+    teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes,
     #[cfg(feature = "engine-test-hooks")]
     allocation_snapshot: Option<fn() -> u64>,
 }
 
 impl WorldStepWorkspace {
+    /// Enable bounded outcome diagnostics only for an admitted capture selection.
+    pub(crate) fn set_teacher_capture_enabled(&mut self, enabled: bool) {
+        self.teacher_capture_enabled = enabled;
+        self.teacher_outcomes = super::teacher_capture::TeacherPhysicalOutcomes::default();
+    }
     /// Construct empty reusable complete-step scratch.
     #[must_use]
     pub fn new() -> Self {
@@ -436,6 +448,7 @@ impl WorldStepWorkspace {
         self.external_replacement.discard();
         self.external_disconnects.clear();
         self.diagnostics = WorldStepDiagnostics::default();
+        self.teacher_outcomes = super::teacher_capture::TeacherPhysicalOutcomes::default();
         #[cfg(feature = "engine-test-hooks")]
         self.phases
             .reset_allocation_tracking(self.allocation_snapshot);
@@ -461,6 +474,13 @@ impl WorldStepWorkspace {
             });
             self.physics
                 .advance_substep_with_lifecycle(&mut self.phases, key, lifecycle)?;
+            if self.teacher_capture_enabled {
+                super::teacher_capture::record_teacher_physics(
+                    &mut self.teacher_outcomes,
+                    control.world(),
+                    self.physics.evolved_deltas(),
+                );
+            }
             emissions
                 .accumulate(self.phases.effect_diagnostics())
                 .map_err(|error| {
@@ -1217,6 +1237,7 @@ impl WorldStepWorkspace {
                 .ok_or(WorldStepError::ResultNotReady)?,
             sensor_generation: self.sensor_generation,
             diagnostics: self.diagnostics,
+            teacher_outcomes: &self.teacher_outcomes,
         })
     }
 }

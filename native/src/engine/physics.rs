@@ -2235,6 +2235,53 @@ mod tests {
     }
 
     #[test]
+    fn teacher_outcomes_retain_early_boost_after_exhaustion_and_actual_death() {
+        use crate::engine::teacher_capture::{record_teacher_physics, TeacherPhysicalOutcomes};
+        let position = WorldPoint { x: 0.0, y: 0.0 };
+        let mut source = pack_world(vec![(
+            snake(7, SnakeKind::Baseline, position, 0.0, 8),
+            line_body(position, 0.0, 8),
+        )]);
+        source.snakes[0].input_boost = true;
+        let original = source.clone();
+        let mut config = PhysicsConfig::typescript_defaults();
+        config.substep_dt = 1.0 / 180.0;
+        config.movement.boost_points_cost_per_second = 10_000.0;
+        let mut step = PhysicsStepWorkspace::new();
+        step.begin(key(1), &source, &rng_bundle(1), &allocators(), config, 3)
+            .unwrap();
+        let mut phases = PhaseWorkspaces::default();
+        let mut outcomes = TeacherPhysicalOutcomes::default();
+        for substep in 0..3 {
+            stage_and_accept(&mut step, &mut phases).unwrap();
+            record_teacher_physics(&mut outcomes, &source, step.evolved_deltas());
+            assert_eq!(
+                step.evolved_deltas()[0].boost_points_spent > 0.0,
+                substep == 0
+            );
+        }
+        assert!(!step.finish(key(1)).unwrap().world().snakes[0].boost);
+        assert!(outcomes.0[0].realized_boost);
+        assert!(!outcomes.0[0].post_step_death);
+        assert_eq!(outcomes.0[0].physical_snake_id, 7);
+        assert_eq!(source, original);
+
+        let source = body_collision_world(SnakeKind::Baseline, false);
+        let mut step = PhysicsStepWorkspace::new();
+        step.begin(key(2), &source, &rng_bundle(1), &allocators(), config, 3)
+            .unwrap();
+        let mut outcomes = TeacherPhysicalOutcomes::default();
+        for _ in 0..3 {
+            stage_and_accept(&mut step, &mut phases).unwrap();
+            record_teacher_physics(&mut outcomes, &source, step.evolved_deltas());
+        }
+        assert!(outcomes.0[0].post_step_death);
+        assert!(!outcomes.0[0].realized_boost);
+        assert_eq!(outcomes.0[0].physical_snake_id, 7);
+        assert!(!step.finish(key(2)).unwrap().world().snakes[0].alive);
+    }
+
+    #[test]
     fn simultaneous_heads_die_without_any_kill_credit() {
         let source = head_head_world();
         let mut step = PhysicsStepWorkspace::new();
