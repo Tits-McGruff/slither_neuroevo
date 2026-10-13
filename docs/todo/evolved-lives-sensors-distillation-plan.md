@@ -334,8 +334,22 @@ disabled TF32/autocast define this envelope. Compact source/dataset/environment
 reports are retained in
 [PyRL's canonical graph evidence](https://github.com/Tits-McGruff/PyRL-trainer/tree/6e3bdd840389594db1387ca0d23eed76e5968dda/docs/performance/canonical_graph);
 its CI now builds the pinned native runner for a mandatory live CPU roundtrip.
-Bounded sequence training/burn-in/TBPTT and stream/life-boundary handling remain
-open, as do normal deployed-candidate acceptance and later stages.
+PyRL's bounded sequence API is implemented at
+[`59a8569`](https://github.com/Tits-McGruff/PyRL-trainer/commit/59a856904dc8ef041536af03ef6cc96b1c5ddcdb):
+batch32, no-gradient burn-in32, TBPTT64, Adam3e-4 and clipping1.0. Explicit
+generation/life/gap/capture-start boundaries apply Reset/Preserve semantics;
+padding never advances recurrence and interior omissions reject. Continuations
+detach at truncation and are identified as pre-update-weight training state.
+The exact weighted objective and unweighted metrics exclude burn-in/padding.
+Constant routing/output-independent graphs return metrics without inventing
+parameters or optimizer updates. An independent gradient reference and
+CPU/CUDA lifecycle/gap tests pass; the complete suite has 104 passing tests
+and full Python lint. The mandatory live roundtrip now exercises the actual
+32/32/64 trainer with 1,024 burn-in and 2,048 training samples per update.
+Both native backends pass on CPU/RTX4080; maximum output/state error is 5.07e-7
+and 5.96e-7 respectively. Sequence reports remain in PyRL's evidence directory.
+Replay/sampling, committed transport and job integration remain open, as do
+normal deployed-candidate acceptance and later stages.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
 The rebuilt production addon passes 14 fresh-run/source/surface tests and the
