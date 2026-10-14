@@ -26,6 +26,7 @@ use super::live_settings::{
     prepare_live_settings, LiveSettingUpdate, LiveSettingsError, PreparedLiveSettings,
 };
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
+pub use super::retained_origin::RetainedNeuralOrigin;
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::run_start::RunStartPersistenceProof;
 use super::running_step::{ResolvedGenerationStartReplacement, ResolvedRunningStepReplacement};
@@ -304,6 +305,8 @@ pub struct BrainRuntimeState {
     /// Packed parameters for a non-population brain. Population-brain weights
     /// remain owned once by the matching [`PopulationGenome`].
     pub non_population_weights: Option<Box<[f32]>>,
+    /// Immutable validated retained provenance; population/external owners have none.
+    pub retained_origin: Option<Arc<RetainedNeuralOrigin>>,
     /// Packed recurrent state in compiled-graph order.
     pub recurrent: Box<[f32]>,
 }
@@ -3007,6 +3010,7 @@ fn validate_running_brain_continuation(
         let retained = replacement.brains.iter().any(|staged| {
             source.handle == staged.handle
                 && source.owner == staged.owner
+                && source.retained_origin == staged.retained_origin
                 && optional_f32_bits_equal(
                     source.non_population_weights.as_deref(),
                     staged.non_population_weights.as_deref(),
@@ -3374,6 +3378,17 @@ pub fn estimate_state_memory(
         &mut estimate,
         candidate.brains.capacity().max(maximum_brains),
     )?;
+    // Conservatively reserve one Arc allocation per possible retained owner,
+    // including its reference counters; shared copies may only reduce this bound.
+    estimate.structural_bytes = checked_add(
+        estimate.structural_bytes,
+        checked_allocation_bytes(
+            candidate.config.max_non_population_brains,
+            size_of::<RetainedNeuralOrigin>() + ARC_COUNTER_BYTES,
+            "retained brain origins",
+        )?,
+        "retained origin memory",
+    )?;
     add_structural::<BaselineRngState>(&mut estimate, candidate.rng.baselines.capacity())?;
     add_structural::<super::rng::BaselineBehaviorRngState>(
         &mut estimate,
@@ -3584,10 +3599,11 @@ pub fn preflight_generation_boundary_allocation(
         .population
         .iter()
         .any(|genome| !genome.weights.is_empty())
-        || candidate_shell
-            .brains
-            .iter()
-            .any(|brain| brain.non_population_weights.is_some() || !brain.recurrent.is_empty())
+        || candidate_shell.brains.iter().any(|brain| {
+            brain.non_population_weights.is_some()
+                || brain.retained_origin.is_some()
+                || !brain.recurrent.is_empty()
+        })
     {
         return invalid(
             "population",
@@ -4513,7 +4529,7 @@ fn validate_population(
         validate_f32_slice("brains.recurrent", index, &brain.recurrent)?;
         match brain.owner {
             BrainOwner::PopulationSlot(slot) => {
-                if brain.non_population_weights.is_some() {
+                if brain.non_population_weights.is_some() || brain.retained_origin.is_some() {
                     return Err(StateError::InvalidBrainOwner(brain.handle));
                 }
                 let genome = candidate.population.get(slot as usize);
@@ -4536,6 +4552,14 @@ fn validate_population(
                     });
                 }
                 validate_f32_slice("brains.non_population_weights", index, weights)?;
+                if let Some(origin) = &brain.retained_origin {
+                    origin.validate_weights(weights).map_err(|reason| {
+                        StateError::InvalidField {
+                            field: "brains.retained_origin",
+                            reason,
+                        }
+                    })?;
+                }
             }
         }
     }
@@ -4750,6 +4774,7 @@ fn validate_world_with_scratch(
                 snake.id == entity_id
                     && snake.brain == Some(brain.handle)
                     && snake.population_slot.is_none()
+                    && (brain.retained_origin.is_some() == (snake.kind == SnakeKind::Resurrected))
             });
             if !matched {
                 return Err(StateError::InvalidBrainOwner(brain.handle));
@@ -5021,11 +5046,18 @@ fn validate_snake(
         }
         _ => {}
     }
+    if snake.kind == SnakeKind::Resurrected && snake.brain.is_none() {
+        return invalid(
+            "world.snakes.brain",
+            "retained neural snake requires an owned brain and origin",
+        );
+    }
     if let Some(handle) = snake.brain {
-        let found = candidate
-            .brains
-            .iter()
-            .any(|brain| brain.handle == handle && brain.owner == BrainOwner::Entity(snake.id));
+        let found = candidate.brains.iter().any(|brain| {
+            brain.handle == handle
+                && brain.owner == BrainOwner::Entity(snake.id)
+                && (brain.retained_origin.is_some() == (snake.kind == SnakeKind::Resurrected))
+        });
         let evolved_mapping = snake.kind == SnakeKind::Evolved
             && candidate.brains.iter().any(|brain| {
                 brain.handle == handle && matches!(brain.owner, BrainOwner::PopulationSlot(_))
@@ -5980,6 +6012,7 @@ mod tests {
             .map(|genome| BrainRuntimeState {
                 handle: genome.brain,
                 owner: BrainOwner::PopulationSlot(genome.slot),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
             })
@@ -6302,6 +6335,7 @@ mod tests {
         candidate.brains.push(BrainRuntimeState {
             handle,
             owner: BrainOwner::Entity(id),
+            retained_origin: None,
             non_population_weights: Some(vec![0.0; graph.total_parameters].into_boxed_slice()),
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         });
@@ -6504,6 +6538,7 @@ mod tests {
         let weights = vec![0.375; graph.compiled().total_parameters].into_boxed_slice();
         let publication = authority
             .resurrect_hall_of_fame(
+                7,
                 weights.clone(),
                 RunningStepWorkLimits::provisional_defaults(),
             )
@@ -6526,6 +6561,7 @@ mod tests {
         let committed = after.clone();
         assert!(authority
             .resurrect_hall_of_fame(
+                7,
                 vec![0.0; graph.compiled().total_parameters - 1].into_boxed_slice(),
                 RunningStepWorkLimits::provisional_defaults(),
             )
@@ -6533,9 +6569,140 @@ mod tests {
         assert_eq!(authority.state(), &committed);
         authority.memory_ceiling_bytes = 0;
         assert!(authority
-            .resurrect_hall_of_fame(weights, RunningStepWorkLimits::provisional_defaults())
+            .resurrect_hall_of_fame(7, weights, RunningStepWorkLimits::provisional_defaults())
             .is_err());
         assert_eq!(authority.state(), &committed);
+    }
+
+    #[test]
+    fn retained_origin_survives_catalog_release_and_reused_brain_copies() {
+        use super::super::brain_artifact::BrainSourceKind;
+        use super::super::control_phase::copy_brains_reusing;
+        use super::super::retained_origin::packed_weight_digest;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let weights = vec![0.25; graph.compiled().total_parameters].into_boxed_slice();
+        let origin = Arc::new(RetainedNeuralOrigin::SavedBrain {
+            brain_id: [13; 32],
+            weight_digest: packed_weight_digest(&weights),
+            source_kind: BrainSourceKind::Distilled,
+        });
+        let weak = Arc::downgrade(&origin);
+        authority
+            .spawn_retained_brain(
+                weights,
+                Arc::clone(&origin),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let retained = authority.state().brains.last().unwrap();
+        assert!(Arc::ptr_eq(
+            retained.retained_origin.as_ref().unwrap(),
+            &origin
+        ));
+        assert_eq!(
+            authority
+                .state()
+                .world
+                .snakes
+                .last()
+                .unwrap()
+                .control_accumulator_seconds,
+            super::super::control_phase::ControlPhaseConfig::typescript_defaults()
+                .initial_neural_accumulator_seconds()
+        );
+        drop(origin); // Deleting a catalog record cannot revoke the native Arc.
+        let mut copies = Vec::new();
+        copy_brains_reusing(&mut copies, &authority.state().brains, false).unwrap();
+        for _ in 0..10 {
+            let (weights_copied, _) =
+                copy_brains_reusing(&mut copies, &authority.state().brains, true).unwrap();
+            assert_eq!(weights_copied, 0);
+            assert!(Arc::ptr_eq(
+                copies.last().unwrap().retained_origin.as_ref().unwrap(),
+                authority
+                    .state()
+                    .brains
+                    .last()
+                    .unwrap()
+                    .retained_origin
+                    .as_ref()
+                    .unwrap()
+            ));
+        }
+        copies.truncate(0);
+        assert!(weak.upgrade().is_some());
+        drop(authority);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn retained_origin_admission_and_failed_publication_preserve_native_ownership() {
+        use super::super::retained_origin::packed_weight_digest;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let weights = vec![0.375; graph.compiled().total_parameters].into_boxed_slice();
+        authority
+            .resurrect_hall_of_fame(
+                7,
+                weights.clone(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let committed = authority.state().clone();
+        let origin = Arc::clone(
+            committed
+                .brains
+                .last()
+                .unwrap()
+                .retained_origin
+                .as_ref()
+                .unwrap(),
+        );
+        let mut missing = committed.clone();
+        missing.brains.last_mut().unwrap().retained_origin = None;
+        assert!(own(missing, Arc::clone(&graph), usize::MAX).is_err());
+        let mut wrong_weights = committed.clone();
+        wrong_weights
+            .brains
+            .last_mut()
+            .unwrap()
+            .non_population_weights
+            .as_mut()
+            .unwrap()[0] = 0.5;
+        assert!(own(wrong_weights, Arc::clone(&graph), usize::MAX).is_err());
+        let mut wrong_population = committed.clone();
+        wrong_population.brains[0].retained_origin = Some(Arc::clone(&origin));
+        assert!(own(wrong_population, Arc::clone(&graph), usize::MAX).is_err());
+        let before_count = Arc::strong_count(&origin);
+        authority.memory_ceiling_bytes = 0;
+        assert!(authority
+            .spawn_retained_brain(
+                weights.clone(),
+                Arc::clone(&origin),
+                RunningStepWorkLimits::provisional_defaults()
+            )
+            .is_err());
+        assert_eq!(authority.state(), &committed);
+        assert_eq!(Arc::strong_count(&origin), before_count);
+        authority.memory_ceiling_bytes = usize::MAX;
+        let key = authority.begin_running_step().unwrap();
+        let mut changed = RunningStepBuffers::from_state(authority.state());
+        changed.brains.last_mut().unwrap().retained_origin =
+            Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+                entry_id: 8,
+                weight_digest: packed_weight_digest(&weights),
+            }));
+        assert!(matches!(
+            authority.publish_running_step(changed.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.brains",
+                ..
+            })
+        ));
+        assert_eq!(authority.state().brains, committed.brains);
     }
 
     #[test]
@@ -8137,6 +8304,25 @@ mod tests {
                     enable_one_live_baseline(&mut live, id, None);
                 } else {
                     live.allocators.next_resurrected_id = id + 1;
+                    let handle = BrainHandle {
+                        id: live.allocators.next_brain_id,
+                        epoch: live.generation.population_epoch,
+                    };
+                    live.allocators.next_brain_id += 1;
+                    snake.brain = Some(handle);
+                    let weights = vec![0.0; graph.compiled().total_parameters].into_boxed_slice();
+                    live.brains.push(BrainRuntimeState {
+                        handle,
+                        owner: BrainOwner::Entity(id),
+                        retained_origin: Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+                            entry_id: 1,
+                            weight_digest: super::super::retained_origin::packed_weight_digest(
+                                &weights,
+                            ),
+                        })),
+                        non_population_weights: Some(weights),
+                        recurrent: vec![0.0; graph.compiled().total_state_size].into_boxed_slice(),
+                    });
                 }
                 live.allocators.next_entity_id = 1;
             }
@@ -8956,6 +9142,7 @@ mod tests {
             source.brains.push(BrainRuntimeState {
                 handle: owner_genome.brain,
                 owner: BrainOwner::PopulationSlot(1),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
             });
@@ -10227,11 +10414,23 @@ mod tests {
         resurrected.radius = 9.0;
         resurrected.speed = 165.0;
 
+        first.brains[1].retained_origin = Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+            entry_id: 1,
+            weight_digest: super::super::retained_origin::packed_weight_digest(
+                first.brains[1].non_population_weights.as_ref().unwrap(),
+            ),
+        }));
         let mut second = first.clone();
         second.brains[1]
             .non_population_weights
             .as_mut()
             .expect("resurrected brain must own weights")[0] = 0.875;
+        second.brains[1].retained_origin = Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+            entry_id: 1,
+            weight_digest: super::super::retained_origin::packed_weight_digest(
+                second.brains[1].non_population_weights.as_ref().unwrap(),
+            ),
+        }));
         assert_eq!(first.identity, second.identity);
         assert_eq!(first.config, second.config);
         assert_ne!(first.brains[1], second.brains[1]);

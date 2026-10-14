@@ -104,6 +104,8 @@ pub mod physics;
 pub mod queues;
 /// Transaction-staged fair work grants for sensor-v4 capsule rays.
 pub mod ray_work;
+/// Bounded immutable provenance shared by retained neural owners.
+pub mod retained_origin;
 /// Versioned deterministic random-number generation shared by engine state.
 pub mod rng;
 /// Durable generation-one checkpoint and running-authority activation barrier.

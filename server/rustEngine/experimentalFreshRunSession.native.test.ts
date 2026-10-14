@@ -983,6 +983,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       runtime.submitHallOfFameResurrection(
         '0000000000000002',
         paths.managedRoot,
+        '0000000000000001',
         {
           version: 1,
           logicalSha256: winnerSha256,

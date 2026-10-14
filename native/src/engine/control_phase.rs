@@ -2773,9 +2773,13 @@ pub(crate) fn copy_brains_reusing(
     for index in 0..common {
         let same_immutable_identity = reuse_immutable_weights
             && target[index].handle == source[index].handle
-            && target[index].owner == source[index].owner;
+            && target[index].owner == source[index].owner
+            && target[index].retained_origin == source[index].retained_origin;
         target[index].handle = source[index].handle;
         target[index].owner = source[index].owner;
+        target[index]
+            .retained_origin
+            .clone_from(&source[index].retained_origin);
         weight_values = weight_values
             .checked_add(copy_optional_f32_box(
                 &mut target[index].non_population_weights,
@@ -2817,6 +2821,7 @@ pub(crate) fn copy_brains_reusing(
         target.push(BrainRuntimeState {
             handle: brain.handle,
             owner: brain.owner,
+            retained_origin: brain.retained_origin.clone(),
             non_population_weights,
             recurrent: try_f32_box(&brain.recurrent, "working recurrent state")?,
         });
@@ -3393,30 +3398,35 @@ mod tests {
             BrainRuntimeState {
                 handle: takeover,
                 owner: BrainOwner::Entity(40),
+                retained_origin: None,
                 non_population_weights: Some(weights(4)),
                 recurrent: recurrent(4),
             },
             BrainRuntimeState {
                 handle: evolved,
                 owner: BrainOwner::PopulationSlot(0),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: recurrent(1),
             },
             BrainRuntimeState {
                 handle: external_only,
                 owner: BrainOwner::Entity(35),
+                retained_origin: None,
                 non_population_weights: Some(weights(3)),
                 recurrent: recurrent(3),
             },
             BrainRuntimeState {
                 handle: connected,
                 owner: BrainOwner::Entity(30),
+                retained_origin: None,
                 non_population_weights: Some(weights(2)),
                 recurrent: recurrent(2),
             },
             BrainRuntimeState {
                 handle: grace,
                 owner: BrainOwner::Entity(50),
+                retained_origin: None,
                 non_population_weights: Some(weights(5)),
                 recurrent: recurrent(5),
             },

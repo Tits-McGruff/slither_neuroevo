@@ -413,6 +413,8 @@ pub enum RunningAuthorityCommand {
     },
     /// Restore one verified retained winner directly from its managed object.
     ResurrectHallOfFame {
+        /// Exact retained winner identity from the leased SQLite record.
+        entry_id: u64,
         managed_directory: String,
         weights: Box<HallOfFameWeightsDescriptor>,
     },
@@ -521,6 +523,9 @@ impl RunningAuthorityCommand {
             Self::GodModeKill { frame_v1_id, .. } if *frame_v1_id == 0 => Err(EngineError::new(
                 EngineErrorCode::InvalidCommand,
                 "God Mode kill requires an exact snake ID",
+            )),
+            Self::ResurrectHallOfFame { entry_id: 0, .. } => Err(EngineError::new(
+                EngineErrorCode::InvalidCommand, "Hall-of-Fame entry ID must be nonzero",
             )),
             Self::ResurrectHallOfFame {
                 managed_directory, ..
@@ -644,6 +649,7 @@ impl RunningAuthorityCommand {
             Self::ResurrectHallOfFame {
                 managed_directory,
                 weights,
+                ..
             } => Ok(managed_directory
                 .capacity()
                 .saturating_add(size_of::<HallOfFameWeightsDescriptor>())

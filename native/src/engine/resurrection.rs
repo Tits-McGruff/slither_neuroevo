@@ -1,4 +1,4 @@
-//! Atomic Hall-of-Fame resurrection inside the Rust-owned running authority.
+//! Atomic retained neural spawn inside the Rust-owned running authority.
 
 use super::*;
 use crate::engine::spawn::{SpawnDomain, SpawnKey, SpawnRequest, SpawnWorkspace};
@@ -16,22 +16,39 @@ impl AuthoritativeState {
     /// Add one retained winner without copying the evolved population or existing world.
     pub fn resurrect_hall_of_fame(
         &mut self,
+        entry_id: u64,
         weights: Box<[f32]>,
         limits: RunningStepWorkLimits,
     ) -> Result<ResurrectionPublication, String> {
+        let origin = Arc::new(RetainedNeuralOrigin::HallOfFame {
+            entry_id,
+            weight_digest: crate::engine::retained_origin::packed_weight_digest(&weights),
+        });
+        self.spawn_retained_brain(weights, origin, limits)
+    }
+
+    /// Publish one retained neural owner with cold-validated immutable provenance.
+    /// The live Arc remains valid after its catalog record or lease is released.
+    pub fn spawn_retained_brain(
+        &mut self,
+        weights: Box<[f32]>,
+        origin: Arc<RetainedNeuralOrigin>,
+        limits: RunningStepWorkLimits,
+    ) -> Result<ResurrectionPublication, String> {
+        origin.validate_weights(&weights)?;
         if self.candidate.phase != AuthorityPhase::Running {
-            return Err("Hall-of-Fame resurrection requires a running authority".into());
+            return Err("Retained neural spawn requires a running authority".into());
         }
         if weights.len() != self.graph.compiled().total_parameters
             || weights.iter().any(|value| !value.is_finite())
         {
-            return Err("Hall-of-Fame weights do not match the active graph".into());
+            return Err("Retained neural weights do not match the active graph".into());
         }
-        let config = self
+        let world_config = self
             .running_step_config(limits)
             .map_err(|error| error.to_string())?
-            .world_step
-            .external_replacement;
+            .world_step;
+        let config = world_config.external_replacement;
         let source = &self.candidate;
         let required_snakes = source.world.snakes.len().saturating_add(1);
         let required_brains = source.brains.len().saturating_add(1);
@@ -44,7 +61,7 @@ impl AuthoritativeState {
             || required_brains > config.maximum_brains
             || required_body > config.maximum_body_points
         {
-            return Err("Hall-of-Fame resurrection exceeds admitted world capacity".into());
+            return Err("Retained neural spawn exceeds admitted world capacity".into());
         }
 
         let mut next_allocators = source.allocators.clone();
@@ -117,7 +134,7 @@ impl AuthoritativeState {
             previous_turn: 0.0,
             input_boost: false,
             previous_input_boost: false,
-            control_accumulator_seconds: 0.0,
+            control_accumulator_seconds: world_config.control.initial_neural_accumulator_seconds(),
             delivered_observation_points: 0.0,
             observation_delivered: false,
             completed_step_heading_delta: 0.0,
@@ -132,6 +149,7 @@ impl AuthoritativeState {
         let brain = BrainRuntimeState {
             handle: brain_handle,
             owner: BrainOwner::Entity(snake_id),
+            retained_origin: Some(origin),
             non_population_weights: Some(weights),
             recurrent: vec![0.0; self.graph.compiled().total_state_size].into_boxed_slice(),
         };
@@ -177,7 +195,7 @@ impl AuthoritativeState {
             candidate.brains.pop();
             candidate.world.snakes.pop();
             candidate.world.body_points.truncate(body_start);
-            return Err("Hall-of-Fame resurrection exceeds admitted authority memory".into());
+            return Err("Retained neural spawn exceeds admitted authority memory".into());
         }
         self.memory = memory;
         Ok(ResurrectionPublication {

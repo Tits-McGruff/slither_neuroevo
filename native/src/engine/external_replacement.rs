@@ -179,6 +179,7 @@ pub fn prepare_fresh_external(
     let brain = BrainRuntimeState {
         handle: brain_handle,
         owner: BrainOwner::Entity(snake_id),
+        retained_origin: None,
         non_population_weights: Some(weights.into_boxed_slice()),
         recurrent: try_zero_f32_box(
             source.graph.total_state_size,
@@ -1665,6 +1666,7 @@ impl ExternalReplacementWorkspace {
         let new_brain = BrainRuntimeState {
             handle: brain_handle,
             owner: BrainOwner::Entity(snake_id),
+            retained_origin: None,
             non_population_weights: Some(weights.into_boxed_slice()),
             recurrent: try_zero_f32_box(graph.total_state_size, "replacement recurrent state")?,
         };
@@ -2187,7 +2189,7 @@ fn authority_rng_digest(rng: &RngStateBundle) -> [u8; 32] {
 
 fn authority_brain_digest(brains: &[BrainRuntimeState]) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"slither-external-replacement-brains-v1\0");
+    hash.update(b"slither-external-replacement-brains-v2\0");
     hash_usize(&mut hash, brains.len());
     for brain in brains {
         hash.update(brain.handle.id.to_le_bytes());
@@ -2206,6 +2208,13 @@ fn authority_brain_digest(brains: &[BrainRuntimeState]) -> [u8; 32] {
             Some(weights) => {
                 hash.update([1]);
                 hash_f32_slice(&mut hash, weights);
+            }
+            None => hash.update([0]),
+        }
+        match &brain.retained_origin {
+            Some(origin) => {
+                hash.update([1]);
+                origin.hash_into(&mut hash);
             }
             None => hash.update([0]),
         }
@@ -2947,6 +2956,7 @@ mod tests {
                 epoch: key().population_epoch(),
             },
             owner: BrainOwner::Entity(OLD_SNAKE_ID),
+            retained_origin: None,
             non_population_weights: Some(vec![0.25; graph.total_parameters].into_boxed_slice()),
             recurrent: vec![0.5; graph.total_state_size].into_boxed_slice(),
         }];
@@ -3000,6 +3010,7 @@ mod tests {
         let brains = vec![BrainRuntimeState {
             handle: BrainHandle { id: 21, epoch },
             owner: BrainOwner::PopulationSlot(0),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         }];
@@ -3639,6 +3650,33 @@ mod tests {
             .non_population_weights
             .as_mut()
             .unwrap()[0] = original_weight;
+
+        buffers.brains[brain_index].retained_origin = Some(std::sync::Arc::new(
+            super::super::retained_origin::RetainedNeuralOrigin::HallOfFame {
+                entry_id: 1,
+                weight_digest: super::super::retained_origin::packed_weight_digest(
+                    buffers.brains[brain_index]
+                        .non_population_weights
+                        .as_ref()
+                        .unwrap(),
+                ),
+            },
+        ));
+        assert!(!buffers.proof.matches(
+            key(),
+            buffers.world,
+            buffers.rng,
+            buffers.allocators,
+            buffers.brains
+        ));
+        buffers.brains[brain_index].retained_origin = None;
+        assert!(buffers.proof.matches(
+            key(),
+            buffers.world,
+            buffers.rng,
+            buffers.allocators,
+            buffers.brains
+        ));
 
         let original_rng_state = buffers.rng.external_controller.state_hex.clone();
         buffers.rng.external_controller.state_hex = "12345678".into();

@@ -1528,11 +1528,17 @@ impl ExperimentalRunningAuthority {
         &self,
         sequence: JsString<'_>,
         managed_directory: JsString<'_>,
+        entry_id: JsString<'_>,
         weights: ManagedHallOfFameWeightsDescriptor,
     ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::ResurrectHallOfFame {
+                entry_id: parse_u64_hex(
+                    &bounded_js_string(entry_id, "entryId", 16, false)?,
+                    "entryId",
+                    false,
+                )?,
                 managed_directory: bounded_js_string(
                     managed_directory,
                     "managedDirectory",

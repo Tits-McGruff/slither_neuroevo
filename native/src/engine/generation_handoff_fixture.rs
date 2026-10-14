@@ -606,6 +606,7 @@ pub(super) fn fixture_run_start(
         brains: vec![BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(0),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         }],
@@ -694,6 +695,7 @@ fn make_terminal_running_candidate(
     candidate.brains.push(BrainRuntimeState {
         handle: external_brain,
         owner: BrainOwner::Entity(external_id),
+        retained_origin: None,
         non_population_weights: Some(vec![0.0; graph.total_parameters].into_boxed_slice()),
         recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
     });

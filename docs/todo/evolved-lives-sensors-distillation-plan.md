@@ -442,6 +442,25 @@ real-socket custom-graph reset/reconnect/resume regression. The focused metadata
 set passes 27 tests with three existing platform skips; CI supplies the full
 cross-platform native/JavaScript matrix.
 
+The local PyRL environment now uses CUDA-enabled Torch `2.14.0+cu126` on the
+RTX 4080. The twelve-case CUDA sequence optimizer/export/native scalar/SSE2/
+reimport gate passes against the `d6c1def` release runner; its compact report is
+retained in PyRL alongside the prior canonical evidence. The exact 60-second
+checkpoint deadline uses direct deadline comparison, with the CI rounding case
+covered by a deterministic regression.
+
+Stage I's native origin foundation is implemented: retained brains own bounded
+immutable HoF or saved-brain origins through shared Arcs. Admission binds origin
+to exact packed weights, population/external owners reject retained provenance,
+and running continuation plus opaque replacement proofs bind the complete origin.
+Custom copies share the Arc and memory admission reserves its allocation overhead.
+HoF commands now carry the actual leased entry ID into Rust; a common native
+retained spawn initializes zero recurrence and the pending-first-action sentinel.
+Catalog deletion cannot revoke live values. The origin checkpoint passes all
+713 release library tests with hooks, including immutable-copy and publication
+proof regressions, plus all-target Clippy. Durable catalog/reference GC,
+dead retained-record reuse, archive association and library UI remain open.
+
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
 integrated shadow/training resource qualification, the brain library and the new inspector remain unfinished.
