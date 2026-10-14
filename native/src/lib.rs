@@ -15,7 +15,7 @@ mod simd_kernels;
 
 use napi_derive::napi;
 
-pub use napi_brain_artifact::validate_brain_artifact_file;
+pub use napi_brain_artifact::{publish_saved_brain, validate_brain_artifact_file};
 pub use napi_engine::experimental_engine_contract_version;
 
 /// Return the crate, source-revision, and source-content identity embedded at build time.

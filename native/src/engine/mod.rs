@@ -2,6 +2,8 @@
 
 /// Portable independently compiled neural artifacts and bounded provenance.
 pub mod brain_artifact;
+/// Cold library artifact and shared-weight publication.
+pub mod brain_library;
 
 /// Staged once-per-fixed-step generation and live-snake scalar accounting.
 pub mod accounting;

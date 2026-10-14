@@ -1,3 +1,5 @@
+import { parseSavedBrainOperation, parseSavedBrainResult } from './savedBrainProtocol.ts';
+import type { SavedBrainCatalogOperation, SavedBrainCatalogResult } from '../protocol.ts';
 import { parseExperimentSummary, parseHallOfFameAssessment } from './experimentRecords.ts';
 import { parseRecoveryScanCursor, parseRecoveryScanResult, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { Worker } from 'node:worker_threads';
@@ -196,6 +198,9 @@ export class CheckpointPersistenceClient {
   private hallOfFame: { operationId: CheckpointOperationId; runId: string; resolve(value: ManagedBrowserHallOfFameEntry[]): void; reject(error: Error): void } | undefined;
   /** At most one exact retained winner selection may be in flight. */
   private hallOfFameSelection: HallOfFameLeaseState | undefined;
+  /** Bounded explicit library requests; no model buffers enter this queue. */
+  private readonly savedBrains = new Map<string, {request: SavedBrainCatalogOperation;
+    resolve(result: SavedBrainCatalogResult): void; reject(error: Error): void}>();
   /** Independent bounded graph-preset requests indexed by their correlation token. */
   private readonly graphPresets = new Map<CheckpointOperationId, PendingGraphPresetOperation>();
   /** One temporary exact-checkpoint reference across preparation and download. */
@@ -578,6 +583,20 @@ export class CheckpointPersistenceClient {
     });
   }
 
+  /** Submit an explicit bounded library action to the same serialized metadata owner. */
+  savedBrainCatalog(value: SavedBrainCatalogOperation): Promise<SavedBrainCatalogResult> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (this.stopping || this.savedBrains.size >= 8) return Promise.reject(new Error('saved brain metadata is busy or stopping'));
+    let request: SavedBrainCatalogOperation;
+    try { request = parseSavedBrainOperation(value); } catch (error) { return Promise.reject(asError(error)); }
+    const operationId = randomBytes(16).toString('hex');
+    return new Promise((resolve, reject) => {
+      this.savedBrains.set(operationId, {request, resolve, reject});
+      try { this.postOperation({type: 'savedBrainCatalog', operationId, request}, operationId); }
+      catch (error) { this.savedBrains.delete(operationId); reject(asError(error)); }
+    });
+  }
+
   /** Persist one bounded graph preset without involving the authoritative engine. */
   saveGraphPreset(name: string, spec: GraphSpec): Promise<number> {
     if (this.failure) return Promise.reject(this.failure);
@@ -742,6 +761,20 @@ export class CheckpointPersistenceClient {
             ? response.selection.operationId
             : response.operationId;
       if (responseOperationId !== null) this.finishWatchedOperation(responseOperationId);
+      if (response.type === 'savedBrainCatalogResult') {
+        const pending = this.savedBrains.get(response.operationId);
+        if (!pending || pending.request.action !== response.result.action) throw new Error('mismatched saved brain metadata response');
+        const request = pending.request;
+        const result = response.result;
+        if ('brainId' in request && ((result.action === 'delete' && result.brainId !== request.brainId) ||
+            ('record' in result && result.record && result.record.brainId !== request.brainId))) throw new Error('mismatched saved brain identity');
+        if (request.action === 'list' && result.action === 'list' && (result.page.entries.length > request.limit ||
+            result.page.entries.some(entry => request.after !== null && entry.brainId <= request.after))) throw new Error('mismatched saved brain page');
+        if (request.action === 'release' && result.action === 'release' && request.leaseId !== result.leaseId) throw new Error('mismatched saved brain lease');
+        this.savedBrains.delete(response.operationId);
+        pending.resolve(result);
+        return;
+      }
       if (response.type === 'managedOrphansReclaimed') {
         const pending = this.orphanCleanup;
         if (!pending || pending.operationId !== response.operationId) {
@@ -988,6 +1021,8 @@ export class CheckpointPersistenceClient {
           selection.reject(new Error(response.reason));
           return;
         }
+        const savedBrain = this.savedBrains.get(response.operationId);
+        if (savedBrain) { this.savedBrains.delete(response.operationId); savedBrain.reject(new Error(response.reason)); return; }
         const graphPreset = this.graphPresets.get(response.operationId);
         if (graphPreset) {
           this.graphPresets.delete(response.operationId);
@@ -1088,6 +1123,8 @@ export class CheckpointPersistenceClient {
     this.hallOfFame = undefined;
     this.orphanCleanup?.reject(error);
     this.orphanCleanup = undefined;
+    for (const pending of this.savedBrains.values()) pending.reject(error);
+    this.savedBrains.clear();
     for (const pending of this.graphPresets.values()) pending.reject(error);
     this.graphPresets.clear();
     if (this.hallOfFameSelection?.phase !== 'active') this.hallOfFameSelection?.reject(error);
@@ -1125,7 +1162,7 @@ export class CheckpointPersistenceClient {
       this.rejectStopped = null;
       return;
     }
-    if (this.stopping && code === 0 && this.pending.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.legacySelection && !this.recovery && !this.scan && !this.retention && !this.storage && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
+    if (this.stopping && code === 0 && this.pending.size === 0 && this.savedBrains.size === 0 && this.graphPresets.size === 0 && !this.selection && !this.legacySelection && !this.recovery && !this.scan && !this.retention && !this.storage && !this.pin && !this.pruning && !this.history && !this.hallOfFame &&
         !this.orphanCleanup && (!this.hallOfFameSelection || this.hallOfFameSelection.phase === 'active') &&
         (!this.exportLease || this.exportLease.phase === 'active')) {
       this.resolveStopped?.();
@@ -1217,6 +1254,11 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     throw new TypeError('checkpoint persistence worker sent a non-object response');
   }
   const response = value as Record<string, unknown>;
+  if (response['type'] === 'savedBrainCatalogResult') {
+    requireExactKeys(response, ['type','operationId','result']);
+    if (!isOperationId(response['operationId'])) throw new TypeError('invalid saved brain response correlation');
+    return {type: 'savedBrainCatalogResult', operationId: response['operationId'], result: parseSavedBrainResult(response['result'])};
+  }
   if (response['type'] === 'persistenceProgress') {
     requireExactKeys(response, ['type', 'operationId', 'completedUnits']);
     if (!isOperationId(response['operationId']) || !isU64Hex(response['completedUnits'])) {
@@ -1434,7 +1476,10 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       throw new TypeError('invalid managed orphan cleanup response');
     }
     const fields = result as Record<string, unknown>;
-    requireExactKeys(fields, ['completed', 'deletedCheckpointCount', 'deletedHallOfFameCount', 'deletedStoredByteCount']);
+    requireExactKeys(fields, ['completed', 'deletedCheckpointCount', 'deletedHallOfFameCount', 'deletedStoredByteCount',
+      ...(Object.hasOwn(fields, 'deletedSavedBrainCount') ? ['deletedSavedBrainCount'] : [])]);
+    if (Object.hasOwn(fields, 'deletedSavedBrainCount') && (!isU64Hex(fields['deletedSavedBrainCount']) ||
+        fields['completed'] !== true || fields['deletedSavedBrainCount'] === '0000000000000000')) throw new TypeError('invalid saved original cleanup count');
     if (typeof fields['completed'] !== 'boolean' || !isU64Hex(fields['deletedCheckpointCount']) ||
         !isU64Hex(fields['deletedHallOfFameCount']) || !isU64Hex(fields['deletedStoredByteCount']) ||
         (!fields['completed'] && [fields['deletedCheckpointCount'], fields['deletedHallOfFameCount'],
@@ -1443,7 +1488,8 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
     }
     return { type: 'managedOrphansReclaimed', operationId: response['operationId'], result: {
       completed: fields['completed'], deletedCheckpointCount: fields['deletedCheckpointCount'],
-      deletedHallOfFameCount: fields['deletedHallOfFameCount'], deletedStoredByteCount: fields['deletedStoredByteCount']
+      deletedHallOfFameCount: fields['deletedHallOfFameCount'], deletedStoredByteCount: fields['deletedStoredByteCount'],
+      ...(isU64Hex(fields['deletedSavedBrainCount']) ? {deletedSavedBrainCount: fields['deletedSavedBrainCount']} : {})
     } };
   }
   if (response['type'] === 'managedStorageInspected') {

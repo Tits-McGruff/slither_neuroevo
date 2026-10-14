@@ -1008,7 +1008,7 @@ pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
 /// The 512 MiB envelope admits P3's roughly 461 MiB raw weights and bounds decoded
 /// allocation and codec work. Raising it requires remeasuring memory and aligning
 /// Node's candidate/final-file disk reserves; the retention budget is independent.
-fn production_checkpoint_limits() -> CheckpointLimits {
+pub(crate) fn production_checkpoint_limits() -> CheckpointLimits {
     CheckpointLimits {
         max_archive_bytes: 512 * MIB_U64,
         max_manifest_bytes: MIB,

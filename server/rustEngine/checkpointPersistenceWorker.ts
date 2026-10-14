@@ -1,3 +1,7 @@
+import { parseSavedBrainOperation } from './savedBrainProtocol.ts';
+import type { SavedBrainCatalogResult } from '../protocol.ts';
+import { SavedBrainCatalog } from './savedBrainCatalog.ts';
+import { createSavedBrainNativeCodec } from './savedBrainNativeCodec.ts';
 import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, type Dirent } from 'node:fs';
@@ -206,6 +210,8 @@ db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly || existingDatabaseKind === 'legacy') initializeSchema(db);
 initializeGraphPresetSchema(db);
 initializeHallOfFameWeightsSchema(db);
+/** Explicit library shares the metadata connection and immutable HoF weight store. */
+const savedBrainCatalog = new SavedBrainCatalog(db, managedRootPath, createSavedBrainNativeCodec());
 initializeImportableHistorySchema(db);
 initializeRecoverySchema(db);
 initializeRetentionSchema(db);
@@ -932,14 +938,16 @@ function assertStoredHallOfFameWeights(descriptor: ManagedHallOfFameWeightsDescr
 /** Remove immutable winner objects after no compact Hall-of-Fame row retains them. */
 function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: bigint } {
   const result = { files: 0, storedBytes: 0n };
-  if (activeExportLease || activeHallOfFameLease) return result;
+  if (activeExportLease || activeHallOfFameLease || savedBrainCatalog.hasLeases) return result;
   const nextPage = db.prepare(`SELECT logical_sha256, relative_filename, encoding,
     stored_byte_count_hex, decoded_byte_count_hex, weight_count_hex
     FROM rust_hall_of_fame_weights_v1 AS weights
     WHERE logical_sha256 > ? AND NOT EXISTS (
       SELECT 1 FROM rust_hall_of_fame_v1 AS hall
       WHERE hall.weights_sha256 = weights.logical_sha256
-    ) ORDER BY logical_sha256 LIMIT 64`);
+    ) AND NOT EXISTS (SELECT 1 FROM rust_saved_brains_v1 AS brain
+      WHERE brain.weights_sha256 = weights.logical_sha256)
+    ORDER BY logical_sha256 LIMIT 64`);
   type UnreferencedWeightsRow = {
     logical_sha256: string;
     relative_filename: string;
@@ -982,7 +990,8 @@ function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: b
       db.prepare(`DELETE FROM rust_hall_of_fame_weights_v1
         WHERE logical_sha256 = ? AND NOT EXISTS (
           SELECT 1 FROM rust_hall_of_fame_v1 WHERE weights_sha256 = ?
-        )`).run(row.logical_sha256, row.logical_sha256);
+        ) AND NOT EXISTS (SELECT 1 FROM rust_saved_brains_v1 WHERE weights_sha256 = ?)
+        `).run(row.logical_sha256, row.logical_sha256, row.logical_sha256);
       visited++;
       if (visited % 64 === 0) advancePersistenceProgress();
     }
@@ -999,10 +1008,11 @@ function scavengeUnreferencedManagedFiles(): {
   completed: boolean;
   checkpointFiles: number;
   hallOfFameFiles: number;
+  savedBrainFiles: number;
   storedBytes: bigint;
 } {
-  if (activeExportLease || activeHallOfFameLease) {
-    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+  if (activeExportLease || activeHallOfFameLease || savedBrainCatalog.hasLeases) {
+    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, savedBrainFiles: 0, storedBytes: 0n };
   }
   const referenced = new Set<string>();
   try {
@@ -1044,6 +1054,8 @@ function scavengeUnreferencedManagedFiles(): {
       weights.weight_count_hex FROM rust_hall_of_fame_weights_v1 AS weights
       WHERE EXISTS (SELECT 1 FROM rust_hall_of_fame_v1 AS hall
         WHERE hall.weights_sha256 = weights.logical_sha256)
+        OR EXISTS (SELECT 1 FROM rust_saved_brains_v1 AS brain
+          WHERE brain.weights_sha256 = weights.logical_sha256)
       ORDER BY weights.rowid`).all() as Array<{
         logical_sha256: string;
         relative_filename: string;
@@ -1052,6 +1064,9 @@ function scavengeUnreferencedManagedFiles(): {
         decoded_byte_count_hex: string;
         weight_count_hex: string;
       }>;
+    for (const original of savedBrainCatalog.referencedOriginals()) {
+      referenced.add(original.relativeFilename);
+    }
     let verifiedWeights = 0;
     for (const row of weightRows) {
       if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
@@ -1076,7 +1091,7 @@ function scavengeUnreferencedManagedFiles(): {
     }
   } catch {
     // Recovery and repair must remain available; malformed retained metadata disables deletion.
-    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, savedBrainFiles: 0, storedBytes: 0n };
   }
 
   const removedWeights = cleanupUnreferencedHallOfFameWeights();
@@ -1084,9 +1099,10 @@ function scavengeUnreferencedManagedFiles(): {
     completed: true,
     checkpointFiles: 0,
     hallOfFameFiles: removedWeights.files,
+    savedBrainFiles: 0,
     storedBytes: removedWeights.storedBytes
   };
-  const finalName = /^[0-9a-f]{64}\.(?<kind>checkpoint-v3|hof-weights-v1)$/u;
+  const finalName = /^[0-9a-f]{64}\.(?<kind>checkpoint-v3|hof-weights-v1|slither-brain)$/u;
   let scannedFiles = 0;
   for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
     scannedFiles++;
@@ -1100,6 +1116,7 @@ function scavengeUnreferencedManagedFiles(): {
     unlinkSync(path);
     result.storedBytes += metadata.size;
     if (match.groups?.['kind'] === 'checkpoint-v3') result.checkpointFiles++;
+    else if (match.groups?.['kind'] === 'slither-brain') result.savedBrainFiles++;
     else result.hallOfFameFiles++;
   }
   return result;
@@ -1367,10 +1384,11 @@ function scavengeStartupOrphansOnce(): void {
   if (startupOrphansScanned) return;
   const cleanup = scavengeUnreferencedManagedFiles();
   startupOrphansScanned = true;
-  if (cleanup.checkpointFiles > 0 || cleanup.hallOfFameFiles > 0) {
+  if (cleanup.checkpointFiles > 0 || cleanup.hallOfFameFiles > 0 || cleanup.savedBrainFiles > 0) {
     console.warn('[rust.persistence] removed unreferenced managed files', {
       checkpointFiles: cleanup.checkpointFiles,
       hallOfFameFiles: cleanup.hallOfFameFiles,
+      savedBrainFiles: cleanup.savedBrainFiles,
       storedBytes: cleanup.storedBytes.toString()
     });
   }
@@ -3032,7 +3050,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'reclaimManagedOrphans' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
       request['type'] === 'readBrowserHallOfFame' || request['type'] === 'selectHallOfFameEntry' ||
-      request['type'] === 'releaseHallOfFameEntry' || request['type'] === 'saveGraphPreset' ||
+      request['type'] === 'savedBrainCatalog' || request['type'] === 'releaseHallOfFameEntry' || request['type'] === 'saveGraphPreset' ||
       request['type'] === 'listGraphPresets' || request['type'] === 'loadGraphPreset') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
@@ -3095,6 +3113,7 @@ port.on('message', (message: unknown) => {
         completed: result.completed,
         deletedCheckpointCount: storageU64(BigInt(result.checkpointFiles), 'deleted checkpoint count'),
         deletedHallOfFameCount: storageU64(BigInt(result.hallOfFameFiles), 'deleted elite count'),
+        ...(result.savedBrainFiles > 0 ? { deletedSavedBrainCount: storageU64(BigInt(result.savedBrainFiles), 'deleted saved brain count') } : {}),
         deletedStoredByteCount: storageU64(result.storedBytes, 'deleted bytes')
       } });
       return;
@@ -3176,6 +3195,21 @@ port.on('message', (message: unknown) => {
         type: 'browserHallOfFameRead', operationId, runId,
         entries: readBrowserHallOfFame(runId, limit)
       });
+      return;
+    }
+    if (request['type'] === 'savedBrainCatalog') {
+      if (!operationId || Object.keys(request).length !== 3) throw new TypeError('invalid saved brain catalog envelope');
+      const operation = parseSavedBrainOperation(request['request']);
+      let result: SavedBrainCatalogResult;
+      switch (operation.action) {
+        case 'save': result = {action: 'save', record: savedBrainCatalog.save(operation.path, operation.name, operationId)}; break;
+        case 'read': result = {action: 'read', record: savedBrainCatalog.get(operation.brainId)}; break;
+        case 'list': result = {action: 'list', page: savedBrainCatalog.list(operation.after, operation.limit)}; break;
+        case 'delete': result = {action: 'delete', brainId: operation.brainId, deleted: savedBrainCatalog.delete(operation.brainId)}; cleanupUnreferencedHallOfFameWeights(); break;
+        case 'acquire': result = {action: 'acquire', record: savedBrainCatalog.acquire(operation.brainId, operation.leaseId)}; break;
+        case 'release': savedBrainCatalog.release(operation.leaseId); result = {action: 'release', leaseId: operation.leaseId}; cleanupUnreferencedHallOfFameWeights(); break;
+      }
+      post({type: 'savedBrainCatalogResult', operationId, result});
       return;
     }
     if (request['type'] === 'releaseHallOfFameEntry') {

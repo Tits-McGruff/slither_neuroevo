@@ -466,7 +466,19 @@ range and clears old pellet ownership. Cold rollback scratch is admitted before
 mutation; rejection restores body ranges, weights/origin, owners, allocators and
 world RNG. The replacement receives its first real control delivery immediately.
 All 715 release library tests and all-target Clippy pass for the reuse slice.
-Durable catalog/reference GC, archive association and library UI remain open.
+The saved-brain storage core now shares `ManagedNeuralWeightsDescriptor` and
+immutable objects beneath HoF, preserving older raw/compressed bytes when today's
+codec would choose differently. Rust publishes the original portable bytes and
+canonical graph/sensor/deployment/provenance metadata only after source and quota
+admission. The isolated persistence worker provides explicit save/read/list/delete
+and bounded export/spawn leases, with 100-record/2-GiB quotas and the existing disk
+reserve. Metadata digests and scalar bindings disable GC on corrupt references;
+shared GC counts both catalog and HoF consumers and retains deleted-but-leased
+objects. A production-addon/real-worker test covers restart, exact original bytes,
+both reference directions, lease deletion and interrupted original publication.
+All 719 release library tests, Clippy, type/lint/client build and focused storage
+checks pass. Browser/HTTP library controls, saved-record live deployment and
+optional archive association remain open; candidates still do not auto-save.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
