@@ -1132,10 +1132,11 @@ fn execute_running_authority_command(
             }
         }
         RunningAuthorityCommand::ResurrectHallOfFame {
+            entry_id,
             managed_directory,
             weights,
         } => running
-            .resurrect_hall_of_fame(std::path::Path::new(&managed_directory), &weights)
+            .resurrect_hall_of_fame(std::path::Path::new(&managed_directory), entry_id, &weights)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|(publication, effective_step)| RunningAuthorityEvent::HallOfFameResurrected {
                 command_sequence,

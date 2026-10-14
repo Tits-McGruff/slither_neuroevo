@@ -94,6 +94,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitHallOfFameResurrection(
     sequence: U64Hex,
     managedDirectory: string,
+    entryId: U64Hex,
     weights: ManagedHallOfFameWeightsDescriptor
   ): void;
   /** Queue a close without invalidating an already prepared step. */

@@ -829,6 +829,7 @@ impl RunningAuthorityLoop {
     pub(crate) fn resurrect_hall_of_fame(
         &mut self,
         managed_directory: &std::path::Path,
+        entry_id: u64,
         descriptor: &HallOfFameWeightsDescriptor,
     ) -> Result<(super::state::ResurrectionPublication, u64), String> {
         self.require_action_state(
@@ -848,9 +849,9 @@ impl RunningAuthorityLoop {
             descriptor,
         )
         .map_err(|error| error.to_string())?;
-        let publication = self
-            .authority
-            .resurrect_hall_of_fame(weights, self.work_limits)?;
+        let publication =
+            self.authority
+                .resurrect_hall_of_fame(entry_id, weights, self.work_limits)?;
         Ok((publication, effective_step))
     }
 

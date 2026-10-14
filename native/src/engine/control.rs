@@ -1447,6 +1447,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle,
                 owner: BrainOwner::PopulationSlot(u32::try_from(index).unwrap()),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: (0..plan.total_state_size())
                     .map(|state| (index * 5 + state + 1) as f32 / 100.0)

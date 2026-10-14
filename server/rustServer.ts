@@ -1071,6 +1071,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             owner.runtime.submitHallOfFameResurrection(
               sequence,
               owner.managedDirectory,
+              selected.entryId,
               selected.weights
             );
             admittedSequence = sequence;

@@ -1272,6 +1272,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle,
                 owner: BrainOwner::Entity(id),
+                retained_origin: None,
                 non_population_weights: Some(vec![index as f32].into_boxed_slice()),
                 recurrent: Vec::new().into_boxed_slice(),
             });
@@ -1292,6 +1293,7 @@ mod tests {
         let brains = vec![BrainRuntimeState {
             handle,
             owner: BrainOwner::PopulationSlot(0),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: Vec::new().into_boxed_slice(),
         }];

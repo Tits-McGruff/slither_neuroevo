@@ -4287,6 +4287,7 @@ fn assemble_candidate(
         brains[brain_index] = Some(BrainRuntimeState {
             handle: record.brain,
             owner: BrainOwner::PopulationSlot(record.slot),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: brain_recurrent,
         });
@@ -4340,6 +4341,7 @@ fn assemble_allocation_shell(
         brains[brain_index] = Some(BrainRuntimeState {
             handle: record.brain,
             owner: BrainOwner::PopulationSlot(record.slot),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: Box::new([]),
         });
@@ -5702,6 +5704,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle: brain,
                 owner: BrainOwner::PopulationSlot(slot as u32),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
             });

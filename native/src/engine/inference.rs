@@ -2583,6 +2583,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle,
                 owner: BrainOwner::PopulationSlot(u32::try_from(slot).unwrap()),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: (0..plan.total_state_size())
                     .map(|state_index| (slot * 7 + state_index) as f32 / 10_000.0)
@@ -2806,6 +2807,7 @@ mod tests {
         let mut brains = vec![BrainRuntimeState {
             handle,
             owner: BrainOwner::Entity(77_777),
+            retained_origin: None,
             non_population_weights: Some(
                 parity_weights(plan.total_parameters()).into_boxed_slice(),
             ),

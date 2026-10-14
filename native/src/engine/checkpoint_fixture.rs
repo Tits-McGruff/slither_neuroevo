@@ -453,6 +453,7 @@ fn fixture_population(graph: &GraphBundle) -> (Vec<PopulationGenome>, Vec<BrainR
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot as u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent,
         });
@@ -1033,6 +1034,7 @@ fn round_trip_population(
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot as u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         });

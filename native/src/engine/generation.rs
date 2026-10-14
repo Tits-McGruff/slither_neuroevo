@@ -920,6 +920,7 @@ fn prepare_generation_boundary_internal(
         brains.push(BrainRuntimeState {
             handle,
             owner: BrainOwner::PopulationSlot(next.slot),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: zeroed_box(graph.total_state_size, "zero recurrent state")?,
         });
@@ -1426,6 +1427,7 @@ mod tests {
             .map(|genome| BrainRuntimeState {
                 handle: genome.brain,
                 owner: BrainOwner::PopulationSlot(genome.slot),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: vec![0.25; graph.total_state_size].into_boxed_slice(),
             })

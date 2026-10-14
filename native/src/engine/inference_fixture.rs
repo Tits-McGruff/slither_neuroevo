@@ -716,6 +716,7 @@ fn build_fixture(
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot_u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: recurrent.into_boxed_slice(),
         });
