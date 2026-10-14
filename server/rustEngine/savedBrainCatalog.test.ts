@@ -97,8 +97,12 @@ it('deleted catalog rows keep leased originals and weights until the exact lease
 });
 
 it('enforces the record quota before publication and admits exact retries at the quota', () => {
-  const {catalog, published} = fixture();
-  for (let id = 1; id <= 100; id++) catalog.save(String(id), `brain ${id}`, id.toString(16).padStart(32, '0'));
+  const {catalog, published, db} = fixture();
+  // This quota fixture exercises every catalog admission, not 100 disk syncs.
+  // Nested catalog transactions still expose all preceding rows to the same connection.
+  db.transaction(() => {
+    for (let id = 1; id <= 100; id++) catalog.save(String(id), `brain ${id}`, id.toString(16).padStart(32, '0'));
+  })();
   expect(() => catalog.save('101', 'overflow', 'ff'.repeat(16))).toThrow(/record quota/);
   expect(published).toHaveLength(100);
   expect(catalog.save('1', 'retry', 'ab'.repeat(16)).brainId).toBe(descriptor(1).artifactSha256);

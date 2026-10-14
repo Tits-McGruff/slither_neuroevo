@@ -90,6 +90,19 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitStopTeacherCapture(sequence: U64Hex, captureEpoch: string): void;
   /** Transfer opaque complete objects through the separate bounded diagnostic queue. */
   drainTeacherChunks(maxChunks: number, maxOwnedBytes: number): TeacherCaptureDrain;
+  /** Deploy only a leased record matching the exact observed run/configuration. */
+  submitSavedBrainSpawn(sequence: U64Hex, managedDirectory: string, request: {
+    /** Full immutable portable source identity. */
+    brainId: string;
+    /** Run observed before lease preparation. */
+    expectedRunId: string;
+    /** Exact observed settings revision. */
+    expectedConfigRevision: U64Hex;
+    /** Process-local authority incarnation observed before lease preparation. */
+    expectedWorldEpoch: U64Hex;
+    /** Shared native-validated packed object. */
+    weights: ManagedHallOfFameWeightsDescriptor;
+  }): void;
   /** Decode and resurrect one worker-leased retained winner. */
   submitHallOfFameResurrection(
     sequence: U64Hex,
@@ -290,7 +303,7 @@ const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle
   'submitActivateShadow', 'submitStopShadow', 'getShadowMetrics',
   'submitStartTeacherCapture', 'submitStopTeacherCapture', 'drainTeacherChunks',
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitLiveSettings', 'submitFinishGeneration', 'submitEntitySelection', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitFinishGeneration', 'submitEntitySelection', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitSavedBrainSpawn', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'estimateImportDisk',

@@ -411,6 +411,8 @@ pub enum RunningAuthorityCommand {
     StopTeacherCapture {
         capture_epoch: [u8; 16],
     },
+    /// Deploy one exact saved record, independently of Hall-of-Fame winning status.
+    SpawnSavedBrain(Box<super::brain_library::SavedBrainSpawnRequest>),
     /// Restore one verified retained winner directly from its managed object.
     ResurrectHallOfFame {
         /// Exact retained winner identity from the leased SQLite record.
@@ -524,6 +526,8 @@ impl RunningAuthorityCommand {
                 EngineErrorCode::InvalidCommand,
                 "God Mode kill requires an exact snake ID",
             )),
+            Self::SpawnSavedBrain(request) => request.validate().map_err(|detail|
+                EngineError::new(EngineErrorCode::InvalidCommand, detail)),
             Self::ResurrectHallOfFame { entry_id: 0, .. } => Err(EngineError::new(
                 EngineErrorCode::InvalidCommand, "Hall-of-Fame entry ID must be nonzero",
             )),
@@ -646,6 +650,7 @@ impl RunningAuthorityCommand {
                 Ok(size_of::<super::state::EntitySelectionToken>())
             }
             Self::SetVisualization { .. } => Ok(0),
+            Self::SpawnSavedBrain(request) => Ok(request.owned_bytes()),
             Self::ResurrectHallOfFame {
                 managed_directory,
                 weights,
@@ -837,6 +842,12 @@ pub enum RunningAuthorityEvent {
         pellets_dropped: usize,
         effective_step: u64,
     },
+    /// A library brain became an ordinary retained neural owner.
+    SavedBrainSpawned {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        effective_step: u64,
+    },
     /// One retained winner became a live independently owned Rust snake.
     HallOfFameResurrected {
         command_sequence: u64,
@@ -980,7 +991,7 @@ impl RunningAuthorityEvent {
             Self::EntitySelected { .. } => 0,
             Self::GodModeMoved { .. } => 0,
             Self::GodModeKilled { .. } => 0,
-            Self::HallOfFameResurrected { .. } => 0,
+            Self::HallOfFameResurrected { .. } | Self::SavedBrainSpawned { .. } => 0,
             Self::VisualizationChanged { .. } => 0,
             Self::TeacherCaptureChanged { .. } | Self::ShadowChanged { .. } => 0,
             Self::GenerationTransitionPending { .. }

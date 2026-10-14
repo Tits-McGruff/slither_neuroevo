@@ -534,6 +534,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub god_mode_move: Option<BackgroundGodModeMove>,
     pub god_mode_kill: Option<BackgroundGodModeKill>,
     pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
+    pub saved_brain_spawn: Option<BackgroundHallOfFameResurrection>,
     pub visualization_enabled: Option<bool>,
     pub teacher_capture_epoch: Option<String>,
     pub teacher_capture_enabled: Option<bool>,
@@ -3685,6 +3686,18 @@ fn running_authority_event_to_napi(
                 effective_step: u64_hex(effective_step),
             });
         }
+        RunningAuthorityEvent::SavedBrainSpawned {
+            command_sequence,
+            frame_v1_id,
+            effective_step,
+        } => {
+            output.kind = "savedBrainSpawned".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.saved_brain_spawn = Some(BackgroundHallOfFameResurrection {
+                snake_id: frame_v1_id,
+                effective_step: u64_hex(effective_step),
+            });
+        }
         RunningAuthorityEvent::HallOfFameResurrected {
             command_sequence,
             frame_v1_id,
@@ -3979,6 +3992,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         god_mode_move: None,
         god_mode_kill: None,
         hall_of_fame_resurrection: None,
+        saved_brain_spawn: None,
         visualization_enabled: None,
         teacher_capture_epoch: None,
         teacher_capture_enabled: None,
