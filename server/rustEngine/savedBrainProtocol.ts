@@ -22,7 +22,7 @@ function object(value: unknown, keys: readonly string[]): Record<string, unknown
 export function parseSavedBrainOperation(value: unknown): SavedBrainCatalogOperation {
   const action = (value as Record<string, unknown> | null)?.['action'];
   const fields = action === 'save' ? ['action', 'path', 'name'] : action === 'list' ? ['action', 'after', 'limit'] :
-    action === 'acquire' ? ['action', 'brainId', 'leaseId'] : action === 'release' ? ['action', 'leaseId'] :
+    action === 'acquireArchive' ? ['action', 'brainIds', 'leaseId'] : action === 'acquire' ? ['action', 'brainId', 'leaseId'] : action === 'release' ? ['action', 'leaseId'] :
       action === 'read' || action === 'delete' ? ['action', 'brainId'] : null;
   if (!fields) throw new TypeError('invalid saved brain operation');
   const row = object(value, fields);
@@ -30,6 +30,8 @@ export function parseSavedBrainOperation(value: unknown): SavedBrainCatalogOpera
       typeof row['name'] !== 'string' || !row['name'].trim() || row['name'].includes('\0') || Buffer.byteLength(row['name'].trim()) > 256)) throw new TypeError('invalid saved brain save');
   if (Object.hasOwn(row, 'brainId') && (typeof row['brainId'] !== 'string' || !SHA.test(row['brainId']))) throw new TypeError('invalid saved brain identity');
   if (Object.hasOwn(row, 'leaseId') && (typeof row['leaseId'] !== 'string' || !OP.test(row['leaseId']))) throw new TypeError('invalid saved brain lease');
+  if (action === 'acquireArchive' && (!Array.isArray(row['brainIds']) || row['brainIds'].length < 1 || row['brainIds'].length > 100 ||
+      row['brainIds'].some((id, index, ids) => typeof id !== 'string' || !SHA.test(id) || (index > 0 && id <= ids[index - 1])))) throw new TypeError('invalid saved brain archive selection');
   if (action === 'list' && ((row['after'] !== null && (typeof row['after'] !== 'string' || !SHA.test(row['after']))) ||
       !Number.isInteger(row['limit']) || (row['limit'] as number) < 1 || (row['limit'] as number) > 25)) throw new TypeError('invalid saved brain page');
   return row as SavedBrainCatalogOperation;
@@ -68,6 +70,14 @@ export function parseSavedBrainResult(value: unknown): SavedBrainCatalogResult {
     const row = object(value, ['action','leaseId']);
     if (typeof row['leaseId'] !== 'string' || !OP.test(row['leaseId'])) throw new TypeError('invalid saved brain lease release');
     return {action, leaseId: row['leaseId']};
+  }
+  if (action === 'acquireArchive') {
+    const row = object(value, ['action','entries']);
+    if (!Array.isArray(row['entries']) || row['entries'].length < 1 || row['entries'].length > 100) throw new TypeError('invalid saved brain archive entries');
+    const entries = row['entries'].map(summary);
+    if (entries.some((entry, index) => index > 0 && entry.brainId <= entries[index - 1]!.brainId) ||
+        Buffer.byteLength(JSON.stringify(entries)) > 256 * 1024) throw new TypeError('invalid saved brain archive chronology or metadata size');
+    return {action, entries};
   }
   if (action === 'list') {
     const row = object(value, ['action','page']);

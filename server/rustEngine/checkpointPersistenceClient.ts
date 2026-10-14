@@ -770,6 +770,8 @@ export class CheckpointPersistenceClient {
             ('record' in result && result.record && result.record.brainId !== request.brainId))) throw new Error('mismatched saved brain identity');
         if (request.action === 'list' && result.action === 'list' && (result.page.entries.length > request.limit ||
             result.page.entries.some(entry => request.after !== null && entry.brainId <= request.after))) throw new Error('mismatched saved brain page');
+        if (request.action === 'acquireArchive' && result.action === 'acquireArchive' &&
+            (result.entries.length !== request.brainIds.length || result.entries.some((entry, index) => entry.brainId !== request.brainIds[index]))) throw new Error('mismatched saved brain archive selection');
         if (request.action === 'release' && result.action === 'release' && request.leaseId !== result.leaseId) throw new Error('mismatched saved brain lease');
         this.savedBrains.delete(response.operationId);
         pending.resolve(result);

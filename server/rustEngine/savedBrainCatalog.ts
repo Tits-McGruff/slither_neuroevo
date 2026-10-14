@@ -81,6 +81,9 @@ export class SavedBrainCatalog {
   /** At most sixteen cold export/spawn leases; deleted rows retain their live objects. */
   private readonly leases = new Map<string, SavedBrainRecordV1>();
 
+  /** One archive may pin up to 100 compact descriptors without retaining full graph metadata. */
+  private readonly archiveLeases = new Map<string, SavedBrainSummaryV1[]>();
+
   /** Add the catalog without rewriting any existing HoF row or object. */
   constructor(db: Database.Database, directory: string, codec: SavedBrainNativeCodec, storedByteLimitForTesting = MAX_STORED_BYTES) {
     if (storedByteLimitForTesting < 1n || storedByteLimitForTesting > MAX_STORED_BYTES) throw new RangeError('invalid saved brain quota');
@@ -100,7 +103,7 @@ export class SavedBrainCatalog {
   }
 
   /** Whether GC must defer deletion for a cold library export or spawn. */
-  get hasLeases(): boolean { return this.leases.size !== 0; }
+  get hasLeases(): boolean { return this.leases.size !== 0 || this.archiveLeases.size !== 0; }
 
   /** Save only after native admission; exact retries preserve the original durable record. */
   save(path: string, name: string, operationId: string): SavedBrainRecordV1 {
@@ -173,12 +176,13 @@ export class SavedBrainCatalog {
   /** Pin immutable objects for an explicit cold export/spawn, independently of row deletion. */
   acquire(brainId: string, operationId: string): SavedBrainRecordV1 {
     if (!/^[0-9a-f]{32}$/u.test(operationId)) throw new TypeError('invalid saved brain lease');
+    if (this.archiveLeases.has(operationId)) throw new Error('saved brain lease identity conflict');
     const previous = this.leases.get(operationId);
     if (previous) {
       if (previous.brainId !== brainId) throw new Error('saved brain lease identity conflict');
       return previous;
     }
-    if (this.leases.size >= 16) throw new Error('saved brain lease quota exceeded');
+    if (this.leases.size + this.archiveLeases.size >= 16) throw new Error('saved brain lease quota exceeded');
     const record = this.get(brainId);
     if (!record) throw new Error('saved brain does not exist');
     this.verifyObjects(record);
@@ -187,8 +191,38 @@ export class SavedBrainCatalog {
     return record;
   }
 
+  /** Atomically select an explicit archive subset; every portable source is cold-validated first. */
+  acquireArchive(brainIds: readonly string[], operationId: string): SavedBrainSummaryV1[] {
+    if (!/^[0-9a-f]{32}$/u.test(operationId) || !Array.isArray(brainIds) || brainIds.length < 1 || brainIds.length > MAX_RECORDS ||
+        brainIds.some((id, index) => typeof id !== 'string' || !SHA.test(id) || (index > 0 && id <= brainIds[index - 1]!))) throw new TypeError('invalid saved brain archive selection');
+    if (this.leases.has(operationId)) throw new Error('saved brain lease identity conflict');
+    const previous = this.archiveLeases.get(operationId);
+    if (previous) {
+      if (previous.length !== brainIds.length || previous.some((entry, index) => entry.brainId !== brainIds[index])) throw new Error('saved brain archive lease identity conflict');
+      return previous;
+    }
+    if (this.archiveLeases.size !== 0 || this.leases.size >= 16) throw new Error('saved brain archive lease quota exceeded');
+    // The worker serializes catalog mutations. A failed final source cannot leave
+    // an earlier partial lease or make a deleted row look unreferenced to GC.
+    const entries = brainIds.map(brainId => {
+      const record = this.get(brainId);
+      if (!record) throw new Error('saved brain not found');
+      this.verifyObjects(record); this.verifyOriginal(record);
+      return this.summary(record);
+    });
+    if (Buffer.byteLength(JSON.stringify(entries)) > 256 * 1024) throw new Error('saved brain archive metadata quota exceeded');
+    this.archiveLeases.set(operationId, entries);
+    return entries;
+  }
+
   /** Release one exact lease; a deleted portable original can then be reclaimed. */
   release(operationId: string): void {
+    const archived = this.archiveLeases.get(operationId);
+    if (archived) {
+      this.archiveLeases.delete(operationId);
+      for (const entry of archived) this.cleanupOriginal(entry);
+      return;
+    }
     const record = this.leases.get(operationId);
     if (!record) throw new Error('saved brain lease is not active');
     this.leases.delete(operationId);
@@ -251,8 +285,9 @@ export class SavedBrainCatalog {
   }
 
   /** Reclaim only unreferenced originals; the shared worker GC owns packed weight files. */
-  private cleanupOriginal(record: SavedBrainRecordV1): void {
-    if (this.get(record.brainId) || [...this.leases.values()].some(lease => lease.brainId === record.brainId)) return;
+  private cleanupOriginal(record: Pick<SavedBrainSummaryV1, 'brainId' | 'artifactRelativeFilename' | 'artifactByteCount'>): void {
+    if (this.get(record.brainId) || [...this.leases.values()].some(lease => lease.brainId === record.brainId) ||
+        [...this.archiveLeases.values()].some(entries => entries.some(entry => entry.brainId === record.brainId))) return;
     try { this.verifyFile(record.artifactRelativeFilename, BigInt(`0x${record.artifactByteCount}`)); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
     unlinkSync(join(this.root, record.artifactRelativeFilename));
@@ -266,6 +301,10 @@ export class SavedBrainCatalog {
     for (const lease of this.leases.values()) {
       artifacts.set(lease.brainId, BigInt(`0x${lease.artifactByteCount}`));
       weights.set(lease.weights.logicalSha256, BigInt(`0x${lease.weights.storedByteCount}`));
+    }
+    for (const entries of this.archiveLeases.values()) for (const entry of entries) {
+      artifacts.set(entry.brainId, BigInt(`0x${entry.artifactByteCount}`));
+      weights.set(entry.weights.logicalSha256, BigInt(`0x${entry.weights.storedByteCount}`));
     }
     const bytes = [...artifacts.values(), ...weights.values()].reduce((sum, value) => sum + value, 0n);
     if (bytes > this.storedByteLimit) throw new Error('saved brain stored-byte quota is invalid');

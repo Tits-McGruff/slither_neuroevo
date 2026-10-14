@@ -512,7 +512,17 @@ The UI slice passes 401 unit cases (three existing skips), 67 component cases,
 22 main UI smoke cases and two actual one/three-worker HTTP cases, plus type,
 lint and client build. The preceding full HTTP/native evidence remains applicable
 to unchanged engine and persistence paths.
-Optional archive association and integrated qualification remain open.
+Archive selection now has an atomic private batch lease for up to 100 explicitly
+selected originals. The lease returns at most 256 KiB of compact metadata, shares
+the existing 16-lease admission and pins deleted originals/shared weight objects
+through export preparation. Native source validation precedes all-or-nothing
+selection; worker replies bind the exact requested identities. Tests cover a full
+100-record selection at the physical-byte quota, partial failure, retries and
+heterogeneous real native sources overlapping an ordinary single-brain lease.
+The batch slice passes 97 focused persistence/native cases (one existing skip),
+401 unit cases (three existing skips), 67 component cases, type/lint and client
+build. The archive roles, opt-in selection/export/import wiring and integrated
+qualification remain open; ordinary archive versions/default exports are unchanged.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

@@ -3207,6 +3207,7 @@ port.on('message', (message: unknown) => {
         case 'list': result = {action: 'list', page: savedBrainCatalog.list(operation.after, operation.limit)}; break;
         case 'delete': result = {action: 'delete', brainId: operation.brainId, deleted: savedBrainCatalog.delete(operation.brainId)}; cleanupUnreferencedHallOfFameWeights(); break;
         case 'acquire': result = {action: 'acquire', record: savedBrainCatalog.acquire(operation.brainId, operation.leaseId)}; break;
+        case 'acquireArchive': result = {action: 'acquireArchive', entries: savedBrainCatalog.acquireArchive(operation.brainIds, operation.leaseId)}; break;
         case 'release': savedBrainCatalog.release(operation.leaseId); result = {action: 'release', leaseId: operation.leaseId}; cleanupUnreferencedHallOfFameWeights(); break;
       }
       post({type: 'savedBrainCatalogResult', operationId, result});

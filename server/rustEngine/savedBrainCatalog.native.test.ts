@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
 
@@ -67,4 +67,48 @@ it('saves native-admitted originals across restart and preserves both HoF/librar
     await client.close();
     rmSync(root, {recursive: true, force: true});
   }
+}, 15000);
+
+/** Remove only the exact disposable archive-lease fixture root after its worker closes. */
+function cleanupArchiveFixture(root: string): void {
+  if (dirname(resolve(root)) !== resolve(tmpdir()) || !root.includes('slither-library-archive-native-')) throw new Error('unsafe archive fixture cleanup');
+  rmSync(root, {recursive: true, force: true});
+}
+
+/** Real heterogeneous portable sources prove archive batch pins participate in shared GC. */
+it('pins heterogeneous native originals in one archive lease through catalog deletion', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'slither-library-archive-native-'));
+  const managed = join(root, 'managed'); mkdirSync(managed);
+  const client = new CheckpointPersistenceClient({databasePath: join(root, 'metadata.sqlite'), managedRootPath: managed});
+  try {
+    const records = [];
+    for (const filename of ['portable-brain-v1.slither-brain', 'portable-dense-basic8-v1.slither-brain']) {
+      const saved = await client.savedBrainCatalog({action: 'save', path: resolve('native/fixtures', filename), name: filename});
+      if (saved.action !== 'save') throw new Error('save response mismatch');
+      records.push(saved.record);
+    }
+    records.sort((a, b) => a.brainId.localeCompare(b.brainId));
+    const brainIds = records.map(record => record.brainId); const leaseId = 'ef'.repeat(16);
+    const lease = await client.savedBrainCatalog({action: 'acquireArchive', brainIds, leaseId});
+    expect(lease).toMatchObject({action: 'acquireArchive', entries: brainIds.map(brainId => ({brainId}))});
+    expect(await client.savedBrainCatalog({action: 'acquireArchive', brainIds, leaseId})).toEqual(lease);
+    const singleLease = 'de'.repeat(16);
+    await client.savedBrainCatalog({action: 'acquire', brainId: brainIds[0]!, leaseId: singleLease});
+    for (const brainId of brainIds) await client.savedBrainCatalog({action: 'delete', brainId});
+    expect((await client.reclaimManagedOrphans()).completed).toBe(false);
+    for (const record of records) {
+      expect(existsSync(join(managed, record.artifactRelativeFilename))).toBe(true);
+      expect(existsSync(join(managed, record.weights.relativeFilename))).toBe(true);
+    }
+    await client.savedBrainCatalog({action: 'release', leaseId});
+    expect((await client.reclaimManagedOrphans()).completed).toBe(false);
+    expect(existsSync(join(managed, records[0]!.artifactRelativeFilename))).toBe(true);
+    expect(existsSync(join(managed, records[1]!.artifactRelativeFilename))).toBe(false);
+    await client.savedBrainCatalog({action: 'release', leaseId: singleLease});
+    expect((await client.reclaimManagedOrphans()).completed).toBe(true);
+    for (const record of records) {
+      expect(existsSync(join(managed, record.artifactRelativeFilename))).toBe(false);
+      expect(existsSync(join(managed, record.weights.relativeFilename))).toBe(false);
+    }
+  } finally { await client.close(); cleanupArchiveFixture(root); }
 }, 15000);
