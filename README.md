@@ -22,7 +22,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 - [Home-LAN access](#home-lan-access)
 - [Controls](#controls) and [joining a game](#join-and-spectate)
 - [Slider guide](#slider-guide) and [brain graph editor](#brain-graph-editor)
-- [Import and export](#import-and-export)
+- [Import and export](#import-and-export) and [Brain Library](#brain-library)
 - [Preset recipes](#preset-recipes-qa-friendly)
 - [Test suites](#test-suites) and [troubleshooting](#troubleshooting)
 
@@ -943,6 +943,30 @@ Use GRU for smoother, more deliberate behavior.
 - GRU mutation rate: 0.01–0.03
 - GRU mutation std: 0.12–0.25
 - Brain control dt: 0.010–0.020
+
+## Brain Library
+
+The **Brain Library** tab appears when the connected server supports saved brains.
+It stores explicit saved models separately from Hall of Fame champions.
+
+- Enter a name and choose an original `.slither-brain` file, then click **Import file**.
+- To retain a trainer candidate, paste its complete artifact ID and click **Save candidate**.
+  Candidate upload alone does not save it permanently.
+- Use **Details** for graph/sensor/cadence compatibility, source provenance, teacher
+  information and recorded validation metrics. A matching input count does not
+  prove matching sensor meanings. Source configuration differences can change gameplay.
+- **Spawn** asks Rust to deploy a compatible brain and follows it after confirmation.
+  The active graph, structural sensors and neural cadence must match. Each spawn
+  starts with zero recurrent state; the UI does not change settings to make a model fit.
+- **Export** downloads the original self-contained file. **Delete** removes library
+  membership; snakes already running keep their owned weights and provenance.
+
+A timeout or lost reply exposes **Retry spawn**, which checks the original request
+instead of creating another snake. A confirmed rejection clears that pending request.
+Dismissing an uncertain request does not cancel any spawn already admitted by Rust.
+The initial library quota is 100 records and 2 GiB of unique stored model objects.
+Checkpoint archives do not yet include associated saved-library records; export
+needed brains separately.
 
 ## Visualizer and Hall of Fame
 

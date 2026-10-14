@@ -862,3 +862,10 @@ summary {
   border-color: rgba(79, 206, 255, 0.6);
   background: rgba(79, 206, 255, 0.08);
 }
+
+/* Cold library actions never add per-frame rendering work. */
+.brain-library-item { margin: 10px 0; padding: 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; }
+.brain-library-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#brainLibraryDetails { overflow-wrap: anywhere; }
+#brainLibraryDetails pre { white-space: pre-wrap; font-size: 11px; max-height: 320px; overflow: auto; }
+#brainLibraryStatus.error { color: #ff9c9c; }

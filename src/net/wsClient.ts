@@ -64,6 +64,8 @@ export interface WelcomeMsg {
     checkpointPinning: boolean;
     /** Whether generation-scoped manual completion is available. */
     finishGeneration?: boolean;
+    /** Whether explicit saved-brain library controls are available. */
+    savedBrainLibrary?: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
     /** Whether the selected archive can be uploaded unchanged. */

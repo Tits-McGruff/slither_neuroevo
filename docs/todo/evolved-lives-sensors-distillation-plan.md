@@ -497,7 +497,22 @@ Actual one/three-worker HTTP tests cover byte-identical export/import, explicit
 save, scope/retry controls, same-size corruption and continued live simulation.
 The HTTP checkpoint passes type/lint/client build and all 826 JavaScript tests
 (18 existing skips); Rust validation reuses the unchanged native checkpoint.
-Browser library controls and optional archive association remain open.
+The capability-gated browser library now supports bounded pagination, explicit
+candidate save and original-File import, direct export, delete, provenance details
+and scoped spawn. It compares applied graph descriptions/sensor/cadence facts separately from
+editor drafts, reports source-configuration differences and never coerces settings.
+Graph description comparisons are presentation only; the editor's legacy key is
+never compared to Rust's canonical compiled key. Rust owns exact admission.
+Uncertain replies retain their exact request body; known rejections clear it.
+Connection revisions and fresh native scope prevent stale confirmations from
+following a snake in another world. Metadata is rendered as text and only user
+actions fetch catalog/details; no animation-frame polling was added. Browser
+verification uses an isolated native/Vite instance and synthetic portable fixture.
+The UI slice passes 401 unit cases (three existing skips), 67 component cases,
+22 main UI smoke cases and two actual one/three-worker HTTP cases, plus type,
+lint and client build. The preceding full HTTP/native evidence remains applicable
+to unchanged engine and persistence paths.
+Optional archive association and integrated qualification remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
