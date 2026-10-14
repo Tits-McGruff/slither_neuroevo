@@ -583,7 +583,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       server = await startRustServer(config);
       const url = `http://127.0.0.1:${server.port}`;
       const before = await (await fetch(`${url}/api/health`)).json() as Record<string, unknown>;
-      for (const path of ['/api/export/latest', '/api/import/archive', '/api/checkpoints/current/pin', '/api/graph-presets']) {
+      for (const path of ['/api/export/latest', '/api/import/archive', '/api/checkpoints/current/pin', '/api/graph-presets', '/api/distillation/v1/library']) {
         const response = await fetch(`${url}${path}`, { method: path.includes('export') ? 'GET' : 'POST',
           headers: { Origin: 'http://evil.test', 'Content-Type': 'text/plain' } });
         expect(response.status).toBe(403);
@@ -609,6 +609,10 @@ describeNetworkSuite('Rust server real sockets', () => {
           rejoinToken: peer.rejoinToken }));
         await until(peer, () => peer.frames > 0);
       }
+      const catalog = await fetch(`${url}/api/distillation/v1/library`, {headers: {Origin: 'http://localhost:5173'}});
+      expect(catalog.status).toBe(200);
+      expect(await catalog.json()).toMatchObject({schemaVersion: 1, processEpoch: expect.stringMatching(/^[0-9a-f]{32}$/u),
+        scope: {expectedRunId: before['runId']}, page: {entries: [], next: null}});
       const after = await (await fetch(`${url}/api/health`, { headers: { Origin: 'http://localhost:5173' } })).json() as Record<string, unknown>;
       expect(after['runId']).toBe(before['runId']);
       expect(after['configHash']).toBe(before['configHash']);

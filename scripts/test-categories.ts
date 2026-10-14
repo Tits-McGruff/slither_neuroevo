@@ -26,6 +26,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/rustEngine/backgroundFrames.test.ts',
     'server/rustEngine/controllerDelivery.test.ts',
     'server/rustEngine/commandAdmission.test.ts',
+    'server/rustEngine/savedBrainLibrary.test.ts',
     'server/rustEngine/checkpointRetention.test.ts',
     'server/rustEngine/diskAdmission.test.ts',
     'server/rustEngine/distillationShadows.test.ts',

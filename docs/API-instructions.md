@@ -1039,3 +1039,68 @@ are exact hexadecimal words. `completedStep` includes held-control publications;
 `lastSampleStep` identifies the actual delivery behind `rawOutputs`. Inference
 errors disable only the affected slot. Capture closure or a changed contract
 ends its diagnostic segment. These summaries contain no observation or weight bytes.
+
+
+## Saved-brain library v1
+
+Library routes use the ordinary production HTTP origin admission and the same
+`/api/distillation/v1/` namespace. Candidates remain transient until an explicit
+save. The library admits 100 retained records and 2 GiB of unique portable/shared
+weight objects, with the existing operating disk reserve. Catalog pages omit full
+graphs; individual records include native-built graph, sensor, cadence and source
+provenance metadata. Numeric weights remain opaque portable/native objects.
+
+| Route | Contract |
+|---|---|
+| `GET /library?after=<sha256>&limit=<1..25>` | `schemaVersion`, `processEpoch`, `deploymentSequence`, current `scope`, and paginated `page`; omit `after` for the first page |
+| `GET /library/<sha256>` | One complete saved metadata record |
+| `POST /library/<candidate-sha256>/save` | Exact JSON `{ "name": "display name" }`; snapshot the selected candidate and retain its original portable bytes |
+| `POST /library/import?name=<display-name>` | Original `.slither-brain` bytes with `application/octet-stream` and exact Content-Length; return the explicitly saved record |
+| `DELETE /library/<sha256>` | Delete catalog membership and return `{brainId, deleted}`; live native brains and leased exports remain valid |
+| `GET /library/<sha256>/export` | Direct self-contained `.slither-brain` attachment, original bytes, complete-file ETag; no model reconstruction by the client |
+| `POST /library/<sha256>/spawn` | Exact scoped request below; return a confirmed native publication receipt |
+
+Imports preserve the original file and its embedded provenance. Display names
+are nonempty trimmed UTF-8 text of at most 256 bytes. Binary ingress is bounded to
+one concurrent upload, 64 MiB and 30 seconds; candidate upload and library import
+share that ingress owner. Library save/export/deployment preparation is separately
+bounded to one operation. Native admission rejects malformed graph/layout/digests,
+nonfinite weights and corrupted managed originals before deployment or export.
+No HTTP request accepts a filesystem path. Raw candidate artifact downloads remain
+unavailable; export requires explicitly saved library membership.
+
+Refresh `GET /library` before a new deployment. Use its `scope`, process identity
+and deployment cursor in this exact request:
+
+```json
+{
+  "requestId": "<32 lowercase nonzero hex digits>",
+  "expectedProcessEpoch": "<processEpoch from GET /library>",
+  "expectedDeploymentSequence": "<deploymentSequence from GET /library>",
+  "expectedRunId": "<scope.expectedRunId>",
+  "expectedConfigRevision": "<scope.expectedConfigRevision: 16 lowercase nonzero hex digits>",
+  "expectedWorldEpoch": "<scope.expectedWorldEpoch: 16 lowercase nonzero hex digits>"
+}
+```
+
+A new explicit deployment uses a new request ID. Exact lost-reply retries return
+the same confirmed receipt; changed fields reject. The coordinator retains at most
+64 outcomes. The deployment cursor prevents an older evicted request from spawning
+again. A process restart changes `processEpoch`; refresh and make an explicit new
+request instead of treating a previous ambiguous outcome as a new deployment.
+
+The receipt carries the request fields, `schemaVersion: 1`, `brainId`, global
+`commandSequence`, frame-v1 `snakeId` and hexadecimal `effectiveStep`. Rust requires
+the exact active graph, structural sensor contract and neural cadence. Same-width
+different sensor meanings reject. Other numeric environment differences remain
+provenance for gameplay evaluation. Deployment uses ordinary retained spawn:
+zero recurrent state, first-action due, safe placement and atomic capacity/RNG/
+identity publication. Saved brains have retained provenance and do not become
+Hall-of-Fame winners.
+
+The HTTP wait ends after 30 seconds. A timeout keeps the exact admitted command and
+file lease pending until the actual native result arrives; retry the same body to
+retrieve that result. It does not cancel or duplicate a spawn. World replacement,
+archive work and physical cleanup exclude active library file consumers. Shutdown
+joins Rust before releasing files for an unknown native outcome. Deleting catalog
+membership cannot revoke weights/origin already owned by a live Rust brain.

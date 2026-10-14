@@ -830,3 +830,37 @@ export type SavedBrainCatalogResult =
   | {action: 'list'; page: SavedBrainPageV1}
   | {action: 'delete'; brainId: string; deleted: boolean}
   | {action: 'release'; leaseId: string};
+
+/** Exact observed authority scope required by an explicit saved-brain deployment. */
+export interface SavedBrainDeploymentScopeV1 {
+  /** Authoritative current run. */
+  expectedRunId: string;
+  /** Full-width settings revision. */
+  expectedConfigRevision: string;
+  /** Process-local native world incarnation, including same-run imports. */
+  expectedWorldEpoch: string;
+}
+
+/** Retried requests bind one immutable brain and process-local coordinator identity. */
+export interface SavedBrainSpawnRequestV1 extends SavedBrainDeploymentScopeV1 {
+  /** Last observed deployment outcome; prevents replay after bounded receipt eviction. */
+  expectedDeploymentSequence: string;
+  /** Caller-generated unique 128-bit request identity. */
+  requestId: string;
+  /** Refresh library metadata after a server restart before requesting another spawn. */
+  expectedProcessEpoch: string;
+}
+
+/** Confirmed native deployment, distinct from Hall-of-Fame winning status. */
+export interface SavedBrainSpawnReceiptV1 extends SavedBrainSpawnRequestV1 {
+  /** Frozen protocol revision. */
+  schemaVersion: 1;
+  /** Complete immutable portable artifact identity. */
+  brainId: string;
+  /** Globally ordered admitted native command. */
+  commandSequence: string;
+  /** Exactly representable frame-v1 snake identity. */
+  snakeId: number;
+  /** First complete fixed step observing the retained owner. */
+  effectiveStep: string;
+}

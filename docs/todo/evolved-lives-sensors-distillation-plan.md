@@ -487,7 +487,17 @@ width Basic B20/Motion B8 sensor rejection, graph/cadence/stale-scope rejection,
 corrupt or oversized shared objects, and actual one/three-worker addon deployment.
 The deployment checkpoint passes all 722 release library tests, all-target Clippy,
 type/lint/client build and 820 JavaScript tests (18 existing skips).
-Browser/HTTP library controls and optional archive association remain open.
+HTTP library controls now provide explicit candidate save, standalone portable
+import/export, paginated metadata, deletion and scoped native deployment. Native
+cold admission validates managed originals before export or an exact save retry.
+Timeouts retain pending command leases; process identity, a deployment cursor and
+bounded receipts prevent duplicate spawns after lost replies or receipt eviction.
+Archive/world replacement gates and shutdown preserve live file consumers.
+Actual one/three-worker HTTP tests cover byte-identical export/import, explicit
+save, scope/retry controls, same-size corruption and continued live simulation.
+The HTTP checkpoint passes type/lint/client build and all 826 JavaScript tests
+(18 existing skips); Rust validation reuses the unchanged native checkpoint.
+Browser library controls and optional archive association remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

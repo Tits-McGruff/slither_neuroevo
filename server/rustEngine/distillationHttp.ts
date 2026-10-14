@@ -1,3 +1,4 @@
+import type { SavedBrainLibrary } from './savedBrainLibrary.ts';
 import type { DistillationShadows } from './distillationShadows.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES } from '../../src/protocol/brainArtifacts.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -20,13 +21,14 @@ export class DistillationHttpRouter {
   /** Retain download buffers until response completion/cancellation. */
   private downloads = 0;
 
-  /** One candidate upload owns bounded request bytes at a time. */
+  /** One portable artifact upload owns bounded request bytes at a time. */
   private candidateUploads = 0;
 
   /** Keep filesystem/database work in the separate asynchronous worker interface. */
   constructor(
     private readonly spool: DistillationSpoolClient,
-    private readonly control?: DistillationCaptureControl
+    private readonly control?: DistillationCaptureControl,
+    private readonly library?: SavedBrainLibrary
   ) {}
 
   /** Handle only the dedicated namespace; unknown routes never fall through to game APIs. */
@@ -36,8 +38,8 @@ export class DistillationHttpRouter {
       if (response.destroyed || response.writableEnded) return;
       if (response.headersSent) { response.destroy(); return; }
       const reason = error instanceof Error ? error.message : String(error);
-      const status = /not found/u.test(reason) ? 404 : /unavailable|expired/u.test(reason) ? 410 :
-        /quota|exhausted|already active/u.test(reason) ? 429 : /worker|timed out|closing/u.test(reason) ? 503 : 400;
+      const status = /not found|does not exist/u.test(reason) ? 404 : /unavailable|expired/u.test(reason) ? 410 :
+        /quota|exhausted|already active|busy/u.test(reason) ? 429 : /worker|timed out|closing/u.test(reason) ? 503 : 400;
       this.json(response, status, { error: reason.slice(0, 1024) });
     });
     return true;
@@ -47,6 +49,50 @@ export class DistillationHttpRouter {
   private async route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     const path = url.pathname.slice('/api/distillation/v1/'.length);
     const method = request.method;
+    if (path === 'library' || path.startsWith('library/')) {
+      if (!this.library) throw new Error('saved brain library unavailable');
+      /** Library records have a separately admitted full-graph metadata bound. */
+      const json = (status: number, value: unknown): void => this.json(response, status, value, 1200 * 1024);
+      if (method === 'GET' && path === 'library') {
+        const limit = url.searchParams.get('limit') ?? '25';
+        if (!/^[0-9]{1,2}$/u.test(limit)) throw new TypeError('invalid saved brain page limit');
+        json(200, {...this.library.status(), page: await this.library.list(url.searchParams.get('after'),
+          distillationInteger(Number(limit), 1, 25, 'saved brain page limit'))}); return;
+      }
+      if (method === 'POST' && path === 'library/import') {
+        const library = this.library;
+        json(201, await this.artifactUpload(request, bytes => library.importArtifact(bytes, {name: url.searchParams.get('name')}))); return;
+      }
+      const saved = /^library\/([0-9a-f]{64})(?:\/(save|spawn|export))?$/u.exec(path);
+      if (saved) {
+        const id = saved[1]!;
+        if (method === 'GET' && !saved[2]) { json(200, await this.library.read(id)); return; }
+        if (method === 'DELETE' && !saved[2]) { json(200, await this.library.delete(id)); return; }
+        if (method === 'POST' && saved[2] === 'save') { json(201, await this.library.saveCandidate(id, await readJsonBody(request, 1024))); return; }
+        if (method === 'POST' && saved[2] === 'spawn') { json(200, await this.library.spawn(id, await readJsonBody(request, 4096))); return; }
+        if (method === 'GET' && saved[2] === 'export') {
+          const snapshot = await this.library.export(id);
+          let settled = false;
+          /** Own the immutable export through both ordinary completion and peer cancellation. */
+          const finish = (): void => {
+            if (settled) return;
+            settled = true;
+            void snapshot.release().catch(() => response.destroy());
+          };
+          if (response.destroyed) { finish(); return; }
+          response.once('finish', finish); response.once('close', finish);
+          response.setTimeout(30_000, () => response.destroy());
+          try {
+            response.writeHead(200, {'Content-Type': 'application/octet-stream',
+              'Content-Length': snapshot.bytes.byteLength, 'Content-Disposition': `attachment; filename="${id}.slither-brain"`,
+              ETag: `"${id}"`, 'Cache-Control': 'no-store'});
+            response.end(snapshot.bytes);
+          } catch (error) { finish(); throw error; }
+          return;
+        }
+      }
+      json(404, {error: 'saved brain route not found'}); return;
+    }
     if (method === 'GET' && path === 'shadows') {
       if (!this.control?.shadows) throw new Error('shadow control unavailable');
       this.json(response, 200, this.control.shadows.metrics()); return;
@@ -63,27 +109,7 @@ export class DistillationHttpRouter {
     }
     const candidate = /^candidates\/([0-9a-f]{64})$/u.exec(path);
     if (candidate && method === 'POST') {
-      if (this.candidateUploads >= 1) throw new Error('candidate upload concurrency exhausted');
-      this.candidateUploads += 1;
-      try {
-        const type = request.headers['content-type']?.split(';')[0]?.trim();
-        const length = request.headers['content-length'];
-        if (type !== 'application/octet-stream' || typeof length !== 'string' || !/^[0-9]{1,9}$/u.test(length)) throw new TypeError('candidate upload requires exact binary content length');
-        const expected = distillationInteger(Number(length), 88, MAX_BRAIN_ARTIFACT_BYTES, 'candidate bytes');
-        request.setTimeout(30_000, () => request.destroy());
-        const chunks: Buffer[] = [];
-        let received = 0;
-        for await (const value of request) {
-          const chunk = value as Buffer;
-          received += chunk.byteLength;
-          if (received > expected) throw new TypeError('candidate upload exceeds declared bytes');
-          chunks.push(chunk);
-        }
-        if (received !== expected || request.aborted) throw new Error('candidate upload incomplete');
-        const bytes = Buffer.concat(chunks, received);
-        chunks.length = 0;
-        this.json(response, 201, await this.spool.ingestCandidate(candidate[1]!, bytes));
-      } finally { this.candidateUploads -= 1; }
+      this.json(response, 201, await this.artifactUpload(request, bytes => this.spool.ingestCandidate(candidate[1]!, bytes)));
       return;
     }
     if (candidate && method === 'GET') { this.json(response, 200, await this.spool.candidate(candidate[1]!)); return; }
@@ -148,6 +174,31 @@ export class DistillationHttpRouter {
     this.json(response, 404, { error: 'distillation route not found' });
   }
 
+  /** Candidate uploads and explicit library imports share one bounded opaque ingress owner. */
+  private async artifactUpload(request: IncomingMessage, consume: (bytes: Buffer) => Promise<unknown>): Promise<unknown> {
+    if (this.candidateUploads >= 1) throw new Error('portable brain upload concurrency exhausted');
+    this.candidateUploads += 1;
+    try {
+      const type = request.headers['content-type']?.split(';')[0]?.trim();
+      const length = request.headers['content-length'];
+      if (type !== 'application/octet-stream' || typeof length !== 'string' || !/^[0-9]{1,9}$/u.test(length)) throw new TypeError('portable brain upload requires exact binary content length');
+      const expected = distillationInteger(Number(length), 88, MAX_BRAIN_ARTIFACT_BYTES, 'portable brain bytes');
+      request.setTimeout(30_000, () => request.destroy());
+      const chunks: Buffer[] = [];
+      let received = 0;
+      for await (const value of request) {
+        const chunk = value as Buffer;
+        received += chunk.byteLength;
+        if (received > expected) throw new TypeError('portable brain upload exceeds declared bytes');
+        chunks.push(chunk);
+      }
+      if (received !== expected || request.aborted) throw new Error('portable brain upload incomplete');
+      const bytes = Buffer.concat(chunks, received);
+      chunks.length = 0;
+      return await consume(bytes);
+    } finally { this.candidateUploads -= 1; }
+  }
+
   /** Require an integer page limit rather than forgiving partial numeric strings. */
   private limit(url: URL): number {
     const value = url.searchParams.get('limit') ?? '100';
@@ -163,10 +214,10 @@ export class DistillationHttpRouter {
   }
 
   /** Bound metadata responses independently of binary transfer ownership. */
-  private json(response: ServerResponse, status: number, value: unknown): void {
+  private json(response: ServerResponse, status: number, value: unknown, maxBytes = 1024 * 1024): void {
     if (response.destroyed) return;
     const encoded = JSON.stringify(value);
-    if (Buffer.byteLength(encoded) > 1024 * 1024) throw new Error('distillation metadata response limit');
+    if (Buffer.byteLength(encoded) > maxBytes) throw new Error('distillation metadata response limit');
     response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     response.end(encoded);
   }
