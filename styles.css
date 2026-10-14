@@ -870,3 +870,6 @@ summary {
 #brainLibraryDetails { overflow-wrap: anywhere; }
 #brainLibraryDetails pre { white-space: pre-wrap; font-size: 11px; max-height: 320px; overflow: auto; }
 #brainLibraryStatus.error { color: #ff9c9c; }
+
+/* Selected origin is bounded cold metadata and may contain full immutable digests. */
+.selected-entity-info { white-space: pre-line; overflow-wrap: anywhere; }

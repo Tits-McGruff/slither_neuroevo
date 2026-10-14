@@ -960,6 +960,9 @@ It stores explicit saved models separately from Hall of Fame champions.
   starts with zero recurrent state; the UI does not change settings to make a model fit.
 - **Export** downloads the original self-contained file. **Delete** removes library
   membership; snakes already running keep their owned weights and provenance.
+- Select a live snake and open **Stats** to see its native origin: a Hall of Fame
+  entry or a saved model's source class, artifact ID and weight digest. This remains
+  available after its library record is deleted.
 
 A timeout or lost reply exposes **Retry spawn**, which checks the original request
 instead of creating another snake. A confirmed rejection clears that pending request.

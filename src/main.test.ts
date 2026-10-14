@@ -498,6 +498,22 @@ describe('main.ts startup smoke', () => {
     expect(window.currentWorld.cameraX).toBe(900); expect(window.currentWorld.cameraY).toBe(700);
   });
 
+  it('shows native retained provenance for the selected snake and clears it on disconnect', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+    const {canvas, socket} = await openCameraSession();
+    const zoom = window.currentWorld.zoom;
+    canvas.dispatch('click', cameraMouse(400 + 200 * zoom, 300 + 100 * zoom));
+    const request = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'selectEntity');
+    const origin = {kind: 'saved-brain', brainId: 'ab'.repeat(32), weightsSha256: 'cd'.repeat(32), sourceKind: 'distilled'};
+    socket.onmessage?.({data: JSON.stringify({type: 'entitySelected', requestId: request.requestId, found: true,
+      entity: {token: '1'.repeat(64), snakeId: 7, x: 200, y: 100, radius: 9, skin: 0, retainedOrigin: origin}})});
+    expect(elements.get('selectedEntityInfo')!.textContent).toContain('Saved brain · distilled');
+    expect(elements.get('selectedEntityInfo')!.textContent).toContain(origin.brainId);
+    expect(elements.get('selectedEntityInfo')!.textContent).toContain(origin.weightsSha256);
+    socket.onclose?.();
+    expect(elements.get('selectedEntityInfo')!.textContent).toBe('Select a snake to inspect its live origin.');
+  });
+
   it('attempts the resolved server connection when the entry module loads', async () => {
     await import('./main.ts');
 

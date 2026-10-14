@@ -127,6 +127,12 @@ for (const workers of [1, 3]) {
       await persistence.savedBrainCatalog({action: 'delete', brainId: saved.record.brainId});
       await persistence.savedBrainCatalog({action: 'release', leaseId});
       expect(existsSync(join(managed, saved.record.artifactRelativeFilename))).toBe(false);
+      native.submitEntitySelection('0000000000000005', 'frame', spawned.savedBrainSpawn!.snakeId,
+        runId, '0000000000000001');
+      expect((await receipt('0000000000000005')).entitySelection?.retainedOrigin).toEqual({
+        kind: 'saved-brain', brainId: saved.record.brainId,
+        weightsSha256: saved.record.artifact.weightsSha256, sourceKind: 'manual'
+      });
       const deadline = performance.now() + 5000;
       while (BigInt('0x' + native.health().completedStep) <= step && performance.now() < deadline) {
         for (const event of native.drainOutputs(32, INIT.maxOutputEventOwnedBytes).events) {
@@ -136,7 +142,7 @@ for (const workers of [1, 3]) {
       }
       expect(BigInt('0x' + native.health().completedStep)).toBeGreaterThan(step);
       spool = new DistillationSpoolClient(join(root, 'diagnostics'));
-      library = new SavedBrainLibrary(persistence, spool, managed, () => native, new BackgroundCommandAdmission(native, 5n),
+      library = new SavedBrainLibrary(persistence, spool, managed, () => native, new BackgroundCommandAdmission(native, 6n),
         () => ({expectedRunId: runId, expectedConfigRevision: '0000000000000002', expectedWorldEpoch: native.health().worldEpoch}),
         () => true, () => {});
       const controls = library;
@@ -179,7 +185,7 @@ for (const workers of [1, 3]) {
       // Confirmation precedes the metadata worker's lease-release acknowledgement.
       // Check stale-cursor admission only after that real cold-operation boundary.
       await vi.waitFor(() => expect(controls.busy).toBe(false), {timeout: 5000, interval: 10});
-      expect(deployedReceipt).toMatchObject({brainId, schemaVersion: 1, snakeId: expect.any(Number), commandSequence: '0000000000000005'});
+      expect(deployedReceipt).toMatchObject({brainId, schemaVersion: 1, snakeId: expect.any(Number), commandSequence: '0000000000000006'});
       expect((await exchange(address.port, `${base}/library/${brainId}/spawn`, 'POST', spawnBody)).value).toEqual(deployedReceipt);
       expect((await exchange(address.port, `${base}/library/${brainId}/spawn`, 'POST', {...spawnBody, requestId: randomBytes(16).toString('hex')})).status).toBe(400);
       // Same-size corruption must fail native cold admission before any model export or retry succeeds.

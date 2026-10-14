@@ -1,4 +1,4 @@
-import { isEntitySelectionToken, type SelectEntityMsg, type EntitySelectedMsg, type SelectedEntity } from '../protocol/entitySelection.ts';
+import { isEntitySelectionToken, isRetainedEntityOrigin, type SelectEntityMsg, type EntitySelectedMsg, type SelectedEntity } from '../protocol/entitySelection.ts';
 
 /** Presentation-only scope observed from welcome and packed frames. */
 export interface SelectionScope {
@@ -66,7 +66,20 @@ function validEntity(entity: SelectedEntity): boolean {
     && (entity.populationSlot == null || (Number.isSafeInteger(entity.populationSlot)
       && entity.populationSlot >= 0 && entity.populationSlot < 300))
     && (entity.lifeOrdinal == null || (/^[0-9a-f]{16}$/u.test(entity.lifeOrdinal)
-      && entity.lifeOrdinal !== '0000000000000000'));
+      && entity.lifeOrdinal !== '0000000000000000'))
+    && (entity.retainedOrigin == null || (entity.populationSlot == null && entity.lifeOrdinal == null && isRetainedEntityOrigin(entity.retainedOrigin)));
+}
+
+/** Describe only the current native selection; names and model bytes never require a catalog lookup. */
+export function describeSelectedEntity(entity: SelectedEntity | null): string {
+  if (!entity) return 'Select a snake to inspect its live origin.';
+  const lines = [`Snake #${entity.snakeId}`];
+  if (entity.populationSlot != null) lines.push(`Population slot ${entity.populationSlot}` +
+    (entity.lifeOrdinal == null ? '' : ` · life ${BigInt('0x' + entity.lifeOrdinal)}`));
+  const origin = entity.retainedOrigin;
+  if (origin?.kind === 'hall-of-fame') lines.push(`Hall of Fame entry ${BigInt('0x' + origin.entryId)}`, `Weights: ${origin.weightsSha256}`);
+  if (origin?.kind === 'saved-brain') lines.push(`Saved brain · ${origin.sourceKind}`, `Artifact: ${origin.brainId}`, `Weights: ${origin.weightsSha256}`);
+  return lines.join('\n');
 }
 
 /** Resolve native identities while retaining no world, bodies, or neural execution. */

@@ -469,6 +469,23 @@ mod tests {
             .is_some());
         fs::remove_file(directory.0.join(publication.artifact_relative_filename)).unwrap();
         fs::remove_file(directory.0.join(publication.weights.relative_filename)).unwrap();
+        let selected = running
+            .select_entity(
+                super::super::state::EntitySelectionTarget::Frame(spawn.frame_v1_id),
+                &request.expected_run_id,
+                1,
+            )
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            selected.retained_origin,
+            Some(
+                super::super::retained_origin::RetainedNeuralOrigin::SavedBrain {
+                    source_kind: super::super::brain_artifact::BrainSourceKind::Manual,
+                    ..
+                }
+            )
+        ));
         let progress = running
             .service_after_command_drain(
                 17,
