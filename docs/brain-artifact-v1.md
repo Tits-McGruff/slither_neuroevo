@@ -4,8 +4,9 @@
 trainer-job checkpoints. Rust independently compiles its source graph, rebuilds
 the canonical training contract and checks finite canonical Float32 weights.
 An accepted artifact is not automatically activated, resurrected, or saved into
-the brain library. Live use additionally requires the active graph and structural
-sensor contract to match.
+the brain library. Spawning additionally requires the active graph and structural
+sensor contract to match. Diagnostic shadows may use a different compiled graph;
+their input contract and deployment cadence must match the selected teacher.
 
 The complete file is at most 64 MiB. Integers and Float32 values are little-endian.
 The fixed header is 88 bytes:
@@ -60,6 +61,15 @@ teacher data: at most eight records and 64 MiB, with the configured disk reserve
 Oldest transient candidates rotate as complete objects. It does not populate the
 saved-brain catalog. IDs/digests make lost-response retries idempotent. Native
 validation never submits a controller action or resolves a generation barrier.
+
+Cold native validation also registers the immutable graph/weights in a bounded
+64-MiB cache. Queued activations and active shadows pin their candidate; only
+unreferenced candidates can be evicted. Four shadow slots are absent by default,
+with a separate 64-MiB workspace including replacement staging. The coarse native
+bridge exposes explicit activation, activation-scoped stop and bounded metrics;
+HTTP/job shadow coordination remains pending. A cache miss requires cold
+revalidation of the stored artifact before activation. These budgets do not
+change population or teacher-spool admission.
 
 The offline `brain_artifact_validate` tool takes a file and absent output directory,
 then writes its independently reconstructed manifest, exact weights and descriptor.

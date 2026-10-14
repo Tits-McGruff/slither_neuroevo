@@ -409,8 +409,21 @@ four pending exports retained across job restart. Rust independently compiles
 complete graph/packing/sensor/deployment manifests and validates raw or shuffled-
 Zstandard weights. Bounded uploads reach that source-identified validator in the
 diagnostic worker and return idempotent receipts without controller actions.
-Native shadows, saved-library/spawn integration and integrated resource/gameplay
-qualification remain open.
+Native shadow inference now has four empty-by-default slots, immutable candidate
+registration, ordered activation and activation-scoped stop commands. Each slot
+uses the exact committed teacher vectors with private Rust recurrence and reusable
+scratch. Reset/Preserve births, generation resets, unweighted strategy/life-stage/
+rare-stratum errors and a 32-delivery pre-death window are bounded. Fixed summaries
+use a separate nonblocking diagnostic mailbox; inference failures disable only
+that slot. Managed-run regressions compare exact authority continuation and
+teacher bytes with capture off/on and four shadows across one/three workers.
+The coarse native bridge is connected; HTTP/job shadow coordination,
+saved-library/spawn integration and integrated resource/gameplay qualification
+remain open. This checkpoint passes 710 release library tests with hooks,
+two canonical-runner checks, three benchmark checks and the doctest, plus
+all-target Clippy, rustfmt, TypeScript, repository ESLint and the client build.
+The rebuilt source-identified addon and JavaScript aggregate plus the focused
+corrected legacy archive scenario cover 801 passing tests with 18 existing skips.
 Codec validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
@@ -421,7 +434,7 @@ cross-platform native/JavaScript matrix.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
-native shadows, the brain library and the new inspector remain unfinished.
+HTTP/job shadow coordination, the brain library and the new inspector remain unfinished.
 Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

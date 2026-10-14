@@ -143,6 +143,37 @@ impl std::fmt::Debug for EngineRuntime {
 }
 
 impl EngineRuntime {
+    /// Read only published fixed shadow summaries; a slow reader cannot hold authority.
+    pub fn shadow_snapshots(
+        &self,
+    ) -> Result<[Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS], EngineError>
+    {
+        let RuntimeMode::RunningAuthority {
+            loop_slot,
+            teachers,
+            ..
+        } = &self.mode
+        else {
+            return Err(EngineError::new(
+                EngineErrorCode::InvalidLifecycle,
+                "shadows require running authority",
+            ));
+        };
+        if matches!(
+            self.coordinator.lifecycle(),
+            LifecycleState::Stopped | LifecycleState::Faulted
+        ) {
+            if let Some(running) = lock_recover(loop_slot).as_mut() {
+                teachers.service(running);
+            }
+        }
+        let snapshots = teachers
+            .shadow_snapshots()
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidConfiguration, detail))?;
+        self.inbound.request_diagnostic_service();
+        Ok(snapshots)
+    }
+
     /// Drain the independent diagnostic handoff without reliable-output reservations.
     pub fn drain_teacher_chunks(
         &self,

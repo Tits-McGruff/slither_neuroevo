@@ -206,6 +206,8 @@ impl EngineCommand {
                     | RunningAuthorityCommand::JoinController(_)
                     | RunningAuthorityCommand::ApplyLiveSettings { .. }
                     | RunningAuthorityCommand::StartTeacherCapture(_)
+                    | RunningAuthorityCommand::ActivateShadow(_)
+                    | RunningAuthorityCommand::StopShadow { .. }
                     | RunningAuthorityCommand::StopTeacherCapture { .. }
                     | RunningAuthorityCommand::SelectEntity { .. }
                     | RunningAuthorityCommand::GodModeMove { .. }
@@ -397,6 +399,14 @@ pub enum RunningAuthorityCommand {
     },
     /// Arm exact teacher capture without changing world/controller authority.
     StartTeacherCapture(Box<super::teacher_runtime::TeacherCaptureRequest>),
+    /// Activate an immutable diagnostic candidate at a complete-step boundary.
+    ActivateShadow(Box<super::shadows::ShadowActivationRequest>),
+    /// Disable one diagnostic slot without changing world/controller state.
+    StopShadow {
+        shadow_slot: u32,
+        capture_epoch: [u8; 16],
+        activation_sequence: u64,
+    },
     /// Seal a specific diagnostic epoch at a clean source boundary.
     StopTeacherCapture {
         capture_epoch: [u8; 16],
@@ -450,6 +460,8 @@ pub enum RunningAuthorityCommand {
 impl RunningAuthorityCommand {
     fn validate(&self) -> Result<(), EngineError> {
         match self {
+            Self::ActivateShadow(request) => request.validate().map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+            Self::StopShadow { shadow_slot, capture_epoch, activation_sequence } if *shadow_slot >= 4 || *capture_epoch == [0;16] || *activation_sequence == 0 => Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid shadow slot")),
             Self::StartTeacherCapture(request) => request.validate()
                 .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
             Self::StopTeacherCapture { capture_epoch } if *capture_epoch == [0; 16] =>
@@ -564,6 +576,11 @@ impl RunningAuthorityCommand {
 
     fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
+            // The bounded registry retains every pinned candidate; this queue owns only the Arc/envelope.
+            Self::ActivateShadow(request) => Ok(std::mem::size_of::<
+                super::shadows::ShadowActivationRequest,
+            >() + request.expected_run_id.capacity()),
+            Self::StopShadow { .. } => Ok(0),
             Self::StartTeacherCapture(request) => Ok(size_of::<
                 super::teacher_runtime::TeacherCaptureRequest,
             >() + request.expected_run_id.capacity()
@@ -826,6 +843,13 @@ pub enum RunningAuthorityEvent {
         enabled: bool,
     },
     /// Ordered diagnostic arm/stop acknowledgement, distinct from gameplay delivery.
+    ShadowChanged {
+        command_sequence: u64,
+        shadow_slot: u32,
+        artifact_sha256: [u8; 32],
+        enabled: bool,
+        effective_step: u64,
+    },
     TeacherCaptureChanged {
         command_sequence: u64,
         capture_epoch: [u8; 16],
@@ -952,7 +976,7 @@ impl RunningAuthorityEvent {
             Self::GodModeKilled { .. } => 0,
             Self::HallOfFameResurrected { .. } => 0,
             Self::VisualizationChanged { .. } => 0,
-            Self::TeacherCaptureChanged { .. } => 0,
+            Self::TeacherCaptureChanged { .. } | Self::ShadowChanged { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {

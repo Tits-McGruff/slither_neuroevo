@@ -34,6 +34,11 @@ pub struct TeacherStreamCapture {
     stopped: bool,
 }
 impl TeacherStreamCapture {
+    /// Cold diagnostic binding can only select an already captured baseline slot.
+    pub fn has_slot(&self, slot: u32) -> bool {
+        self.streams.iter().any(|stream| stream.slot == slot)
+    }
+
     /// Immutable identity available to the coarse diagnostic transport.
     pub fn contract(&self) -> &TeacherContractV1 {
         &self.contract

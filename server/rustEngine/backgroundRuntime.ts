@@ -22,6 +22,7 @@ import type {
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
 import type { TeacherCaptureDrain, TeacherCaptureRequest } from '../../src/protocol/distillation.ts';
+import type { ShadowActivationRequest, ShadowStopRequest } from '../../src/protocol/shadows.ts';
 
 /** One complete numeric setting supplied only to private fresh-run construction. */
 export interface RustFreshRunSetting {
@@ -77,6 +78,12 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitGodModeKill(sequence: U64Hex, snakeId: number, token: string): void;
   /** Toggle aggregate opt-in focused activation capture. */
   submitVisualization(sequence: U64Hex, enabled: boolean): void;
+  /** Activate one immutable candidate on an ordered clean boundary. */
+  submitActivateShadow(sequence: U64Hex, request: ShadowActivationRequest): void;
+  /** Stop only the matching capture and activation segment. */
+  submitStopShadow(sequence: U64Hex, request: ShadowStopRequest): void;
+  /** Read Rust-built fixed summaries independently of teacher chunks and gameplay receipts. */
+  getShadowMetrics(): string;
   /** Admit automatic committed teacher capture on an ordered clean boundary. */
   submitStartTeacherCapture(sequence: U64Hex, request: TeacherCaptureRequest): void;
   /** Seal only the matching diagnostic epoch, preserving its queued objects. */
@@ -279,6 +286,7 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'archiveWorkProgress',
+  'submitActivateShadow', 'submitStopShadow', 'getShadowMetrics',
   'submitStartTeacherCapture', 'submitStopTeacherCapture', 'drainTeacherChunks',
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
   'start', 'submitControllerAction', 'submitLiveSettings', 'submitFinishGeneration', 'submitEntitySelection', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',

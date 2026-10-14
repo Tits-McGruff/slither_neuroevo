@@ -19,6 +19,7 @@ import { run as runStage6RuntimeProbe } from '../scripts/stage6/runtime-integrat
 import { measureTurnResponses } from '../scripts/stage7/lan-turn-response.ts';
 import { PlayerReconnectExchange } from '../scripts/stage7/player-reconnect-exchange.ts';
 import { startRustServer } from './rustServer.ts';
+import { fixtureArchiveDownload } from './test/archiveDownload.ts';
 /** Available parallel count for scenarios that characterize four Rust workers. */
 const PARALLEL_WORKERS = rustWorkersForTest(4);
 /** Browser metadata reports zero active pool workers when calculation is serial. */
@@ -81,7 +82,7 @@ async function until(peer: Peer, predicate: () => boolean): Promise<void> {
   expect(predicate(), JSON.stringify(peer.packets)).toBe(true);
 }
 
-/** Read the small manual-completion fixture over real HTTP on any OS-assigned port.
+/** Read small fixture payloads over real HTTP on any OS-assigned port.
  * Node fetch applies browser unsafe-port blocking even to disposable local servers.
  */
 async function manualFixtureHttp(url: string, body?: Uint8Array): Promise<{ status: number; bytes: Buffer }> {
@@ -251,8 +252,8 @@ function legacyExportManifest(bytes: Buffer): {
 
 /** Re-export and re-import a converted population through real archive HTTP, checking its original Float32 digest. */
 async function migratedArchiveRoundTrip(root: string, server: Awaited<ReturnType<typeof startRustServer>>, weightsSha256?: string): Promise<void> {
-  const sourceHealth = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as Record<string, unknown>;
-  const exported = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
+  const sourceHealth = JSON.parse((await manualFixtureHttp(`http://127.0.0.1:${server.port}/api/health`)).bytes.toString()) as Record<string, unknown>;
+  const exported = await fixtureArchiveDownload(server.port, 'legacy conversion source');
   expect(exported.status).toBe(200);
   const archive = Buffer.from(await exported.arrayBuffer());
   const originalHash = createHash('sha256').update(archive).digest('hex');
@@ -266,19 +267,17 @@ async function migratedArchiveRoundTrip(root: string, server: Awaited<ReturnType
   let target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, seed: 99, resume: 'fresh', dbPath: targetPath });
   try {
     expect(target.startupFault).toBeUndefined();
-    const imported = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
-      method: 'POST', body: new Uint8Array(archive)
-    });
-    expect(imported.status, await imported.clone().text()).toBe(200);
-    expect(await imported.json()).toMatchObject({ ok: true, runId: manifest.runId,
+    const imported = await manualFixtureHttp(`http://127.0.0.1:${target.port}/api/import/archive`, archive);
+    expect(imported.status, imported.bytes.toString()).toBe(200);
+    expect(JSON.parse(imported.bytes.toString())).toMatchObject({ ok: true, runId: manifest.runId,
       checkpointId: manifest.checkpointLogicalRootSha256, saveLogicalRootSha256: manifest.logicalRootSha256,
       legacyConversion: manifest.legacyConversion });
     await target.close();
     target = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'latest', dbPath: targetPath });
     expect(target.startupFault).toBeUndefined();
-    expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
+    expect(JSON.parse((await manualFixtureHttp(`http://127.0.0.1:${target.port}/api/health`)).bytes.toString())).toMatchObject({
       ok: true, runId: manifest.runId, seed: sourceHealth['seed'], legacyConversion: manifest.legacyConversion });
-    const reexported = await fetch(`http://127.0.0.1:${target.port}/api/export/latest`);
+    const reexported = await fixtureArchiveDownload(target.port, 'legacy conversion re-export');
     expect(reexported.status).toBe(200);
     const roundTrip = legacyExportManifest(Buffer.from(await reexported.arrayBuffer()));
     expect(roundTrip).toEqual(manifest);

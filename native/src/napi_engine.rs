@@ -500,6 +500,15 @@ pub struct BackgroundHallOfFameResurrection {
     pub effective_step: String,
 }
 
+/// Immutable candidate activation receipt at an ordered authoritative boundary.
+#[napi(object)]
+pub struct BackgroundShadowChange {
+    pub shadow_slot: u32,
+    pub artifact_sha256: String,
+    pub enabled: bool,
+    pub effective_step: String,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
@@ -528,6 +537,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub visualization_enabled: Option<bool>,
     pub teacher_capture_epoch: Option<String>,
     pub teacher_capture_enabled: Option<bool>,
+    pub shadow_change: Option<BackgroundShadowChange>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -3322,6 +3332,25 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ShadowChanged {
+            command_sequence,
+            shadow_slot,
+            artifact_sha256,
+            enabled,
+            effective_step,
+        } => {
+            output.kind = "shadowChanged".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.shadow_change = Some(BackgroundShadowChange {
+                shadow_slot,
+                artifact_sha256: artifact_sha256
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+                enabled,
+                effective_step: u64_hex(effective_step),
+            });
+        }
         RunningAuthorityEvent::TeacherCaptureChanged {
             command_sequence,
             capture_epoch,
@@ -3795,6 +3824,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         visualization_enabled: None,
         teacher_capture_epoch: None,
         teacher_capture_enabled: None,
+        shadow_change: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,

@@ -227,6 +227,7 @@ pub struct RunningAuthorityLoop {
     teacher_capture: Option<super::teacher_stream::TeacherStreamCapture>,
     teacher_capture_error: Option<String>,
     teacher_sensor_metadata: Option<String>,
+    shadows: super::shadows::ShadowWorkspace,
 }
 
 /// Fallible scheduler/coordinator construction completed before authority moves.
@@ -240,6 +241,68 @@ pub(crate) struct PreparedRunningAuthorityLoop {
 }
 
 impl RunningAuthorityLoop {
+    /// Ordered diagnostics never replace the teacher's action or recurrent owner.
+    pub fn activate_shadow(
+        &mut self,
+        request: &super::shadows::ShadowActivationRequest,
+        sequence: u64,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("shadow activation requires clean boundary".into());
+        }
+        let state = self.authority.state();
+        let capture = self
+            .teacher_capture
+            .as_ref()
+            .filter(|capture| !capture.is_stopped())
+            .ok_or("shadow requires active teacher capture")?;
+        let contract = capture.contract();
+        if request.expected_run_id != state.identity.run_id
+            || request.expected_config_revision != state.identity.config_revision
+            || request.capture_epoch != contract.capture_epoch
+            || !capture.has_slot(request.baseline_slot)
+        {
+            return Err("shadow activation teacher/run/configuration mismatch".into());
+        }
+        self.shadows.activate(
+            request,
+            sequence,
+            state.generation.completed_step,
+            contract.sensor_sha256,
+            contract.control_interval_seconds,
+            contract.input_size,
+        )
+    }
+
+    pub fn stop_shadow(
+        &mut self,
+        slot: u32,
+        capture_epoch: [u8; 16],
+        activation_sequence: u64,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("shadow stop requires clean boundary".into());
+        }
+        let snapshot = self
+            .shadows
+            .snapshots()
+            .get(slot as usize)
+            .copied()
+            .flatten()
+            .ok_or("shadow slot is empty")?;
+        if snapshot.capture_epoch != capture_epoch
+            || snapshot.activation_sequence != activation_sequence
+        {
+            return Err("shadow stop activation mismatch".into());
+        }
+        self.shadows.stop(slot).map_err(str::to_owned)
+    }
+
+    pub fn shadow_snapshots(
+        &self,
+    ) -> [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS] {
+        self.shadows.snapshots()
+    }
     /// Exact Rust canonical bytes, retained cold for dataset metadata.
     pub(crate) fn teacher_sensor_metadata(&self) -> Option<&str> {
         self.teacher_sensor_metadata.as_deref()
@@ -310,6 +373,7 @@ impl RunningAuthorityLoop {
         if self.state != RunningAuthorityLoopState::Ready {
             return Err("teacher capture stop requires a clean running boundary".into());
         }
+        self.shadows.stop_all("teacher capture closed");
         if let Some(capture) = &mut self.teacher_capture {
             capture
                 .stop(super::teacher_samples::TeacherEndReason::CaptureStopped)
@@ -357,9 +421,11 @@ impl RunningAuthorityLoop {
 
     /// End a diagnostic epoch on shutdown/fault/config replacement without gating authority.
     pub(crate) fn end_teacher_capture(&mut self, reason: super::teacher_samples::TeacherEndReason) {
+        self.shadows.stop_all("teacher capture closed");
         if let Some(capture) = &mut self.teacher_capture {
             if !capture.is_stopped() {
                 if let Err(error) = capture.stop(reason) {
+                    self.shadows.stop_all("teacher publication failed");
                     self.teacher_capture_error = Some(error.to_string());
                 }
             }
@@ -380,8 +446,12 @@ impl RunningAuthorityLoop {
             .ok_or(super::teacher_samples::TeacherCodecError(
                 "published teacher boundary unavailable",
             ))
-            .and_then(|boundary| capture.observe(boundary, generation_ended));
+            .and_then(|boundary| {
+                self.shadows.observe(boundary);
+                capture.observe(boundary, generation_ended)
+            });
         if let Err(error) = result {
+            self.shadows.stop_all("teacher publication failed");
             self.teacher_capture_error = Some(error.to_string());
             let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
         }
@@ -455,6 +525,7 @@ impl RunningAuthorityLoop {
             teacher_capture: None,
             teacher_capture_error: None,
             teacher_sensor_metadata: None,
+            shadows: super::shadows::ShadowWorkspace::default(),
             authority,
             scheduler: prepared.scheduler,
             coordinator: prepared.coordinator,
@@ -740,8 +811,11 @@ impl RunningAuthorityLoop {
             .authority
             .apply_god_mode_kill(frame_v1_id, physics)
             .map_err(|error| error.to_string())?;
+        self.shadows
+            .observe_cold_deaths(&self.authority.state().world);
         if let Some(capture) = &mut self.teacher_capture {
             if let Err(error) = capture.observe_cold_deaths(&self.authority.state().world) {
+                self.shadows.stop_all("teacher publication failed");
                 self.teacher_capture_error = Some(error.to_string());
                 let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
             }
