@@ -15,6 +15,38 @@ export type SelectEntityMsg = {
 } & ({ /** Exact frame-v1 ID. */ snakeId: number; populationSlot?: never }
   | { /** Persistent evolved-population owner. */ populationSlot: number; snakeId?: never });
 
+/** Immutable Rust-owned retained provenance, independent of catalog membership and snake kind. */
+export type RetainedEntityOrigin = {
+  /** Actual retained champion. */
+  kind: 'hall-of-fame';
+  /** Exact positive native entry identity, without JavaScript number narrowing. */
+  entryId: string;
+  /** Exact logical packed Float32 digest. */
+  weightsSha256: string;
+} | {
+  /** Explicit library deployment, separate from a Hall-of-Fame winner. */
+  kind: 'saved-brain';
+  /** Complete original portable artifact digest. */
+  brainId: string;
+  /** Exact logical packed Float32 digest. */
+  weightsSha256: string;
+  /** Provenance class; simulation behavior still uses the retained runtime kind. */
+  sourceKind: 'distilled' | 'imported' | 'manual';
+};
+
+/** Validate bounded native metadata before presentation; this never resolves a catalog record. */
+export function isRetainedEntityOrigin(value: unknown): value is RetainedEntityOrigin {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const origin = value as Record<string, unknown>;
+  if (typeof origin['weightsSha256'] !== 'string' || !/^[0-9a-f]{64}$/u.test(origin['weightsSha256'])) return false;
+  const keys = Object.keys(origin).sort().join(',');
+  if (origin['kind'] === 'hall-of-fame') return keys === 'entryId,kind,weightsSha256'
+    && typeof origin['entryId'] === 'string' && /^[0-9a-f]{16}$/u.test(origin['entryId']) && origin['entryId'] !== '0000000000000000';
+  return origin['kind'] === 'saved-brain' && keys === 'brainId,kind,sourceKind,weightsSha256'
+    && typeof origin['brainId'] === 'string' && /^[0-9a-f]{64}$/u.test(origin['brainId'])
+    && typeof origin['sourceKind'] === 'string' && ['distilled', 'imported', 'manual'].includes(origin['sourceKind']);
+}
+
 /** Small Rust-authored physical snapshot; all opaque identities remain exact strings. */
 export interface SelectedEntity {
   /** Canonical nonce/world/physical identity token for subsequent mutations. */
@@ -33,6 +65,8 @@ export interface SelectedEntity {
   radius: number;
   /** Current display skin. */
   skin: number;
+  /** Optional immutable live provenance; older servers may omit it. */
+  retainedOrigin?: RetainedEntityOrigin | null;
 }
 
 /** Reliable result, including honest dead/pending and stale-scope rejection. */

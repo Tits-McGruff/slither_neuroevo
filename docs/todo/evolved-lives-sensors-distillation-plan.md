@@ -539,10 +539,23 @@ The checkpoint also passes 402 unit cases (three existing skips), 68 component
 cases, 96 focused persistence/client cases (one existing skip), type/lint/client
 build and rustfmt/Clippy. Integrated Stage I and later qualification remain open.
 
+Selected live provenance is now additive metadata on the existing native identity
+response. Rust copies only fixed-width origin values, without a catalog lookup,
+RNG draw or Arc ownership change. Stats distinguishes HoF entries from saved
+models and shows exact artifact/weight identities and source class; disconnect
+clears the display. Source deletion does not erase live provenance. Focused native
+origin/storage/selection checks and browser selection/clear tests pass. Actual
+production WebSocket selection verifies the exact retained HoF identity without
+changing durable metadata. This slice passes 43 focused native origin/storage/
+selection/queue/bridge cases, 402 unit cases (three existing skips), 70 component
+cases, 23 main UI cases, type/lint/client build and rustfmt/Clippy. The existing
+one/three-worker deployment fixture additionally checks saved provenance after
+catalog deletion through the native bridge in CI.
+
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
-integrated shadow/training resource qualification, retained-origin presentation,
-library qualification and the new inspector remain unfinished.
+integrated shadow/training resource qualification, library qualification and
+the new inspector remain unfinished.
 Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

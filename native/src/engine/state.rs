@@ -6638,6 +6638,78 @@ mod tests {
     }
 
     #[test]
+    fn selected_retained_origins_are_native_owned_fixed_width_and_do_not_advance_rng() {
+        use super::super::brain_artifact::BrainSourceKind;
+        use super::super::retained_origin::packed_weight_digest;
+        let graph = default_graph();
+        let mut authority =
+            own_complete_running(complete_running_candidate(&graph), Arc::clone(&graph));
+        let population = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.alive && snake.kind == SnakeKind::Evolved)
+            .unwrap();
+        assert!(authority
+            .select_entity(EntitySelectionTarget::Frame(population.frame_v1_id))
+            .unwrap()
+            .retained_origin
+            .is_none());
+        let weights = vec![0.25; graph.compiled().total_parameters].into_boxed_slice();
+        let digest = packed_weight_digest(&weights);
+        let saved = RetainedNeuralOrigin::SavedBrain {
+            brain_id: [13; 32],
+            weight_digest: digest,
+            source_kind: BrainSourceKind::Distilled,
+        };
+        let origin = Arc::new(saved);
+        authority
+            .spawn_retained_brain(
+                weights.clone(),
+                Arc::clone(&origin),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let frame = authority.state().world.snakes.last().unwrap().frame_v1_id;
+        let before = authority.state().clone();
+        let references = Arc::strong_count(&origin);
+        let selected = authority
+            .select_entity(EntitySelectionTarget::Frame(frame))
+            .unwrap();
+        assert_eq!(selected.retained_origin, Some(saved));
+        assert_eq!(Arc::strong_count(&origin), references);
+        assert_eq!(authority.state(), &before);
+        drop(before);
+        drop(origin);
+        assert_eq!(
+            authority
+                .select_entity(EntitySelectionTarget::Frame(frame))
+                .unwrap()
+                .retained_origin,
+            Some(saved)
+        );
+        authority
+            .resurrect_hall_of_fame(
+                u64::MAX,
+                weights,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let frame = authority.state().world.snakes.last().unwrap().frame_v1_id;
+        assert_eq!(
+            authority
+                .select_entity(EntitySelectionTarget::Frame(frame))
+                .unwrap()
+                .retained_origin,
+            Some(RetainedNeuralOrigin::HallOfFame {
+                entry_id: u64::MAX,
+                weight_digest: digest
+            })
+        );
+    }
+
+    #[test]
     fn retained_origin_admission_and_failed_publication_preserve_native_ownership() {
         use super::super::retained_origin::packed_weight_digest;
         let graph = default_graph();

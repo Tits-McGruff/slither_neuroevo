@@ -1,5 +1,5 @@
 //! On-demand physical selection, independent of frame IDs and simulation RNG.
-use super::{AuthoritativeState, SnakeKind, StateError};
+use super::{AuthoritativeState, RetainedNeuralOrigin, SnakeKind, StateError};
 
 /// Bounded selector for a current physical entity or persistent population owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +62,8 @@ pub struct EntitySelection {
     pub y: f64,
     pub radius: f64,
     pub skin: u32,
+    /// Fixed-width native-owned provenance; no catalog read or model bytes.
+    pub retained_origin: Option<RetainedNeuralOrigin>,
 }
 
 /// Allocate an ephemeral incarnation without advancing any authoritative stream.
@@ -111,6 +113,13 @@ impl AuthoritativeState {
             y: snake.position.y,
             radius: snake.radius,
             skin: snake.skin,
+            retained_origin: snake.brain.and_then(|handle| {
+                self.candidate
+                    .brains
+                    .iter()
+                    .find(|brain| brain.handle == handle)
+                    .and_then(|brain| brain.retained_origin.as_deref().copied())
+            }),
         })
     }
 

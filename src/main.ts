@@ -39,7 +39,7 @@ import {
   type WelcomeInferenceMode
 } from './net/wsClient.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
-import { createEntitySelectionClient } from './net/entitySelection.ts';
+import { createEntitySelectionClient, describeSelectedEntity } from './net/entitySelection.ts';
 import {
   PlayerActionPump,
   normalizePlayerActionRate,
@@ -1180,12 +1180,17 @@ if (followIndividualInput) {
   followIndividualInput.checked = CFG.diagnostics.followIndividual;
   followIndividualInput.addEventListener('change', () => { CFG.diagnostics.followIndividual = followIndividualInput.checked; });
 }
+/** Text-only live provenance comes from the selected native owner, never a catalog lookup. */
+const selectedEntityInfo = document.getElementById('selectedEntityInfo');
+if (selectedEntityInfo) selectedEntityInfo.textContent = describeSelectedEntity(null);
 /** Bounded native selection transport; no gameplay identity is reconstructed in the browser. */
 const entitySelection = createEntitySelectionClient({
   send: request => wsClient?.sendSelectEntity(request),
   kill: (id, token) => { authoritativeControls.killSnake(id, token); },
   followIndividual: () => followIndividualInput?.checked ?? true,
   changed: entity => {
+    const description = describeSelectedEntity(entity);
+    if (selectedEntityInfo && selectedEntityInfo.textContent !== description) selectedEntityInfo.textContent = description;
     if (selectedSnake?.token !== entity?.token) {
       authoritativeControls.cancelMoves();
       isDragging = false;

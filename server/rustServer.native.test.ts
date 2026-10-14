@@ -2480,6 +2480,9 @@ describeNetworkSuite('Rust server real sockets', () => {
       const resurrected = await resurrectedResponse.json() as { ok: boolean; snakeId: number };
       expect(resurrected).toMatchObject({ ok: true, snakeId: expect.any(Number) });
       await until(targetViewer!, () => frameDirection(targetViewer!.latestFrame, resurrected.snakeId) !== undefined);
+      const selectedWinner = await selectPhysical(targetViewer!, 'retained-winner-origin', {snakeId: resurrected.snakeId});
+      expect(selectedWinner.retainedOrigin).toEqual({kind: 'hall-of-fame', entryId: winners.hof[0]!.entryId,
+        weightsSha256: expect.stringMatching(/^[0-9a-f]{64}$/u)});
       expect(await snapshot()).toEqual(beforeResurrection);
 
       // A same-name corrupt elite must be preserved as evidence and reject the

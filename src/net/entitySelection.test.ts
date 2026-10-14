@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEntitySelectionClient } from './entitySelection.ts';
-import type { EntitySelectedMsg, SelectEntityMsg } from '../protocol/entitySelection.ts';
+import { createEntitySelectionClient, describeSelectedEntity } from './entitySelection.ts';
+import { isRetainedEntityOrigin, type EntitySelectedMsg, type SelectEntityMsg, type RetainedEntityOrigin } from '../protocol/entitySelection.ts';
 
 /** Native scalar reply with explicit full-width life identity. */
 function reply(request: SelectEntityMsg, id = 7, token = '1'.repeat(64)): EntitySelectedMsg {
@@ -88,4 +88,32 @@ describe('native physical selection presentation', () => {
     const f = fixture(); f.client.kill(7); f.client.receive(reply(f.requests[0]!, 8));
     expect(f.kill).not.toHaveBeenCalled();
   });
+});
+
+
+it('validates and presents live retained origins without any catalog lookup or numeric narrowing', () => {
+  const f = fixture(); f.client.select(7);
+  const saved: RetainedEntityOrigin = {kind: 'saved-brain', brainId: 'ab'.repeat(32), weightsSha256: 'cd'.repeat(32), sourceKind: 'distilled'};
+  const message = reply(f.requests[0]!); delete message.entity!.populationSlot; delete message.entity!.lifeOrdinal;
+  message.entity!.retainedOrigin = saved;
+  f.client.receive(message);
+  expect(f.changed).toHaveBeenLastCalledWith(message.entity);
+  expect(describeSelectedEntity(message.entity!)).toBe(`Snake #7\nSaved brain · distilled\nArtifact: ${saved.brainId}\nWeights: ${saved.weightsSha256}`);
+  const winner: RetainedEntityOrigin = {kind: 'hall-of-fame', entryId: 'ffffffffffffffff', weightsSha256: saved.weightsSha256};
+  expect(isRetainedEntityOrigin(winner)).toBe(true);
+  expect(describeSelectedEntity({...message.entity!, retainedOrigin: winner})).toContain('Hall of Fame entry 18446744073709551615');
+  f.client.reset(); expect(f.changed).toHaveBeenLastCalledWith(null);
+  expect(describeSelectedEntity(null)).toContain('Select a snake');
+});
+
+it('rejects malformed, mixed and population-owned retained provenance before accepting selection', () => {
+  const origin = {kind: 'saved-brain', brainId: 'ab'.repeat(32), weightsSha256: 'cd'.repeat(32), sourceKind: 'manual'};
+  for (const invalid of [{...origin, kind: 'champion'}, {...origin, sourceKind: 'unknown'}, {...origin, brainId: '../bad'},
+    {...origin, weightsSha256: 'AB'.repeat(32)}, {...origin, entryId: '0000000000000001'},
+    {kind: 'hall-of-fame', entryId: '0000000000000000', weightsSha256: origin.weightsSha256},
+    {kind: 'hall-of-fame', entryId: 1, weightsSha256: origin.weightsSha256}]) expect(isRetainedEntityOrigin(invalid)).toBe(false);
+  const f = fixture(); f.client.select(7);
+  const message = reply(f.requests[0]!); message.entity!.retainedOrigin = origin as RetainedEntityOrigin;
+  f.client.receive(message); expect(f.changed).toHaveBeenLastCalledWith(null);
+  expect(f.client.followedPopulationSlot()).toBeNull();
 });

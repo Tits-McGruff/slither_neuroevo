@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 /// Retained provenance is independent of the four physical snake kinds.
 /// Fixed-width identities need no per-step text allocation or catalog lookup.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RetainedNeuralOrigin {
     /// An actual retained winner; the managed weight object remains unchanged.
     HallOfFame {

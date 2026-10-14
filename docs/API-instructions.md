@@ -285,6 +285,17 @@ found, an `entity` with `token`, `snakeId`, optional `populationSlot` and
 16-character lowercase hexadecimal counter. A dead/pending owner returns
 `found: false`. Stale scope or busy admission also returns `found: false` with
 a reason. At most one request per connection and 128 globally remain pending.
+A retained selection may also include `retainedOrigin`, copied from the live Rust
+brain rather than resolved through SQLite:
+
+- Hall-of-Fame winner: `{ "kind": "hall-of-fame", "entryId": "<16 hex>", "weightsSha256": "<64 hex>" }`.
+- Saved model: `{ "kind": "saved-brain", "brainId": "<64 hex>", "weightsSha256": "<64 hex>", "sourceKind": "distilled|imported|manual" }`.
+
+Entry IDs remain exact positive hexadecimal strings. Digests identify the original
+portable artifact and logical packed Float32 weights. Catalog deletion does not
+remove live provenance. Population/external brains have no retained origin;
+older servers may omit this additive field. It contains no graph, weights or
+sensor samples and does not change frame-v1 or the four physical snake kinds.
 
 Copy the returned opaque 64-character lowercase hexadecimal token unchanged.
 Rust binds it to an ephemeral world incarnation and the full physical ID.

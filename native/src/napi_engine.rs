@@ -463,6 +463,53 @@ pub struct BackgroundControllerReceiptResolution {
     pub published_completed_step: Option<String>,
 }
 
+/// Small tagged provenance copied only for one explicitly selected live entity.
+#[napi(object)]
+pub struct BackgroundRetainedOrigin {
+    pub kind: String,
+    pub weights_sha256: String,
+    pub entry_id: Option<String>,
+    pub brain_id: Option<String>,
+    pub source_kind: Option<String>,
+}
+
+impl From<crate::engine::retained_origin::RetainedNeuralOrigin> for BackgroundRetainedOrigin {
+    fn from(origin: crate::engine::retained_origin::RetainedNeuralOrigin) -> Self {
+        use crate::engine::retained_origin::RetainedNeuralOrigin;
+        let hex = |bytes: &[u8; 32]| bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        match origin {
+            RetainedNeuralOrigin::HallOfFame {
+                entry_id,
+                weight_digest,
+            } => Self {
+                kind: "hall-of-fame".into(),
+                weights_sha256: hex(&weight_digest),
+                entry_id: Some(u64_hex(entry_id)),
+                brain_id: None,
+                source_kind: None,
+            },
+            RetainedNeuralOrigin::SavedBrain {
+                brain_id,
+                weight_digest,
+                source_kind,
+            } => Self {
+                kind: "saved-brain".into(),
+                weights_sha256: hex(&weight_digest),
+                entry_id: None,
+                brain_id: Some(hex(&brain_id)),
+                source_kind: Some(
+                    match source_kind {
+                        crate::engine::brain_artifact::BrainSourceKind::Distilled => "distilled",
+                        crate::engine::brain_artifact::BrainSourceKind::Imported => "imported",
+                        crate::engine::brain_artifact::BrainSourceKind::Manual => "manual",
+                    }
+                    .into(),
+                ),
+            },
+        }
+    }
+}
+
 /// On-demand native identity and presentation scalars for one live entity.
 #[napi(object)]
 pub struct BackgroundEntitySelection {
@@ -474,6 +521,7 @@ pub struct BackgroundEntitySelection {
     pub y: f64,
     pub radius: f64,
     pub skin: u32,
+    pub retained_origin: Option<BackgroundRetainedOrigin>,
 }
 
 /// Small authoritative result of one in-bounds God Mode translation.
@@ -3654,6 +3702,7 @@ fn running_authority_event_to_napi(
                 y: value.y,
                 radius: value.radius,
                 skin: value.skin,
+                retained_origin: value.retained_origin.map(BackgroundRetainedOrigin::from),
             });
         }
         RunningAuthorityEvent::GodModeMoved {
@@ -5347,6 +5396,36 @@ mod tests {
     use crate::engine::queues::WakeSink;
     use std::sync::atomic::AtomicU64;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn retained_origin_wire_metadata_preserves_full_width_ids_and_source_classes() {
+        use crate::engine::brain_artifact::BrainSourceKind;
+        use crate::engine::retained_origin::RetainedNeuralOrigin;
+        let winner = BackgroundRetainedOrigin::from(RetainedNeuralOrigin::HallOfFame {
+            entry_id: u64::MAX,
+            weight_digest: [0xab; 32],
+        });
+        assert_eq!(winner.kind, "hall-of-fame");
+        assert_eq!(winner.entry_id.as_deref(), Some("ffffffffffffffff"));
+        assert_eq!(winner.weights_sha256, "ab".repeat(32));
+        assert!(winner.brain_id.is_none() && winner.source_kind.is_none());
+        for (source_kind, label) in [
+            (BrainSourceKind::Distilled, "distilled"),
+            (BrainSourceKind::Imported, "imported"),
+            (BrainSourceKind::Manual, "manual"),
+        ] {
+            let saved = BackgroundRetainedOrigin::from(RetainedNeuralOrigin::SavedBrain {
+                brain_id: [0xcd; 32],
+                weight_digest: [0xab; 32],
+                source_kind,
+            });
+            assert_eq!(saved.kind, "saved-brain");
+            assert_eq!(saved.brain_id, Some("cd".repeat(32)));
+            assert_eq!(saved.weights_sha256, "ab".repeat(32));
+            assert_eq!(saved.source_kind.as_deref(), Some(label));
+            assert!(saved.entry_id.is_none());
+        }
+    }
 
     fn valid_safety_init() -> EngineInit {
         EngineInit {
