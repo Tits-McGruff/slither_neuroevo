@@ -1,3 +1,5 @@
+import type { ShadowReceipt, ShadowEventPage } from '../../src/protocol/shadows.ts';
+import { parseShadowReceipt } from './shadowProtocol.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES, type BrainCandidateRecord } from '../../src/protocol/brainArtifacts.ts';
 import { Worker } from 'node:worker_threads';
 import type { TeacherCaptureDrain, TeacherChunkDescriptor } from '../../src/protocol/distillation.ts';
@@ -98,6 +100,32 @@ export class DistillationSpoolClient {
   async candidate(id: string): Promise<BrainCandidateRecord> {
     distillationHex(id, 64, 'candidate identity');
     return await this.request('candidate-get', [id]) as BrainCandidateRecord;
+  }
+
+  /** Revalidate and register immutable native values on the diagnostic worker before activation. */
+  async prepareShadow(id: string): Promise<BrainCandidateRecord> {
+    distillationHex(id, 64, 'shadow candidate');
+    return await this.request('shadow-prepare', [id]) as BrainCandidateRecord;
+  }
+
+  /** Commit one confirmed native command result independently of gameplay delivery. */
+  async recordShadow(value: ShadowReceipt): Promise<ShadowReceipt> {
+    return parseShadowReceipt(await this.request('shadow-record', [parseShadowReceipt(value)]));
+  }
+
+  /** Read one retained idempotent request result; missing/rotated history is explicit. */
+  async shadowReceipt(processEpoch: string, requestId: string): Promise<ShadowReceipt | null> {
+    distillationHex(processEpoch, 32, 'shadow process', true);
+    distillationHex(requestId, 32, 'shadow request', true);
+    const result = await this.request('shadow-receipt', [processEpoch, requestId]);
+    return result === null ? null : parseShadowReceipt(result);
+  }
+
+  /** Read bounded durable activation/stop history, without loading models or teacher rows. */
+  async shadowEvents(after: string, limit: number): Promise<ShadowEventPage> {
+    distillationHex(after, 16, 'shadow event cursor');
+    distillationInteger(limit, 1, 256, 'shadow event limit');
+    return await this.request('shadow-events', [after, limit]) as ShadowEventPage;
   }
 
   /** Read one complete bounded object; response ownership is separately admitted by HTTP. */

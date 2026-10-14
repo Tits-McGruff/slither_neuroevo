@@ -5,6 +5,8 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readF
 import { join, resolve } from 'node:path';
 import { MAX_BRAIN_ARTIFACT_BYTES, type BrainArtifactDescriptor, type BrainCandidateRecord } from '../../src/protocol/brainArtifacts.ts';
 import { distillationHex, distillationInteger } from './distillationProtocol.ts';
+import { parseShadowReceipt } from './shadowProtocol.ts';
+import type { ShadowReceipt, ShadowEventPage } from '../../src/protocol/shadows.ts';
 
 /** Separate bounded transient candidate retention, never automatic saved-brain catalog entries. */
 const MAX_CANDIDATES = 8;
@@ -53,12 +55,12 @@ export class BrainCandidateStore {
   private readonly db: Database.Database;
 
   /** Source-identified coarse native file validator. */
-  private readonly validate: (path: string) => BrainArtifactDescriptor;
+  private readonly validate: (path: string, registerShadow?: boolean) => BrainArtifactDescriptor;
   /** Shared configured physical disk reserve. */
   private readonly reserveBytes: number;
 
   /** The supplied validator must load source-identified Rust; it never instantiates a world. */
-  constructor(root: string, validate: (path: string) => BrainArtifactDescriptor, reserveBytes: number) {
+  constructor(root: string, validate: (path: string, registerShadow?: boolean) => BrainArtifactDescriptor, reserveBytes: number) {
     this.validate = validate;
     this.reserveBytes = reserveBytes;
     this.root = resolve(root);
@@ -74,14 +76,21 @@ export class BrainCandidateStore {
       const application = this.db.pragma('application_id', { simple: true });
       const version = this.db.pragma('user_version', { simple: true });
       const tables = (this.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table'").get() as { count: number }).count;
-      if ((application !== 0x534c4341 || version !== 1) && (application !== 0 || version !== 0 || tables !== 0)) throw new Error('unsupported candidate metadata database');
+      if ((application !== 0x534c4341 || (version !== 1 && version !== 2)) && (application !== 0 || version !== 0 || tables !== 0)) throw new Error('unsupported candidate metadata database');
       this.db.pragma('journal_mode=WAL'); this.db.pragma('synchronous=FULL');
       this.db.transaction(() => {
         this.db.exec('CREATE TABLE IF NOT EXISTS candidates (ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, descriptor TEXT NOT NULL, bytes INTEGER NOT NULL)');
-        this.db.pragma('application_id=1397506881'); this.db.pragma('user_version=1');
+        this.db.exec('CREATE TABLE IF NOT EXISTS shadow_events (ordinal INTEGER PRIMARY KEY AUTOINCREMENT, process_epoch TEXT NOT NULL, command_sequence TEXT NOT NULL, request_id TEXT NOT NULL, payload TEXT NOT NULL, UNIQUE(process_epoch,command_sequence), UNIQUE(process_epoch,request_id))');
+        this.db.pragma('application_id=1397506881'); this.db.pragma('user_version=2');
       })();
       const quota = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes),0) AS bytes, COALESCE(MAX(length(CAST(descriptor AS BLOB))),0) AS descriptorBytes FROM candidates').get() as { count: number; bytes: number; descriptorBytes: number };
       if (quota.count > MAX_CANDIDATES || quota.bytes > MAX_CANDIDATE_BYTES || quota.descriptorBytes > 768 * 1024) throw new Error('candidate metadata quota exceeded');
+      const events = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(MAX(length(CAST(payload AS BLOB))),0) AS bytes FROM shadow_events').get() as { count: number; bytes: number };
+      if (events.count > 1024 || events.bytes > 16 * 1024) throw new Error('shadow chronology quota exceeded');
+      for (const row of this.db.prepare('SELECT process_epoch,command_sequence,request_id,payload FROM shadow_events').all() as { process_epoch: string; command_sequence: string; request_id: string; payload: string }[]) {
+        const receipt = parseShadowReceipt(JSON.parse(row.payload));
+        if (receipt.processEpoch !== row.process_epoch || receipt.commandSequence !== row.command_sequence || receipt.requestId !== row.request_id) throw new Error('shadow chronology identity mismatch');
+      }
       const rows = this.db.prepare('SELECT * FROM candidates').all() as Row[];
       for (const row of rows) {
         try { this.bytes(row); this.record(row); const admitted = parseBrainDescriptor(this.validate(join(this.root, `${row.id}.slither-brain`))); if (JSON.stringify(admitted) !== row.descriptor) throw new Error('candidate native metadata mismatch'); } catch {
@@ -137,6 +146,51 @@ export class BrainCandidateStore {
     distillationHex(id, 64, 'candidate identity');
     const row = this.row(id); if (!row) throw new Error('candidate not found');
     this.bytes(row); return this.record(row);
+  }
+
+  /** Explicit cold registration cannot make cache capacity a stored-artifact corruption signal. */
+  prepareShadow(id: string): BrainCandidateRecord {
+    const record = this.get(id);
+    const descriptor = parseBrainDescriptor(this.validate(join(this.root, `${id}.slither-brain`), true));
+    if (JSON.stringify(descriptor) !== JSON.stringify(record.descriptor)) throw new Error('shadow candidate native metadata mismatch');
+    return record;
+  }
+
+  /** Persist only a confirmed native result; exact duplicate replies are immutable retries. */
+  recordShadow(value: unknown): ShadowReceipt {
+    const receipt = parseShadowReceipt(value);
+    const payload = JSON.stringify(receipt);
+    if (Buffer.byteLength(payload) > 16 * 1024) throw new Error('shadow receipt byte admission');
+    return this.db.transaction(() => {
+      const old = this.db.prepare('SELECT payload FROM shadow_events WHERE process_epoch=? AND command_sequence=?').get(receipt.processEpoch, receipt.commandSequence) as { payload: string } | undefined;
+      if (old) {
+        if (old.payload !== payload) throw new Error('shadow receipt immutable retry mismatch');
+        return receipt;
+      }
+      const disk = statfsSync(this.root, { bigint: true });
+      if (disk.bavail * disk.bsize < BigInt(this.reserveBytes) + 64n * 1024n) throw new Error('shadow chronology disk reserve exhausted');
+      this.db.prepare('INSERT INTO shadow_events(process_epoch,command_sequence,request_id,payload) VALUES(?,?,?,?)').run(receipt.processEpoch, receipt.commandSequence, receipt.requestId, payload);
+      this.db.exec('DELETE FROM shadow_events WHERE ordinal NOT IN (SELECT ordinal FROM shadow_events ORDER BY ordinal DESC LIMIT 1024)');
+      return receipt;
+    })();
+  }
+
+  /** Find a retained request result before admitting an idempotent retry. */
+  shadowReceipt(processEpoch: string, requestId: string): ShadowReceipt | null {
+    distillationHex(processEpoch, 32, 'shadow process', true);
+    distillationHex(requestId, 32, 'shadow request', true);
+    const row = this.db.prepare('SELECT payload FROM shadow_events WHERE process_epoch=? AND request_id=?').get(processEpoch, requestId) as { payload: string } | undefined;
+    return row ? parseShadowReceipt(JSON.parse(row.payload)) : null;
+  }
+
+  /** Read bounded chronology pages with exact SQLite u64 cursors, including rotated gaps. */
+  shadowEvents(after: string, limit: number): ShadowEventPage {
+    distillationHex(after, 16, 'shadow event cursor');
+    distillationInteger(limit, 1, 256, 'shadow event page limit');
+    if (BigInt('0x' + after) > 0x7fff_ffff_ffff_ffffn) throw new TypeError('shadow event cursor exceeds SQLite chronology');
+    const rows = this.db.prepare('SELECT ordinal,payload FROM shadow_events WHERE ordinal>? ORDER BY ordinal LIMIT ?').safeIntegers(true).all(BigInt('0x' + after), limit + 1) as { ordinal: bigint; payload: string }[];
+    const events = rows.slice(0, limit).map(row => ({ ordinal: row.ordinal.toString(16).padStart(16, '0'), receipt: parseShadowReceipt(JSON.parse(row.payload)) }));
+    return { events, nextCursor: events.at(-1)?.ordinal ?? after, hasMore: rows.length > limit };
   }
 
   /** Return one complete immutable object; the serialized worker owns its entire read. */

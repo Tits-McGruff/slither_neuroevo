@@ -984,3 +984,58 @@ checkpoint identity checks, explicit gaps and storage-pin cleanup.
 - Assuming an imported `worldSeed` changes the active run.
 - Assuming JavaScript is a transparent fallback when native loading fails.
 - Exposing the unauthenticated server on an untrusted network.
+
+## Native shadow controls v1
+
+Shadow routes use the same origin admission and `/api/distillation/v1/` namespace
+as teacher capture. Four diagnostic slots are empty by default. A shadow evaluates
+exact committed vectors from one selected baseline-v2 teacher, using private Rust
+recurrence; it never submits an action or changes fitness, delivery markers or RNG.
+The candidate's structural sensor identity, width and cadence must match the active
+capture. Its graph may differ from the controlling population graph.
+
+| Method and relative path | Request/result |
+|---|---|
+| `GET /shadows` | `schemaVersion: 1`, diagnostic `processEpoch`, and exactly four fixed native summaries, with null unused slots |
+| `POST /shadows/<0..3>/activate` | Exact request below; returns a durably recorded native activation receipt |
+| `POST /shadows/<0..3>/stop` | `requestId`, `captureEpoch`, `activationSequence`; returns a durably recorded matching stop |
+| `GET /shadows/events?after=<u64hex>&limit=<1..256>` | Bounded durable receipt chronology and exact hexadecimal pagination cursor |
+
+Activation requires these eight fields:
+
+```json
+{
+  "requestId": "<32 lowercase nonzero hex digits>",
+  "expectedProcessEpoch": "<processEpoch from GET /shadows>",
+  "expectedActivationSequence": "<current slot activationSequence, or 0000000000000000 for an unused slot>",
+  "expectedRunId": "<active run ID>",
+  "expectedConfigRevision": "<16 lowercase nonzero hex digits>",
+  "captureEpoch": "<active capture epoch>",
+  "baselineSlot": 0,
+  "artifactSha256": "<64 lowercase hex digits>"
+}
+```
+
+Use a new request ID for an explicit new activation. Exact lost-reply retries
+return the retained immutable receipt. Altering its body rejects; stale observed
+slot versions and changed processes reject before a replacement is admitted.
+Cold file validation/registration runs on the diagnostic worker, then the shared
+native command queue applies activation at a clean complete-step boundary.
+Receipts record process/request/command/activation identities, run/config/capture,
+candidate/teacher/slot, applied boundary and server receipt time. Their independent
+SQLite chronology retains the latest 1,024 confirmations, with version-one
+candidate metadata migrated in place. A delayed stop binds its activation and
+cannot disable a replacement. Receipt storage never resolves a gameplay barrier.
+
+A control timeout leaves its admitted identity pending until the actual native
+outcome arrives. A storage failure after native application reports that distinction;
+query metrics and retry the same request rather than inventing a replacement.
+Chronology rotation does not evict active native weights or reset recurrence.
+
+Metrics include unweighted turn MAE/MSE, requested-boost disagreement, four
+strategies, three life stages, six overlapping rare strata, cruising and the last
+at-most-32 deliveries before each sealed physical death. Counters and identities
+are exact hexadecimal words. `completedStep` includes held-control publications;
+`lastSampleStep` identifies the actual delivery behind `rawOutputs`. Inference
+errors disable only the affected slot. Capture closure or a changed contract
+ends its diagnostic segment. These summaries contain no observation or weight bytes.

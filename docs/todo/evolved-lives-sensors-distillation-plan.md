@@ -417,13 +417,23 @@ rare-stratum errors and a 32-delivery pre-death window are bounded. Fixed summar
 use a separate nonblocking diagnostic mailbox; inference failures disable only
 that slot. Managed-run regressions compare exact authority continuation and
 teacher bytes with capture off/on and four shadows across one/three workers.
-The coarse native bridge is connected; HTTP/job shadow coordination,
-saved-library/spawn integration and integrated resource/gameplay qualification
+The native bridge and dedicated HTTP controls now connect explicit immutable
+activation, activation-scoped stop and fixed metrics. Worker-side preparation
+separates cache pressure from ordinary artifact validation/recovery. Receipts
+have request/process/observed-slot binding, durable bounded chronology and exact
+retry behavior; timeout keeps an admitted identity pending for its late outcome.
+Actual admitted v4/v2 HTTP tests evaluate four shadows with one/three workers,
+selecting a real continuing teacher stream. PyRL's explicit opt-in journals the
+complete pending request with immutable bytes before activation, retries lost
+replies after CPU/CUDA job restart, and binds online metrics to that deployment.
+Saved-library/spawn integration and integrated resource/gameplay qualification
 remain open. This checkpoint passes 710 release library tests with hooks,
 two canonical-runner checks, three benchmark checks and the doctest, plus
 all-target Clippy, rustfmt, TypeScript, repository ESLint and the client build.
-The rebuilt source-identified addon and JavaScript aggregate plus the focused
-corrected legacy archive scenario cover 801 passing tests with 18 existing skips.
+The rebuilt source-identified addon and complete JavaScript aggregate pass
+810 tests with 18 existing skips. PyRL passes 175 broad tests with two dedicated
+native-tool skips, plus focused CPU/CUDA pending-request restart and saved-journal
+integrity checks; repository-wide Pylint passes at 10/10.
 Codec validation alone remains insufficient proof of a committed example.
 The manifest/runner checkpoint passes 678 release library tests, two offline-tool
 checks, the three benchmark checks and doctest, rustfmt and all-target Clippy.
@@ -434,7 +444,7 @@ cross-platform native/JavaScript matrix.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
-HTTP/job shadow coordination, the brain library and the new inspector remain unfinished.
+integrated shadow/training resource qualification, the brain library and the new inspector remain unfinished.
 Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

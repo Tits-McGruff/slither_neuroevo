@@ -8,7 +8,7 @@ use std::path::Path;
 
 /// Independently compile and validate one bounded immutable portable brain file.
 #[napi(js_name = "validateBrainArtifactFile")]
-pub fn validate_brain_artifact_file(path: String) -> Result<String> {
+pub fn validate_brain_artifact_file(path: String, register_shadow: Option<bool>) -> Result<String> {
     if path.is_empty() || path.len() > 32_768 || path.contains('\0') {
         return Err(Error::new(
             Status::InvalidArg,
@@ -38,9 +38,11 @@ pub fn validate_brain_artifact_file(path: String) -> Result<String> {
         validate_brain_artifact(&bytes).map_err(|error| Error::new(Status::InvalidArg, error))?;
     let descriptor = serde_json::to_string(&admitted.descriptor())
         .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-    let candidate = crate::engine::shadows::ShadowCandidate::from_artifact(admitted)
-        .map_err(|error| Error::new(Status::InvalidArg, error))?;
-    crate::engine::shadows::register_candidate(candidate)
-        .map_err(|error| Error::new(Status::InvalidArg, error))?;
+    if register_shadow == Some(true) {
+        let candidate = crate::engine::shadows::ShadowCandidate::from_artifact(admitted)
+            .map_err(|error| Error::new(Status::InvalidArg, error))?;
+        crate::engine::shadows::register_candidate(candidate)
+            .map_err(|error| Error::new(Status::InvalidArg, error))?;
+    }
     Ok(descriptor)
 }

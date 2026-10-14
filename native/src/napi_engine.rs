@@ -1109,6 +1109,106 @@ impl ExperimentalStage6aFreshRunSession {
     }
 }
 
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl ExperimentalStage6aFreshRunSession {
+    /// Construct an explicitly admitted v4/v2 qualification fixture; absent from production builds.
+    #[napi(catch_unwind)]
+    pub fn initialize_baseline_v2_for_test(
+        &self,
+        request: Object<'_>,
+    ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+        let keys = [
+            "profile",
+            "bins",
+            "mode",
+            "cadence",
+            "rayMinimum",
+            "rayCap",
+            "rayBatch",
+        ];
+        let names = request.get_property_names()?;
+        if names.get_array_length()? != keys.len() as u32 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "qualification requires exact fields",
+            ));
+        }
+        for index in 0..names.get_array_length()? {
+            let key = bounded_js_string(
+                names.get_element::<JsString<'_>>(index)?,
+                "qualification key",
+                32,
+                false,
+            )?;
+            if !keys.contains(&key.as_str()) || !request.has_own_property(&key)? {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualification requires exact own fields",
+                ));
+            }
+        }
+        let profile = match bounded_object_string(&request, "profile", 6)?.as_str() {
+            "basic" => crate::engine::sensor_contract::SensorProfile::Basic,
+            "motion" => crate::engine::sensor_contract::SensorProfile::Motion,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualification requires v4 Basic/Motion",
+                ))
+            }
+        };
+        let integer = |key, low: f64, high: f64| -> Result<usize> {
+            let value = request
+                .get::<f64>(key)?
+                .ok_or_else(|| Error::new(Status::InvalidArg, "qualification value missing"))?;
+            if !value.is_finite() || value.fract() != 0.0 || value < low || value > high {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualification integer range",
+                ));
+            }
+            Ok(value as usize)
+        };
+        let bins = integer("bins", 8.0, 32.0)?;
+        let mode = if integer("mode", 0.0, 1.0)? == 0 {
+            crate::engine::baseline_v2::BaselineV2Mode::Deterministic
+        } else {
+            crate::engine::baseline_v2::BaselineV2Mode::Stochastic
+        };
+        let cadence = request
+            .get::<f64>("cadence")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "qualification cadence missing"))?;
+        let baseline = crate::engine::baseline_v2::BaselineV2Settings {
+            mode,
+            control_interval_seconds: cadence,
+        };
+        baseline
+            .validate()
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let ray_work = crate::engine::ray_work::RayWorkLimits::new(
+            integer("rayMinimum", 0.0, 1_000_000.0)? as u32,
+            integer("rayCap", 1.0, 1_000_000.0)? as u32,
+            integer("rayBatch", 1.0, 10_000_000.0)? as u32,
+            512,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            request: self.request.clone(),
+            calculation_workers: self.calculation_workers,
+            source: FreshRunInitialization::Qualification(profile, bins, baseline, ray_work),
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+}
+
 /// Worker-owned exclusive transfer of the existing fresh-run authority.
 pub struct CreateExperimentalBackgroundTask {
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
@@ -1293,6 +1393,13 @@ impl Task for AdoptRecoveryBranchTask {
 /// Async complete fixed-profile construction for one experimental lineage.
 enum FreshRunInitialization {
     Fresh,
+    #[cfg(feature = "engine-test-hooks")]
+    Qualification(
+        crate::engine::sensor_contract::SensorProfile,
+        usize,
+        crate::engine::baseline_v2::BaselineV2Settings,
+        crate::engine::ray_work::RayWorkLimits,
+    ),
     Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
 }
@@ -1346,6 +1453,57 @@ impl Task for InitializeExperimentalFreshRunTask {
                         &self.request.run_id,
                         self.request.seed,
                         self.request.memory_ceiling_bytes,
+                    )
+                    .map_err(|error| error.to_string())?
+                }
+                #[cfg(feature = "engine-test-hooks")]
+                FreshRunInitialization::Qualification(profile, bins, baseline, ray_work) => {
+                    use crate::engine::graph::{
+                        GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,
+                    };
+                    let width =
+                        crate::engine::sensor_layout::SensorLayout::for_profile(*profile, *bins)
+                            .map_err(|error| error.to_string())?
+                            .input_size;
+                    let graph = GraphSpec {
+                        nodes: vec![
+                            GraphNodeSpec {
+                                id: "input".into(),
+                                kind: GraphNodeKind::Input { output_size: width },
+                            },
+                            GraphNodeSpec {
+                                id: "motor".into(),
+                                kind: GraphNodeKind::Dense {
+                                    input_size: width,
+                                    output_size: 2,
+                                },
+                            },
+                        ],
+                        edges: vec![GraphEdge {
+                            from: "input".into(),
+                            to: "motor".into(),
+                            from_port: Some(0),
+                            to_port: Some(0),
+                        }],
+                        outputs: vec![GraphOutputRef {
+                            node_id: "motor".into(),
+                            port: Some(0),
+                        }],
+                        output_size: 2,
+                    };
+                    let limits = crate::engine::step_config::RunningStepWorkLimits {
+                        ray_work: Some(*ray_work),
+                        calculation_workers: self.calculation_workers,
+                        ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
+                    };
+                    crate::engine::fresh_run::prepare_baseline_v2_qualification_run(
+                        self.request.clone(),
+                        &[],
+                        graph,
+                        *profile,
+                        *bins,
+                        *baseline,
+                        limits,
                     )
                     .map_err(|error| error.to_string())?
                 }
