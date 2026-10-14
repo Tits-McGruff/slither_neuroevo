@@ -267,7 +267,9 @@ export class SavedBrainLibrary {
       ? {schemaVersion: 1 as const, ...pending.request, brainId: pending.brainId, commandSequence: pending.sequence,
         snakeId: publication.snakeId, effectiveStep: publication.effectiveStep} : undefined;
     this.deploymentSequence = pending.sequence;
-    const error = event.rejectionDetail ?? 'native saved brain receipt mismatch';
+    const error = event.kind === 'commandRejected' ? event.rejectionDetail ?? 'native saved brain command rejected'
+      : 'worker native saved brain receipt mismatch; deployment outcome is uncertain';
+    if (!receipt && event.kind === 'savedBrainSpawned') this.failure = new Error(error);
     this.outcomes.set(pending.request.requestId, {key: pending.key, ...(receipt ? {receipt} : {error})});
     while (this.outcomes.size > MAX_RECEIPTS) this.outcomes.delete(this.outcomes.keys().next().value!);
     if (receipt) pending.resolve(receipt); else pending.reject(new Error(error));

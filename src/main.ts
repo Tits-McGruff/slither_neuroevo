@@ -1,5 +1,7 @@
 /** Entry point for the simulation UI, canvas, and client networking. */
 
+import { BrainLibraryClient } from './net/brainLibrary.ts';
+import { BrainLibraryView, type LibraryEnvironment } from './brainLibraryView.ts';
 import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
 import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize, applyAuthoritativeSensorSpec } from './config.ts';
 import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
@@ -426,6 +428,13 @@ function loadSavedPlayerName(): void {
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
 /** Currently active tab id. */
 let activeTab = 'tab-settings';
+/** Applied library compatibility facts never read editable graph/settings drafts. */
+const libraryEnvironment: LibraryEnvironment = {graphSourceJson: null, sensorSha256: null, cadence: 1 / 60, configHash: ''};
+/** User-driven library UI; it performs no animation-frame fetch or neural execution. */
+const brainLibrary = new BrainLibraryView(new BrainLibraryClient(() => wsClient?.isConnected()
+  ? resolveServerHttpBase(serverUrl || resolveServerUrl()) : null), () => libraryEnvironment, snakeId => {
+  spectatorFollowSnakeId = snakeId; resetManualCamera(); proxyWorld.viewMode = 'follow';
+});
 /** Currently selected stats view key. */
 let statsView = 'fitness';
 tabBtns.forEach(btn => {
@@ -438,6 +447,7 @@ tabBtns.forEach(btn => {
     const tabEl = document.getElementById(tabId);
     if (tabEl) tabEl.classList.add('active');
     activeTab = tabId;
+    if (tabId === 'tab-library') brainLibrary.refresh();
     if (wsClient && wsClient.isConnected()) {
       wsClient.sendViz(activeTab === 'tab-viz');
     }
@@ -3545,8 +3555,10 @@ function applyAuthoritativeSettingsState(
   for (const path of EVOLVED_SETTING_PATHS) setByPath(CFG, path, getByPath(CFG_DEFAULT, path));
   CFG.evolvedRespawn.contractVersion = 0;
   serverSimSpeed = core.simSpeed;
+  libraryEnvironment.cadence = 1 / 60;
   applyCoreSettingsToUi(core);
   for (const update of updates) {
+    if (update.path === 'brain.controlDt') libraryEnvironment.cadence = Number(update.value);
     setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
   }
   syncBrainInputSize();
@@ -3557,6 +3569,7 @@ function applyAuthoritativeSettingsState(
 
 /** Restore the exact admitted graph, keeping ordinary stack graphs in slider mode. */
 function applyAuthoritativeGraphSpec(spec: GraphSpec | undefined, core: CoreSettings): void {
+  libraryEnvironment.graphSourceJson = spec ? JSON.stringify(spec) : null;
   if (!spec) return;
   const stack = buildStackGraphSpec(core, CFG);
   if (graphKey(spec) === graphKey(stack)) {
@@ -3578,6 +3591,7 @@ function applyAuthoritativeGraphSpec(spec: GraphSpec | undefined, core: CoreSett
 function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): void {
   let baselineSettingsChanged = false;
   for (const update of updates) {
+    if (update.path === 'brain.controlDt') libraryEnvironment.cadence = Number(update.value);
     if (update.path === 'simSpeed') {
       serverSimSpeed = update.value;
       elSimSpeed.value = String(update.value);
@@ -3642,6 +3656,9 @@ wsClient = createWsClient({
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     applyAuthoritativeSensorSpec(info.sensorSpec);
+    libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
+    libraryEnvironment.configHash = info.configHash;
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3675,6 +3692,7 @@ wsClient = createWsClient({
     refreshServerHallOfFame();
   },
   onDisconnected: () => {
+    brainLibrary.contextChanged(false);
     entitySelection.reset();
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
     serverArchiveExport = false;
@@ -3827,6 +3845,8 @@ wsClient = createWsClient({
     serverConfigRevision = msg.configRevision;
     if (msg.applied) {
       applyAuthoritativeLivePatch(msg.updates);
+      libraryEnvironment.configHash = msg.configHash;
+      brainLibrary.environmentChanged();
       return;
     }
     applyValuesToSlidersFromCFG(resolveSettingsRoot());
@@ -3917,6 +3937,9 @@ wsClient = createWsClient({
     serverArchiveImport = info.capabilities?.archiveImport === true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
     applyAuthoritativeSensorSpec(info.sensorSpec);
+    libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
+    libraryEnvironment.configHash = info.configHash;
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     refreshServerHallOfFame();

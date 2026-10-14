@@ -39,6 +39,7 @@
       <button class="tab-btn" data-tab="tab-viz">Visualizer</button>
       <button class="tab-btn" data-tab="tab-stats">Stats</button>
       <button class="tab-btn" data-tab="tab-hof">Hall of Fame</button>
+      <button class="tab-btn" data-tab="tab-library" hidden>Brain Library</button>
     </div>
 
     <!-- Tab: Settings -->
@@ -267,6 +268,20 @@
       </div>
       <label class="meta"><input id="followIndividual" type="checkbox" checked> Follow population individual across lives</label>
       <div id="godModeLog" class="god-mode-log" style="font-family: monospace; font-size: 11px; color: #aaa; max-height: 150px; overflow-y: auto;"></div>
+    </div>
+
+    <!-- Explicit retained models; all graph execution remains native. -->
+    <div id="tab-library" class="tab-content">
+      <h3>Brain Library</h3>
+      <p class="meta">Saved brains are separate from Hall of Fame champions. Compatible brains spawn as retained snakes.</p>
+      <div class="row"><label for="brainLibraryName">Saved brain name</label><input id="brainLibraryName" type="text" maxlength="256" autocomplete="off"></div>
+      <div class="row"><label for="brainLibraryFile">Import portable brain</label><input id="brainLibraryFile" type="file" accept=".slither-brain"><button id="brainLibraryImport" class="btn">Import file</button></div>
+      <div class="row"><label for="brainCandidateId">Trainer candidate artifact ID</label><input id="brainCandidateId" type="text" maxlength="64" spellcheck="false" autocomplete="off"><button id="brainLibrarySave" class="btn">Save candidate</button></div>
+      <div class="brain-library-actions"><button id="brainLibraryRefresh" class="btn">Refresh</button><button id="brainLibraryPrevious" class="btn">Previous</button><button id="brainLibraryNext" class="btn">Next</button></div>
+      <p id="brainLibraryStatus" class="meta" role="status" aria-live="polite"></p>
+      <p id="brainLibraryPending" class="meta" hidden>The last spawn may already have happened. Retry to check it before spawning another. Dismissing this request does not cancel an admitted spawn.</p>
+      <div class="brain-library-actions"><button id="brainLibraryRetry" class="btn" hidden>Retry spawn</button><button id="brainLibraryDismiss" class="btn" hidden>Dismiss pending request</button></div>
+      <div id="brainLibraryList"></div><div id="brainLibraryDetails"></div>
     </div>
 
     <!-- Tab: Hall of Fame -->

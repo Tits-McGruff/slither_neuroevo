@@ -42,6 +42,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'server/stage1.controllerConfig.test.ts',
     'server/test/networkSuites.test.ts',
     'src/BrainViz.test.ts',
+    'src/brainLibraryView.test.ts',
     'src/FitnessChart.test.ts',
     'src/brains/graph.test.ts',
     'src/brains/graph.unit.test.ts',
@@ -61,6 +62,7 @@ export const PRIMARY_TEST_CATEGORIES = {
   component: [
     'server/protocol.test.ts',
     'src/net/authoritativeControls.test.ts',
+    'src/net/brainLibrary.test.ts',
     'src/net/entitySelection.test.ts',
     'src/net/playerActionPump.test.ts',
     'src/net/wsClient.test.ts',

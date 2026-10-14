@@ -138,3 +138,14 @@ it('retains a known native rejection for exact retries without a second command 
   expect(f.calls).toHaveLength(1); expect(f.events).toEqual(['acquire', 'release']);
   await f.library.close();
 });
+
+it('treats a malformed native publication as an uncertain worker failure rather than a known rejection', async () => {
+  const f = fixture(); const pending = f.library.spawn(ID, request(f.library));
+  const rejected = expect(pending).rejects.toThrow(/worker.*uncertain/);
+  await admitted();
+  f.library.event({kind: 'savedBrainSpawned', commandSequence: f.calls[0]!});
+  await rejected; await admitted();
+  expect(() => f.library.status()).toThrow(/uncertain/);
+  expect(f.events).toEqual(['acquire', 'release']);
+  await f.library.close();
+});
