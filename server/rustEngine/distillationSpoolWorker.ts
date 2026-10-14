@@ -12,21 +12,21 @@ import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.
 /** A candidate validator is loaded only in this filesystem/native diagnostic worker. */
 const requireNative = createRequire(import.meta.url);
 /** Retain a verified coarse validator; no world/engine instance is constructed. */
-let nativeValidator: ((path: string) => string) | undefined;
+let nativeValidator: ((path: string, registerShadow?: boolean) => string) | undefined;
 /** Transient candidate files/catalog have independent bounded retention. */
 let candidates: BrainCandidateStore | undefined;
 
 /** Require the actual current-source production addon before accepting a candidate. */
-function validateCandidate(path: string): BrainArtifactDescriptor {
+function validateCandidate(path: string, registerShadow = false): BrainArtifactDescriptor {
   if (!nativeValidator) {
     const root = resolve(import.meta.dirname, '../../native');
     const loaded: unknown = requireNative(join(root, 'index.js'));
     validateExperimentalEngineBinding(loaded, computeNativeSourceIdentity(root));
     const method = (loaded as Record<string, unknown>)['validateBrainArtifactFile'];
     if (typeof method !== 'function') throw new Error('native brain validator missing; build the native addon');
-    nativeValidator = method.bind(loaded) as (path: string) => string;
+    nativeValidator = method.bind(loaded) as (path: string, registerShadow?: boolean) => string;
   }
-  const result = nativeValidator(path);
+  const result = nativeValidator(path, registerShadow);
   if (typeof result !== 'string' || Buffer.byteLength(result) > 1024 * 1024) throw new Error('native candidate metadata admission');
   return parseBrainDescriptor(JSON.parse(result));
 }
@@ -69,6 +69,10 @@ function dispatch(operation: string, args: unknown[]): unknown {
     case 'interrupt': store.interrupt(args[0] as string); return null;
     case 'candidate-ingest': return candidateStore().ingest(args[0] as string, args[1] as Uint8Array);
     case 'candidate-get': return candidateStore().get(args[0] as string);
+    case 'shadow-prepare': return candidateStore().prepareShadow(args[0] as string);
+    case 'shadow-record': return candidateStore().recordShadow(args[0]);
+    case 'shadow-receipt': return candidateStore().shadowReceipt(args[0] as string, args[1] as string);
+    case 'shadow-events': return candidateStore().shadowEvents(args[0] as string, args[1] as number);
     case 'candidate-download': return candidateStore().download(args[0] as string);
     case 'close': candidates?.close(); store.close(); return null;
     default: throw new TypeError('unknown distillation spool operation');

@@ -1,3 +1,4 @@
+import { DistillationShadows } from './distillationShadows.ts';
 import { randomBytes } from 'node:crypto';
 import type { TeacherCaptureRequest } from '../../src/protocol/distillation.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
@@ -24,6 +25,8 @@ interface PendingControl {
 
 /** Periodic opaque drain/spool coordinator with no actor or simulation interface. */
 export class DistillationCapture {
+  /** Optional native students share only the diagnostic worker and ordered admission. */
+  readonly shadows: DistillationShadows;
   /** At most one bounded in-flight native handoff and worker ingestion. */
   private activePoll: Promise<void> | undefined;
   /** Periodic asynchronous diagnostic work. */
@@ -49,7 +52,7 @@ export class DistillationCapture {
     private readonly admission: BackgroundCommandAdmission,
     private readonly spool: DistillationSpoolClient,
     private readonly runIdentity: () => { runId: string; seed: number }
-  ) {}
+  ) { this.shadows = new DistillationShadows(native, admission, spool, () => runIdentity().runId); }
 
   /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
   async start(value: unknown): Promise<DistillationDataset> {
@@ -109,6 +112,7 @@ export class DistillationCapture {
 
   /** Observe only matching diagnostic receipts; never manufacture a controller acceptance. */
   event(event: RustBackgroundEvent): void {
+    this.shadows.event(event);
     if (!this.pending || event.commandSequence !== this.pending.sequence) return;
     if (event.kind === 'commandRejected') {
       const pending = this.pending; this.pending = undefined; clearTimeout(pending.timer);
@@ -135,6 +139,7 @@ export class DistillationCapture {
 
   /** Mark replaced runs interrupted without claiming an unobserved diagnostic tail. */
   async runReplaced(): Promise<void> {
+    this.shadows.runReplaced();
     if (this.epoch && !this.stopped) {
       const epoch = this.epoch;
       this.stopped = true;
@@ -155,6 +160,7 @@ export class DistillationCapture {
   private async closeInternal(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    await this.shadows.close();
     clearInterval(this.timer);
     try {
       await this.activePoll;

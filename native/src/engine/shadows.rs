@@ -196,6 +196,7 @@ pub struct ShadowSnapshot {
     pub activation_sequence: u64,
     pub activation_step: u64,
     pub completed_step: u64,
+    pub last_sample_step: u64,
     pub generation: u64,
     pub physical_snake_id: u64,
     pub enabled: bool,
@@ -312,6 +313,7 @@ impl ShadowWorkspace {
             activation_sequence: sequence,
             activation_step: step,
             completed_step: step,
+            last_sample_step: 0,
             generation: 0,
             physical_snake_id: 0,
             enabled: true,
@@ -457,6 +459,7 @@ impl Shadow {
             self.snapshot.generation = boundary.key.generation();
             self.snapshot.physical_snake_id = decision.physical_snake_id;
             self.snapshot.raw_outputs = output;
+            self.snapshot.last_sample_step = step;
             let error = f64::from(output[0].clamp(-1.0, 1.0) - decision.applied_turn);
             let disagreement = (output[1] > 0.35) != decision.boost_request;
             let mut row = ShadowMetricTotals::default();
@@ -654,6 +657,8 @@ mod tests {
         publish(&mut workspace, 2, 1, 77, false, false);
         assert_eq!(workspace.slots[0].as_ref().unwrap().before, before);
         assert_eq!(workspace.snapshots()[0].unwrap().raw_outputs, raw);
+        assert_eq!(workspace.snapshots()[0].unwrap().last_sample_step, 1);
+        assert_eq!(workspace.snapshots()[0].unwrap().completed_step, 2);
         for step in 3..=256 {
             publish(&mut workspace, step, 1, 77, step % 2 != 0, false);
         }

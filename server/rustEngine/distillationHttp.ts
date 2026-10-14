@@ -1,3 +1,4 @@
+import type { DistillationShadows } from './distillationShadows.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES } from '../../src/protocol/brainArtifacts.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readJsonBody } from '../readJsonBody.ts';
@@ -6,6 +7,8 @@ import type { DistillationSpoolClient } from './distillationSpoolClient.ts';
 
 /** Native arm/stop hooks use ordered authority commands, never actor join/action. */
 export interface DistillationCaptureControl {
+  /** Bounded student controls; absent when no native authority is connected. */
+  shadows?: Pick<DistillationShadows, 'activate' | 'stop' | 'metrics'>;
   /** Admit one explicit capture request and return its dataset identity. */
   start(value: unknown): Promise<unknown>;
   /** Seal the current matching epoch without waiting for trainer consumption. */
@@ -44,6 +47,20 @@ export class DistillationHttpRouter {
   private async route(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
     const path = url.pathname.slice('/api/distillation/v1/'.length);
     const method = request.method;
+    if (method === 'GET' && path === 'shadows') {
+      if (!this.control?.shadows) throw new Error('shadow control unavailable');
+      this.json(response, 200, this.control.shadows.metrics()); return;
+    }
+    if (method === 'GET' && path === 'shadows/events') {
+      this.json(response, 200, await this.spool.shadowEvents(url.searchParams.get('after') ?? DISTILLATION_ZERO, this.limit(url))); return;
+    }
+    const shadow = /^shadows\/([0-3])\/(activate|stop)$/u.exec(path);
+    if (method === 'POST' && shadow) {
+      if (!this.control?.shadows) throw new Error('shadow control unavailable');
+      const body = await readJsonBody(request, 4096);
+      const slot = Number(shadow[1]);
+      this.json(response, 200, shadow[2] === 'activate' ? await this.control.shadows.activate(slot, body) : await this.control.shadows.stop(slot, body)); return;
+    }
     const candidate = /^candidates\/([0-9a-f]{64})$/u.exec(path);
     if (candidate && method === 'POST') {
       if (this.candidateUploads >= 1) throw new Error('candidate upload concurrency exhausted');

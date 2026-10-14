@@ -129,7 +129,7 @@ pub(crate) fn metrics_json(snapshots: [Option<ShadowSnapshot>; MAX_SHADOWS]) -> 
         json!({"shadowSlot":slot, "artifactSha256":hex(&snapshot.artifact_sha256),
             "captureEpoch":hex(&snapshot.capture_epoch), "baselineSlot":snapshot.baseline_slot,
             "activationSequence":u64_hex(snapshot.activation_sequence), "activationStep":u64_hex(snapshot.activation_step),
-            "completedStep":u64_hex(snapshot.completed_step), "generation":u64_hex(snapshot.generation),
+            "completedStep":u64_hex(snapshot.completed_step), "lastSampleStep":u64_hex(snapshot.last_sample_step), "generation":u64_hex(snapshot.generation),
             "physicalSnakeId":u64_hex(snapshot.physical_snake_id), "enabled":snapshot.enabled, "error":snapshot.error,
             "rawOutputs":snapshot.raw_outputs, "totals":totals(snapshot.totals),
             "strategies":snapshot.strategies.map(totals), "lifeStages":snapshot.life_stages.map(totals),

@@ -1,3 +1,9 @@
+import { createRequire } from 'node:module';
+import { mkdirSync } from 'node:fs';
+import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
+import { parseManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
+import type { ExperimentalFreshRunNativeBinding } from './experimentalFreshRunSession.ts';
+import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
@@ -85,5 +91,39 @@ networkTest('routes bounded inbound candidate bytes to Rust and returns descript
   } finally {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+
+it('registers a worker-prepared candidate in the actual production runtime without granting controlling ownership', async () => {
+  const client = fixture(); await client.ingestCandidate(identity, artifact); await client.prepareShadow(identity);
+  const require = createRequire(import.meta.url);
+  const binding = require(resolve('native/index.js')) as ExperimentalFreshRunNativeBinding;
+  const root = roots.at(-1)!; const managed = join(root, 'game-managed'); mkdirSync(managed);
+  const persistence = new CheckpointPersistenceClient({ databasePath: join(root, 'game.sqlite'), managedRootPath: managed });
+  const session = new binding.ExperimentalStage6aFreshRunSession('candidate-cache-handoff', '0000002a', '0000000100000000', 1);
+  let runtime: ExperimentalRunningAuthorityNativeHandle | undefined;
+  try {
+    await session.initialize();
+    const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({ managedDirectory: managed, operationId: '37'.repeat(16) }));
+    await persistence.commit(descriptor); session.acknowledgeRunStartPersistence(descriptor); await session.activateRunningAuthority();
+    runtime = await session.createBackgroundRuntime({ contractVersion: 1, maxInboundBatches: 16, maxInboundCommands: 16,
+      maxInboundOwnedBytes: 2 * 1024 * 1024, maxBatchCommands: 1, maxBatchOwnedBytes: 1024 * 1024,
+      maxOutputReliable: 32, maxOutputReliableOwnedBytes: 16 * 1024 * 1024, maxOutputDiscrete: 4,
+      maxOutputDiscreteOwnedBytes: 1024 * 1024, maxOutputTotalOwnedBytes: 32 * 1024 * 1024,
+      maxOutputEventOwnedBytes: 1024 * 1024, maxOutputFrameConnections: 4 }, () => {}) as ExperimentalRunningAuthorityNativeHandle;
+    runtime.start();
+    expect(() => runtime!.submitActivateShadow('0000000000000001', { expectedRunId: 'candidate-cache-handoff',
+      expectedConfigRevision: '0000000000000001', captureEpoch: '17'.repeat(16), shadowSlot: 0, baselineSlot: 0, artifactSha256: identity })).not.toThrow();
+    const deadline = performance.now() + 5000; let rejection: string | undefined;
+    while (rejection === undefined && performance.now() < deadline) {
+      for (const event of runtime.drainOutputs(32, 1024 * 1024).events) if (event.kind === 'commandRejected' && event.commandSequence === '0000000000000001') rejection = event.rejectionDetail;
+      await new Promise(done => setTimeout(done, 5));
+    }
+    expect(rejection).toMatch(/requires active teacher capture/u);
+    expect(JSON.parse(runtime.getShadowMetrics()).slots).toEqual([null, null, null, null]);
+  } finally {
+    if (runtime) { runtime.requestStop(); await runtime.join(); }
+    await persistence.close();
   }
 });

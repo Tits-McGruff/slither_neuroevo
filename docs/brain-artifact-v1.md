@@ -62,12 +62,14 @@ Oldest transient candidates rotate as complete objects. It does not populate the
 saved-brain catalog. IDs/digests make lost-response retries idempotent. Native
 validation never submits a controller action or resolves a generation barrier.
 
-Cold native validation also registers the immutable graph/weights in a bounded
-64-MiB cache. Queued activations and active shadows pin their candidate; only
+Explicit shadow preparation cold-validates and registers immutable graph/weights
+in a bounded 64-MiB cache. Ordinary upload/recovery validation does not register,
+so cache pressure cannot classify a valid stored artifact as corrupt. Queued activations and active shadows pin their candidate; only
 unreferenced candidates can be evicted. Four shadow slots are absent by default,
 with a separate 64-MiB workspace including replacement staging. The coarse native
-bridge exposes explicit activation, activation-scoped stop and bounded metrics;
-HTTP/job shadow coordination remains pending. A cache miss requires cold
+bridge exposes explicit activation, activation-scoped stop and bounded metrics.
+The dedicated shadow HTTP routes record native confirmations in independent
+bounded metadata; see [API-instructions.md](API-instructions.md#native-shadow-controls-v1). A cache miss requires cold
 revalidation of the stored artifact before activation. These budgets do not
 change population or teacher-spool admission.
 
