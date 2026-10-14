@@ -1,3 +1,5 @@
+import type { BrainArtifactDescriptor } from '../src/protocol/brainArtifacts.ts';
+import type { ManagedNeuralWeightsDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
 import type { EvolvedLifecycleTelemetry } from '../src/protocol/evolvedLives.ts';
 import type { SelectEntityMsg, EntitySelectedMsg } from '../src/protocol/entitySelection.ts';
 import { isEntitySelectionToken } from '../src/protocol/entitySelection.ts';
@@ -773,3 +775,58 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return null;
   }
 }
+
+/** Paginated library metadata; no model parameters or full graph in list pages. */
+export interface SavedBrainSummaryV1 {
+  /** Fixed record schema. */
+  schemaVersion: 1;
+  /** Exact complete portable artifact identity. */
+  brainId: string;
+  /** Explicit owner-selected display label. */
+  name: string;
+  /** Durable save time in epoch milliseconds. */
+  createdAtMs: number;
+  /** Small deployment facts; the potentially large compatibility key stays in the full record. */
+  artifact: Omit<BrainArtifactDescriptor, 'architectureKey'>;
+  /** Shared immutable adaptive numeric object. */
+  weights: ManagedNeuralWeightsDescriptor;
+  /** Controlled immutable portable-original filename. */
+  artifactRelativeFilename: string;
+  /** Exact complete original bytes as canonical unsigned-64 hex. */
+  artifactByteCount: string;
+}
+
+/** Retained graph/sensor/deployment and complete bounded trainer/source provenance. */
+export interface SavedBrainRecordV1 extends Omit<SavedBrainSummaryV1, 'artifact'> {
+  /** Complete native compatibility key is retained for cold admission. */
+  artifact: BrainArtifactDescriptor;
+  /** Rust canonical graph, sensor bytes, packing and cadence contracts. */
+  graphManifest: Record<string, unknown>;
+  /** Teacher/method/seed/samples/validation/gameplay/source/environment metadata. */
+  provenance: { schemaVersion: 1; sourceKind: BrainArtifactDescriptor['sourceKind']; details: unknown };
+}
+
+/** Stable identity cursor, independent of SQLite row order or UI labels. */
+export interface SavedBrainPageV1 {
+  /** Bounded metadata-only entries in increasing full artifact identity order. */
+  entries: SavedBrainSummaryV1[];
+  /** Exclusive cursor for the next page, or null at end. */
+  next: string | null;
+}
+
+/** Bounded metadata-worker requests; filesystem paths are never accepted from browser JSON. */
+export type SavedBrainCatalogOperation =
+  | {action: 'save'; path: string; name: string}
+  | {action: 'read'; brainId: string}
+  | {action: 'list'; after: string | null; limit: number}
+  | {action: 'delete'; brainId: string}
+  | {action: 'acquire'; brainId: string; leaseId: string}
+  | {action: 'release'; leaseId: string};
+
+/** Correlated small metadata or one complete cold record, never parameter buffers. */
+export type SavedBrainCatalogResult =
+  | {action: 'save' | 'acquire'; record: SavedBrainRecordV1}
+  | {action: 'read'; record: SavedBrainRecordV1 | null}
+  | {action: 'list'; page: SavedBrainPageV1}
+  | {action: 'delete'; brainId: string; deleted: boolean}
+  | {action: 'release'; leaseId: string};

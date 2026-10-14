@@ -161,11 +161,13 @@ impl CheckpointOperationId {
 }
 
 /// Versioned numeric-role encoding selected from measured stored bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum NumericEncoding {
     /// Packed four-byte little-endian Float32 values.
+    #[serde(rename = "raw-f32le-v1")]
     RawF32LeV1,
     /// One-MiB byte-shuffled Float32 blocks in independent Zstandard frames.
+    #[serde(rename = "f32le-shuffle4-zstd-v1")]
     F32LeShuffle4ZstdV1,
 }
 
@@ -310,9 +312,10 @@ pub struct CheckpointDescriptor {
     pub write_validation_policy: CheckpointWriteValidationPolicy,
 }
 
-/// Small content-addressed descriptor for one independently retained elite genome.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HallOfFameWeightsDescriptor {
+/// Content-addressed weight object shared by winners and saved neural brains.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedNeuralWeightsDescriptor {
     /// Version of this scalar descriptor and file contract.
     pub version: u32,
     /// Encoding-independent SHA-256 of packed little-endian Float32 bits.
@@ -322,14 +325,20 @@ pub struct HallOfFameWeightsDescriptor {
     /// Selected adaptive numeric encoding.
     pub encoding: NumericEncoding,
     /// Complete stored file bytes as canonical `u64` hexadecimal.
+    #[serde(rename = "storedByteCount")]
     pub stored_byte_count_hex: String,
     /// Packed logical bytes as canonical `u64` hexadecimal.
+    #[serde(rename = "decodedByteCount")]
     pub decoded_byte_count_hex: String,
     /// Exact Float32 parameter count as canonical `u64` hexadecimal.
+    #[serde(rename = "weightCount")]
     pub weight_count_hex: String,
 }
 
-impl HallOfFameWeightsDescriptor {
+/// Compatibility name for existing HoF callers and immutable file metadata.
+pub type HallOfFameWeightsDescriptor = ManagedNeuralWeightsDescriptor;
+
+impl ManagedNeuralWeightsDescriptor {
     /// Exact string-storage bytes retained after publication compacts spare capacity.
     pub(crate) const PUBLICATION_OWNED_BYTES: usize =
         64 + 64 + HALL_OF_FAME_WEIGHTS_SUFFIX.len() + 3 * 16;
@@ -1250,6 +1259,19 @@ pub fn publish_hall_of_fame_weights(
     weights: &[f32],
     limits: &CheckpointLimits,
 ) -> Result<HallOfFameWeightsDescriptor, CheckpointError> {
+    publish_managed_neural_weights(managed_directory, operation_id, weights, limits, u64::MAX)
+}
+
+/// Shared immutable weight publication for retained winners and library brains.
+/// The legacy suffix is a storage compatibility contract, independent of origin.
+/// Reject encoded quota overflow before publishing the final content-addressed file.
+pub fn publish_managed_neural_weights(
+    managed_directory: &Path,
+    operation_id: &CheckpointOperationId,
+    weights: &[f32],
+    limits: &CheckpointLimits,
+    stored_byte_limit: u64,
+) -> Result<ManagedNeuralWeightsDescriptor, CheckpointError> {
     validate_limits(limits)?;
     fs::create_dir_all(managed_directory)?;
     let managed_directory = managed_directory.canonicalize()?;
@@ -1284,8 +1306,17 @@ pub fn publish_hall_of_fame_weights(
     }
     .compact_storage();
     if final_path.exists() {
-        validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
-        return Ok(descriptor);
+        return read_existing_neural_weight_descriptor(
+            &final_path,
+            &descriptor,
+            stored_byte_limit.min(limits.max_numeric_stored_bytes),
+        );
+    }
+    if candidate.stored_bytes > stored_byte_limit {
+        return Err(CheckpointError::format(
+            "NEURAL_WEIGHTS_QUOTA",
+            "managed neural weights exceed the available stored-byte allowance",
+        ));
     }
 
     let partial_path = match candidate.encoding {
@@ -1328,14 +1359,58 @@ pub fn publish_hall_of_fame_weights(
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists || final_path.exists() => {
             sync_parent_directory(&managed_directory)?;
-            validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
-            return Ok(descriptor);
+            return read_existing_neural_weight_descriptor(
+                &final_path,
+                &descriptor,
+                stored_byte_limit,
+            );
         }
         Err(error) => return Err(error.into()),
     }
     sync_parent_directory(&managed_directory)?;
     validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
     Ok(descriptor)
+}
+
+/// Preserve a valid older object's actual encoding and bytes even if today's
+/// adaptive codec would choose differently. Exact decoded digest/finite checks
+/// disambiguate the two admitted encodings without trusting file suffix/content hints.
+fn read_existing_neural_weight_descriptor(
+    path: &Path,
+    expected: &ManagedNeuralWeightsDescriptor,
+    stored_byte_limit: u64,
+) -> Result<ManagedNeuralWeightsDescriptor, CheckpointError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(CheckpointError::format(
+            "NEURAL_WEIGHTS_FILE",
+            "shared weight object must be a regular file",
+        ));
+    }
+    if metadata.len() > stored_byte_limit {
+        return Err(CheckpointError::format(
+            "NEURAL_WEIGHTS_QUOTA",
+            "existing shared weights exceed stored-byte allowance",
+        ));
+    }
+    let mut actual = expected.clone();
+    actual.stored_byte_count_hex = encode_u64_hex(metadata.len());
+    for encoding in [
+        expected.encoding,
+        match expected.encoding {
+            NumericEncoding::RawF32LeV1 => NumericEncoding::F32LeShuffle4ZstdV1,
+            NumericEncoding::F32LeShuffle4ZstdV1 => NumericEncoding::RawF32LeV1,
+        },
+    ] {
+        actual.encoding = encoding;
+        if validate_existing_hall_of_fame_weights(path, &actual).is_ok() {
+            return Ok(actual);
+        }
+    }
+    Err(CheckpointError::format(
+        "NEURAL_WEIGHTS_IDENTITY",
+        "existing shared object has invalid packed weight identity",
+    ))
 }
 
 /// Fully verify an existing content-addressed elite object before reusing it.

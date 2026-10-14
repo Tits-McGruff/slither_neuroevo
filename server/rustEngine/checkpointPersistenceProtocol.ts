@@ -1,3 +1,4 @@
+import type { SavedBrainCatalogOperation, SavedBrainCatalogResult } from '../protocol.ts';
 import type { GenerationExperimentSummary, HallOfFameAssessment } from '../../src/protocol/experimentRecords.ts';
 import type { GenerationExperimentRecord } from '../../src/protocol/experimentRecords.ts';
 import { parseGenerationExperimentRecord, encodeExperimentRecord } from './experimentRecords.ts';
@@ -189,8 +190,8 @@ export interface ManagedHallOfFameReference {
   successorGenomeId: U64Hex;
 }
 
-/** Immutable adaptive binary object containing one Hall-of-Fame genome's weights. */
-export interface ManagedHallOfFameWeightsDescriptor {
+/** Immutable adaptive weight object shared by HoF and the saved-brain catalog. */
+export interface ManagedNeuralWeightsDescriptor {
   /** Descriptor and file contract version. */
   version: 1;
   /** SHA-256 of decoded packed little-endian Float32 bits. */
@@ -206,6 +207,9 @@ export interface ManagedHallOfFameWeightsDescriptor {
   /** Exact Float32 parameter count. */
   weightCount: U64Hex;
 }
+
+/** Compatibility name retained for existing HoF metadata and callers. */
+export type ManagedHallOfFameWeightsDescriptor = ManagedNeuralWeightsDescriptor;
 
 /** Versioned terminal chronology, independent of the legacy 56-byte summary. */
 export interface ManagedGenerationCompletion {
@@ -339,6 +343,7 @@ export type CheckpointPersistenceWorkerRequest =
   | { type: 'releaseExportLease'; operationId: CheckpointOperationId }
   | { type: 'readBrowserHistory'; operationId: CheckpointOperationId; runId: string; limit: number }
   | { type: 'readBrowserHallOfFame'; operationId: CheckpointOperationId; runId: string; limit: number }
+  | { type: 'savedBrainCatalog'; operationId: CheckpointOperationId; request: SavedBrainCatalogOperation }
   | { type: 'saveGraphPreset'; operationId: CheckpointOperationId; name: string; specJson: string }
   | { type: 'listGraphPresets'; operationId: CheckpointOperationId; limit: number }
   | { type: 'loadGraphPreset'; operationId: CheckpointOperationId; presetId: number }
@@ -478,6 +483,8 @@ export interface ManagedOrphanCleanupResult {
   deletedCheckpointCount: U64Hex;
   /** Number of unreferenced immutable elite files removed. */
   deletedHallOfFameCount: U64Hex;
+  /** Saved portable originals reclaimed after an interrupted catalog save; omitted when zero. */
+  deletedSavedBrainCount?: U64Hex;
   /** Exact total bytes represented by removed files. */
   deletedStoredByteCount: U64Hex;
 }
@@ -542,6 +549,7 @@ export type CheckpointPersistenceWorkerResponse =
   | { type: 'exportLeaseReleased'; operationId: CheckpointOperationId }
   | { type: 'browserHistoryRead'; operationId: CheckpointOperationId; runId: string; history: ManagedBrowserHistoryEntry[] }
   | { type: 'browserHallOfFameRead'; operationId: CheckpointOperationId; runId: string; entries: ManagedBrowserHallOfFameEntry[] }
+  | { type: 'savedBrainCatalogResult'; operationId: CheckpointOperationId; result: SavedBrainCatalogResult }
   | { type: 'graphPresetSaved'; operationId: CheckpointOperationId; presetId: number }
   | { type: 'graphPresetsListed'; operationId: CheckpointOperationId; presets: ManagedGraphPresetMeta[] }
   | { type: 'graphPresetLoaded'; operationId: CheckpointOperationId; preset: ManagedGraphPreset | null }
@@ -905,11 +913,11 @@ function parseManagedHallOfFameReference(
   return parsed;
 }
 
-/** Validate one Rust-published deduplicated Hall-of-Fame weight object. */
-export function parseManagedHallOfFameWeightsDescriptor(
+/** Validate one Rust-published shared weight object without decoding its bytes. */
+export function parseManagedNeuralWeightsDescriptor(
   value: unknown,
-  checkpoint: ManagedCheckpointDescriptor
-): ManagedHallOfFameWeightsDescriptor {
+  expectedWeightCount?: bigint
+): ManagedNeuralWeightsDescriptor {
   const descriptor = asRecord(value, 'hallOfFameWeights');
   requireOnlyKeys(descriptor, [
     'version', 'logicalSha256', 'relativeFilename', 'encoding',
@@ -931,12 +939,9 @@ export function parseManagedHallOfFameWeightsDescriptor(
   const decodedByteCount = asU64Hex(descriptor['decodedByteCount'], 'hallOfFameWeights.decodedByteCount');
   const weightCount = asU64Hex(descriptor['weightCount'], 'hallOfFameWeights.weightCount');
   const count = BigInt(`0x${weightCount}`);
-  const populationCount = BigInt(`0x${checkpoint.populationCount}`);
-  const aggregateWeightCount = BigInt(`0x${checkpoint.weightCount}`);
   const storedBytes = BigInt(`0x${storedByteCount}`);
   const decodedBytes = BigInt(`0x${decodedByteCount}`);
-  if (populationCount === 0n || aggregateWeightCount % populationCount !== 0n ||
-      count !== aggregateWeightCount / populationCount || count > 0x3fff_ffff_ffff_ffffn ||
+  if ((expectedWeightCount !== undefined && count !== expectedWeightCount) || count > 0x3fff_ffff_ffff_ffffn ||
       decodedBytes !== count * 4n || (count > 0n && storedBytes === 0n) ||
       (descriptor['encoding'] === 'raw-f32le-v1' && storedBytes !== decodedBytes)) {
     reject('Hall-of-Fame weight descriptor has inconsistent counts');
@@ -950,6 +955,19 @@ export function parseManagedHallOfFameWeightsDescriptor(
     decodedByteCount,
     weightCount
   };
+}
+
+/** Validate the shared object and the exact active population's per-genome width. */
+export function parseManagedHallOfFameWeightsDescriptor(
+  value: unknown,
+  checkpoint: ManagedCheckpointDescriptor
+): ManagedHallOfFameWeightsDescriptor {
+  const populationCount = BigInt(`0x${checkpoint.populationCount}`);
+  const aggregateWeightCount = BigInt(`0x${checkpoint.weightCount}`);
+  if (populationCount === 0n || aggregateWeightCount % populationCount !== 0n) {
+    reject('Hall-of-Fame population weight counts are inconsistent');
+  }
+  return parseManagedNeuralWeightsDescriptor(value, aggregateWeightCount / populationCount);
 }
 
 /** Validate the worker-written fixed-width inventory for one exact export operation. */
