@@ -552,6 +552,16 @@ cases, 23 main UI cases, type/lint/client build and rustfmt/Clippy. The existing
 one/three-worker deployment fixture additionally checks saved provenance after
 catalog deletion through the native bridge in CI.
 
+The selected inspector now has an opt-in native delivery cache. A single validated
+physical target owns a fixed-size pending/published pair, admitted within the
+existing worker scratch ceiling. Neural, baseline-v1/v2 and external rows retain
+their actual sampler layout and boundary scalars/diagnostics. Whole-step publication
+and exact accepted socket receipts gate visibility; held controls preserve the last
+row and its age. Tests cover late failure, mixed receipts, equal-width profiles,
+B32 Motion, closed capture, unchanged native continuation and scratch rejection.
+Transport, raw spatial traces, probes, lifecycle/shadow joins and browser inspection
+remain open; no inspector capability or large debug stream is advertised yet.
+
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
 integrated shadow/training resource qualification, library qualification and
