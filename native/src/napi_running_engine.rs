@@ -1522,6 +1522,46 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue exact library deployment; native admission owns graph/sensor/cadence checks.
+    #[napi(catch_unwind)]
+    pub fn submit_saved_brain_spawn(
+        &self,
+        sequence: JsString<'_>,
+        managed_directory: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        let weights =
+            request.get_named_property::<ManagedHallOfFameWeightsDescriptor>("weights")?;
+        let input = crate::engine::brain_library::SavedBrainSpawnRequest {
+            managed_directory: bounded_js_string(
+                managed_directory,
+                "managedDirectory",
+                32768,
+                false,
+            )?,
+            brain_id: bounded_object_string(&request, "brainId", 64)?,
+            expected_run_id: bounded_object_string(&request, "expectedRunId", 256)?,
+            expected_config_revision: parse_u64_hex(
+                &bounded_object_string(&request, "expectedConfigRevision", 16)?,
+                "expectedConfigRevision",
+                false,
+            )?,
+            expected_world_epoch: parse_u64_hex(
+                &bounded_object_string(&request, "expectedWorldEpoch", 16)?,
+                "expectedWorldEpoch",
+                false,
+            )?,
+            weights: Box::new(hall_of_fame_weights_descriptor_from_napi(weights)?),
+        };
+        input
+            .validate()
+            .map_err(|detail| Error::new(Status::InvalidArg, detail))?;
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SpawnSavedBrain(Box::new(input)),
+        )
+    }
+
     /// Queue one exact retained winner for Rust-owned decoding and resurrection.
     #[napi(catch_unwind)]
     pub fn submit_hall_of_fame_resurrection(

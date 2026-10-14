@@ -13,6 +13,88 @@ pub struct ResurrectionPublication {
 }
 
 impl AuthoritativeState {
+    /// Validate the portable source and shared weights against this exact live
+    /// authority. Numeric environment provenance remains descriptive only.
+    pub fn spawn_saved_brain(
+        &mut self,
+        request: &crate::engine::brain_library::SavedBrainSpawnRequest,
+        limits: RunningStepWorkLimits,
+    ) -> Result<ResurrectionPublication, String> {
+        request.validate().map_err(str::to_owned)?;
+        let state = &self.candidate;
+        if state.identity.run_id != request.expected_run_id
+            || state.identity.config_revision != request.expected_config_revision
+            || self.world_epoch() != request.expected_world_epoch
+        {
+            return Err("saved brain deployment run/configuration changed".into());
+        }
+        let directory = std::path::Path::new(&request.managed_directory)
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let bytes = crate::engine::brain_library::read_artifact_file(
+            &directory.join(format!("{}.slither-brain", request.brain_id)),
+        )?;
+        let artifact = crate::engine::brain_artifact::validate_brain_artifact(&bytes)?;
+        if artifact.artifact_sha256 != request.brain_id
+            || artifact.weights_sha256 != request.weights.logical_sha256
+        {
+            return Err("saved brain artifact/weight identity mismatch".into());
+        }
+        if artifact.graph.architecture_key != state.config.graph_architecture_key {
+            return Err("saved brain graph does not match the active graph".into());
+        }
+        let sensor = crate::engine::sensor_contract::SensorContractIdentity::from_settings(
+            &state.config.settings,
+        )
+        .map_err(|error| error.to_string())?;
+        if sensor.sha256_hex().map_err(|error| error.to_string())?
+            != artifact.canonical_manifest.sensor_sha256
+        {
+            return Err("saved brain structural sensors do not match the active sensors".into());
+        }
+        let cadence = self
+            .running_step_config(limits)
+            .map_err(|error| error.to_string())?
+            .world_step
+            .control
+            .neural_control_interval_seconds;
+        if cadence.to_bits() != artifact.deployment.control_interval_seconds.to_bits() {
+            return Err("saved brain cadence does not match the active neural cadence".into());
+        }
+        // The portable graph is independently bounded to one million parameters.
+        // Bind the shared object's shape before its decoder reserves any storage.
+        let parameter_count = artifact.weights.len();
+        if request.weights.version != 1
+            || request.weights.relative_filename
+                != format!("{}.hof-weights-v1", artifact.weights_sha256)
+            || request.weights.weight_count_hex != format!("{parameter_count:016x}")
+            || request.weights.decoded_byte_count_hex != format!("{:016x}", parameter_count * 4)
+            || request.weights.stored_byte_count_hex.len() != 16
+            || u64::from_str_radix(&request.weights.stored_byte_count_hex, 16)
+                .map_or(true, |bytes| bytes > 4_000_000)
+        {
+            return Err(
+                "saved brain shared weight descriptor disagrees with admitted graph".into(),
+            );
+        }
+        let weights = crate::engine::checkpoint::read_validated_hall_of_fame_weights(
+            &directory.join(&request.weights.relative_filename),
+            &request.weights,
+        )
+        .map_err(|error| error.to_string())?;
+        let brain_id = decode_sha256_identity(
+            "saved brain identity",
+            &format!("sha256:{}", request.brain_id),
+        )
+        .map_err(|error| error.to_string())?;
+        let origin = Arc::new(RetainedNeuralOrigin::SavedBrain {
+            brain_id,
+            weight_digest: crate::engine::retained_origin::packed_weight_digest(&weights),
+            source_kind: artifact.provenance.source_kind,
+        });
+        self.spawn_retained_brain(weights, origin, limits)
+    }
+
     /// Add one retained winner without copying the evolved population or existing world.
     pub fn resurrect_hall_of_fame(
         &mut self,

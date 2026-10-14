@@ -477,8 +477,17 @@ shared GC counts both catalog and HoF consumers and retains deleted-but-leased
 objects. A production-addon/real-worker test covers restart, exact original bytes,
 both reference directions, lease deletion and interrupted original publication.
 All 719 release library tests, Clippy, type/lint/client build and focused storage
-checks pass. Browser/HTTP library controls, saved-record live deployment and
-optional archive association remain open; candidates still do not auto-save.
+checks pass. Candidates still do not auto-save.
+Saved records now have a separate coarse native deployment command. Rust checks
+exact run/configuration/world incarnation, recompiles the portable source and
+requires the active graph, structural sensors and neural cadence. Shared weight
+shape/size admission precedes decoding. Deployment uses the common atomic retained
+spawn and owns its origin/weights after catalog deletion. Regressions cover equal
+width Basic B20/Motion B8 sensor rejection, graph/cadence/stale-scope rejection,
+corrupt or oversized shared objects, and actual one/three-worker addon deployment.
+The deployment checkpoint passes all 722 release library tests, all-target Clippy,
+type/lint/client build and 820 JavaScript tests (18 existing skips).
+Browser/HTTP library controls and optional archive association remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

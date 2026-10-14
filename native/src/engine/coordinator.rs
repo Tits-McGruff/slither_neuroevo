@@ -1131,6 +1131,11 @@ fn execute_running_authority_command(
                     .map(|()| RunningAuthorityEvent::TeacherCaptureChanged { command_sequence, capture_epoch, enabled: false })
             }
         }
+        RunningAuthorityCommand::SpawnSavedBrain(request) => running.spawn_saved_brain(&request)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|(publication, effective_step)| RunningAuthorityEvent::SavedBrainSpawned {
+                command_sequence, frame_v1_id: publication.frame_v1_id, effective_step,
+            }),
         RunningAuthorityCommand::ResurrectHallOfFame {
             entry_id,
             managed_directory,
@@ -1351,7 +1356,8 @@ fn running_response_owned_byte_bound(
         }
         RunningAuthorityCommand::StartTeacherCapture(_)
         | RunningAuthorityCommand::StopTeacherCapture { .. } => 0,
-        RunningAuthorityCommand::ResurrectHallOfFame { .. } => 0,
+        RunningAuthorityCommand::ResurrectHallOfFame { .. }
+        | RunningAuthorityCommand::SpawnSavedBrain(_) => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.

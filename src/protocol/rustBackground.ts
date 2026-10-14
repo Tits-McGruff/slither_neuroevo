@@ -512,6 +512,13 @@ export interface RustBackgroundEvent {
     /** First fixed step that observes this death. */
     effectiveStep: RustBackgroundIdentity;
   };
+  /** Explicit library deployment, independent of winning status. */
+  savedBrainSpawn?: {
+    /** Exact browser/frame snake identity. */
+    snakeId: number;
+    /** First fixed step observing the new retained owner. */
+    effectiveStep: RustBackgroundIdentity;
+  };
   /** Successful retained-winner resurrection. */
   hallOfFameResurrection?: {
     /** Exact browser/frame snake identity. */

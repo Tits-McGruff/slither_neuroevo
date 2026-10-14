@@ -14,6 +14,50 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+/// One exact catalog lease, observed run/configuration and independently verified weights.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SavedBrainSpawnRequest {
+    pub managed_directory: String,
+    pub brain_id: String,
+    pub expected_run_id: String,
+    pub expected_config_revision: u64,
+    pub expected_world_epoch: u64,
+    pub weights: Box<ManagedNeuralWeightsDescriptor>,
+}
+
+impl SavedBrainSpawnRequest {
+    /// Bound all owned scalar metadata before queue admission; files stay cold.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.managed_directory.is_empty()
+            || self.managed_directory.len() > 32768
+            || self.managed_directory.contains('\0')
+            || self.brain_id.len() != 64
+            || !self
+                .brain_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || self.expected_run_id.is_empty()
+            || self.expected_run_id.len() > 256
+            || self.expected_run_id.contains('\0')
+            || self.expected_config_revision == 0
+            || self.expected_world_epoch == 0
+        {
+            return Err("invalid saved brain deployment scope");
+        }
+        Ok(())
+    }
+
+    /// Exact queued allocations, independent of later decoded neural storage.
+    pub(crate) fn owned_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.managed_directory.capacity()
+            + self.brain_id.capacity()
+            + self.expected_run_id.capacity()
+            + std::mem::size_of::<ManagedNeuralWeightsDescriptor>()
+            + self.weights.owned_bytes()
+    }
+}
+
 /// Rust-derived small metadata; no population/parameter arrays cross into Node.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,13 +208,15 @@ mod tests {
     struct TestDirectory(PathBuf);
     impl TestDirectory {
         fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let path = std::env::temp_dir().join(format!(
-                "slither-brain-library-{}-{}",
+                "slither-brain-library-{}-{}-{}",
                 std::process::id(),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_nanos()
+                    .as_nanos(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ));
             fs::create_dir(&path).unwrap();
             Self(path)
@@ -311,6 +357,303 @@ mod tests {
             super::super::checkpoint::NumericEncoding::RawF32LeV1
         );
         assert_eq!(fs::read(path).unwrap(), original);
+    }
+
+    fn admitted_loop(
+        cadence: f64,
+        profile: super::super::sensor_contract::SensorProfile,
+    ) -> super::super::running_loop::RunningAuthorityLoop {
+        let artifact = validate_brain_artifact(&fs::read(source()).unwrap()).unwrap();
+        admitted_graph_loop(cadence, profile, 8, artifact.graph.spec().clone())
+    }
+
+    fn admitted_graph_loop(
+        cadence: f64,
+        profile: super::super::sensor_contract::SensorProfile,
+        bins: usize,
+        graph: super::super::graph::GraphSpec,
+    ) -> super::super::running_loop::RunningAuthorityLoop {
+        use super::super::fresh_run::{
+            prepare_v4_qualification_run, FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
+        };
+        use super::super::state::NormalizedSettingValue;
+        let settings = super::super::step_config::production_default_settings(12, 0)
+            .into_iter()
+            .filter_map(|setting| match setting.value {
+                NormalizedSettingValue::Float(value) => Some(FreshRunSettingUpdate {
+                    path: setting.path,
+                    value,
+                }),
+                NormalizedSettingValue::Integer(value) => Some(FreshRunSettingUpdate {
+                    path: setting.path,
+                    value: value as f64,
+                }),
+                NormalizedSettingValue::Bool(value) => Some(FreshRunSettingUpdate {
+                    path: setting.path,
+                    value: f64::from(u8::from(value)),
+                }),
+                NormalizedSettingValue::Text(_) => None,
+            })
+            .map(|mut setting| {
+                if setting.path == "brain.controlDt" {
+                    setting.value = cadence;
+                }
+                setting
+            })
+            .collect::<Vec<_>>();
+        let limits = super::super::step_config::RunningStepWorkLimits {
+            ray_work: Some(super::super::ray_work::RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+            ..super::super::step_config::RunningStepWorkLimits::provisional_defaults()
+        };
+        let mut pending = prepare_v4_qualification_run(
+            Stage6aP0FreshRunRequest {
+                run_id: "saved-brain-live-test".into(),
+                seed: 42,
+                memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            },
+            &settings,
+            graph,
+            true,
+            profile,
+            bins,
+            limits,
+        )
+        .unwrap();
+        let directory = TestDirectory::new();
+        let checkpoint = pending
+            .publish_checkpoint(&directory.0, operation())
+            .unwrap();
+        pending.acknowledge_persistence(&checkpoint).unwrap();
+        pending.publish_running_authority().unwrap();
+        pending
+            .into_running_loop(
+                super::super::scheduler::FixedStepSchedulerPolicy::provisional_defaults(),
+                0,
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn saved_deployment_is_native_and_continues_after_its_catalog_files_are_deleted() {
+        use super::super::sensor_contract::SensorProfile;
+        let directory = TestDirectory::new();
+        let publication = publish_saved_brain_file(
+            &source(),
+            &directory.0,
+            &operation(),
+            &digest(),
+            u64::MAX,
+            false,
+            false,
+        )
+        .unwrap();
+        let mut running = admitted_loop(0.06, SensorProfile::Basic);
+        let request = SavedBrainSpawnRequest {
+            managed_directory: directory.0.to_string_lossy().into_owned(),
+            brain_id: digest(),
+            expected_run_id: "saved-brain-live-test".into(),
+            expected_config_revision: 1,
+            expected_world_epoch: running.world_epoch(),
+            weights: Box::new(publication.weights.clone()),
+        };
+        let before = running.completed_step();
+        let (spawn, step) = running.spawn_saved_brain(&request).unwrap();
+        assert_eq!(step, before + 1);
+        assert!(running
+            .select_entity(
+                super::super::state::EntitySelectionTarget::Frame(spawn.frame_v1_id),
+                &request.expected_run_id,
+                1
+            )
+            .unwrap()
+            .is_some());
+        fs::remove_file(directory.0.join(publication.artifact_relative_filename)).unwrap();
+        fs::remove_file(directory.0.join(publication.weights.relative_filename)).unwrap();
+        let progress = running
+            .service_after_command_drain(
+                17,
+                super::super::scheduler::SchedulerServiceMode::Background,
+                None,
+            )
+            .unwrap();
+        assert!(matches!(
+            progress,
+            super::super::running_loop::RunningAuthorityLoopProgress::Published { .. }
+        ));
+        assert_eq!(running.completed_step(), before + 1);
+    }
+
+    #[test]
+    fn saved_deployment_rejects_stale_scope_cadence_and_corrupt_shared_weights() {
+        use super::super::sensor_contract::SensorProfile;
+        let directory = TestDirectory::new();
+        let publication = publish_saved_brain_file(
+            &source(),
+            &directory.0,
+            &operation(),
+            &digest(),
+            u64::MAX,
+            false,
+            false,
+        )
+        .unwrap();
+        let mut running = admitted_loop(0.04, SensorProfile::Basic);
+        let mut request = SavedBrainSpawnRequest {
+            managed_directory: directory.0.to_string_lossy().into_owned(),
+            brain_id: digest(),
+            expected_run_id: "another-run".into(),
+            expected_config_revision: 1,
+            expected_world_epoch: running.world_epoch(),
+            weights: Box::new(publication.weights.clone()),
+        };
+        assert!(running
+            .spawn_saved_brain(&request)
+            .err()
+            .unwrap()
+            .contains("run/configuration"));
+        request.expected_run_id = "saved-brain-live-test".into();
+        assert!(running
+            .spawn_saved_brain(&request)
+            .err()
+            .unwrap()
+            .contains("cadence"));
+        request.expected_world_epoch = running.world_epoch() + 1;
+        assert!(running
+            .spawn_saved_brain(&request)
+            .err()
+            .unwrap()
+            .contains("run/configuration"));
+        let mut matching = admitted_loop(0.06, SensorProfile::Basic);
+        request.expected_world_epoch = matching.world_epoch();
+        let original = request.weights.clone();
+        request.weights.weight_count_hex = "0000000040000000".into();
+        request.weights.decoded_byte_count_hex = "0000000100000000".into();
+        assert!(matching
+            .spawn_saved_brain(&request)
+            .err()
+            .unwrap()
+            .contains("shared weight descriptor"));
+        request.weights = original;
+        fs::write(
+            directory.0.join(&publication.weights.relative_filename),
+            b"corrupt",
+        )
+        .unwrap();
+        assert!(matching.spawn_saved_brain(&request).is_err());
+        assert_eq!(matching.completed_step(), 0);
+    }
+
+    /// Build a test-only portable envelope from the actual native compiler/manifest.
+    fn portable_source(directory: &TestDirectory, renamed: bool) -> PathBuf {
+        use super::super::graph::{GraphBundle, GraphNodeKind};
+        use super::super::sensor_contract::SensorProfile;
+        use super::super::sensor_layout::SensorLayout;
+        let fixture = validate_brain_artifact(&fs::read(source()).unwrap()).unwrap();
+        let mut spec = fixture.graph.spec().clone();
+        for node in &mut spec.nodes {
+            match &mut node.kind {
+                GraphNodeKind::Input { output_size } => *output_size = 144,
+                GraphNodeKind::Gru { input_size, .. } => *input_size = 144,
+                _ => {}
+            }
+        }
+        if renamed {
+            let old = spec.nodes[0].id.clone();
+            spec.nodes[0].id = "different-node-identity".into();
+            for edge in &mut spec.edges {
+                if edge.from == old {
+                    edge.from = spec.nodes[0].id.clone();
+                }
+                if edge.to == old {
+                    edge.to = spec.nodes[0].id.clone();
+                }
+            }
+            for output in &mut spec.outputs {
+                if output.node_id == old {
+                    output.node_id = spec.nodes[0].id.clone();
+                }
+            }
+        }
+        let graph = GraphBundle::compile(spec, &super::super::fresh_run::stage6a_p0_graph_limits())
+            .unwrap();
+        let sensors = SensorLayout::v4(SensorProfile::Basic, 20).unwrap();
+        let manifest =
+            CanonicalTrainingGraphManifestV1::build(&graph, &sensors, fixture.deployment).unwrap();
+        let weights = vec![0u8; manifest.total_parameters * 4];
+        let digest = Sha256::digest(&weights);
+        let json = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "graphManifest": serde_json::from_slice::<serde_json::Value>(&manifest.canonical_bytes().unwrap()).unwrap(), "provenance": fixture.provenance
+        }))
+        .unwrap();
+        let mut bytes = vec![0; 88];
+        bytes[..8].copy_from_slice(b"SLTHBRN1");
+        bytes[8..12].copy_from_slice(&(json.len() as u32).to_le_bytes());
+        bytes[16..20].copy_from_slice(&((weights.len() / 4) as u32).to_le_bytes());
+        bytes[20..24].copy_from_slice(&(weights.len() as u32).to_le_bytes());
+        bytes[24..56].copy_from_slice(&digest);
+        bytes[56..88].copy_from_slice(&digest);
+        bytes.extend(json);
+        bytes.extend(weights);
+        validate_brain_artifact(&bytes).unwrap();
+        let path = directory.0.join("source.slither-brain");
+        fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn saved_deployment_rejects_equal_width_structural_sensor_and_graph_mismatches() {
+        use super::super::sensor_contract::SensorProfile;
+        for renamed in [false, true] {
+            let directory = TestDirectory::new();
+            let path = portable_source(&directory, renamed);
+            let artifact = validate_brain_artifact(&fs::read(&path).unwrap()).unwrap();
+            let publication = publish_saved_brain_file(
+                &path,
+                &directory.0,
+                &operation(),
+                &artifact.artifact_sha256,
+                u64::MAX,
+                false,
+                false,
+            )
+            .unwrap();
+            let mut spec = artifact.graph.spec().clone();
+            if renamed {
+                // The graph has equal numeric dimensions but a different persistence identity.
+                let original = validate_brain_artifact(&fs::read(source()).unwrap()).unwrap();
+                spec = original.graph.spec().clone();
+                for node in &mut spec.nodes {
+                    match &mut node.kind {
+                        super::super::graph::GraphNodeKind::Input { output_size } => {
+                            *output_size = 144
+                        }
+                        super::super::graph::GraphNodeKind::Gru { input_size, .. } => {
+                            *input_size = 144
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            let mut running = admitted_graph_loop(0.06, SensorProfile::Motion, 8, spec);
+            let request = SavedBrainSpawnRequest {
+                managed_directory: directory.0.to_string_lossy().into_owned(),
+                brain_id: artifact.artifact_sha256,
+                expected_run_id: "saved-brain-live-test".into(),
+                expected_config_revision: 1,
+                expected_world_epoch: running.world_epoch(),
+                weights: Box::new(publication.weights),
+            };
+            let error = running.spawn_saved_brain(&request).err().unwrap();
+            assert!(
+                error.contains(if renamed {
+                    "graph"
+                } else {
+                    "structural sensors"
+                }),
+                "{error}"
+            );
+            assert_eq!(running.completed_step(), 0);
+        }
     }
 
     #[test]

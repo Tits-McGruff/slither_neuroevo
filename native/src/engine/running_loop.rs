@@ -825,6 +825,26 @@ impl RunningAuthorityLoop {
         Ok((publication, effective_step))
     }
 
+    /// Admit an explicit saved record only on the ordinary clean authority boundary.
+    pub(crate) fn spawn_saved_brain(
+        &mut self,
+        request: &super::brain_library::SavedBrainSpawnRequest,
+    ) -> Result<(super::state::ResurrectionPublication, u64), String> {
+        self.require_action_state("spawn saved brain", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        let step = self
+            .authority
+            .state()
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or("completed step is exhausted")?;
+        let publication = self
+            .authority
+            .spawn_saved_brain(request, self.work_limits)?;
+        Ok((publication, step))
+    }
+
     /// Restore one leased packed winner and commit it before the next fixed step.
     pub(crate) fn resurrect_hall_of_fame(
         &mut self,
