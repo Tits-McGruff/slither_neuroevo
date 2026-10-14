@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
 import { loadPanicBinding } from '../test/panicRuntime.ts';
 import type { ExperimentalFreshRunNativeHandle } from './experimentalFreshRunSession.ts';
@@ -176,6 +176,9 @@ for (const workers of [1, 3]) {
       const deployed = await exchange(address.port, `${base}/library/${brainId}/spawn`, 'POST', spawnBody);
       expect(deployed.status, JSON.stringify(deployed.value)).toBe(200);
       const deployedReceipt = deployed.value as SavedBrainSpawnReceiptV1;
+      // Confirmation precedes the metadata worker's lease-release acknowledgement.
+      // Check stale-cursor admission only after that real cold-operation boundary.
+      await vi.waitFor(() => expect(controls.busy).toBe(false), {timeout: 5000, interval: 10});
       expect(deployedReceipt).toMatchObject({brainId, schemaVersion: 1, snakeId: expect.any(Number), commandSequence: '0000000000000005'});
       expect((await exchange(address.port, `${base}/library/${brainId}/spawn`, 'POST', spawnBody)).value).toEqual(deployedReceipt);
       expect((await exchange(address.port, `${base}/library/${brainId}/spawn`, 'POST', {...spawnBody, requestId: randomBytes(16).toString('hex')})).status).toBe(400);

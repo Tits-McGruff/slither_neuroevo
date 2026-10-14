@@ -172,6 +172,14 @@ export class BrainLibraryClient {
       Object.entries(status.scope).every(([key, value]) => receipt[key as keyof SavedBrainSpawnReceiptV1] === value);
   }
 
+  /** Direct opaque checkpoint download with an explicit bounded selection; no model enters browser JS. */
+  archiveUrl(brainIds: readonly string[]): string {
+    if (brainIds.length < 1 || brainIds.length > 100) throw new Error('Select 1..100 saved brains for the checkpoint archive.');
+    const ids = [...brainIds].sort();
+    ids.forEach((id, index) => { this.id(id); if (index > 0 && ids[index - 1] === id) throw new Error('Duplicate saved brain selection.'); });
+    return this.currentBase() + '/api/export/latest?brainIds=' + ids.join(',');
+  }
+
   /** Require a current connection before resolving any operation destination. */
   private currentBase(): string {
     const base = this.base(); if (!base) throw new Error('Connect to a server to use the brain library.'); return base.replace(/\/$/u, '');

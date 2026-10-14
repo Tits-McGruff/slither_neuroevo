@@ -66,6 +66,8 @@ export interface WelcomeMsg {
     finishGeneration?: boolean;
     /** Whether explicit saved-brain library controls are available. */
     savedBrainLibrary?: boolean;
+    /** Explicit saved-brain selection in checkpoint archive version 4. */
+    savedBrainArchive?: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
     /** Whether the selected archive can be uploaded unchanged. */

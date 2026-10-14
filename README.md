@@ -965,8 +965,13 @@ A timeout or lost reply exposes **Retry spawn**, which checks the original reque
 instead of creating another snake. A confirmed rejection clears that pending request.
 Dismissing an uncertain request does not cancel any spawn already admitted by Rust.
 The initial library quota is 100 records and 2 GiB of unique stored model objects.
-Checkpoint archives do not yet include associated saved-library records; export
-needed brains separately.
+To include saved brains in a checkpoint download, select **Include in checkpoint archive**
+on the desired library rows and click **Export checkpoint with selected brains**.
+Selection persists across library pages and clears when the server connection changes.
+Ordinary checkpoint exports exclude the library. Importing an associated archive restores
+its selected library records together with the checkpoint; existing records keep their
+names, and a quota rejection leaves the current game and library membership unchanged.
+Trainer datasets and optimizer checkpoints remain separate exports.
 
 ## Visualizer and Hall of Fame
 

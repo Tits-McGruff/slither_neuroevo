@@ -3658,7 +3658,7 @@ wsClient = createWsClient({
     applyAuthoritativeSensorSpec(info.sensorSpec);
     libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
     libraryEnvironment.configHash = info.configHash;
-    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true);
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3939,7 +3939,7 @@ wsClient = createWsClient({
     applyAuthoritativeSensorSpec(info.sensorSpec);
     libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
     libraryEnvironment.configHash = info.configHash;
-    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true);
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     refreshServerHallOfFame();

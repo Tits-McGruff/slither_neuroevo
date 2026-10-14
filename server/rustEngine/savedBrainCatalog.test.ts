@@ -1,3 +1,4 @@
+import { parseSavedBrainArchiveEntries } from './checkpointPersistenceProtocol.ts';
 import { parseSavedBrainOperation, parseSavedBrainResult } from './savedBrainProtocol.ts';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -186,4 +187,32 @@ it('rejects malformed or partially unavailable archive selections without retain
   expect(parseSavedBrainResult({action: 'acquireArchive', entries: catalog.acquireArchive(request.brainIds, request.leaseId)})).toMatchObject({action: 'acquireArchive', entries: [{brainId: first.brainId}]});
   expect(() => parseSavedBrainResult({action: 'acquireArchive', entries: []})).toThrow();
   catalog.release(request.leaseId);
+});
+
+
+it('validates bounded archive membership metadata independently of native model bytes', () => {
+  const entry = {brainId: '01'.repeat(32), name: 'Archive source', createdAtMs: 42, artifactByteCount: '0000000000000064'};
+  expect(parseSavedBrainArchiveEntries([entry])).toEqual([entry]);
+  expect(parseSavedBrainArchiveEntries([])).toEqual([]);
+  for (const value of [[entry, entry], [{...entry, brainId: '../bad'}], [{...entry, name: ' bad'}],
+    [{...entry, name: '\ud800'}], [{...entry, createdAtMs: Number.MAX_SAFE_INTEGER + 1}],
+    [{...entry, artifactByteCount: '0000000004000001'}], [{...entry, unexpected: true}],
+    Array.from({length: 101}, () => entry)]) expect(() => parseSavedBrainArchiveEntries(value)).toThrow();
+});
+
+it('rolls back all archive membership when a later source exceeds the library quota', () => {
+  const {db, catalog} = fixture(150n);
+  expect(() => db.transaction(() => {
+    catalog.save('1', 'first archive member', 'ab'.repeat(16), 1234);
+    catalog.save('2', 'second archive member', 'ab'.repeat(16), 5678);
+  })()).toThrow(/allowance|quota/);
+  expect(catalog.list(null, 25).entries).toEqual([]);
+  expect(db.prepare('SELECT COUNT(*) AS count FROM rust_hall_of_fame_weights_v1').get()).toEqual({count: 0});
+});
+
+it('preserves archive creation time on first membership and existing labels on exact retry', () => {
+  const {catalog} = fixture();
+  const saved = catalog.save('1', 'archive name', 'ab'.repeat(16), 1234);
+  expect(saved.createdAtMs).toBe(1234);
+  expect(catalog.save('1', 'different retry name', 'cd'.repeat(16), 5678)).toEqual(saved);
 });

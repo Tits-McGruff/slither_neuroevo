@@ -35,11 +35,13 @@ import type {
   ManagedBrowserHistoryEntry,
   ManagedCheckpointExportLease,
   ManagedImportBranchResult,
-  ManagedStorageDiagnostics
+  ManagedStorageDiagnostics,
+  SavedBrainArchiveEntryV1
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseManagedCheckpointDescriptor,
-  parseManagedImportInventoryDescriptor
+  parseManagedImportInventoryDescriptor,
+  parseSavedBrainArchiveEntries
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseArchiveContentLength,
@@ -98,7 +100,7 @@ function storageHealthPayload(
 }
 
 /** Reject an export before writing when its scalar worst-case files do not fit. */
-async function admitExportSpace(directory: string, lease: ManagedCheckpointExportLease): Promise<void> {
+async function admitExportSpace(directory: string, lease: ManagedCheckpointExportLease, selectedBytes = 0n): Promise<void> {
   const population = BigInt(`0x${lease.descriptor.populationCount}`);
   const weights = BigInt(`0x${lease.descriptor.weightCount}`);
   const hallOfFameCount = BigInt(`0x${lease.inventory.hallOfFameCount}`);
@@ -107,7 +109,7 @@ async function admitExportSpace(directory: string, lease: ManagedCheckpointExpor
   }
   const hallOfFameRawBytes = hallOfFameCount * (weights / population) * 4n;
   const projectedAdditionalBytes = BigInt(`0x${lease.descriptor.storedByteCount}`) +
-    BigInt(`0x${lease.inventory.storedByteCount}`) + hallOfFameRawBytes * 2n + 16n * 1024n * 1024n;
+    BigInt(`0x${lease.inventory.storedByteCount}`) + hallOfFameRawBytes * 2n + selectedBytes + 16n * 1024n * 1024n;
   await admitDiskOperation(directory, {
     operation: 'export',
     sourceSpoolBytes: 0n,
@@ -469,19 +471,31 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
 
   /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
   const serveExport = async (
-    response: import('node:http').ServerResponse<import('node:http').IncomingMessage>
+    response: import('node:http').ServerResponse<import('node:http').IncomingMessage>,
+    brainIds: string[]
   ): Promise<void> => {
     const lease = await owner.persistence.acquireCurrentExportLease();
     const readyPath = resolve(owner.managedDirectory, `.${lease.operationId}.slither-save.ready`);
     /** Successful native preparation transfers ownership of this exact ready file. */
     let readyOwned = false;
+    /** Batch lease remains held until transfer/cancellation and checkpoint cleanup finish. */
+    let brainLeaseOwned = false;
     try {
+      let selected: SavedBrainArchiveEntryV1[] = [];
+      if (brainIds.length) {
+        const result = await owner.persistence.savedBrainCatalog({action: 'acquireArchive', brainIds, leaseId: lease.operationId});
+        brainLeaseOwned = true;
+        if (result.action !== 'acquireArchive') throw new Error('invalid saved brain archive lease');
+        selected = parseSavedBrainArchiveEntries(result.entries.map(entry => ({brainId: entry.brainId,
+          name: entry.name, createdAtMs: entry.createdAtMs, artifactByteCount: entry.artifactByteCount})));
+      }
       // Source selection may outlive the client; release its lease without starting population work.
       if (response.destroyed) return;
-      await admitExportSpace(owner.managedDirectory, lease);
+      await admitExportSpace(owner.managedDirectory, lease, selected.reduce((sum, entry) => sum + BigInt(`0x${entry.artifactByteCount}`), 0n));
       if (response.destroyed) return;
       const preparation = owner.runtime.prepareExportArchive(
-        owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory
+        owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory,
+        ...(selected.length ? [JSON.stringify(selected)] : [])
       );
       const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
       let ready: Awaited<typeof preparation>;
@@ -550,7 +564,9 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           });
         }
       } finally {
-        await owner.persistence.releaseExportLease(lease.operationId);
+        try {
+          if (brainLeaseOwned) await owner.persistence.savedBrainCatalog({action: 'release', leaseId: lease.operationId});
+        } finally { await owner.persistence.releaseExportLease(lease.operationId); }
       }
     }
   };
@@ -641,6 +657,17 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       return;
     }
     if (request.method === 'GET' && pathname === '/api/export/latest') {
+      /** Explicit IDs are unique, sorted, bounded metadata; the default selects no library records. */
+      const selection = requestUrl.searchParams.getAll('brainIds');
+      const brainIds = selection.length === 1 ? selection[0]!.split(',') : [];
+      if ([...requestUrl.searchParams.keys()].some(key => key !== 'brainIds') || selection.length > 1 ||
+          (selection.length && (brainIds.length < 1 || brainIds.length > 100 || brainIds.some((id, index) =>
+            !/^[0-9a-f]{64}$/u.test(id) || (index > 0 && brainIds[index - 1]! >= id))))) {
+        response.writeHead(400, {'Content-Type': 'application/json'});
+        response.end(JSON.stringify({ok: false, message: 'brainIds must contain 1..100 unique sorted saved brain IDs'}));
+        return;
+      }
+
       if (fault || stopping) {
         response.writeHead(503, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
@@ -652,7 +679,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         return;
       }
       activeExportResponse = response;
-      exportOperation = serveExport(response).catch(error => {
+      exportOperation = serveExport(response, brainIds).catch(error => {
         if (response.destroyed) return;
         if (response.headersSent) {
           response.destroy();

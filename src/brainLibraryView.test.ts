@@ -18,6 +18,10 @@ class Element {
   className = '';
   /** Button type. */
   type = '';
+  /** Explicit archive checkbox state. */
+  checked = false;
+  /** Metadata-only DOM attributes. */
+  dataset: Record<string, string> = {};
   /** Link destination. */
   href = '';
   /** Direct-download hint. */
@@ -62,14 +66,20 @@ function fixture(environment: Partial<LibraryEnvironment> = {}) {
   const get = (id: string): Element => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id)!; };
   const client = {hasPendingSpawn: vi.fn(() => false), dismissPendingSpawn: vi.fn(),
     list: vi.fn(async () => ({page: {entries: [RECORD], next: null}})), read: vi.fn(async () => RECORD),
-    spawn: vi.fn(async () => ({snakeId: 41})), isCurrent: vi.fn(async () => true), exportUrl: vi.fn(() => 'http://server/export')};
+    spawn: vi.fn(async () => ({snakeId: 41})), isCurrent: vi.fn(async () => true), exportUrl: vi.fn(() => 'http://server/export'), archiveUrl: vi.fn(() => 'http://server/archive')};
   const followed = vi.fn();
-  vi.stubGlobal('document', {getElementById: get, createElement: () => new Element(), querySelector: () => null,
-    querySelectorAll: () => [], body: new Element()});
+  const body = new Element();
+  vi.stubGlobal('document', {getElementById: get, createElement: () => new Element(), createTextNode: (text: string) => Object.assign(new Element(), {textContent: text}), querySelector: () => null,
+    querySelectorAll: (selector: string) => {
+      if (selector !== '[data-brain-archive]') return [];
+      /** Inspect only currently rendered checkbox nodes, matching the real DOM selector. */
+      const visit = (node: Element): Element[] => [...(node.dataset['brainArchive'] ? [node] : []), ...node.children.flatMap(visit)];
+      return visit(get('brainLibraryList'));
+    }, body});
   const view = new BrainLibraryView(client as unknown as BrainLibraryClient,
     () => ({graphSourceJson: 'current', sensorSha256: 'other-sensors', cadence: 0.02, configHash: 'current-config', ...environment}), followed);
   view.contextChanged(true);
-  return {client, view, get, followed};
+  return {client, view, get, followed, body};
 }
 
 /** Restore the inert browser after each presentation boundary test. */
@@ -113,4 +123,26 @@ it('compares applied native graph descriptions without comparing editor and nati
   f.get('brainLibraryList').children[0]!.children[2]!.children[0]!.click();
   await vi.waitFor(() => expect(text(f.get('brainLibraryDetails'))).toContain('Graph descriptions match'));
   expect(text(f.get('brainLibraryDetails'))).toContain('Rust checks the compiled layout');
+});
+
+
+it('requires explicit archive selection and clears it across connection changes', async () => {
+  const f = fixture();
+  expect(f.get('brainLibraryArchiveControls').hidden).toBe(true);
+  f.view.contextChanged(true, true); f.view.refresh();
+  await vi.waitFor(() => expect(f.get('brainLibraryStatus').textContent).toContain('refreshed'));
+  expect(f.get('brainLibraryArchive').disabled).toBe(true);
+  const checkbox = f.get('brainLibraryList').children[0]!.children[0]!.children[0]!;
+  expect(checkbox.checked).toBe(false);
+  checkbox.checked = true; for (const change of checkbox.listeners.get('change') ?? []) change();
+  expect(f.get('brainLibraryArchiveCount').textContent).toContain('1 saved brain selected');
+  f.get('brainLibraryArchive').click();
+  expect(f.client.archiveUrl).toHaveBeenCalledExactlyOnceWith([RECORD.brainId]);
+  expect(f.body.children.at(-1)?.href).toBe('http://server/archive');
+  f.get('brainLibraryClearArchive').click();
+  expect(checkbox.checked).toBe(false); expect(f.get('brainLibraryArchive').disabled).toBe(true);
+  checkbox.checked = true; for (const change of checkbox.listeners.get('change') ?? []) change();
+  f.view.contextChanged(false); f.view.contextChanged(true, true);
+  expect(f.get('brainLibraryArchiveCount').textContent).toContain('0 saved brains selected');
+  expect(f.get('brainLibraryArchive').disabled).toBe(true);
 });

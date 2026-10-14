@@ -22,6 +22,7 @@ use super::graph::{
     GraphOutputRef, GraphSpec,
 };
 use super::legacy_origin::{LegacyPopulationOrigin, LegacyPopulationSource};
+use super::saved_brain_archive::{self, SavedBrainArchiveEntryV1, MAX_SAVED_BRAINS};
 use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
 use super::step_config::typescript_default_settings;
 use super::work_progress::{
@@ -106,7 +107,7 @@ pub struct ImportDiskEstimate {
     pub final_managed_bytes: u64,
 }
 
-/// Inspect at most ten USTAR headers and one small final manifest before any
+/// Inspect at most 111 USTAR headers and one small final manifest before any
 /// decoded import file is staged. Full integrity validation still follows.
 pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, CheckpointError> {
     let metadata = fs::symlink_metadata(path)?;
@@ -140,7 +141,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
     let mut file = File::open(path)?;
     let mut cursor = 0u64;
     let mut manifest_bytes = None;
-    for _ordinal in 0..11 {
+    for _ordinal in 0..(11 + MAX_SAVED_BRAINS) {
         let header_end = cursor.checked_add(USTAR_BLOCK_BYTES).ok_or_else(|| {
             CheckpointError::format("IMPORT_DISK_ESTIMATE", "archive header offset overflowed")
         })?;
@@ -207,10 +208,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
     })?)
     .map_err(|error| CheckpointError::format("IMPORT_MANIFEST_JSON", error.to_string()))?;
     if manifest.magic != "slither-neuroevo-save"
-        || !matches!(manifest.archive_version, 1..=3)
-        || manifest.roles.len()
-            != 8 + usize::from(manifest.archive_version >= 2)
-                + usize::from(manifest.archive_version == 3)
+        || manifest.roles.len() != manifest.base_role_count()? + manifest.saved_brains.len()
         || manifest.roles[7].role != "hall-of-fame-weights"
     {
         return Err(CheckpointError::format(
@@ -236,7 +234,12 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
     let checkpoint_and_inventory = metadata.len().checked_add(1024 * 1024).ok_or_else(|| {
         CheckpointError::format("IMPORT_DISK_ESTIMATE", "checkpoint allowance overflowed")
     })?;
+    let saved_numeric_bytes = (manifest.saved_brains.len() as u64)
+        .checked_mul(4_000_000 + 4096)
+        .ok_or_else(|| saved_brain_archive::invalid("saved numeric allowance overflow"))?;
     let objects = hof_decoded
+        .checked_add(saved_numeric_bytes)
+        .ok_or_else(|| saved_brain_archive::invalid("saved object allowance overflow"))?
         .checked_add((hof_count + 1).checked_mul(4096).ok_or_else(|| {
             CheckpointError::format("IMPORT_DISK_ESTIMATE", "object allowance overflowed")
         })?)
@@ -248,6 +251,13 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
         })?;
     let candidate_spool_bytes = final_managed_bytes
         .checked_add(hof_decoded)
+        .and_then(|bytes| {
+            bytes.checked_add(if manifest.saved_brains.is_empty() {
+                0
+            } else {
+                8_000_000
+            })
+        })
         .ok_or_else(|| {
             CheckpointError::format("IMPORT_DISK_ESTIMATE", "candidate allowance overflowed")
         })?;
@@ -298,6 +308,7 @@ pub struct ImportInventoryDescriptor {
     pub stored_byte_count_hex: String,
     pub history_count_hex: String,
     pub hall_of_fame_count_hex: String,
+    pub saved_brains: Vec<SavedBrainArchiveEntryV1>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -307,6 +318,10 @@ struct SaveManifest {
     legacy_conversion: Option<LegacyPopulationOrigin>,
     magic: String,
     archive_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    records_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    saved_brains: Vec<SavedBrainArchiveEntryV1>,
     archive_kind: String,
     run_id: String,
     generation_hex: String,
@@ -318,6 +333,28 @@ struct SaveManifest {
     hall_of_fame_weight_count_hex: String,
     checkpoint_manifest: CheckpointManifest,
     roles: Vec<SaveRole>,
+}
+
+impl SaveManifest {
+    /// Outer v4 adds explicit originals while preserving fixed inventory versions 1..3.
+    fn records_version(&self) -> Result<u32, CheckpointError> {
+        let version = match (self.archive_version, self.records_version) {
+            (1..=3, None) if self.saved_brains.is_empty() => self.archive_version,
+            (4, Some(version @ 1..=3)) if !self.saved_brains.is_empty() => version,
+            _ => {
+                return Err(saved_brain_archive::invalid(
+                    "unsupported save/record version pairing",
+                ))
+            }
+        };
+        saved_brain_archive::validate_selection(&self.saved_brains)?;
+        Ok(version)
+    }
+
+    fn base_role_count(&self) -> Result<usize, CheckpointError> {
+        let version = self.records_version()?;
+        Ok(8 + usize::from(version >= 2) + usize::from(version == 3))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1673,6 +1710,7 @@ fn publish_empty_import_inventory(
     let sha256 = hex_digest(hash_file_range(&final_path, 0, INVENTORY_HEADER_BYTES)?);
     cleanup.paths.clear();
     Ok(ImportInventoryDescriptor {
+        saved_brains: Vec::new(),
         version: 1,
         relative_filename,
         sha256,
@@ -1922,8 +1960,33 @@ pub fn compose_export_archive(
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<ExportArchiveDescriptor, CheckpointError> {
+    compose_export_archive_with_saved_brains(
+        managed_directory,
+        operation_id,
+        checkpoint,
+        inventory,
+        checkpoint_limits,
+        graph_limits,
+        admission_policy,
+        &[],
+    )
+}
+
+/// Compose an explicitly selected portable library beside one unchanged checkpoint.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_export_archive_with_saved_brains(
+    managed_directory: &Path,
+    operation_id: &str,
+    checkpoint: &CheckpointDescriptor,
+    inventory: &ExportInventoryDescriptor,
+    checkpoint_limits: &CheckpointLimits,
+    graph_limits: &GraphLimits,
+    admission_policy: &StateAdmissionPolicy,
+    saved_brains: &[SavedBrainArchiveEntryV1],
+) -> Result<ExportArchiveDescriptor, CheckpointError> {
     let _phase = ArchivePhaseScope::enter(ArchivePhase::Export);
     validate_operation_id(operation_id)?;
+    saved_brain_archive::validate_selection(saved_brains)?;
     if checkpoint.operation_id.as_str() == operation_id {
         return Err(CheckpointError::format(
             "EXPORT_OPERATION",
@@ -2134,7 +2197,21 @@ pub fn compose_export_archive(
             )?,
         ));
     }
-    let save_root = logical_root(&roles)?;
+    for entry in saved_brains {
+        saved_brain_archive::validate_file(&managed_directory, entry)?;
+        let bytes = entry.bytes()?;
+        roles.push(save_role(
+            "saved-brain",
+            &entry.path(),
+            "portable-slither-brain-v1",
+            bytes,
+            bytes,
+            1,
+            0,
+            parse_digest(&entry.brain_id, "saved brain identity")?,
+        ));
+    }
+    let save_root = save_logical_root(&roles, saved_brains, inventory_facts.version)?;
     let manifest = SaveManifest {
         archive_kind: if legacy_conversion.is_some() {
             "legacy-population-import"
@@ -2144,7 +2221,17 @@ pub fn compose_export_archive(
         .to_owned(),
         legacy_conversion,
         magic: "slither-neuroevo-save".to_owned(),
-        archive_version: inventory_facts.version,
+        archive_version: if saved_brains.is_empty() {
+            inventory_facts.version
+        } else {
+            4
+        },
+        records_version: if saved_brains.is_empty() {
+            None
+        } else {
+            Some(inventory_facts.version)
+        },
+        saved_brains: saved_brains.to_vec(),
         run_id: checkpoint.run_id.clone(),
         generation_hex: checkpoint.generation_hex.clone(),
         completed_step_hex: checkpoint.completed_step_hex.clone(),
@@ -2188,6 +2275,9 @@ pub fn compose_export_archive(
     }
     if inventory_facts.version == 3 {
         entry_sizes.insert(entry_sizes.len() - 1, inventory_facts.experiment_bytes);
+    }
+    for entry in saved_brains {
+        entry_sizes.insert(entry_sizes.len() - 1, entry.bytes()?);
     }
     let expected_archive_bytes = expected_archive_length(&entry_sizes)?;
     if expected_archive_bytes > MAX_EXPORT_ARCHIVE_BYTES {
@@ -2251,6 +2341,15 @@ pub fn compose_export_archive(
                 + inventory_facts.hall_of_fame_bytes
                 + inventory_facts.completion_bytes,
             inventory_facts.experiment_bytes,
+        )?;
+    }
+    for entry in saved_brains {
+        append_file(
+            &mut archive,
+            &entry.path(),
+            &managed_directory.join(entry.filename()),
+            0,
+            entry.bytes()?,
         )?;
     }
     append_bytes(&mut archive, MANIFEST_PATH, &manifest_bytes)?;
@@ -2616,8 +2715,12 @@ fn scan_import_archive(
 ) -> Result<ScannedImportArchive, CheckpointError> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
-    let entries =
-        super::checkpoint::scan_strict_ustar_role_range(&mut file, length, 9, 11, |name, size| {
+    let entries = super::checkpoint::scan_strict_ustar_role_range(
+        &mut file,
+        length,
+        9,
+        11 + MAX_SAVED_BRAINS,
+        |name, size| {
             let limit = match name {
                 HISTORY_PATH => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
                 COMPLETION_PATH => MAX_EXPORT_GENERATIONS * COMPLETION_RECORD_BYTES,
@@ -2625,6 +2728,9 @@ fn scan_import_archive(
                 HOF_INDEX_PATH => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
                 HOF_WEIGHTS_PATH | HOF_WEIGHTS_ZSTD_PATH => MAX_EXPORT_ARCHIVE_BYTES,
                 MANIFEST_PATH => 1024 * 1024,
+                _ if name.starts_with("brains/") => {
+                    super::brain_artifact::MAX_BRAIN_ARTIFACT_BYTES as u64
+                }
                 _ => return validate_scanned_entry_size(name, size, checkpoint_limits),
             };
             if size > limit {
@@ -2634,19 +2740,26 @@ fn scan_import_archive(
                 ));
             }
             Ok(())
-        })?;
+        },
+    )?;
     let mut sizes = Vec::new();
-    sizes.try_reserve_exact(11).map_err(|_| {
-        CheckpointError::format("ALLOCATION", "unable to reserve save entry-size table")
-    })?;
+    sizes
+        .try_reserve_exact(11 + MAX_SAVED_BRAINS)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve save entry-size table")
+        })?;
     let mut hashes = Vec::new();
-    hashes.try_reserve_exact(10).map_err(|_| {
-        CheckpointError::format("ALLOCATION", "unable to reserve save entry-hash table")
-    })?;
+    hashes
+        .try_reserve_exact(10 + MAX_SAVED_BRAINS)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve save entry-hash table")
+        })?;
     let mut paths = Vec::new();
-    paths.try_reserve_exact(11).map_err(|_| {
-        CheckpointError::format("ALLOCATION", "unable to reserve save entry-path table")
-    })?;
+    paths
+        .try_reserve_exact(11 + MAX_SAVED_BRAINS)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve save entry-path table")
+        })?;
     let mut manifest = None;
     for (seen, extent) in entries.iter().enumerate() {
         file.seek(SeekFrom::Start(extent.data_offset))?;
@@ -2712,8 +2825,9 @@ fn validate_import_manifest(
             .validate()
             .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?;
     }
+    let records_version = manifest.records_version()?;
+    let base_roles = manifest.base_role_count()?;
     if manifest.magic != "slither-neuroevo-save"
-        || !matches!(manifest.archive_version, 1..=3)
         || manifest.archive_kind
             != if manifest.legacy_conversion.is_some() {
                 "legacy-population-import"
@@ -2723,9 +2837,7 @@ fn validate_import_manifest(
         || manifest.run_id.is_empty()
         || manifest.run_id.contains('\0')
         || manifest.run_id.len() > 256
-        || manifest.roles.len()
-            != 8 + usize::from(manifest.archive_version >= 2)
-                + usize::from(manifest.archive_version == 3)
+        || manifest.roles.len() != base_roles + manifest.saved_brains.len()
         || manifest.checkpoint_manifest.roles.len() != 5
         || entry_paths.len() != manifest.roles.len() + 1
         || entry_sizes.len() != manifest.roles.len() + 1
@@ -2845,7 +2957,7 @@ fn validate_import_manifest(
             ));
         }
     }
-    if manifest.archive_version >= 2 {
+    if records_version >= 2 {
         let role = &manifest.roles[8];
         let size = history_count
             .checked_mul(COMPLETION_RECORD_BYTES)
@@ -2867,7 +2979,7 @@ fn validate_import_manifest(
             ));
         }
     }
-    if manifest.archive_version == 3 {
+    if records_version == 3 {
         let role = &manifest.roles[9];
         let size = history_count
             .checked_mul(EXPERIMENT_RECORD_BYTES)
@@ -2915,9 +3027,34 @@ fn validate_import_manifest(
             "save Hall-of-Fame weights disagree with the adaptive role contract",
         ));
     }
+    for (relative, entry) in manifest.saved_brains.iter().enumerate() {
+        let index = base_roles + relative;
+        let role = &manifest.roles[index];
+        let bytes = entry.bytes()?;
+        if role.role != "saved-brain"
+            || role.path != entry.path()
+            || role.encoding != "portable-slither-brain-v1"
+            || role.record_size != 0
+            || entry_paths[index] != entry.path()
+            || entry_sizes[index] != bytes
+            || parse_hex_u64(&role.stored_bytes_hex, "saved brain stored bytes")? != bytes
+            || parse_hex_u64(&role.decoded_bytes_hex, "saved brain decoded bytes")? != bytes
+            || parse_hex_u64(&role.decoded_count_hex, "saved brain count")? != 1
+            || role.logical_sha256 != entry.brain_id
+            || parse_digest(&entry.brain_id, "saved brain identity")? != entry_hashes[index]
+        {
+            return Err(saved_brain_archive::invalid(
+                "saved brain role disagrees with its original",
+            ));
+        }
+    }
     if entry_sizes[5] != history_count.saturating_mul(HISTORY_RECORD_BYTES)
         || entry_sizes[6] != hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES)
-        || hex_digest(logical_root(&manifest.roles)?) != manifest.logical_root_sha256
+        || hex_digest(save_logical_root(
+            &manifest.roles,
+            &manifest.saved_brains,
+            records_version,
+        )?) != manifest.logical_root_sha256
         || expected_archive_length(entry_sizes)? != archive_bytes
     {
         return Err(CheckpointError::format(
@@ -2937,6 +3074,7 @@ fn extract_and_validate_import_roles(
     checkpoint_limits: &CheckpointLimits,
 ) -> Result<Option<ImportInventoryDescriptor>, CheckpointError> {
     let _phase = ArchivePhaseScope::enter(ArchivePhase::TemporaryFileWrite);
+    let records_version = manifest.records_version()?;
     let file = File::open(archive_path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
     let mut entries = archive.entries()?;
@@ -2981,7 +3119,7 @@ fn extract_and_validate_import_roles(
     })?;
     let inventory_partial_path = stage_directory.join(format!(
         ".{operation_id}.import-inventory-v{}.partial",
-        manifest.archive_version
+        records_version
     ));
     let mut inventory_cleanup = ScratchFiles::new();
     let mut inventory_writer = if publication_directory.is_some() {
@@ -2993,7 +3131,7 @@ fn extract_and_validate_import_roles(
                 .open(&inventory_partial_path)?,
         );
         let mut header = [0u8; INVENTORY_HEADER_BYTES as usize];
-        header[..13].copy_from_slice(inventory_magic(manifest.archive_version));
+        header[..13].copy_from_slice(inventory_magic(records_version));
         header[16..24].copy_from_slice(&history_count.to_le_bytes());
         header[24..32].copy_from_slice(&hall_of_fame_count.to_le_bytes());
         writer.write_all(&header)?;
@@ -3200,7 +3338,7 @@ fn extract_and_validate_import_roles(
     fs::remove_file(&raw_path)?;
     weight_scratch.paths.clear();
 
-    if manifest.archive_version >= 2 {
+    if records_version >= 2 {
         let mut completion = entries.next().transpose()?.ok_or_else(|| {
             CheckpointError::format("IMPORT_COMPLETION", "completion entry missing")
         })?;
@@ -3224,7 +3362,7 @@ fn extract_and_validate_import_roles(
             }
         }
     }
-    if manifest.archive_version == 3 {
+    if records_version == 3 {
         let mut experiment = entries.next().transpose()?.ok_or_else(|| {
             CheckpointError::format("IMPORT_EXPERIMENT", "experiment entry missing")
         })?;
@@ -3244,18 +3382,40 @@ fn extract_and_validate_import_roles(
             }
         }
     }
+    for selected in &manifest.saved_brains {
+        let mut entry = entries
+            .next()
+            .transpose()?
+            .ok_or_else(|| saved_brain_archive::invalid("saved original missing"))?;
+        let size = selected.bytes()? as usize;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| saved_brain_archive::invalid("unable to reserve saved original"))?;
+        (&mut entry).take(size as u64 + 1).read_to_end(&mut bytes)?;
+        saved_brain_archive::validate_original(&bytes, selected)?;
+        if publication_directory.is_some() {
+            let path = stage_directory.join(selected.filename());
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+        }
+    }
     let inventory = if let (Some(directory), Some(mut writer)) =
         (publication_directory, inventory_writer)
     {
         writer.flush()?;
         let file = writer.into_inner().map_err(|error| error.into_error())?;
         file.sync_all()?;
-        let completion_bytes = if manifest.archive_version >= 2 {
+        let completion_bytes = if records_version >= 2 {
             history_count.saturating_mul(COMPLETION_RECORD_BYTES)
         } else {
             0
         };
-        let experiment_bytes = if manifest.archive_version == 3 {
+        let experiment_bytes = if records_version == 3 {
             history_count.saturating_mul(EXPERIMENT_RECORD_BYTES)
         } else {
             0
@@ -3277,10 +3437,7 @@ fn extract_and_validate_import_roles(
             ));
         }
         drop(file);
-        let relative_filename = format!(
-            ".{operation_id}.import-inventory-v{}",
-            manifest.archive_version
-        );
+        let relative_filename = format!(".{operation_id}.import-inventory-v{}", records_version);
         let final_path = directory.join(&relative_filename);
         rename_noreplace(&inventory_partial_path, &final_path)?;
         inventory_cleanup.track(final_path.clone());
@@ -3288,7 +3445,8 @@ fn extract_and_validate_import_roles(
         let sha256 = hex_digest(hash_file_range(&final_path, 0, expected_bytes)?);
         inventory_cleanup.paths.clear();
         Some(ImportInventoryDescriptor {
-            version: manifest.archive_version,
+            version: records_version,
+            saved_brains: manifest.saved_brains.clone(),
             relative_filename,
             sha256,
             stored_byte_count_hex: hex_u64(expected_bytes),
@@ -3352,6 +3510,27 @@ fn save_role(
         record_size,
         logical_sha256: hex_digest(logical_sha256),
     }
+}
+
+/// Version-four roots bind catalog labels/timestamps and base inventory version as well as role bytes.
+fn save_logical_root(
+    roles: &[SaveRole],
+    entries: &[SavedBrainArchiveEntryV1],
+    records_version: u32,
+) -> Result<[u8; 32], CheckpointError> {
+    let base = logical_root(roles)?;
+    if entries.is_empty() {
+        return Ok(base);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"slither-neuroevo-save-root\0v4\0");
+    hasher.update(base);
+    hasher.update(records_version.to_le_bytes());
+    hasher.update(
+        serde_json::to_vec(entries)
+            .map_err(|error| saved_brain_archive::invalid(error.to_string()))?,
+    );
+    Ok(hasher.finalize().into())
 }
 
 fn logical_root(roles: &[SaveRole]) -> Result<[u8; 32], CheckpointError> {

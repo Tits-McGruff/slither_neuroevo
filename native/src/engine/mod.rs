@@ -4,6 +4,8 @@
 pub mod brain_artifact;
 /// Cold library artifact and shared-weight publication.
 pub mod brain_library;
+/// Explicit bounded portable originals in self-contained save archives.
+pub mod saved_brain_archive;
 
 /// Staged once-per-fixed-step generation and live-snake scalar accounting.
 pub mod accounting;

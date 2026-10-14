@@ -27,6 +27,10 @@ export class BrainLibraryView {
   private previous: (string | null)[] = [];
   /** Next identity cursor from the last validated page. */
   private next: string | null = null;
+  /** Explicit optional archive selection survives page navigation, never a connection change. */
+  private readonly archiveSelection = new Set<string>();
+  /** An independent capability prevents old library servers silently dropping a selection. */
+  private archiveEnabled = false;
   /** One selected full metadata record at most. */
   private selected: SavedBrainRecordV1 | undefined;
 
@@ -37,6 +41,16 @@ export class BrainLibraryView {
     private readonly spawned: (snakeId: number) => void
   ) {
     this.button('brainLibraryRefresh', () => this.refresh());
+    this.button('brainLibraryArchive', () => {
+      if (this.busy || !this.enabled || !this.archiveEnabled) return;
+      try { this.downloadUrl(this.client.archiveUrl([...this.archiveSelection])); }
+      catch (error) { this.message(error instanceof Error ? error.message : String(error), true); }
+    });
+    this.button('brainLibraryClearArchive', () => {
+      this.archiveSelection.clear();
+      for (const checkbox of document.querySelectorAll<HTMLInputElement>('[data-brain-archive]')) checkbox.checked = false;
+      this.controls();
+    });
     this.button('brainLibraryPrevious', () => this.action(async revision => {
       await this.load(this.previous.at(-1) ?? null, revision);
       if (revision === this.revision) this.previous.pop(); return 'Previous page loaded.';
@@ -70,7 +84,8 @@ export class BrainLibraryView {
   }
 
   /** Called for welcome/disconnect/replacement; pending retry bodies remain bound to their original process. */
-  contextChanged(enabled: boolean): void {
+  contextChanged(enabled: boolean, archiveEnabled = false): void {
+    this.archiveSelection.clear(); this.archiveEnabled = enabled && archiveEnabled;
     this.revision++; this.enabled = enabled; this.after = null; this.next = null; this.previous = []; this.selected = undefined;
     this.element('brainLibraryList').textContent = '';
     this.element('brainLibraryDetails').textContent = '';
@@ -109,10 +124,20 @@ export class BrainLibraryView {
       })), this.rowButton('Spawn', () => this.action(async token => this.confirm(await this.client.spawn(entry.brainId), token))),
       this.rowButton('Export', () => this.download(entry.brainId)),
       this.rowButton('Delete', () => this.action(async token => {
-        await this.client.delete(entry.brainId); this.previous = []; await this.load(null, token);
+        await this.client.delete(entry.brainId); this.archiveSelection.delete(entry.brainId); this.previous = []; await this.load(null, token);
         if (token === this.revision && this.selected?.brainId === entry.brainId) { this.selected = undefined; this.element('brainLibraryDetails').textContent = ''; }
         return `Deleted ${entry.name} from the library. Running snakes keep their brains.`;
       })));
+      if (this.archiveEnabled) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset['brainArchive'] = entry.brainId;
+        checkbox.checked = this.archiveSelection.has(entry.brainId); checkbox.disabled = this.busy;
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) this.archiveSelection.add(entry.brainId); else this.archiveSelection.delete(entry.brainId);
+          this.controls();
+        });
+        label.append(checkbox, document.createTextNode(' Include in checkpoint archive')); row.append(label);
+      }
       row.append(title, meta, actions); list.append(row);
     }
     if (!result.page.entries.length) list.textContent = 'No saved brains on this page.';
@@ -152,10 +177,15 @@ export class BrainLibraryView {
   private download(brainId: string): void {
     if (this.busy || !this.enabled) return;
     try {
-      const link = document.createElement('a'); link.href = this.client.exportUrl(brainId); link.download = '';
-      link.target = '_blank'; link.rel = 'noopener'; link.hidden = true;
-      document.body.append(link); link.click(); link.remove(); this.message('Download requested.');
+      this.downloadUrl(this.client.exportUrl(brainId));
     } catch (error) { this.message(error instanceof Error ? error.message : String(error), true); }
+  }
+
+  /** Delegate opaque archive/artifact bytes directly to the browser download manager. */
+  private downloadUrl(url: string): void {
+    const link = document.createElement('a'); link.href = url; link.download = '';
+    link.target = '_blank'; link.rel = 'noopener'; link.hidden = true;
+    document.body.append(link); link.click(); link.remove(); this.message('Download requested.');
   }
 
   /** One operation owns the controls; old connections cannot overwrite current messages or selection. */
@@ -172,6 +202,11 @@ export class BrainLibraryView {
     for (const button of document.querySelectorAll<HTMLButtonElement>('#tab-library button')) button.disabled = this.busy || !this.enabled;
     (this.element('brainLibraryPrevious') as HTMLButtonElement).disabled = this.busy || !this.enabled || !this.previous.length;
     (this.element('brainLibraryNext') as HTMLButtonElement).disabled = this.busy || !this.enabled || !this.next;
+    for (const checkbox of document.querySelectorAll<HTMLInputElement>('[data-brain-archive]')) checkbox.disabled = this.busy || !this.enabled;
+    this.element('brainLibraryArchiveControls').hidden = !this.archiveEnabled;
+    this.element('brainLibraryArchiveCount').textContent = `${this.archiveSelection.size} saved brain${this.archiveSelection.size === 1 ? '' : 's'} selected. Ordinary checkpoint exports exclude the library.`;
+    (this.element('brainLibraryArchive') as HTMLButtonElement).disabled = this.busy || !this.archiveEnabled || this.archiveSelection.size === 0;
+    (this.element('brainLibraryClearArchive') as HTMLButtonElement).disabled = this.busy || !this.archiveEnabled || this.archiveSelection.size === 0;
     const pending = this.client.hasPendingSpawn();
     this.element('brainLibraryPending').hidden = !pending;
     this.element('brainLibraryRetry').hidden = !pending; this.element('brainLibraryDismiss').hidden = !pending;

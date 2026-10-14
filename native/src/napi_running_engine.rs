@@ -19,7 +19,7 @@ use crate::engine::contract::{
 use crate::engine::display::{FrameCopyResult, RunningDisplayStatus, RunningVisualizationStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::export_archive::{
-    compose_export_archive, estimate_import_disk_bytes, prepare_import_archive,
+    compose_export_archive_with_saved_brains, estimate_import_disk_bytes, prepare_import_archive,
     validate_import_archive, ExportArchiveDescriptor, ExportInventoryDescriptor,
     ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
 };
@@ -394,6 +394,7 @@ pub struct PreparedImportInventoryResult {
     pub stored_byte_count: String,
     pub history_count: String,
     pub hall_of_fame_count: String,
+    pub saved_brains_json: Option<String>,
 }
 
 /// Small fresh replacement facts. The complete candidate remains in Rust.
@@ -500,6 +501,7 @@ pub struct PrepareExportArchiveTask {
     operation_id: String,
     checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
     inventory: ExportInventoryDescriptor,
+    saved_brains: Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1>,
     progress: Arc<ArchiveProgressJob>,
     #[cfg(feature = "engine-test-hooks")]
     export_failure: Arc<AtomicU8>,
@@ -524,7 +526,7 @@ impl Task for PrepareExportArchiveTask {
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, false)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-            compose_export_archive(
+            compose_export_archive_with_saved_brains(
                 &self.managed_directory,
                 &self.operation_id,
                 &self.checkpoint,
@@ -532,6 +534,7 @@ impl Task for PrepareExportArchiveTask {
                 &checkpoint_limits,
                 &graph_limits,
                 &admission_policy,
+                &self.saved_brains,
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
         })
@@ -666,6 +669,15 @@ impl Task for PrepareImportArchiveTask {
                 stored_byte_count: inventory.stored_byte_count_hex,
                 history_count: inventory.history_count_hex,
                 hall_of_fame_count: inventory.hall_of_fame_count_hex,
+                saved_brains_json: if inventory.saved_brains.is_empty() {
+                    None
+                } else {
+                    Some(
+                        serde_json::to_string(&inventory.saved_brains).map_err(|error| {
+                            Error::new(Status::GenericFailure, error.to_string())
+                        })?,
+                    )
+                },
             },
             startup_metadata,
         })
@@ -897,6 +909,7 @@ impl ExperimentalRunningAuthority {
         operation_id: JsString<'_>,
         checkpoint: Object<'_>,
         inventory: Object<'_>,
+        saved_brains_json: Option<JsString<'_>>,
     ) -> Result<AsyncTask<PrepareExportArchiveTask>> {
         let managed_directory = parse_managed_path(bounded_js_string(
             managed_directory,
@@ -912,6 +925,20 @@ impl ExperimentalRunningAuthority {
         )?)?;
         let checkpoint = checkpoint_descriptor_from_napi_object(&checkpoint)?;
         let inventory = parse_export_inventory_descriptor(&inventory, operation_id.as_str())?;
+        let saved_brains = match saved_brains_json {
+            None => Vec::new(),
+            Some(json) => serde_json::from_str::<
+                Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1>,
+            >(&bounded_js_string(
+                json,
+                "savedBrainsJson",
+                128 * 1024,
+                false,
+            )?)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?,
+        };
+        crate::engine::saved_brain_archive::validate_selection(&saved_brains)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
         let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
         Ok(AsyncTask::new(PrepareExportArchiveTask {
             runtime: Arc::clone(&self.runtime),
@@ -920,6 +947,7 @@ impl ExperimentalRunningAuthority {
             operation_id: operation_id.as_str().to_owned(),
             checkpoint,
             inventory,
+            saved_brains,
             progress,
             #[cfg(feature = "engine-test-hooks")]
             export_failure: Arc::clone(&self.export_failure),
@@ -2379,6 +2407,7 @@ mod task_panic_tests {
             operation_id: operation,
             checkpoint: checkpoint.clone(),
             inventory,
+            saved_brains: Vec::new(),
             progress: Arc::clone(&progress),
             #[cfg(feature = "engine-test-hooks")]
             export_failure: Arc::new(std::sync::atomic::AtomicU8::new(0)),
