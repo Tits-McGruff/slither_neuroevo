@@ -381,6 +381,44 @@ impl<'scratch, 'world> PreparedEvolvedPlacement<'scratch, 'world> {
 }
 
 impl SpawnWorkspace {
+    /// Actual retained placement allocations charged to cold transaction scratch.
+    pub(crate) fn owned_bytes(&self) -> Result<usize, String> {
+        let bytes = [
+            (self.order.capacity(), std::mem::size_of::<usize>()),
+            (
+                self.source_order.capacity(),
+                std::mem::size_of::<SourceObstacle>(),
+            ),
+            (
+                self.placements.capacity(),
+                std::mem::size_of::<SpawnPlacement>(),
+            ),
+            (
+                self.body_points.capacity(),
+                std::mem::size_of::<WorldPoint>(),
+            ),
+            (
+                self.candidate_body.capacity(),
+                std::mem::size_of::<WorldPoint>(),
+            ),
+        ]
+        .into_iter()
+        .try_fold(std::mem::size_of::<Self>(), |total, (count, width)| {
+            count
+                .checked_mul(width)
+                .and_then(|owned| total.checked_add(owned))
+        });
+        let rng_bytes = self.next_rng.as_ref().map_or(0, |rng| {
+            rng.algorithm.capacity()
+                + rng.state_hex.capacity()
+                + rng.gaussian_algorithm.capacity()
+                + rng.gaussian_spare_hex.as_ref().map_or(0, String::capacity)
+        });
+        bytes
+            .and_then(|owned| owned.checked_add(rng_bytes))
+            .ok_or_else(|| "spawn allocation accounting overflowed".into())
+    }
+
     /// Attempt one evolved replacement with fresh complete geometry checks. Only
     /// this API turns congestion/work exhaustion into a pending continuation.
     /// It allocates no physical IDs and never changes source world/RNG state.

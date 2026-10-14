@@ -664,7 +664,7 @@ pub enum SnakeKind {
     Baseline,
     /// Browser player or external RL-controlled snake.
     External,
-    /// Hall-of-Fame resurrection.
+    /// Retained non-population neural owner: Hall-of-Fame or saved brain.
     Resurrected,
 }
 
@@ -6703,6 +6703,178 @@ mod tests {
             })
         ));
         assert_eq!(authority.state().brains, committed.brains);
+    }
+
+    /// A full retained pool with a dead middle body and a pellet referencing it.
+    fn retained_reuse_fixture() -> (AuthoritativeState, Arc<GraphBundle>) {
+        let graph = default_graph();
+        let mut source = complete_running_candidate(&graph);
+        source.config.max_world_snakes = 3;
+        source.config.max_non_population_brains = 2;
+        source.identity.config_hash = normalized_config_hash(&source.config).unwrap();
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let weights = vec![0.25; graph.compiled().total_parameters].into_boxed_slice();
+        let first = authority
+            .resurrect_hall_of_fame(
+                1,
+                weights.clone(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        authority
+            .resurrect_hall_of_fame(2, weights, RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        let dead = authority
+            .candidate
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == first.snake_id)
+            .unwrap();
+        dead.alive = false;
+        let position = dead.position;
+        let id = authority.candidate.allocators.next_entity_id;
+        authority.candidate.allocators.next_entity_id += 1;
+        authority.candidate.world.pellets.push(PelletState {
+            id,
+            position,
+            value: 1.0,
+            kind: 1,
+            color: 0,
+            owner: Some(first.snake_id),
+        });
+        (authority, graph)
+    }
+
+    #[test]
+    fn retained_reuse_releases_old_origin_compacts_body_and_clears_owner_at_full_capacity() {
+        let (mut authority, graph) = retained_reuse_fixture();
+        let before = authority.state().clone();
+        let old = &before.world.snakes[1];
+        let weak = Arc::downgrade(
+            before
+                .brains
+                .iter()
+                .find(|brain| Some(brain.handle) == old.brain)
+                .unwrap()
+                .retained_origin
+                .as_ref()
+                .unwrap(),
+        );
+        let survivor = &before.world.snakes[2];
+        let survivor_body = before.world.body_points
+            [survivor.body.start..survivor.body.start + survivor.body.len]
+            .to_vec();
+        let weights = vec![0.5; graph.compiled().total_parameters].into_boxed_slice();
+        let publication = authority
+            .resurrect_hall_of_fame(3, weights, RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        let after = authority.state();
+        assert_eq!(after.population, before.population);
+        assert_eq!(after.brains.len(), before.brains.len());
+        assert_eq!(after.world.snakes.len(), before.world.snakes.len());
+        assert_eq!(
+            after.world.body_points.len(),
+            before.world.body_points.len()
+        );
+        assert_ne!(publication.snake_id, old.id);
+        assert_ne!(publication.frame_v1_id, old.frame_v1_id);
+        assert_eq!(after.world.snakes[1].id, publication.snake_id);
+        assert!(after.world.snakes[1].alive);
+        assert_eq!(after.world.snakes[1].control_accumulator_seconds, 0.06);
+        let next = &after.world.snakes[2];
+        assert_eq!(next.id, survivor.id);
+        assert_eq!(next.body.start, survivor.body.start - old.body.len);
+        assert_eq!(
+            &after.world.body_points[next.body.start..next.body.start + next.body.len],
+            survivor_body.as_slice()
+        );
+        assert_eq!(after.world.pellets.last().unwrap().owner, None);
+        assert!(!after
+            .brains
+            .iter()
+            .any(|brain| brain.owner == BrainOwner::Entity(old.id)));
+        let brain = after
+            .brains
+            .iter()
+            .find(|brain| Some(brain.handle) == after.world.snakes[1].brain)
+            .unwrap();
+        assert!(brain.recurrent.iter().all(|value| *value == 0.0));
+        assert!(matches!(
+            brain.retained_origin.as_deref(),
+            Some(RetainedNeuralOrigin::HallOfFame { entry_id: 3, .. })
+        ));
+        drop(before);
+        assert!(weak.upgrade().is_none());
+        let full = authority.state().clone();
+        assert!(authority
+            .resurrect_hall_of_fame(
+                4,
+                vec![0.0; graph.compiled().total_parameters].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults()
+            )
+            .is_err());
+        assert_eq!(authority.state(), &full);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        let newborn = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == publication.snake_id)
+            .unwrap();
+        assert!(newborn.observation_delivered);
+    }
+
+    #[test]
+    fn retained_reuse_failure_restores_body_owners_brain_origin_rng_and_allocators() {
+        let (mut authority, graph) = retained_reuse_fixture();
+        let before = authority.state().clone();
+        let ceiling = authority.memory_ceiling_bytes;
+        authority.memory_ceiling_bytes = 0;
+        assert!(authority
+            .resurrect_hall_of_fame(
+                3,
+                vec![0.5; graph.compiled().total_parameters].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults()
+            )
+            .is_err());
+        assert_eq!(authority.state(), &before);
+        for (current, previous) in authority.state().brains.iter().zip(&before.brains) {
+            if let (Some(current), Some(previous)) =
+                (&current.retained_origin, &previous.retained_origin)
+            {
+                assert!(Arc::ptr_eq(current, previous));
+            }
+        }
+        authority.memory_ceiling_bytes = ceiling;
+        authority.candidate.config.checkpoint_scratch_bytes = 1;
+        let scratch_limited = authority.state().clone();
+        let error = authority
+            .resurrect_hall_of_fame(
+                3,
+                vec![0.5; graph.compiled().total_parameters].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap_err();
+        assert!(error.contains("cold scratch"), "{error}");
+        assert_eq!(authority.state(), &scratch_limited);
     }
 
     #[test]
