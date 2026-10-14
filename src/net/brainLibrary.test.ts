@@ -96,3 +96,14 @@ it('clears a confirmed rejection while retaining the exact request after a 503 o
   status = 503; await expect(client.spawn(ID)).rejects.toThrow(/outcome/);
   expect(client.hasPendingSpawn()).toBe(true);
 });
+
+
+it('builds only explicit bounded sorted archive selections without parsing artifact bytes', () => {
+  const client = new BrainLibraryClient(() => 'http://localhost:4500/');
+  const second = '01'.repeat(32);
+  expect(client.archiveUrl([ID, second])).toBe(`http://localhost:4500/api/export/latest?brainIds=${second},${ID}`);
+  for (const ids of [[], [ID, ID], ['../bad'], Array.from({length: 101}, () => ID)]) {
+    expect(() => client.archiveUrl(ids)).toThrow();
+  }
+  expect(() => new BrainLibraryClient(() => null).archiveUrl([ID])).toThrow(/Connect/);
+});

@@ -719,6 +719,15 @@ including its compact history and run-scoped Hall of Fame. Selection is leased
 for the whole download: later generations do not change the selected bytes.
 The checkpoint is a durable generation boundary, not a mid-tick world save.
 
+Saved-brain association is explicit and defaults off. When welcome advertises
+`savedBrainArchive`, append `?brainIds=<ID>,<ID>` with 1..100 unique lowercase
+SHA-256 IDs in increasing order. All selected originals remain leased through
+transfer/cancellation; missing or invalid sources fail the entire export.
+The native version-4 archive includes exact `.slither-brain` originals and bounded
+catalog labels/timestamps, all bound by its logical root. Its independent
+`recordsVersion` preserves existing history/experiment inventory versions 1..3.
+An ordinary request keeps the existing archive format and excludes saved brains.
+
 Successful response headers are:
 
 - `Content-Type: application/vnd.slither-neuroevo.save`.
@@ -745,6 +754,12 @@ publishing the new game. Exact archives restore the complete experiment at its
 checkpoint boundary. Legacy JSON creates a new generation-one population run
 without claiming exact RNG continuation or missing history. Existing game
 sockets receive `stateReplaced` and must join again with its `rejoinToken`.
+Associated version-4 imports restore selected library membership in the same SQLite
+transaction as the checkpoint pointer. They enforce the ordinary 100-record/2-GiB
+library quota; any membership failure rejects the replacement. Existing exact
+artifact IDs preserve their current labels/timestamps. Portable graph differences
+are allowed in storage and remain checked independently at live spawn. Trainer
+datasets and optimizer state are never embedded in this archive.
 
 HTTP 200 returns `ok: true`, `runId`, `generation`, `completedStep`,
 `checkpointId`, `saveLogicalRootSha256` and `branched`, plus applicable

@@ -101,9 +101,36 @@ function metadata(path: string): Array<{ name: string; rows: unknown[] }> {
   } finally { database.close(); }
 }
 
+/** Bounded loopback fixture transport, independent of Fetch's browser unsafe-port list. */
+async function loopbackResponse(url: string, init: {method?: string; headers?: Record<string, string>; body?: Buffer} = {}): Promise<Response> {
+  const target = new URL(url);
+  if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') throw new Error('fixture requires loopback HTTP');
+  return await new Promise<Response>((done, reject) => {
+    const client = request(target, {method: init.method ?? 'GET', headers: {
+      ...init.headers, ...(init.body === undefined ? {} : {'Content-Length': init.body.byteLength})
+    }}, response => {
+      const chunks: Buffer[] = []; let length = 0;
+      response.on('data', (chunk: Buffer) => {
+        length += chunk.byteLength;
+        if (length > 8 * 1024 * 1024) response.destroy(new Error('loopback fixture response exceeds eight MiB'));
+        else chunks.push(chunk);
+      });
+      response.once('error', reject);
+      response.once('end', () => {
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(response.headers)) if (value !== undefined) headers.set(key, String(value));
+        done(new Response(new Uint8Array(Buffer.concat(chunks)), {status: response.statusCode ?? 500, headers}));
+      });
+    });
+    client.once('error', reject);
+    client.setTimeout(10_000, () => client.destroy(new Error('loopback fixture request stalled')));
+    client.end(init.body);
+  });
+}
+
 /** Read actual health without retaining display frames or population state. */
 async function health(server: RustServer): Promise<Record<string, unknown>> {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+  const response = await loopbackResponse(`http://127.0.0.1:${server.port}/api/health`);
   expect(response.status).toBe(200);
   return await response.json() as Record<string, unknown>;
 }
@@ -261,14 +288,18 @@ function archiveEntries(archive: Buffer): Array<{ header: number; data: number; 
     entries.push({ header, data, size, end });
     header = end;
   }
-  expect([9, 10, 11]).toContain(entries.length);
+  expect(entries.length).toBeGreaterThanOrEqual(9);
+  expect(entries.length).toBeLessThanOrEqual(111);
   const final = entries.at(-1)!;
   expect(archive.subarray(final.header, final.header + 100).toString().split('\0')[0]).toBe('manifest.json');
-  const manifest = JSON.parse(archive.subarray(final.data, final.data + final.size).toString()) as { archiveVersion: number; roles: unknown[] };
-  expect([1, 2, 3]).toContain(manifest.archiveVersion);
-  expect(entries).toHaveLength(manifest.archiveVersion + 8);
-  if (manifest.archiveVersion >= 2) expect(manifest.roles[8]).toMatchObject({ role: 'generation-completion', path: 'generation-completion.bin', encoding: 'raw-generation-completion-v1', recordSize: 40 });
-  if (manifest.archiveVersion === 3) expect(manifest.roles[9]).toMatchObject({ role: 'generation-experiments', path: 'generation-experiments.bin', encoding: 'raw-generation-experiment-v1', recordSize: 776 });
+  const manifest = JSON.parse(archive.subarray(final.data, final.data + final.size).toString()) as { archiveVersion: number; recordsVersion?: number; savedBrains?: unknown[]; roles: unknown[] };
+  expect([1, 2, 3, 4]).toContain(manifest.archiveVersion);
+  const recordsVersion = manifest.archiveVersion === 4 ? manifest.recordsVersion! : manifest.archiveVersion;
+  expect([1, 2, 3]).toContain(recordsVersion);
+  const selected = manifest.archiveVersion === 4 ? manifest.savedBrains!.length : 0;
+  expect(entries).toHaveLength(recordsVersion + 8 + selected);
+  if (recordsVersion >= 2) expect(manifest.roles[8]).toMatchObject({ role: 'generation-completion', path: 'generation-completion.bin', encoding: 'raw-generation-completion-v1', recordSize: 40 });
+  if (recordsVersion === 3) expect(manifest.roles[9]).toMatchObject({ role: 'generation-experiments', path: 'generation-experiments.bin', encoding: 'raw-generation-experiment-v1', recordSize: 776 });
   expect(manifest.roles).toHaveLength(entries.length - 1);
   expect(header + 1024).toBe(archive.byteLength);
   expect(archive.subarray(header).every(byte => byte === 0)).toBe(true);
@@ -809,6 +840,88 @@ async function heldInput(peers: ControllerPeer[], replacePlayer = true): Promise
 }
 
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it('exports only explicitly selected saved brains and atomically restores heterogeneous library membership', async () => {
+    await experiment(async fixture => {
+      const base = `http://127.0.0.1:${fixture.server.port}`;
+      const saved: Array<{brainId: string; name: string; createdAtMs: number; bytes: Buffer}> = [];
+      for (const name of ['portable-brain-v1.slither-brain', 'portable-dense-basic8-v1.slither-brain']) {
+        const bytes = await readFile(resolve('native/fixtures', name));
+        const response = await loopbackResponse(`${base}/api/distillation/v1/library/import?name=${encodeURIComponent(name)}`, {
+          method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: bytes
+        });
+        expect(response.status).toBe(201);
+        const result = await response.json() as {brainId: string; name: string; createdAtMs: number};
+        saved.push({...result, bytes});
+      }
+      saved.sort((a, b) => a.brainId.localeCompare(b.brainId));
+      for (const query of ['?brainIds=', `?brainIds=${saved[0]!.brainId},${saved[0]!.brainId}`, '?unexpected=true']) {
+        const invalid = await loopbackResponse(`${base}/api/export/latest${query}`);
+        expect(invalid.status).toBe(400); await invalid.arrayBuffer();
+      }
+      const released = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+      onTestFinished(() => released.mockRestore());
+      /** Wait for the worker acknowledgement after ready-file removal, before another cold operation. */
+      const releaseCompleted = async (count: number): Promise<void> => {
+        await vi.waitFor(() => expect(released).toHaveBeenCalledTimes(count), {timeout: 5000, interval: 10});
+        await released.mock.results[count - 1]!.value;
+        await new Promise<void>(done => setImmediate(done));
+      };
+      const missing = await loopbackResponse(`${base}/api/export/latest?brainIds=${'0'.repeat(64)}`);
+      expect(missing.status).not.toBe(200); await missing.arrayBuffer();
+      await releaseCompleted(1);
+      await noTransferScratch(fixture.managedDirectory);
+      const response = await loopbackResponse(`${base}/api/export/latest?brainIds=${saved.map(entry => entry.brainId).join(',')}`);
+      expect(response.status).toBe(200);
+      const selectedArchive = Buffer.from(await response.arrayBuffer());
+      await releaseCompleted(2);
+      await noTransferScratch(fixture.managedDirectory);
+      const entries = archiveEntries(selectedArchive);
+      const last = entries.at(-1)!;
+      const manifest = JSON.parse(selectedArchive.subarray(last.data, last.data + last.size).toString()) as {
+        archiveVersion: number; recordsVersion: number; savedBrains: Array<Record<string, unknown>>;
+      };
+      expect(manifest.archiveVersion).toBe(4); expect(manifest.recordsVersion).toBeGreaterThanOrEqual(1);
+      expect(manifest.savedBrains).toEqual(saved.map(({brainId, name, createdAtMs, bytes}) => ({brainId, name, createdAtMs,
+        artifactByteCount: bytes.byteLength.toString(16).padStart(16, '0')})));
+      for (const savedBrain of saved) {
+        const entry = entries.find(entry => selectedArchive.subarray(entry.header, entry.header + 100).toString().split('\0')[0] === `brains/${savedBrain.brainId}.slither-brain`)!;
+        expect(entry).toBeDefined(); expect(selectedArchive.subarray(entry.data, entry.data + entry.size)).toEqual(savedBrain.bytes);
+        const deletion = await loopbackResponse(`${base}/api/distillation/v1/library/${savedBrain.brainId}`, {method: 'DELETE'});
+        expect(deletion.status).toBe(200); await deletion.arrayBuffer();
+      }
+      const beforeImport = await loopbackResponse(`${base}/api/distillation/v1/library`);
+      expect((await beforeImport.json() as {page: {entries: unknown[]}}).page.entries).toEqual([]);
+      const beforeFailure = await health(fixture.server);
+      const injected = new Database(fixture.databasePath);
+      try {
+        injected.exec(`CREATE TRIGGER reject_second_archive_brain BEFORE INSERT ON rust_saved_brains_v1
+          WHEN NEW.brain_id = '${saved[1]!.brainId}' BEGIN SELECT RAISE(ABORT, 'injected archive membership failure'); END`);
+        const rejected = await loopbackResponse(`${base}/api/import/archive`, {method: 'POST', headers: {'Content-Type': 'application/vnd.slither-neuroevo.save'}, body: selectedArchive});
+        expect(rejected.status).not.toBe(200); expect(await rejected.text()).toContain('injected archive membership failure');
+        await noTransferScratch(fixture.managedDirectory);
+        const unchanged = await loopbackResponse(`${base}/api/distillation/v1/library`);
+        expect((await unchanged.json() as {page: {entries: unknown[]}}).page.entries).toEqual([]);
+        expect(await health(fixture.server)).toMatchObject({ok: true, runId: beforeFailure['runId'],
+          worldEpoch: beforeFailure['worldEpoch'], startupCheckpointId: beforeFailure['startupCheckpointId']});
+      } finally { injected.exec('DROP TRIGGER IF EXISTS reject_second_archive_brain'); injected.close(); }
+      const imported = await loopbackResponse(`${base}/api/import/archive`, {method: 'POST', headers: {'Content-Type': 'application/vnd.slither-neuroevo.save'}, body: selectedArchive});
+      expect(imported.status).toBe(200); await imported.arrayBuffer();
+      await noTransferScratch(fixture.managedDirectory);
+      const restored = await loopbackResponse(`${base}/api/distillation/v1/library`);
+      const page = (await restored.json() as {page: {entries: Array<Record<string, unknown>>}}).page;
+      expect(page.entries).toHaveLength(2);
+      for (const entry of saved) expect(page.entries.find(row => row['brainId'] === entry.brainId)).toMatchObject({name: entry.name, createdAtMs: entry.createdAtMs});
+      const ordinary = await loopbackResponse(`${base}/api/export/latest`); expect(ordinary.status).toBe(200);
+      const bytes = Buffer.from(await ordinary.arrayBuffer());
+      await releaseCompleted(3);
+      const final = archiveEntries(bytes).at(-1)!;
+      const ordinaryManifest = JSON.parse(bytes.subarray(final.data, final.data + final.size).toString()) as Record<string, unknown>;
+      expect(ordinaryManifest['archiveVersion']).toBeLessThan(4);
+      expect(ordinaryManifest).not.toHaveProperty('savedBrains');
+      await noTransferScratch(fixture.managedDirectory);
+    });
+  }, ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS);
+
   it('keeps the newer HTTP disconnect observer when an older fixture cleans up late', async () => {
     let requests = 0;
     const server = createServer((_incoming, response) => {
@@ -1724,7 +1837,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const manifest = JSON.parse(damaged.subarray(entry.data, entry.data + entry.size).toString()) as {
             archiveVersion: number; logicalRootSha256: string; roles: Array<{ decodedBytesHex: string }>;
           };
-          if (fault === 'unsupported save version') manifest.archiveVersion = 4;
+          if (fault === 'unsupported save version') manifest.archiveVersion = 5;
           else if (fault === 'corrupted logical root') {
             manifest.logicalRootSha256 = (manifest.logicalRootSha256.startsWith('0') ? '1' : '0') +
               manifest.logicalRootSha256.slice(1);

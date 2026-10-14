@@ -439,6 +439,41 @@ export interface ManagedExportInventoryDescriptor {
   hallOfFameCount: U64Hex;
 }
 
+/** Explicit catalog membership associated with original portable bytes in archive v4. */
+export interface SavedBrainArchiveEntryV1 {
+  /** Complete original artifact SHA-256, independent of the active graph. */
+  brainId: string;
+  /** Owner label preserved when first restoring membership. */
+  name: string;
+  /** Original safe-integer creation time; exact retries preserve existing metadata. */
+  createdAtMs: number;
+  /** Original portable file length, never decoded neural arrays. */
+  artifactByteCount: U64Hex;
+}
+
+/** Strict small association metadata shared by the native archive and metadata worker. */
+export function parseSavedBrainArchiveEntries(value: unknown): SavedBrainArchiveEntryV1[] {
+  if (!Array.isArray(value) || value.length > 100) reject('invalid saved brain archive selection');
+  let previous = '';
+  let bytes = 0n;
+  return value.map(item => {
+    const entry = asRecord(item, 'saved brain archive entry');
+    requireOnlyKeys(entry, ['brainId', 'name', 'createdAtMs', 'artifactByteCount']);
+    if (typeof entry['brainId'] !== 'string' || !SHA256_HEX.test(entry['brainId']) || entry['brainId'] <= previous ||
+        typeof entry['name'] !== 'string' || !entry['name'].trim() || entry['name'].trim() !== entry['name'] ||
+        entry['name'].includes('\0') || !isWellFormedUtf16(entry['name']) || Buffer.byteLength(entry['name']) > 256 ||
+        typeof entry['createdAtMs'] !== 'number' || !Number.isSafeInteger(entry['createdAtMs']) || entry['createdAtMs'] < 0) {
+      reject('invalid saved brain archive membership');
+    }
+    previous = entry['brainId'];
+    const artifactByteCount = asU64Hex(entry['artifactByteCount'], 'saved brain artifact bytes');
+    const count = BigInt(`0x${artifactByteCount}`);
+    bytes += count;
+    if (count < 88n || count > 64n * 1024n * 1024n || bytes > 2n * 1024n * 1024n * 1024n) reject('saved brain archive byte limit');
+    return {brainId: entry['brainId'], name: entry['name'], createdAtMs: entry['createdAtMs'], artifactByteCount};
+  });
+}
+
 /** Rust-validated fixed-width metadata used by one exact import transaction. */
 export interface ManagedImportInventoryDescriptor {
   /** Inventory contract version. */
@@ -453,6 +488,8 @@ export interface ManagedImportInventoryDescriptor {
   historyCount: U64Hex;
   /** Number of selected unique Hall-of-Fame records. */
   hallOfFameCount: U64Hex;
+  /** Optional bounded native-validated archive membership; absent for versions 1..3. */
+  savedBrainsJson?: string;
 }
 
 /** Small SQLite file/page counters returned without exposing database ownership. */
@@ -1023,7 +1060,7 @@ export function parseManagedImportInventoryDescriptor(
   const descriptor = asRecord(value, 'importInventory');
   requireOnlyKeys(descriptor, [
     'version', 'relativeFilename', 'sha256', 'storedByteCount',
-    'historyCount', 'hallOfFameCount'
+    'historyCount', 'hallOfFameCount', ...(Object.hasOwn(descriptor, 'savedBrainsJson') ? ['savedBrainsJson'] : [])
   ]);
   if ((descriptor['version'] !== 1 && descriptor['version'] !== 2 && descriptor['version'] !== 3) ||
       descriptor['relativeFilename'] !== `.${operationId}.import-inventory-v${String(descriptor['version'])}` ||
@@ -1040,13 +1077,21 @@ export function parseManagedImportInventoryDescriptor(
       BigInt(`0x${storedByteCount}`) !== expectedBytes) {
     reject('import inventory has inconsistent counts');
   }
+  let savedBrainsJson: string | undefined;
+  if (Object.hasOwn(descriptor, 'savedBrainsJson')) {
+    if (typeof descriptor['savedBrainsJson'] !== 'string' || Buffer.byteLength(descriptor['savedBrainsJson']) > 128 * 1024) reject('invalid saved brain import metadata');
+    const entries = parseSavedBrainArchiveEntries(JSON.parse(descriptor['savedBrainsJson']));
+    if (entries.length === 0) reject('empty saved brain import association');
+    savedBrainsJson = JSON.stringify(entries);
+  }
   return {
     version: descriptor['version'],
     relativeFilename: descriptor['relativeFilename'] as string,
     sha256: descriptor['sha256'],
     storedByteCount,
     historyCount,
-    hallOfFameCount
+    hallOfFameCount,
+    ...(savedBrainsJson === undefined ? {} : {savedBrainsJson})
   };
 }
 

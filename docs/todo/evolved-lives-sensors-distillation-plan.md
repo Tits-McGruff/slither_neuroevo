@@ -523,10 +523,26 @@ The batch slice passes 97 focused persistence/native cases (one existing skip),
 401 unit cases (three existing skips), 67 component cases, type/lint and client
 build. The archive roles, opt-in selection/export/import wiring and integrated
 qualification remain open; ordinary archive versions/default exports are unchanged.
+The optional association implementation now adds archive v4 with a separately
+versioned 1..3 record inventory and up to 100 exact portable originals. Its root
+binds the selected membership metadata as well as original bytes. Native readers
+validate each heterogeneous graph/sensor/weight contract and preserve originals;
+SQLite restores library membership with the checkpoint transaction, retaining
+existing names on retry and enforcing the existing quota. Browser selection is
+explicit, capability gated and cleared on connection changes; default exports
+retain their existing format. Native mixed-version roundtrip and tampered-label
+rejection pass, together with all 679 release library tests. Actual production
+HTTP verifies original-byte export, unchanged default exports, heterogeneous
+membership restoration and complete library/world rollback when the second
+catalog insertion fails, followed by a successful retry.
+The checkpoint also passes 402 unit cases (three existing skips), 68 component
+cases, 96 focused persistence/client cases (one existing skip), type/lint/client
+build and rustfmt/Clippy. Integrated Stage I and later qualification remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
-integrated shadow/training resource qualification, the brain library and the new inspector remain unfinished.
+integrated shadow/training resource qualification, retained-origin presentation,
+library qualification and the new inspector remain unfinished.
 Existing v3/v1 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

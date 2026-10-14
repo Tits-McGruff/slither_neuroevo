@@ -29,6 +29,7 @@ import {
   parseManagedGenerationCommit,
   parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
+  parseSavedBrainArchiveEntries,
   parseManagedLegacyConversion,
   parseManagedLegacySnapshotSelection,
   type CheckpointOperationId,
@@ -2739,6 +2740,16 @@ function commitManagedImport(
           if (existing && !existing.record_blob.equals(payload)) throw new Error('import experiment identity conflicts');
           if (!existing) db.prepare('INSERT INTO rust_generation_experiment_v1 (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, NULL, ?)')
             .run(descriptor.runId, generationHex, payload);
+          advancePersistenceProgress();
+        }
+      }
+      if (inventory.savedBrainsJson !== undefined) {
+        for (const entry of parseSavedBrainArchiveEntries(JSON.parse(inventory.savedBrainsJson))) {
+          const record = savedBrainCatalog.save(resolve(managedRootPath, `${entry.brainId}.slither-brain`),
+            entry.name, descriptor.operationId, entry.createdAtMs);
+          if (record.brainId !== entry.brainId || record.artifactByteCount !== entry.artifactByteCount) {
+            throw new Error('saved brain import original differs from native archive membership');
+          }
           advancePersistenceProgress();
         }
       }

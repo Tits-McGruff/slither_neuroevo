@@ -119,7 +119,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     managedDirectory: string,
     operationId: string,
     checkpoint: ManagedCheckpointDescriptor,
-    inventory: ManagedExportInventoryDescriptor
+    inventory: ManagedExportInventoryDescriptor,
+    savedBrainsJson?: string
   ): Promise<RustPreparedExportArchive>;
   /** Validate one untrusted save completely without changing the live game or metadata. */
   validateImportArchive(

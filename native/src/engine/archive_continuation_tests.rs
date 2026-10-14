@@ -654,3 +654,126 @@ fn ordered_input_continuation(modern: bool) {
         assert_eq!(fs::read(&archive_path).unwrap(), archive_bytes);
     }
 }
+
+#[test]
+fn archive_v4_roundtrips_selected_heterogeneous_originals_with_all_record_versions() {
+    use crate::engine::export_archive::{
+        compose_export_archive_with_saved_brains, estimate_import_disk_bytes,
+        validate_import_archive,
+    };
+    use crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1;
+    let fixture = Fixture::new();
+    let source = fixture.directory("portable-source");
+    let mut pending = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+        Stage6aP0FreshRunRequest {
+            run_id: "portable-archive".into(),
+            seed: 42,
+            memory_ceiling_bytes: MEMORY_CEILING,
+        },
+        &[FreshRunSettingUpdate {
+            path: "snakeCount".into(),
+            value: 12.0,
+        }],
+        graph(),
+    )
+    .unwrap();
+    let checkpoint = pending.publish_checkpoint(&source, operation(900)).unwrap();
+    let (limits, graphs, policy) =
+        stage6a_p0_archive_validation_contract(MEMORY_CEILING, true).unwrap();
+    let mut selected = Vec::new();
+    for (index, name) in [
+        "portable-brain-v1.slither-brain",
+        "portable-dense-basic8-v1.slither-brain",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let bytes = fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .join(name),
+        )
+        .unwrap();
+        let id = format!("{:x}", Sha256::digest(&bytes));
+        fs::write(source.join(format!("{id}.slither-brain")), &bytes).unwrap();
+        selected.push(SavedBrainArchiveEntryV1 {
+            brain_id: id,
+            name: format!("Retained {index}"),
+            created_at_ms: 1234 + index as u64,
+            artifact_byte_count: format!("{:016x}", bytes.len()),
+        });
+    }
+    selected.sort_by(|a, b| a.brain_id.cmp(&b.brain_id));
+    for version in 1..=3 {
+        let op = operation(910 + u128::from(version));
+        let mut bytes = [0u8; 32];
+        bytes[..13].copy_from_slice(format!("SLITHER-EXPV{version}").as_bytes());
+        let inventory = ExportInventoryDescriptor {
+            version,
+            relative_filename: format!(".{}.export-inventory-v{version}", op.as_str()),
+            sha256: format!("{:x}", Sha256::digest(bytes)),
+            stored_byte_count_hex: format!("{:016x}", bytes.len()),
+            history_count_hex: "0000000000000000".into(),
+            hall_of_fame_count_hex: "0000000000000000".into(),
+        };
+        fs::write(source.join(&inventory.relative_filename), bytes).unwrap();
+        let archive = compose_export_archive_with_saved_brains(
+            &source,
+            op.as_str(),
+            &checkpoint,
+            &inventory,
+            &limits,
+            &graphs,
+            &policy,
+            &selected,
+        )
+        .unwrap();
+        let path = source.join(&archive.relative_filename);
+        let estimate = estimate_import_disk_bytes(&path).unwrap();
+        assert!(estimate.final_managed_bytes >= fs::metadata(&path).unwrap().len() + 8_000_000);
+        let destination = fixture.directory(&format!("portable-import-{version}"));
+        let imported = prepare_import_archive(
+            &path,
+            &destination,
+            &destination,
+            operation(920 + u128::from(version)).as_str(),
+            "unused",
+            1,
+            &limits,
+            &graphs,
+            &policy,
+            MEMORY_CEILING,
+        )
+        .unwrap();
+        assert_eq!(imported.inventory.version, version);
+        assert_eq!(imported.inventory.saved_brains, selected);
+        for brain in &selected {
+            let filename = format!("{}.slither-brain", brain.brain_id);
+            assert_eq!(
+                fs::read(destination.join(&filename)).unwrap(),
+                fs::read(source.join(filename)).unwrap()
+            );
+        }
+        let mut changed = fs::read(&path).unwrap();
+        let label = b"Retained ";
+        let position = changed
+            .windows(label.len())
+            .rposition(|part| part == label)
+            .unwrap();
+        changed[position] = b'D';
+        let corrupt = source.join(format!("corrupt-{version}.slither-save"));
+        fs::write(&corrupt, changed).unwrap();
+        assert!(
+            validate_import_archive(
+                &corrupt,
+                &destination,
+                operation(930 + u128::from(version)).as_str(),
+                &limits,
+                &graphs,
+                &policy
+            )
+            .is_err(),
+            "catalog label must be bound by the archive root"
+        );
+    }
+}

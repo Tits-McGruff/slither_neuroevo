@@ -106,8 +106,8 @@ export class SavedBrainCatalog {
   get hasLeases(): boolean { return this.leases.size !== 0 || this.archiveLeases.size !== 0; }
 
   /** Save only after native admission; exact retries preserve the original durable record. */
-  save(path: string, name: string, operationId: string): SavedBrainRecordV1 {
-    if (typeof path !== 'string' || !path || path.includes('\0') || path.length > 32768 ||
+  save(path: string, name: string, operationId: string, createdAtMs = Date.now()): SavedBrainRecordV1 {
+    if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0 || typeof path !== 'string' || !path || path.includes('\0') || path.length > 32768 ||
         typeof name !== 'string' || !name.trim() || name.includes('\0') || Buffer.byteLength(name.trim()) > 256 ||
         !/^[0-9a-f]{32}$/u.test(operationId)) throw new TypeError('invalid saved brain request');
     const selected = this.codec.inspect(path);
@@ -129,7 +129,7 @@ export class SavedBrainCatalog {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new TypeError('invalid native saved brain publication');
     const publication = raw as Record<string, unknown>;
     const record = parseSavedBrainRecord({ ...publication, brainId: selected.artifactSha256,
-      name: name.trim(), createdAtMs: Date.now() });
+      name: name.trim(), createdAtMs });
     if (JSON.stringify(record.artifact) !== JSON.stringify(selected)) throw new Error('saved brain source changed during publication');
     const extra = (usage.artifacts.has(record.brainId) ? 0n : BigInt(`0x${record.artifactByteCount}`)) +
       (usage.weights.has(record.weights.logicalSha256) ? 0n : BigInt(`0x${record.weights.storedByteCount}`));

@@ -278,6 +278,7 @@
       <div class="row"><label for="brainLibraryFile">Import portable brain</label><input id="brainLibraryFile" type="file" accept=".slither-brain"><button id="brainLibraryImport" class="btn">Import file</button></div>
       <div class="row"><label for="brainCandidateId">Trainer candidate artifact ID</label><input id="brainCandidateId" type="text" maxlength="64" spellcheck="false" autocomplete="off"><button id="brainLibrarySave" class="btn">Save candidate</button></div>
       <div class="brain-library-actions"><button id="brainLibraryRefresh" class="btn">Refresh</button><button id="brainLibraryPrevious" class="btn">Previous</button><button id="brainLibraryNext" class="btn">Next</button></div>
+      <div id="brainLibraryArchiveControls" hidden><p id="brainLibraryArchiveCount" class="meta"></p><div class="brain-library-actions"><button id="brainLibraryArchive" class="btn">Export checkpoint with selected brains</button><button id="brainLibraryClearArchive" class="btn">Clear selection</button></div></div>
       <p id="brainLibraryStatus" class="meta" role="status" aria-live="polite"></p>
       <p id="brainLibraryPending" class="meta" hidden>The last spawn may already have happened. Retry to check it before spawning another. Dismissing this request does not cancel an admitted spawn.</p>
       <div class="brain-library-actions"><button id="brainLibraryRetry" class="btn" hidden>Retry spawn</button><button id="brainLibraryDismiss" class="btn" hidden>Dismiss pending request</button></div>
