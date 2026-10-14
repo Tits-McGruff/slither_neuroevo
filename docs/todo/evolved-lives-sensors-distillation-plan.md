@@ -458,8 +458,15 @@ HoF commands now carry the actual leased entry ID into Rust; a common native
 retained spawn initializes zero recurrence and the pending-first-action sentinel.
 Catalog deletion cannot revoke live values. The origin checkpoint passes all
 713 release library tests with hooks, including immutable-copy and publication
-proof regressions, plus all-target Clippy. Durable catalog/reference GC,
-dead retained-record reuse, archive association and library UI remain open.
+proof regressions, plus all-target Clippy. Its complete JavaScript set passes
+810 cases with 18 existing skips, including the focused built-client recheck.
+Retained spawn now reuses the oldest eligible dead retained owner at full record
+capacity, reserves fresh physical/frame/brain IDs, removes the displaced body
+range and clears old pellet ownership. Cold rollback scratch is admitted before
+mutation; rejection restores body ranges, weights/origin, owners, allocators and
+world RNG. The replacement receives its first real control delivery immediately.
+All 715 release library tests and all-target Clippy pass for the reuse slice.
+Durable catalog/reference GC, archive association and library UI remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
