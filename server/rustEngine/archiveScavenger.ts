@@ -4,7 +4,7 @@ import { join } from 'node:path';
 /** Archive/checkpoint scratch files become startup-cleanup candidates after one day. */
 export const ARCHIVE_ARTIFACT_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Exact private direct-child names produced by bounded checkpoint/archive work. */
-const ARCHIVE_ARTIFACT_NAME = /^(?:checkpoint-v3-[0-9a-f]{32}\.partial|\.[0-9a-f]{32}\.(?:hof-weights\.partial|(?:weights|recurrent|hof-weights)\.codec\.partial|export-hof-weights\.partial|(?:export|import)-inventory-v[123](?:\.partial)?|import-hof-weights\.(?:encoded|raw)\.partial|slither-save\.(?:partial|ready)|upload\.(?:partial|ready)))$/u;
+const ARCHIVE_ARTIFACT_NAME = /^(?:checkpoint-v3-[0-9a-f]{32}\.partial|\.[0-9a-f]{32}\.(?:hof-weights\.partial|(?:brain-upload|saved-brain)\.partial|(?:weights|recurrent|hof-weights)\.codec\.partial|export-hof-weights\.partial|(?:export|import)-inventory-v[123](?:\.partial)?|import-hof-weights\.(?:encoded|raw)\.partial|slither-save\.(?:partial|ready)|upload\.(?:partial|ready)))$/u;
 /** Exact operation-owned directory used before an imported checkpoint is accepted. */
 const IMPORT_VALIDATION_DIRECTORY = /^\.([0-9a-f]{32})\.import-validation$/u;
 /** Immutable-looking objects inside private staging have no managed-root references. */

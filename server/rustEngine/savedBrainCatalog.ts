@@ -109,7 +109,7 @@ export class SavedBrainCatalog {
         !/^[0-9a-f]{32}$/u.test(operationId)) throw new TypeError('invalid saved brain request');
     const selected = this.codec.inspect(path);
     const existing = this.get(selected.artifactSha256);
-    if (existing) { this.verifyObjects(existing); return existing; }
+    if (existing) { this.verifyObjects(existing); this.verifyOriginal(existing); return existing; }
     const count = (this.db.prepare('SELECT COUNT(*) AS count FROM rust_saved_brains_v1').get() as {count: number}).count;
     if (count >= MAX_RECORDS) throw new Error('saved brain record quota exceeded');
     const filesystem = statfsSync(this.root, {bigint: true});
@@ -182,6 +182,7 @@ export class SavedBrainCatalog {
     const record = this.get(brainId);
     if (!record) throw new Error('saved brain does not exist');
     this.verifyObjects(record);
+    this.verifyOriginal(record);
     this.leases.set(operationId, record);
     return record;
   }
@@ -241,6 +242,12 @@ export class SavedBrainCatalog {
     const stats = lstatSync(path, {bigint: true});
     if (dirname(path) !== this.root || stats.isSymbolicLink() || !stats.isFile() || stats.size !== bytes ||
         dirname(realpathSync(path)) !== this.root) throw new Error('saved brain immutable file admission');
+  }
+
+  /** Cold export/deployment/retry admission independently validates the original portable file. */
+  private verifyOriginal(record: SavedBrainRecordV1): void {
+    const original = this.codec.inspect(join(this.root, record.artifactRelativeFilename));
+    if (Object.entries(record.artifact).some(([key, value]) => original[key as keyof BrainArtifactDescriptor] !== value)) throw new Error('saved brain original descriptor mismatch');
   }
 
   /** Reclaim only unreferenced originals; the shared worker GC owns packed weight files. */

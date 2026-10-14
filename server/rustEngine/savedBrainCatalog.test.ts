@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { SavedBrainCatalog, parseSavedBrainRecord, type SavedBrainNativeCodec } from './savedBrainCatalog.ts';
 import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.ts';
@@ -33,7 +33,7 @@ function fixture(quota = 2n * 1024n * 1024n * 1024n): {root: string; db: Databas
   const published: BrainArtifactDescriptor[] = [];
   const allowances: bigint[] = [];
   const codec: SavedBrainNativeCodec = {
-    inspect: path => descriptor(Number(path)),
+    inspect: path => descriptor(path.endsWith('.slither-brain') ? Number(BigInt('0x' + basename(path).split('.')[0]!)) : Number(path)),
     publish(path, directory, _operation, expected, allowance, artifactCounted, weightsCounted) {
       const artifact = descriptor(Number(path));
       allowances.push(BigInt(`0x${allowance}`));

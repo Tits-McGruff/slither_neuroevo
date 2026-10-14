@@ -24,6 +24,7 @@ import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { DistillationSpoolClient } from './rustEngine/distillationSpoolClient.ts';
 import { DistillationCapture } from './rustEngine/distillationCapture.ts';
 import { DistillationHttpRouter } from './rustEngine/distillationHttp.ts';
+import { SavedBrainLibrary } from './rustEngine/savedBrainLibrary.ts';
 import type { BackgroundCommandAdmission } from './rustEngine/commandAdmission.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustSettings, createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
@@ -383,6 +384,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let distillation: DistillationCapture | undefined;
   /** Dedicated transport installed only when its namespace is requested. */
   let distillationHttp: DistillationHttpRouter | undefined;
+  /** Explicit library commands share the current native scope and existing disk owners. */
+  let savedBrains: SavedBrainLibrary | undefined;
   /** The existing shared command owner, available before the HTTP listener starts. */
   let distillationAdmission: BackgroundCommandAdmission | undefined;
   let lastFrame = 0;
@@ -561,7 +564,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         const spool = new DistillationSpoolClient(`${config.dbPath}.distillation`);
         distillation = new DistillationCapture(() => owner.runtime, distillationAdmission, spool,
           () => ({ runId: activeMetadata.runId, seed: activeMetadata.seed }));
-        distillationHttp = new DistillationHttpRouter(spool, distillation);
+        savedBrains = new SavedBrainLibrary(owner.persistence, spool, owner.managedDirectory,
+          () => owner.runtime, distillationAdmission,
+          () => ({expectedRunId: activeMetadata.runId, expectedConfigRevision: activeMetadata.configRevision,
+            expectedWorldEpoch: owner.runtime.health().worldEpoch}),
+          () => !fault && !stopping && !importOperation && !exportOperation && !resurrectionOperation && !pinning && !retentionMaintenance,
+          () => schedule());
+        distillationHttp = new DistillationHttpRouter(spool, distillation, savedBrains);
       }
       distillationHttp.handle(request, response, requestUrl);
       return;
@@ -597,7 +606,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
         return;
       }
-      if (importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
+      if (importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another archive operation is in progress' }));
         return;
@@ -637,7 +646,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (exportOperation || importOperation || resurrectionOperation || pinning || retentionMaintenance) {
+      if (exportOperation || importOperation || resurrectionOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
@@ -734,7 +743,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
         return;
       }
-      if (resurrectionOperation || importOperation || exportOperation || pinning || retentionMaintenance) {
+      if (resurrectionOperation || importOperation || exportOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another authority operation is in progress' }));
         return;
@@ -765,7 +774,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (pinning || importOperation || exportOperation || resurrectionOperation || retentionMaintenance) {
+      if (pinning || importOperation || exportOperation || resurrectionOperation || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
@@ -810,6 +819,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       hub?.closeAll();
       owner.runtime.requestStop();
       await draining?.catch(() => {});
+      await savedBrains?.close().catch(error => { console.error('[saved-brains.shutdown]', error instanceof Error ? error.message : error); });
       try { await owner.close(); }
       finally {
         await distillation?.close().catch(error => { console.error('[distillation.shutdown]', error instanceof Error ? error.message : error); });
@@ -831,6 +841,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       event(event) {
         routing.event(event);
         distillation?.event(event);
+        savedBrains?.event(event);
         if (pendingFinish && pendingFinish.sequence === event.commandSequence &&
             (event.kind === 'finishGenerationAccepted' || event.kind === 'commandRejected')) {
           const pending = pendingFinish;
@@ -995,7 +1006,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         retentionMaintenance = (async () => {
           // SQLite has committed this generation; Rust still holds its durability
           // boundary. Do not scan while another native publisher is live.
-          if (orphanCleanupPending && !importOperation && !exportOperation && !resurrectionOperation && !pinning) {
+          if (orphanCleanupPending && !importOperation && !exportOperation && !resurrectionOperation && !pinning && !savedBrains?.busy) {
             await reclaimFailedPublication();
           }
           return owner.persistence.applyRetention();
@@ -1387,7 +1398,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       settings: Array<{ path: string; value: number }> = replacementSettings(activeMetadata),
       graphSpec = activeMetadata.graphSpec
     ): void => {
-      if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
+      if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         const detail = fault ?? (stopping ? 'server is stopping' : 'another persistence operation is in progress');
         if (newRunMessage) {
           sockets.sendJsonTo(connection, {

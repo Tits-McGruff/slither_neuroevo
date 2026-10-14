@@ -85,6 +85,8 @@ describe('archive startup scavenging', () => {
       `.${operation}.recurrent.codec.partial`,
       `.${operation}.hof-weights.codec.partial`,
       `.${operation}.hof-weights.partial`,
+      `.${operation}.brain-upload.partial`,
+      `.${operation}.saved-brain.partial`,
       `.${operation}.export-hof-weights.partial`,
       `.${operation}.export-inventory-v3`,
       `.${operation}.export-inventory-v3.partial`,
