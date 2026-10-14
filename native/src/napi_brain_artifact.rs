@@ -36,6 +36,11 @@ pub fn validate_brain_artifact_file(path: String) -> Result<String> {
         .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
     let admitted =
         validate_brain_artifact(&bytes).map_err(|error| Error::new(Status::InvalidArg, error))?;
-    serde_json::to_string(&admitted.descriptor())
-        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    let descriptor = serde_json::to_string(&admitted.descriptor())
+        .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+    let candidate = crate::engine::shadows::ShadowCandidate::from_artifact(admitted)
+        .map_err(|error| Error::new(Status::InvalidArg, error))?;
+    crate::engine::shadows::register_candidate(candidate)
+        .map_err(|error| Error::new(Status::InvalidArg, error))?;
+    Ok(descriptor)
 }

@@ -9,6 +9,7 @@ mod napi_brain_artifact;
 mod napi_engine;
 mod napi_queue_diagnostics;
 mod napi_running_engine;
+mod napi_shadows;
 mod napi_teacher_capture;
 mod simd_kernels;
 

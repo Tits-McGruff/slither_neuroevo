@@ -2106,7 +2106,14 @@ mod tests {
         {
             let mut continuations = Vec::new();
             let mut captured_chunks = Vec::new();
-            for (workers, capture) in [(1, false), (3, false), (1, true), (3, true)] {
+            for (workers, capture, shadow) in [
+                (1, false, false),
+                (3, false, false),
+                (1, true, false),
+                (3, true, false),
+                (1, true, true),
+                (3, true, true),
+            ] {
                 let limits = RunningStepWorkLimits {
                     calculation_workers: workers,
                     ..prepared.work_limits
@@ -2169,6 +2176,32 @@ mod tests {
                     );
                     assert!(running.start_teacher_capture(&request).is_err());
                     assert!(running.configure_teacher_capture(&[], 0).is_err());
+                    if shadow {
+                        let candidate = crate::engine::shadows::ShadowCandidate::synthetic(
+                            prepared.graph.compiled(),
+                            contract.sensor_sha256,
+                            0.06,
+                        );
+                        let mut activation = crate::engine::shadows::ShadowActivationRequest {
+                            expected_run_id: prepared.candidate.identity.run_id.clone(),
+                            expected_config_revision: prepared.candidate.identity.config_revision,
+                            capture_epoch: [17; 16],
+                            shadow_slot: 0,
+                            baseline_slot: 0,
+                            candidate,
+                        };
+                        let mut stale = activation.clone();
+                        stale.capture_epoch = [18; 16];
+                        assert!(running.activate_shadow(&stale, 1).is_err());
+                        for slot in 0..4 {
+                            activation.shadow_slot = slot;
+                            running
+                                .activate_shadow(&activation, u64::from(slot) + 1)
+                                .unwrap();
+                        }
+                        activation.shadow_slot = 4;
+                        assert!(running.activate_shadow(&activation, 5).is_err());
+                    }
                 }
                 let mut captured_rows = 0;
                 for step in 1..=16 {
@@ -2199,9 +2232,28 @@ mod tests {
                         }
                     }
                 }
+                if shadow {
+                    for snapshot in running.shadow_snapshots().iter().flatten() {
+                        assert!(snapshot.enabled, "{:?}", snapshot.error);
+                        assert_eq!(snapshot.totals.samples, captured_rows as u64);
+                        assert_eq!(snapshot.completed_step, 16);
+                    }
+                    let before = running.qualification_continuation_sha256();
+                    assert!(running.stop_shadow(0, [17; 16], 99).is_err());
+                    assert!(running.shadow_snapshots()[0].unwrap().enabled);
+                    running.stop_shadow(0, [17; 16], 1).unwrap();
+                    assert!(!running.shadow_snapshots()[0].unwrap().enabled);
+                    assert!(running.shadow_snapshots()[1].unwrap().enabled);
+                    assert_eq!(before, running.qualification_continuation_sha256());
+                }
                 if capture {
                     assert!(captured_rows > 0);
                     running.stop_teacher_capture().unwrap();
+                    assert!(running
+                        .shadow_snapshots()
+                        .iter()
+                        .flatten()
+                        .all(|snapshot| !snapshot.enabled));
                     let status = running.teacher_capture_status().unwrap();
                     assert!(status.2 && status.3.is_none());
                     let drained = running.drain_teacher_chunks(4, 65536).unwrap().unwrap();
@@ -2216,8 +2268,10 @@ mod tests {
                 continuations.push(running.qualification_continuation_sha256());
             }
             assert!(continuations.iter().all(|value| value == &continuations[0]));
-            assert_eq!(captured_chunks.len(), 2);
-            assert_eq!(captured_chunks[0], captured_chunks[1]);
+            assert_eq!(captured_chunks.len(), 4);
+            assert!(captured_chunks
+                .iter()
+                .all(|bytes| bytes == &captured_chunks[0]));
 
             // Exercise the actual background owner with no teacher consumer and
             // no controller/generation acknowledgements during normal stepping.
@@ -2310,13 +2364,54 @@ mod tests {
                 assert!(runtime.health().fault.is_none());
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
+            let activation = crate::engine::shadows::ShadowActivationRequest {
+                expected_run_id: prepared.candidate.identity.run_id.clone(),
+                expected_config_revision: prepared.candidate.identity.config_revision,
+                capture_epoch: [19; 16],
+                shadow_slot: 0,
+                baseline_slot: 0,
+                candidate: crate::engine::shadows::ShadowCandidate::synthetic(
+                    prepared.graph.compiled(),
+                    SensorContractIdentity::new(SensorProfile::Motion, 8)
+                        .unwrap()
+                        .sha256()
+                        .unwrap(),
+                    0.06,
+                ),
+            };
+            runtime
+                .try_submit(crate::engine::contract::CommandBatch {
+                    contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
+                    commands: vec![crate::engine::contract::SequencedCommand {
+                        sequence: 2,
+                        command: crate::engine::contract::EngineCommand::RunningAuthority(
+                            crate::engine::contract::RunningAuthorityCommand::ActivateShadow(
+                                Box::new(activation),
+                            ),
+                        ),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while runtime.shadow_snapshots().unwrap()[0]
+                .is_none_or(|snapshot| snapshot.totals.samples == 0)
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "shadow command/mailbox made no progress: {:?}",
+                    runtime.health()
+                );
+                assert!(runtime.health().fault.is_none());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
             // Retain a real generation barrier without persistence acknowledgement;
             // diagnostic wake/drain must still make progress and cannot publish it.
             runtime
                 .try_submit(crate::engine::contract::CommandBatch {
                     contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
                     commands: vec![crate::engine::contract::SequencedCommand {
-                        sequence: 2,
+                        sequence: 3,
                         command: crate::engine::contract::EngineCommand::RunningAuthority(
                             crate::engine::contract::RunningAuthorityCommand::FinishGeneration {
                                 request_id: "capture-retained-barrier".into(),
@@ -2362,7 +2457,7 @@ mod tests {
                 decoded.contract.teacher_sha256,
                 teacher.contract.as_ref().unwrap().teacher_sha256
             );
-            assert_eq!(runtime.health().processed_commands, 2);
+            assert_eq!(runtime.health().processed_commands, 3);
             let mut blocked_chunks = 0;
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
             while blocked_chunks == 0 {

@@ -14,6 +14,7 @@ pub const TEACHER_METADATA_HEADROOM: usize = 2 * 65_536;
 
 #[derive(Debug, Default)]
 struct MailboxState {
+    shadows: [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS],
     contract: Option<TeacherContractV1>,
     sensor_contract_json: Option<String>,
     chunks: VecDeque<OwnedTeacherChunk>,
@@ -47,6 +48,7 @@ impl TeacherMailbox {
             Err(TryLockError::WouldBlock) => return,
             Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
         };
+        state.shadows = running.shadow_snapshots();
         let Some((contract, snapshot, stopped, error)) = running.teacher_capture_status() else {
             return;
         };
@@ -76,6 +78,18 @@ impl TeacherMailbox {
                 Err(error) => state.error = Some(error),
             }
         }
+    }
+
+    /// Copy four fixed summaries without accessing authority or consuming teacher chunks.
+    pub fn shadow_snapshots(
+        &self,
+    ) -> Result<[Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS], &'static str>
+    {
+        Ok(self
+            .state
+            .lock()
+            .map_err(|_| "shadow mailbox poisoned")?
+            .shadows)
     }
 
     /// Move only whole objects within the caller's independent count/ownership bounds.

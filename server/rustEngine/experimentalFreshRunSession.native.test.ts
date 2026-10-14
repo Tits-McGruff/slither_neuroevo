@@ -886,6 +886,17 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         expectedConfigRevision: '0000000000000001', baselineSlots: [0, 0],
         pendingBytes: 1024 * 1024, queueChunks: 4, queueBytes: 16 * 1024 * 1024
       })).toThrow(/invalid teacher/i);
+      expect(JSON.parse(runtime.getShadowMetrics())).toEqual({ schemaVersion: 1, slots: [null, null, null, null] });
+      expect(() => runtime.submitActivateShadow('0000000000000001', {
+        expectedRunId: startup.runId, expectedConfigRevision: '0000000000000001', captureEpoch: '12'.repeat(16),
+        shadowSlot: 4, baselineSlot: 0, artifactSha256: '47'.repeat(32)
+      })).toThrow(/unavailable|slot/i);
+      expect(() => runtime.submitStopShadow('0000000000000001', {
+        shadowSlot: 0, captureEpoch: '00'.repeat(16), activationSequence: '0000000000000001'
+      })).toThrow(/zero/i);
+      expect(() => runtime.submitStopShadow('0000000000000001', {
+        shadowSlot: 0, captureEpoch: '12'.repeat(16), activationSequence: '0000000000000000'
+      })).toThrow(/zero|positive/i);
       expect(runtime.health().processedCommands).toBe('0000000000000000');
       runtime.start();
       expect(() => runtime.start()).toThrow(/cannot start/i);

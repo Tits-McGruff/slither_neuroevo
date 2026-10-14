@@ -521,6 +521,17 @@ export interface RustBackgroundEvent {
   };
   /** Aggregate visualization subscription state confirmed by Rust. */
   visualizationEnabled?: boolean;
+  /** Explicit immutable shadow activation/stop at a completed boundary. */
+  shadowChange?: {
+    /** Independent diagnostic slot from zero through three. */
+    shadowSlot: number;
+    /** Complete candidate digest validated by Rust. */
+    artifactSha256: string;
+    /** Whether this diagnostic slot will consume teacher rows. */
+    enabled: boolean;
+    /** Completed authoritative boundary at activation or stop. */
+    effectiveStep: RustBackgroundIdentity;
+  };
   /** Exact capture epoch for a successful ordered arm/stop receipt. */
   teacherCaptureEpoch?: string;
   /** Whether the matching diagnostic epoch is accepting committed samples. */

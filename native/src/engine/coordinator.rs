@@ -1104,6 +1104,20 @@ fn execute_running_authority_command(
                 enabled,
             })
         }
+        RunningAuthorityCommand::ActivateShadow(request) => {
+            let identity = request.candidate.artifact_sha256;
+            let slot = request.shadow_slot;
+            running.activate_shadow(&request, command_sequence)
+                .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                .map(|()| RunningAuthorityEvent::ShadowChanged { command_sequence, shadow_slot: slot, artifact_sha256: identity,
+                    enabled: true, effective_step: running.completed_step() })
+        }
+        RunningAuthorityCommand::StopShadow { shadow_slot, capture_epoch, activation_sequence } => {
+            let identity = running.shadow_snapshots().get(shadow_slot as usize).and_then(|snapshot| *snapshot).map_or([0;32], |snapshot| snapshot.artifact_sha256);
+            running.stop_shadow(shadow_slot, capture_epoch, activation_sequence).map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                .map(|()| RunningAuthorityEvent::ShadowChanged { command_sequence, shadow_slot, artifact_sha256: identity,
+                    enabled: false, effective_step: running.completed_step() })
+        }
         RunningAuthorityCommand::StartTeacherCapture(request) => running.start_teacher_capture(&request)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|contract| RunningAuthorityEvent::TeacherCaptureChanged {
@@ -1331,6 +1345,9 @@ fn running_response_owned_byte_bound(
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
         RunningAuthorityCommand::SetVisualization { .. } => 0,
+        RunningAuthorityCommand::ActivateShadow(_) | RunningAuthorityCommand::StopShadow { .. } => {
+            0
+        }
         RunningAuthorityCommand::StartTeacherCapture(_)
         | RunningAuthorityCommand::StopTeacherCapture { .. } => 0,
         RunningAuthorityCommand::ResurrectHallOfFame { .. } => 0,

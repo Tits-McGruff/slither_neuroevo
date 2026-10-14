@@ -1428,6 +1428,42 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Activate one cold-validated immutable shadow through the ordinary ordered command queue.
+    #[napi(catch_unwind)]
+    pub fn submit_activate_shadow(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ActivateShadow(Box::new(
+                crate::napi_shadows::parse_activation(&request)?,
+            )),
+        )
+    }
+
+    /// Disable only the identified activation at a clean authoritative boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_stop_shadow(&self, sequence: JsString<'_>, request: Object<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            crate::napi_shadows::parse_stop(&request)?,
+        )
+    }
+
+    /// Read bounded published diagnostic summaries without world locks or teacher drains.
+    #[napi(catch_unwind)]
+    pub fn get_shadow_metrics(&self) -> Result<String> {
+        self.root(|| {
+            crate::napi_shadows::metrics_json(
+                self.runtime
+                    .shadow_snapshots()
+                    .map_err(engine_error_to_napi)?,
+            )
+        })
+    }
+
     /// Queue cold admission of automatic exact teacher rows and a separate bounded queue.
     #[napi(catch_unwind)]
     pub fn submit_start_teacher_capture(

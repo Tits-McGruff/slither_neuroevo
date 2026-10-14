@@ -137,6 +137,8 @@ pub mod sensor_rays;
 pub mod sensors;
 /// Complete Basic/Motion candidate observations for native qualification.
 pub mod sensors_v4;
+/// Isolated native shadow inference and bounded committed-sample metrics.
+pub mod shadows;
 /// Complete derived body-segment and pellet spatial indexes.
 pub mod spatial;
 /// Deterministic collision-safe initial-body placement with bounded fallback.
