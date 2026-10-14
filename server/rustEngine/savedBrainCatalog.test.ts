@@ -147,3 +147,43 @@ it('protects the complete retained graph and provenance metadata against silent 
   expect(() => catalog.get(record.brainId)).toThrow(/metadata digest/);
   expect(() => catalog.referencedOriginals()).toThrow(/metadata digest/);
 });
+
+it('pins a full explicit archive selection in one bounded metadata lease and charges deleted objects', () => {
+  const {catalog, db, root, published} = fixture(10004n);
+  const ids = Array.from({length: 100}, (_, index) => descriptor(index + 1).artifactSha256);
+  db.transaction(() => { for (let id = 1; id <= 100; id++) catalog.save(String(id), `archive brain ${id}`, id.toString(16).padStart(32, '0')); })();
+  const leaseId = 'aa'.repeat(16);
+  const entries = catalog.acquireArchive(ids, leaseId);
+  expect(entries).toHaveLength(100);
+  expect(parseSavedBrainResult({action: 'acquireArchive', entries})).toEqual({action: 'acquireArchive', entries});
+  expect(entries[0]).not.toHaveProperty('graphManifest');
+  expect(entries[0]!.artifact).not.toHaveProperty('architectureKey');
+  expect(catalog.acquireArchive(ids, leaseId)).toBe(entries);
+  expect(() => catalog.acquireArchive(ids.slice(1), leaseId)).toThrow(/identity conflict/);
+  expect(() => catalog.acquireArchive(ids, 'bb'.repeat(16))).toThrow(/quota/);
+  expect(() => catalog.acquire(ids[0]!, leaseId)).toThrow(/identity conflict/);
+  db.transaction(() => { for (const id of ids) expect(catalog.delete(id)).toBe(true); })();
+  expect(catalog.hasLeases).toBe(true);
+  expect(existsSync(join(root, entries[99]!.artifactRelativeFilename))).toBe(true);
+  expect(() => catalog.save('101', 'over stored quota', 'cc'.repeat(16))).toThrow(/allowance/);
+  expect(published).toHaveLength(100);
+  catalog.release(leaseId);
+  expect(catalog.hasLeases).toBe(false);
+  expect(existsSync(join(root, entries[99]!.artifactRelativeFilename))).toBe(false);
+  expect(catalog.save('101', 'after release', 'dd'.repeat(16)).brainId).toBe(descriptor(101).artifactSha256);
+});
+
+it('rejects malformed or partially unavailable archive selections without retaining a partial lease', () => {
+  const {catalog} = fixture(); const first = catalog.save('1', 'first', '11'.repeat(16));
+  expect(() => catalog.acquireArchive([first.brainId, descriptor(2).artifactSha256], 'aa'.repeat(16))).toThrow(/not found/);
+  expect(catalog.hasLeases).toBe(false);
+  for (const ids of [[], [first.brainId, first.brainId], [descriptor(2).artifactSha256, first.brainId], Array(101).fill(first.brainId)]) {
+    expect(() => parseSavedBrainOperation({action: 'acquireArchive', brainIds: ids, leaseId: 'aa'.repeat(16)})).toThrow(/archive selection/);
+    expect(() => catalog.acquireArchive(ids, 'aa'.repeat(16))).toThrow(/archive selection/);
+  }
+  const request = {action: 'acquireArchive', brainIds: [first.brainId], leaseId: 'aa'.repeat(16)};
+  expect(parseSavedBrainOperation(request)).toEqual(request);
+  expect(parseSavedBrainResult({action: 'acquireArchive', entries: catalog.acquireArchive(request.brainIds, request.leaseId)})).toMatchObject({action: 'acquireArchive', entries: [{brainId: first.brainId}]});
+  expect(() => parseSavedBrainResult({action: 'acquireArchive', entries: []})).toThrow();
+  catalog.release(request.leaseId);
+});

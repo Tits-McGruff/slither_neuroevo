@@ -823,6 +823,7 @@ export type SavedBrainCatalogOperation =
   | {action: 'list'; after: string | null; limit: number}
   | {action: 'delete'; brainId: string}
   | {action: 'acquire'; brainId: string; leaseId: string}
+  | {action: 'acquireArchive'; brainIds: string[]; leaseId: string}
   | {action: 'release'; leaseId: string};
 
 /** Correlated small metadata or one complete cold record, never parameter buffers. */
@@ -830,6 +831,7 @@ export type SavedBrainCatalogResult =
   | {action: 'save' | 'acquire'; record: SavedBrainRecordV1}
   | {action: 'read'; record: SavedBrainRecordV1 | null}
   | {action: 'list'; page: SavedBrainPageV1}
+  | {action: 'acquireArchive'; entries: SavedBrainSummaryV1[]}
   | {action: 'delete'; brainId: string; deleted: boolean}
   | {action: 'release'; leaseId: string};
 
