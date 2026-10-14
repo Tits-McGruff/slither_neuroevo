@@ -1439,6 +1439,7 @@ impl ControlCommitWorkspace {
 /// Reusable owner of shared sensing and exclusive control-source staging.
 #[derive(Debug)]
 pub struct ControlPhaseWorkspace {
+    inspector: Option<Box<super::inspector::InspectorCapture>>,
     neural: NeuralControlPipeline,
     baseline: BaselineControlWorkspace,
     baseline_v2_policy: Option<super::baseline_v2::BaselineV2Policy>,
@@ -1478,6 +1479,66 @@ pub struct ControlPhaseWorkspace {
 }
 
 impl ControlPhaseWorkspace {
+    /// Cold diagnostic subscription; failed admission preserves the previous target and sample.
+    pub fn configure_inspector(
+        &mut self,
+        target: Option<super::inspector::InspectorTarget>,
+        budget_bytes: usize,
+    ) -> Result<(), ControlPhaseError> {
+        let replacement = target
+            .map(|target| {
+                super::inspector::InspectorCapture::new(target, budget_bytes).map(Box::new)
+            })
+            .transpose()
+            .map_err(|_| ControlPhaseError::InvalidConfig {
+                field: "inspector diagnostic admission",
+            })?;
+        self.inspector = replacement;
+        Ok(())
+    }
+
+    /// Charge the admitted neural envelope plus both old/new cache owners during cold replacement.
+    pub(crate) fn inspector_staging_requirement(
+        &self,
+        max_work: usize,
+        workers: usize,
+    ) -> Result<usize, ControlPhaseError> {
+        let neural = NeuralControlPipeline::required_staging_bytes(
+            max_work,
+            self.neural.inference(),
+            workers,
+        )?
+        .max(self.neural.allocated_staging_bytes());
+        neural
+            .checked_add(
+                std::mem::size_of::<super::inspector::InspectorCapture>()
+                    * (1 + usize::from(self.inspector.is_some())),
+            )
+            .ok_or(ControlPhaseError::ArithmeticOverflow {
+                context: "inspector staging bytes",
+            })
+    }
+
+    pub(crate) fn inspector(&self) -> Option<&super::inspector::InspectorCapture> {
+        self.inspector.as_deref()
+    }
+
+    pub(crate) fn publish_inspector(
+        &mut self,
+        key: PhysicsStepKey,
+        accepted: impl FnOnce(u64, u64, u64) -> bool,
+    ) {
+        if let Some(capture) = &mut self.inspector {
+            capture.publish(key, accepted);
+        }
+    }
+
+    pub(crate) fn discard_inspector_pending(&mut self) {
+        if let Some(capture) = &mut self.inspector {
+            capture.discard_pending();
+        }
+    }
+
     /// Reborrow only the exact still-retained successful control proposal.
     pub(crate) fn teacher_boundary(
         &self,
@@ -1522,6 +1583,7 @@ impl ControlPhaseWorkspace {
             })?;
         visualization_values.resize(visualization_plan.len(), 0.0);
         Ok(Self {
+            inspector: None,
             neural,
             baseline: BaselineControlWorkspace::new(),
             baseline_v2_policy: None,
@@ -1889,8 +1951,26 @@ impl ControlPhaseWorkspace {
                 )?;
                 event.delivery = sample.delivery;
                 event.diagnostics = sample.diagnostics;
+                if let Some(capture) = &mut self.inspector {
+                    capture.stage(
+                        inputs.prefix.key(),
+                        &world.snakes[event.snake_index],
+                        super::inspector::InspectorObservationSource::External {
+                            lease_id: event.lease_id,
+                            connection_id: event.connection_id,
+                        },
+                        super::inspector::InspectorLayout::from(self.neural.sensor().layout()),
+                        &self.external_observations[event.observation_start..end],
+                        None,
+                        None,
+                        sample.diagnostics,
+                    );
+                }
             }
             self.reset_brains.sort_unstable();
+            let inspector_layout =
+                super::inspector::InspectorLayout::from(self.neural.sensor().layout());
+            let neural_input_size = self.neural.sensor().layout().input_size;
             let neural_output_size = self.neural.inference().output_size();
             let neural_started = Instant::now();
             let batch = self.neural.prepare_and_evaluate(
@@ -1937,6 +2017,22 @@ impl ControlPhaseWorkspace {
                 }
                 update.turn = turn;
                 update.boost = boost;
+                if let Some(capture) = &mut self.inspector {
+                    let width = neural_input_size;
+                    capture.stage(
+                        inputs.prefix.key(),
+                        &world.snakes[unit.snake_index()],
+                        super::inspector::InspectorObservationSource::Neural,
+                        inspector_layout,
+                        &batch.observations()[ordinal * width..(ordinal + 1) * width],
+                        Some([
+                            batch.outputs()[output_offset],
+                            batch.outputs()[output_offset + 1],
+                        ]),
+                        None,
+                        batch.diagnostics()[ordinal],
+                    );
+                }
             }
             let focused = batch.work().first().copied();
             let _ = batch;
@@ -2026,6 +2122,20 @@ impl ControlPhaseWorkspace {
         let next_slot = evaluation.next_slot();
         let next_strategy = evaluation.next_strategy();
         let diagnostics = evaluation.diagnostics();
+        if let Some(capture) = &mut self.inspector {
+            capture.stage(
+                inputs.prefix.key(),
+                snake,
+                super::inspector::InspectorObservationSource::BaselineV1,
+                super::inspector::InspectorLayout::from(
+                    self.neural.sensor().legacy_evaluator().layout(),
+                ),
+                &self.baseline_observation,
+                None,
+                None,
+                sample.diagnostics,
+            );
+        }
         let result_index = self.baseline_control_count;
         reserve_for(
             &mut self.baseline_rng_gaussian_spares,
@@ -2215,6 +2325,18 @@ impl ControlPhaseWorkspace {
             .map_err(|_| ControlPhaseError::InvalidConfig {
                 field: "v2 policy evaluation",
             })?;
+        if let Some(capture) = &mut self.inspector {
+            capture.stage(
+                inputs.prefix.key(),
+                snake,
+                super::inspector::InspectorObservationSource::BaselineV2,
+                super::inspector::InspectorLayout::from(self.neural.sensor().layout()),
+                &self.baseline_observation,
+                None,
+                Some(action),
+                sample.diagnostics,
+            );
+        }
         let mut next_slot = *source_slot;
         self.teacher
             .stage(
@@ -2588,6 +2710,7 @@ impl ControlPhaseWorkspace {
     }
 
     fn clear_active(&mut self) {
+        self.discard_inspector_pending();
         self.ready = false;
         self.teacher.clear();
         self.teacher_key = None;
@@ -3854,6 +3977,23 @@ mod tests {
                 fixture.lifecycle.slots[0].v2_policy = Some(BaselineV2State::default());
                 fixture.lifecycle.slots[0].wander_timer_seconds = 0.0;
                 let baseline_id = fixture.lifecycle.slots[0].snake_id;
+                let baseline = fixture
+                    .world
+                    .snakes
+                    .iter()
+                    .find(|snake| snake.id == baseline_id)
+                    .unwrap();
+                selection
+                    .configure_inspector(
+                        Some(crate::engine::inspector::InspectorTarget {
+                            world_epoch: 7,
+                            generation: 3,
+                            physical_id: baseline_id,
+                            frame_v1_id: baseline.frame_v1_id,
+                        }),
+                        crate::engine::inspector::MAX_INSPECTOR_BYTES,
+                    )
+                    .unwrap();
                 let config = ControlPhaseConfig {
                     baseline_v2: Some(BaselineV2Settings {
                         mode,
@@ -4001,6 +4141,25 @@ mod tests {
                     let lifecycle = committed.baseline_lifecycle().clone();
                     let brains = committed.brains().to_vec();
                     let _ = committed;
+                    // This layer acknowledges a successful outer publication; real-step tests cover the barrier.
+                    selection.publish_inspector(step_key, |_, _, _| false);
+                    let observed = selection
+                        .inspector()
+                        .unwrap()
+                        .latest(7, 3, 41 + ordinal)
+                        .unwrap();
+                    assert_eq!(
+                        observed.source,
+                        crate::engine::inspector::InspectorObservationSource::BaselineV2
+                    );
+                    assert_eq!(observed.layout.profile, profile);
+                    assert!(observed.baseline_action.is_some());
+                    if due {
+                        assert_eq!(observed.normalized_inputs(), expected_row);
+                        assert_eq!(observed.age_steps(41 + ordinal), Some(0));
+                    } else {
+                        assert!(observed.age_steps(41 + ordinal).unwrap() > 0);
+                    }
                     let proof = commits.baseline_v2_proof().unwrap();
                     assert!(proof.matches(step_key, &rng, &lifecycle));
                     let mut stale_rng = rng.clone();
@@ -4045,6 +4204,23 @@ mod tests {
                         fixture.world.controller_leases.reverse();
                         fixture.brains.reverse();
                     }
+                    let baseline = fixture
+                        .world
+                        .snakes
+                        .iter()
+                        .find(|snake| snake.kind == SnakeKind::Baseline)
+                        .unwrap();
+                    selection
+                        .configure_inspector(
+                            Some(crate::engine::inspector::InspectorTarget {
+                                world_epoch: key(81).world_epoch(),
+                                generation: key(81).generation(),
+                                physical_id: baseline.id,
+                                frame_v1_id: baseline.frame_v1_id,
+                            }),
+                            crate::engine::inspector::MAX_INSPECTOR_BYTES,
+                        )
+                        .unwrap();
                     let source_world = fixture.world.clone();
                     let source_rng = fixture.rng.clone();
                     let source_brains = fixture.brains.clone();
@@ -4170,6 +4346,24 @@ mod tests {
                         assert_eq!(fixture.world, source_world);
                         assert_eq!(fixture.rng, source_rng);
                         assert_eq!(fixture.brains, source_brains);
+                        let _ = step;
+                        selection.publish_inspector(key(81), |_, _, _| false);
+                        let observed = selection
+                            .inspector()
+                            .unwrap()
+                            .latest(
+                                key(81).world_epoch(),
+                                key(81).generation(),
+                                key(81).source_completed_step() + 1,
+                            )
+                            .unwrap();
+                        assert_eq!(
+                            observed.source,
+                            crate::engine::inspector::InspectorObservationSource::BaselineV1
+                        );
+                        assert_eq!(observed.layout.profile, SensorProfile::V3);
+                        assert_eq!(observed.normalized_inputs().len(), 19 + 4 * bins);
+                        assert!(observed.baseline_action.is_none());
                     }
                 }
             }

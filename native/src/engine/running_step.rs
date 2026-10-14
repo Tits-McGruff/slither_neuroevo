@@ -740,6 +740,77 @@ impl RunningStepCoordinator {
         self.control.visualization()
     }
 
+    /// Reserve one opt-in diagnostic cache within the existing worker scratch admission.
+    pub fn configure_inspector(
+        &mut self,
+        authority: &AuthoritativeState,
+        target: Option<super::inspector::InspectorTarget>,
+        budget_bytes: usize,
+    ) -> Result<(), RunningStepError> {
+        self.validate_authority(authority)?;
+        if self.pending_key.is_some() || self.pending_generation.is_some() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "inspector requires a clean boundary",
+            }
+            .into());
+        }
+        if let Some(target) = target {
+            let state = authority.state();
+            if target.world_epoch != authority.world_epoch()
+                || target.generation != state.generation.generation
+                || !state.world.snakes.iter().any(|snake| {
+                    snake.alive
+                        && snake.id == target.physical_id
+                        && snake.frame_v1_id == target.frame_v1_id
+                })
+                || self.control.inspector_staging_requirement(
+                    state.config.max_world_snakes,
+                    self.work_limits.calculation_workers,
+                )? > state.config.worker_scratch_bytes
+            {
+                return Err(ControlPhaseError::InvalidConfig {
+                    field: "inspector target or worker scratch admission",
+                }
+                .into());
+            }
+        }
+        self.control.configure_inspector(target, budget_bytes)?;
+        Ok(())
+    }
+
+    /// Borrow only the last completely published observation; pending delivery is never visible.
+    pub fn inspector_observation(
+        &self,
+        authority: &AuthoritativeState,
+    ) -> Option<&super::inspector::InspectorObservation> {
+        self.control.inspector()?.latest(
+            authority.world_epoch(),
+            authority.state().generation.generation,
+            authority.state().generation.completed_step,
+        )
+    }
+
+    fn publish_inspector(&mut self, key: PhysicsStepKey, published: bool) {
+        if !published {
+            self.control.discard_inspector_pending();
+            return;
+        }
+        let observations = &self.pending_observations;
+        let statuses = &self.pending_observation_statuses;
+        self.control
+            .publish_inspector(key, |physical_id, lease_id, connection_id| {
+                observations
+                    .iter()
+                    .zip(statuses)
+                    .any(|(observation, status)| {
+                        *status == ExternalDeliveryStatus::Accepted
+                            && observation.snake_id() == physical_id
+                            && observation.lease_id() == lease_id
+                            && observation.connection_id() == connection_id
+                    })
+            });
+    }
+
     /// Cold pending-row admission; no controller/world/RNG mutation or transport activation.
     pub fn configure_teacher_capture(
         &mut self,
@@ -2500,6 +2571,7 @@ impl RunningStepCoordinator {
                     .with_baseline_v2(v2_proof),
             })?)
         })();
+        self.publish_inspector(key, publication.is_ok());
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
@@ -2591,6 +2663,7 @@ impl RunningStepCoordinator {
         if publication.is_ok() {
             self.last_teacher_publication_key = Some(key);
         }
+        self.publish_inspector(key, publication.is_ok());
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
@@ -2602,6 +2675,7 @@ impl RunningStepCoordinator {
     }
 
     fn discard_staged(&mut self) {
+        self.control.discard_inspector_pending();
         self.last_teacher_publication_key = None;
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();

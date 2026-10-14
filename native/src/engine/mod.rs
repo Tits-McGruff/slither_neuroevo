@@ -96,6 +96,8 @@ pub mod inference;
 /// Deterministic Stage 4 whole-population inference evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod inference_fixture;
+/// One selected actual-delivery diagnostic cache, isolated from authoritative state.
+pub mod inspector;
 /// Bounded immutable origin of a population imported from an older representation.
 pub mod legacy_origin;
 /// Atomic runtime-setting replacement at a clean authoritative boundary.

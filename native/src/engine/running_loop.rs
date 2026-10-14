@@ -456,6 +456,40 @@ impl RunningAuthorityLoop {
             let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
         }
     }
+    /// Select one validated physical life without changing observation/RNG/quota ownership.
+    pub fn configure_inspector(
+        &mut self,
+        expected_run_id: &str,
+        selection: Option<(super::state::EntitySelectionToken, u32)>,
+        budget_bytes: usize,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready
+            || self.authority.state().identity.run_id != expected_run_id
+        {
+            return Err("inspector requires the current run at a clean running boundary".into());
+        }
+        let target = selection
+            .map(|(token, frame_v1_id)| {
+                self.authority
+                    .validate_entity_selection(token, frame_v1_id)?;
+                Ok::<_, String>(super::inspector::InspectorTarget {
+                    world_epoch: token.world_epoch(),
+                    generation: self.generation(),
+                    physical_id: token.physical_id(),
+                    frame_v1_id,
+                })
+            })
+            .transpose()?;
+        self.coordinator
+            .configure_inspector(&self.authority, target, budget_bytes)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Exact last delivered row, including held-control age; no sensing or neural evaluation occurs.
+    pub fn inspector_observation(&self) -> Option<&super::inspector::InspectorObservation> {
+        self.coordinator.inspector_observation(&self.authority)
+    }
+
     /// Admit optional exact-row retention only at a clean running boundary.
     pub fn configure_teacher_capture(
         &mut self,

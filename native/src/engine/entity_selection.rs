@@ -18,6 +18,14 @@ pub struct EntitySelectionToken {
 }
 
 impl EntitySelectionToken {
+    /// Read only after native selection validation; diagnostics never reinterpret a visible frame ID.
+    pub(crate) const fn physical_id(self) -> u64 {
+        self.physical_id
+    }
+    pub(crate) const fn world_epoch(self) -> u64 {
+        self.world_epoch
+    }
+
     /// Encode a fixed-size canonical token without narrowing any identity.
     #[must_use]
     pub fn encode(self) -> String {

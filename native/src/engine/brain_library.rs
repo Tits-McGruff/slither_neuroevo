@@ -434,6 +434,109 @@ mod tests {
     }
 
     #[test]
+    fn inspector_runtime_caches_due_rows_holds_their_age_and_stops_on_close() {
+        use super::super::inspector::{InspectorObservationSource, MAX_INSPECTOR_BYTES};
+        use super::super::scheduler::SchedulerServiceMode;
+        use super::super::sensor_contract::SensorProfile;
+        use super::super::state::EntitySelectionTarget;
+        for (profile, bins) in [
+            (SensorProfile::Basic, 8),
+            (SensorProfile::Basic, 20),
+            (SensorProfile::Motion, 8),
+            (SensorProfile::Motion, 32),
+        ] {
+            let width = super::super::sensor_contract::SensorContractIdentity::new(profile, bins)
+                .unwrap()
+                .input_size();
+            let artifact = validate_brain_artifact(&fs::read(source()).unwrap()).unwrap();
+            let mut graph = artifact.graph.spec().clone();
+            for node in &mut graph.nodes {
+                match &mut node.kind {
+                    super::super::graph::GraphNodeKind::Input { output_size } => {
+                        *output_size = width
+                    }
+                    super::super::graph::GraphNodeKind::Gru { input_size, .. } => {
+                        *input_size = width
+                    }
+                    _ => {}
+                }
+            }
+            let mut inspected = admitted_graph_loop(0.06, profile, bins, graph.clone());
+            let mut reference = admitted_graph_loop(0.06, profile, bins, graph);
+            let selected = inspected
+                .select_entity(
+                    EntitySelectionTarget::PopulationSlot(0),
+                    "saved-brain-live-test",
+                    1,
+                )
+                .unwrap()
+                .unwrap();
+            inspected
+                .configure_inspector(
+                    "saved-brain-live-test",
+                    Some((selected.token, selected.frame_v1_id)),
+                    MAX_INSPECTOR_BYTES,
+                )
+                .unwrap();
+            assert!(inspected.inspector_observation().is_none());
+            for running in [&mut inspected, &mut reference] {
+                running
+                    .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                    .unwrap();
+            }
+            let sample = *inspected.inspector_observation().unwrap();
+            assert_eq!(sample.source, InspectorObservationSource::Neural);
+            assert_eq!(sample.layout.profile, profile);
+            assert_eq!(sample.layout.bins, bins);
+            assert_eq!(sample.normalized_inputs().len(), width);
+            assert_eq!(sample.sample_step(), Some(1));
+            assert!(sample.raw.first_delivery && sample.neural_outputs.is_some());
+            assert!(inspected
+                .configure_inspector(
+                    "saved-brain-live-test",
+                    Some((selected.token, selected.frame_v1_id)),
+                    0
+                )
+                .is_err());
+            assert_eq!(
+                inspected.inspector_observation().unwrap().sample_step(),
+                Some(1)
+            );
+            for running in [&mut inspected, &mut reference] {
+                running
+                    .service_after_command_drain(34, SchedulerServiceMode::Background, None)
+                    .unwrap();
+            }
+            assert_eq!(inspected.completed_step(), 2);
+            let held = inspected.inspector_observation().unwrap();
+            assert_eq!(held.sample_step(), sample.sample_step());
+            assert_eq!(held.normalized_inputs(), sample.normalized_inputs());
+            assert_eq!(held.age_steps(inspected.completed_step()), Some(1));
+            assert_eq!(held.raw, sample.raw);
+            inspected
+                .configure_inspector("saved-brain-live-test", None, 0)
+                .unwrap();
+            for wall in [51, 68, 85, 102] {
+                for running in [&mut inspected, &mut reference] {
+                    running
+                        .service_after_command_drain(wall, SchedulerServiceMode::Background, None)
+                        .unwrap();
+                }
+            }
+            assert!(inspected.inspector_observation().is_none());
+            assert_eq!(inspected.completed_step(), reference.completed_step());
+            let mut actual = Vec::with_capacity(inspected.admitted_frame_bytes());
+            let mut expected = Vec::with_capacity(reference.admitted_frame_bytes());
+            inspected.pack_display_into(1, &mut actual).unwrap();
+            reference.pack_display_into(1, &mut expected).unwrap();
+            assert_eq!(
+                actual, expected,
+                "inspection must preserve native continuation for {profile:?} B{bins}"
+            );
+        }
+    }
+
+    #[test]
     fn saved_deployment_is_native_and_continues_after_its_catalog_files_are_deleted() {
         use super::super::sensor_contract::SensorProfile;
         let directory = TestDirectory::new();

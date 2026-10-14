@@ -6638,6 +6638,190 @@ mod tests {
     }
 
     #[test]
+    fn inspector_cache_is_publication_gated_bounded_and_keeps_last_delivered_age() {
+        use super::super::inspector::*;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let unchanged = source.clone();
+        let snake = source
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.alive)
+            .unwrap();
+        let target = InspectorTarget {
+            world_epoch: 1,
+            generation: 1,
+            physical_id: snake.id,
+            frame_v1_id: snake.frame_v1_id,
+        };
+        assert!(InspectorCapture::new(target, 0).is_err());
+        assert!(InspectorCapture::new(target, MAX_INSPECTOR_BYTES + 1).is_err());
+        let mut capture = InspectorCapture::new(target, MAX_INSPECTOR_BYTES).unwrap();
+        let key = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 1);
+        let layout =
+            InspectorLayout::from(&super::super::sensor_layout::SensorLayout::new(16).unwrap());
+        let row = vec![0.25; layout.input_size];
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &row,
+            Some([0.5, -0.5]),
+            None,
+            Default::default()
+        ));
+        assert!(capture.latest(1, 1, 6).is_none());
+        let wrong = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 2);
+        capture.publish(wrong, |_, _, _| true);
+        assert!(capture.latest(1, 1, 6).is_none());
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &row,
+            Some([0.5, -0.5]),
+            None,
+            Default::default()
+        ));
+        capture.publish(key, |_, _, _| {
+            panic!("internal consumption never requires an external receipt")
+        });
+        let delivered = capture.latest(1, 1, 6).unwrap();
+        assert_eq!(delivered.normalized_inputs(), row);
+        assert_eq!(delivered.age_steps(6), Some(0));
+        assert_eq!(delivered.age_steps(9), Some(3));
+        assert!(capture.latest(2, 1, 9).is_none());
+        assert!(capture.latest(1, 2, 9).is_none());
+        assert!(capture.latest(1, 1, 5).is_none());
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::External {
+                lease_id: 3,
+                connection_id: 4
+            },
+            layout,
+            &row,
+            None,
+            None,
+            Default::default()
+        ));
+        capture.publish(key, |id, lease, connection| {
+            assert_eq!((id, lease, connection), (snake.id, 3, 4));
+            false
+        });
+        assert_eq!(
+            capture.latest(1, 1, 9).unwrap().source,
+            InspectorObservationSource::Neural
+        );
+        let mut invalid = row.clone();
+        invalid[0] = f32::NAN;
+        assert!(!capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &invalid,
+            None,
+            None,
+            Default::default()
+        ));
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::External {
+                lease_id: 3,
+                connection_id: 4
+            },
+            layout,
+            &row,
+            None,
+            None,
+            Default::default()
+        ));
+        capture.discard_pending();
+        capture.publish(key, |_, _, _| true);
+        assert_eq!(
+            capture.latest(1, 1, 9).unwrap().source,
+            InspectorObservationSource::Neural
+        );
+        assert_eq!(
+            source, unchanged,
+            "debug caching cannot consume delivery, RNG, first flag or quota cursor"
+        );
+    }
+
+    #[test]
+    fn inspector_does_not_raise_the_existing_worker_scratch_admission() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let limits = RunningStepWorkLimits::provisional_defaults();
+        let plan = crate::engine::inference::GraphExecutionPlan::build(&graph).unwrap();
+        candidate.config.worker_scratch_bytes =
+            crate::engine::control::NeuralControlPipeline::required_staging_bytes(
+                candidate.config.max_world_snakes,
+                &plan,
+                limits.calculation_workers,
+            )
+            .unwrap();
+        refresh_config_hash(&mut candidate);
+        let authority = own_complete_running(candidate, graph);
+        let before = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(&authority, limits).unwrap();
+        let snake = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.alive)
+            .unwrap();
+        let error = coordinator
+            .configure_inspector(
+                &authority,
+                Some(crate::engine::inspector::InspectorTarget {
+                    world_epoch: authority.world_epoch(),
+                    generation: authority.state().generation.generation,
+                    physical_id: snake.id,
+                    frame_v1_id: snake.frame_v1_id,
+                }),
+                crate::engine::inspector::MAX_INSPECTOR_BYTES,
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("worker scratch admission"));
+        assert!(coordinator.inspector_observation(&authority).is_none());
+        assert_eq!(authority.state(), &before);
+    }
+
+    fn enable_inspector_fixture(
+        coordinator: &mut RunningStepCoordinator,
+        authority: &AuthoritativeState,
+        physical_id: u64,
+    ) {
+        let snake = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == physical_id)
+            .unwrap();
+        coordinator
+            .configure_inspector(
+                authority,
+                Some(super::super::inspector::InspectorTarget {
+                    world_epoch: authority.world_epoch(),
+                    generation: authority.state().generation.generation,
+                    physical_id,
+                    frame_v1_id: snake.frame_v1_id,
+                }),
+                super::super::inspector::MAX_INSPECTOR_BYTES,
+            )
+            .unwrap();
+    }
+
+    #[test]
     fn selected_retained_origins_are_native_owned_fixed_width_and_do_not_advance_rng() {
         use super::super::brain_artifact::BrainSourceKind;
         use super::super::retained_origin::packed_weight_digest;
@@ -10987,6 +11171,8 @@ mod tests {
             RunningStepWorkLimits::provisional_defaults(),
         )
         .expect("two-controller fixture must construct the coordinator");
+        enable_inspector_fixture(&mut coordinator, &authority, first_id);
+        let mut observed_row = Vec::new();
 
         let events = match coordinator
             .advance_nonterminal(
@@ -11001,6 +11187,7 @@ mod tests {
             RunningStepProgress::ExternalDeliveryPending(batch) => {
                 assert_eq!(batch.events().len(), 2);
                 assert_eq!(batch.remaining(), 2);
+                observed_row.extend_from_slice(batch.observation(0).unwrap());
                 [batch.events()[0], batch.events()[1]]
             }
             RunningStepProgress::Published(_) => panic!("both events must require acceptance"),
@@ -11032,6 +11219,7 @@ mod tests {
                 if batch.remaining() == 1 && batch.is_accepted(0) == Some(true)
         ));
         assert_eq!(authority.state(), &source);
+        assert!(coordinator.inspector_observation(&authority).is_none());
 
         let duplicate = coordinator
             .submit_external_delivery_results(&mut authority, &[first_result])
@@ -11043,6 +11231,7 @@ mod tests {
             ExternalDeliveryState::Pending(batch) if batch.remaining() == 1
         ));
         assert_eq!(authority.state(), &source);
+        assert!(coordinator.inspector_observation(&authority).is_none());
 
         let duplicate_failure = ExternalDeliveryResult {
             accepted: false,
@@ -11061,6 +11250,7 @@ mod tests {
                     && batch.status(0) == Some(ExternalDeliveryStatus::Accepted)
         ));
         assert_eq!(authority.state(), &source);
+        assert!(coordinator.inspector_observation(&authority).is_none());
 
         let second_result = ExternalDeliveryResult {
             step_key: events[1].step_key,
@@ -11089,6 +11279,17 @@ mod tests {
             assert_eq!(snake.delivered_observation_points, 10.01);
         }
         assert_eq!(authority.state().generation.completed_step, 1);
+        let observed = coordinator.inspector_observation(&authority).unwrap();
+        assert_eq!(observed.normalized_inputs(), observed_row);
+        assert_eq!(observed.age_steps(1), Some(0));
+        assert_eq!(observed.target.physical_id, first_id);
+        assert!(matches!(
+            observed.source,
+            super::super::inspector::InspectorObservationSource::External {
+                lease_id: 1,
+                connection_id: 7
+            }
+        ));
     }
 
     #[test]
@@ -11129,6 +11330,7 @@ mod tests {
             RunningStepWorkLimits::provisional_defaults(),
         )
         .expect("mixed-result fixture must construct the coordinator");
+        enable_inspector_fixture(&mut coordinator, &authority, failed_id);
         let events = match coordinator
             .advance_nonterminal(
                 &mut authority,
@@ -11210,6 +11412,10 @@ mod tests {
         assert_eq!(failed_lease.status, ControllerLeaseStatus::HoldingLastInput);
         assert_eq!(failed_lease.connection_id, None);
         assert_eq!(authority.state().generation.completed_step, 1);
+        assert!(
+            coordinator.inspector_observation(&authority).is_none(),
+            "failed local send must never become an inspector delivery"
+        );
     }
 
     #[test]
