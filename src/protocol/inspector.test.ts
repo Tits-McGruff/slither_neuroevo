@@ -3,7 +3,7 @@ import { parseInspectorSnapshot } from './inspector.ts';
 
 /** Synthetic metadata only; no graph or observation is executed in this fixture. */
 function snapshot(profile = 'v3', bins = 16) {
-  return {schemaVersion: 1, sequence: 'ffffffffffffffff', worldEpoch: 'ffffffffffffffff',
+  return {schemaVersion: 1, sequence: 'ffffffffffffffff', subscriptionSequence: '0000000000000001', worldEpoch: 'ffffffffffffffff',
     completedStep: 'ffffffffffffffff', sample: {generation: 'ffffffffffffffff', physicalId: 'ffffffffffffffff',
       snakeId: 16_777_216, populationSlot: null, sampleStep: 'fffffffffffffffe', ageSteps: '0000000000000001',
       source: {kind: 'neural'}, profile, bins, sensorSha256: 'a'.repeat(64),
@@ -86,7 +86,7 @@ describe('native selected inspector projection', () => {
 
   it('rejects stale chronology, unbounded shapes and undeclared source/output combinations', () => {
     const corruptions: readonly [readonly string[], unknown][] = [
-      [['schemaVersion'], 2], [['worldEpoch'], '0'.repeat(16)],
+      [['schemaVersion'], 2], [['subscriptionSequence'], '0'.repeat(16)], [['worldEpoch'], '0'.repeat(16)],
       [['sample', 'ageSteps'], '0000000000000002'], [['sample', 'physicalId'], Number.MAX_SAFE_INTEGER],
       [['sample', 'bins'], 33], [['sample', 'normalizedInputs'], Array(84).fill(0)],
       [['sample', 'normalizedInputs', '0'], 1.1],

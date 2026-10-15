@@ -22,6 +22,7 @@ pub const INSPECTOR_TRANSPORT_RESERVE: usize = 8 * MAX_INSPECTOR_WIRE_BYTES;
 #[derive(Clone, Copy, Debug)]
 pub struct RunningInspectorStatus {
     pub sequence: u64,
+    pub subscription_sequence: u64,
     pub world_epoch: u64,
     pub completed_step: u64,
     pub observation: Option<InspectorObservation>,
@@ -82,6 +83,7 @@ pub struct InspectorRawScalars {
 #[derive(Clone, Copy, Debug)]
 pub struct InspectorObservation {
     pub key: PhysicsStepKey,
+    pub subscription_sequence: u64,
     pub target: InspectorTarget,
     pub source: InspectorObservationSource,
     pub raw: InspectorRawScalars,
@@ -114,6 +116,7 @@ impl InspectorObservation {
 #[derive(Debug)]
 pub struct InspectorCapture {
     target: InspectorTarget,
+    subscription_sequence: u64,
     latest: Option<InspectorObservation>,
     pending: Option<InspectorObservation>,
     working_trace: SensorTrace,
@@ -133,6 +136,7 @@ impl InspectorCapture {
         }
         Ok(Self {
             target,
+            subscription_sequence: 0,
             latest: None,
             pending: None,
             working_trace: SensorTrace::default(),
@@ -141,6 +145,12 @@ impl InspectorCapture {
 
     pub const fn target(&self) -> InspectorTarget {
         self.target
+    }
+
+    /// Bind a newly admitted cache to its exact queue command before any sample exists.
+    pub(crate) fn bind_subscription(&mut self, sequence: u64) {
+        debug_assert!(self.latest.is_none() && self.pending.is_none());
+        self.subscription_sequence = sequence;
     }
 
     /// Borrow only the selected physical owner's actual sampling buffer.
@@ -230,6 +240,7 @@ impl InspectorCapture {
         };
         let mut row = InspectorObservation {
             key,
+            subscription_sequence: self.subscription_sequence,
             target: self.target,
             source,
             raw,

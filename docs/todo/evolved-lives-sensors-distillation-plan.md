@@ -579,7 +579,13 @@ exact strings; raw graph outputs are separate from clipped motor actions. A
 strict presentation decoder checks profile widths, source/action combinations,
 finite scalars, exact bin arrays and explicit unknown rays. Actual production
 addon tests exercise select/enable/read/stale-run rejection/close through the
-command queue. Browser subscription/routing and presentation remain open.
+command queue. All 731 release library tests with hooks pass for that transport
+checkpoint, together with focused display/queue/control tests, type/lint and the
+client build. Rows and their clear messages additionally retain the exact queue
+sequence of the subscription that admitted them, so an old mailbox row cannot
+be confused with a newly acknowledged target. Close/reopen and rejected-subscribe
+regressions exercise that identity through the real addon. Browser subscription/
+routing and presentation remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

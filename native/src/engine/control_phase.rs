@@ -1522,6 +1522,13 @@ impl ControlPhaseWorkspace {
             })
     }
 
+    /// Scope a new cache to the queue command that admitted it.
+    pub(crate) fn bind_inspector_subscription(&mut self, sequence: u64) {
+        if let Some(capture) = &mut self.inspector {
+            capture.bind_subscription(sequence);
+        }
+    }
+
     pub(crate) fn inspector(&self) -> Option<&super::inspector::InspectorCapture> {
         self.inspector.as_deref()
     }

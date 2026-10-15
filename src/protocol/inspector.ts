@@ -82,6 +82,7 @@ export interface InspectorSample {
 export interface InspectorSnapshot {
   /** Projection schema. */ schemaVersion: 1;
   /** Exact mailbox sequence. */ sequence: string;
+  /** Queue command that admitted this capture, retained by its clear message. */ subscriptionSequence: string;
   /** Exact process-local world incarnation. */ worldEpoch: string;
   /** Complete publication step. */ completedStep: string;
   /** Last delivered row, or an explicit retirement. */ sample: InspectorSample | null;
@@ -132,8 +133,8 @@ function validTrace(value: unknown, bins: number): void {
 }
 /** Validate Rust's versioned projection without sensing, model execution or physics. */
 export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
-  const snapshot = record(value, ['schemaVersion', 'sequence', 'worldEpoch', 'completedStep', 'sample']);
-  if (snapshot['schemaVersion'] !== 1 || !identity(snapshot['sequence']) || !identity(snapshot['worldEpoch'])
+  const snapshot = record(value, ['schemaVersion', 'sequence', 'subscriptionSequence', 'worldEpoch', 'completedStep', 'sample']);
+  if (snapshot['schemaVersion'] !== 1 || !identity(snapshot['sequence']) || !identity(snapshot['subscriptionSequence']) || !identity(snapshot['worldEpoch'])
       || !identity(snapshot['completedStep'], true)) throw new TypeError('invalid inspector identity');
   if (snapshot['sample'] === null) return value as InspectorSnapshot;
   const sample = record(snapshot['sample'], ['generation', 'physicalId', 'snakeId', 'populationSlot', 'sampleStep', 'ageSteps',

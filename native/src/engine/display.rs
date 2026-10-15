@@ -67,6 +67,7 @@ struct CachedDisplay {
     visualization_sequence: u64,
     visualization: Option<RunningVisualizationStatus>,
     inspector_sequence: u64,
+    inspector_subscription_sequence: u64,
     inspector_world_epoch: u64,
     inspector_completed_step: u64,
     inspector_published_at_ms: Option<u64>,
@@ -105,6 +106,7 @@ impl RunningDisplayCache {
                 visualization_sequence: 0,
                 visualization: None,
                 inspector_sequence: 0,
+                inspector_subscription_sequence: 0,
                 inspector_world_epoch: 0,
                 inspector_completed_step: 0,
                 inspector_published_at_ms: None,
@@ -127,6 +129,7 @@ impl RunningDisplayCache {
             (cache.inspector_sequence > after_sequence).then(|| {
                 super::inspector::RunningInspectorStatus {
                     sequence: cache.inspector_sequence,
+                    subscription_sequence: cache.inspector_subscription_sequence,
                     world_epoch: cache.inspector_world_epoch,
                     completed_step: cache.inspector_completed_step,
                     observation: cache.inspector.as_deref().copied(),
@@ -173,6 +176,7 @@ impl RunningDisplayCache {
             || cache.inspector.as_ref().is_some_and(|previous| {
                 previous.key == observation.key
                     && previous.target == observation.target
+                    && previous.subscription_sequence == observation.subscription_sequence
                     && cache.inspector_completed_step == completed_step
             })
         {
@@ -184,6 +188,7 @@ impl RunningDisplayCache {
             cache.inspector = Some(Box::new(*observation));
         }
         cache.inspector_sequence = cache.inspector_sequence.saturating_add(1);
+        cache.inspector_subscription_sequence = observation.subscription_sequence;
         cache.inspector_world_epoch = world_epoch;
         cache.inspector_completed_step = completed_step;
         cache.inspector_published_at_ms = Some(now_ms);

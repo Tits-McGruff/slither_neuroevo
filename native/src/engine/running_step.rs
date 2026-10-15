@@ -778,6 +778,11 @@ impl RunningStepCoordinator {
         Ok(())
     }
 
+    /// Called immediately after cold cache admission, before any control preparation.
+    pub(crate) fn bind_inspector_subscription(&mut self, sequence: u64) {
+        self.control.bind_inspector_subscription(sequence);
+    }
+
     /// Borrow only the last completely published observation; pending delivery is never visible.
     pub fn inspector_observation(
         &self,
