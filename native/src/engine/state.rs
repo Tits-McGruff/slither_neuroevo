@@ -6839,6 +6839,67 @@ mod tests {
     }
 
     #[test]
+    fn inspector_probe_waits_for_publication_and_never_consumes_external_delivery() {
+        use super::super::inspector::*;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let snake = &source.world.snakes[0];
+        let unchanged = source.clone();
+        let target = InspectorTarget {
+            world_epoch: 1,
+            generation: 1,
+            physical_id: snake.id,
+            frame_v1_id: snake.frame_v1_id,
+        };
+        let key = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 1);
+        let layout =
+            InspectorLayout::from(&super::super::sensor_layout::SensorLayout::new(8).unwrap());
+        let values = vec![0.0; layout.input_size];
+        let mut capture = InspectorCapture::new(target, MAX_INSPECTOR_BYTES).unwrap();
+        capture.set_pure_probe(true);
+        assert!(capture.needs_probe());
+        assert!(capture.trace_for(snake.id).is_none());
+        assert!(!capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &values,
+            Some([0.0; 2]),
+            None,
+            Default::default()
+        ));
+        let external = InspectorObservationSource::External {
+            lease_id: 3,
+            connection_id: 4,
+        };
+        assert!(capture.stage_probe(key, snake, external, layout, &values, Default::default()));
+        assert!(capture.latest(1, 1, 6).is_none());
+        capture.discard_pending();
+        capture.publish(key, |_, _, _| {
+            panic!("probe must not consult an external receipt")
+        });
+        assert!(capture.latest(1, 1, 6).is_none());
+        assert!(
+            capture.needs_probe(),
+            "failed whole step keeps the request pending"
+        );
+        assert!(capture.stage_probe(key, snake, external, layout, &values, Default::default()));
+        capture.publish(key, |_, _, _| {
+            panic!("probe must not consult an external receipt")
+        });
+        let row = capture.latest(1, 1, 6).unwrap();
+        assert!(row.pure_probe && row.raw.first_delivery);
+        assert!(row.neural_outputs.is_none());
+        assert!(!capture.needs_probe());
+        assert!(!capture.stage_probe(key, snake, external, layout, &values, Default::default()));
+        assert_eq!(
+            source, unchanged,
+            "probing never consumes a first/delivery flag, RNG or quota cursor"
+        );
+    }
+
+    #[test]
     fn inspector_does_not_raise_the_existing_worker_scratch_admission() {
         let graph = default_graph();
         let mut candidate = complete_running_candidate(&graph);

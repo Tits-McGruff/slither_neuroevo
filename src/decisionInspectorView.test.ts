@@ -50,3 +50,14 @@ it('keeps v1 effective actions and raw shadow outputs separate from teacher poli
   expect(view.shadows).toContain('Graph turn output: 2.5000');
   expect(view.shadows).toContain('Graph boost output: -3');
 });
+
+
+it('labels a pure probe prominently and never presents it as a delivered action', () => {
+  const snapshot = inspectorFixture(); snapshot.sample!.pureProbe = true; snapshot.sample!.neuralOutputs = null;
+  snapshot.sample!.lifecycle = inspectorLifecycleFixture();
+  const view = describeInspector(snapshot);
+  expect(view.summary).toContain('PURE SENSOR PROBE · not delivered');
+  expect(view.policy).toContain('no action was evaluated');
+  expect(view.lifecycle).toContain('At pure probe boundary');
+  expect(view.lifecycle).not.toContain('At delivered sample boundary');
+});

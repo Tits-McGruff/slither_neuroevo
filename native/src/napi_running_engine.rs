@@ -1402,6 +1402,7 @@ impl ExperimentalRunningAuthority {
         expected_run_id: JsString<'_>,
         token: Option<JsString<'_>>,
         frame_v1_id: Option<f64>,
+        pure_probe: Option<bool>,
     ) -> Result<()> {
         let selection = match (token, frame_v1_id) {
             (None, None) => None,
@@ -1426,6 +1427,7 @@ impl ExperimentalRunningAuthority {
             RunningAuthorityCommand::ConfigureInspector {
                 expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
                 selection,
+                pure_probe: pure_probe.unwrap_or(false),
             },
         )
     }

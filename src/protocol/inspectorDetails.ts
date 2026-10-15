@@ -84,6 +84,8 @@ function lifeTuple(value: unknown): void {
 }
 /** Validate optional native details while keeping earlier schema-v1 projections readable. */
 export function validateInspectorDetails(sample: Record<string, unknown>, source: string, kind: unknown, bins: number): void {
+  if (sample['pureProbe'] === true && (sample['baselineV1Action'] != null || sample['baselineAction'] != null
+    || (Array.isArray(sample['shadowOutputs']) && sample['shadowOutputs'].length !== 0))) throw new TypeError('probe cannot contain policy or shadow outputs');
   if (sample['baselineV1Action'] !== undefined && sample['baselineV1Action'] !== null) {
     if (source !== 'baseline-v1') throw new TypeError('unexpected v1 inspector action');
     const action = object(sample['baselineV1Action'], ['turn', 'boost', 'baselineSlot', 'strategy', 'effectiveStrategy', 'lifeStage', 'sector',

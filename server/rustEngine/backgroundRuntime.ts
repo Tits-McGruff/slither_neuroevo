@@ -77,7 +77,7 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   /** Queue one exact browser-addressed normal God Mode death. */
   submitGodModeKill(sequence: U64Hex, snakeId: number, token: string): void;
   /** Admit one exact selected diagnostic target, or close it by omitting both target arguments. */
-  submitInspector(sequence: U64Hex, expectedRunId: string, selectionToken?: string, frameV1Id?: number): void;
+  submitInspector(sequence: U64Hex, expectedRunId: string, selectionToken?: string, frameV1Id?: number, pureProbe?: boolean): void;
   /** Read bounded Rust-authored JSON from the replaceable mailbox; never sample a world. */
   latestInspector(afterSequence: U64Hex): string | null;
   /** Toggle aggregate opt-in focused activation capture. */

@@ -1010,4 +1010,8 @@ observation, its step and age, raw sensor measurements, normalized inputs and
 available action outputs. Unknown rays remain labelled; channels absent from a
 profile show **not sampled**. One viewer can inspect one target at a time. Turn
 the checkbox off to stop capture. Following an individual retains its selection
-while it waits for another physical life.
+while it waits for another physical life. **Probe once** captures a labelled
+sensor-only sample at the next stable step boundary and holds it until another
+request. **Show delivered** returns to actual decisions. A probe evaluates no
+action and leaves the snake's observation-delivery state unchanged. Following a
+replacement life requires another explicit probe request.

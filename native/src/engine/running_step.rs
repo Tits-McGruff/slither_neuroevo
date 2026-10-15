@@ -785,6 +785,11 @@ impl RunningStepCoordinator {
         Ok(())
     }
 
+    /// Mode is applied only immediately after successful fresh cache admission.
+    pub(crate) fn set_inspector_probe(&mut self, enabled: bool) {
+        self.control.set_inspector_probe(enabled);
+    }
+
     /// Join private diagnostics by the exact published teacher boundary.
     pub(crate) fn join_inspector_shadows(
         &mut self,

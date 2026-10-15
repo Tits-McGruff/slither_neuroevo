@@ -722,12 +722,13 @@ export function isSelectEntity(msg: unknown): msg is SelectEntityMsg {
 /** Validate an exact token/frame pair, or a target-free close command. */
 export function isInspectEntity(msg: unknown): msg is InspectEntityMsg {
   if (!isRecord(msg) || msg['type'] !== 'inspectEntity'
-    || !hasKeys(msg, ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'selectionToken', 'snakeId'],
+    || !hasKeys(msg, ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'selectionToken', 'snakeId', 'pureProbe'],
       ['type', 'requestId', 'expectedSessionId', 'expectedRunId'])
     || !isRequestId(msg['requestId']) || !isRequestId(msg['expectedSessionId'])
+    || (msg['pureProbe'] !== undefined && typeof msg['pureProbe'] !== 'boolean')
     || typeof msg['expectedRunId'] !== 'string' || msg['expectedRunId'].length === 0
     || msg['expectedRunId'].length > 256 || msg['expectedRunId'].includes('\0')) return false;
-  return (msg['selectionToken'] === undefined && msg['snakeId'] === undefined)
+  return (msg['pureProbe'] !== true && msg['selectionToken'] === undefined && msg['snakeId'] === undefined)
     || (isEntitySelectionToken(msg['selectionToken']) && Number.isSafeInteger(msg['snakeId'])
       && (msg['snakeId'] as number) >= 1 && (msg['snakeId'] as number) <= 16_777_216);
 }

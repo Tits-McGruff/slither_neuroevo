@@ -37,7 +37,7 @@ pub struct InspectorTarget {
     pub frame_v1_id: u32,
 }
 
-/// The actual consumer of this observation, independent of physical snake kind.
+/// Delivered consumer, or prospective route for a labelled pure probe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InspectorObservationSource {
     Neural,
@@ -138,6 +138,8 @@ pub(crate) struct InspectorLifecycleContext<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct InspectorObservation {
     pub key: PhysicsStepKey,
+    /// Explicit sensor-only observation; never consumed by a controller.
+    pub pure_probe: bool,
     pub subscription_sequence: u64,
     pub target: InspectorTarget,
     pub source: InspectorObservationSource,
@@ -179,6 +181,7 @@ pub struct InspectorCapture {
     pending: Option<InspectorObservation>,
     working_trace: SensorTrace,
     evolution: Option<super::evolution::EvolutionConfig>,
+    pure_probe: bool,
 }
 
 impl InspectorCapture {
@@ -200,7 +203,29 @@ impl InspectorCapture {
             pending: None,
             working_trace: SensorTrace::default(),
             evolution: None,
+            pure_probe: false,
         })
+    }
+
+    /// Set only on a newly admitted cache before sampling starts.
+    pub(crate) fn set_pure_probe(&mut self, enabled: bool) {
+        debug_assert!(self.latest.is_none() && self.pending.is_none());
+        self.pure_probe = enabled;
+    }
+
+    pub(crate) const fn delivered_enabled(&self) -> bool {
+        !self.pure_probe
+    }
+
+    /// Retry only a failed/unpublished probe, never repeat a successful one.
+    pub(crate) fn needs_probe(&self) -> bool {
+        self.pure_probe && self.latest.is_none()
+    }
+
+    /// An explicit probe owns this trace exclusively during its single sensor query.
+    pub(crate) fn probe_trace(&mut self) -> &mut SensorTrace {
+        self.working_trace.valid = false;
+        &mut self.working_trace
     }
 
     pub const fn target(&self) -> InspectorTarget {
@@ -215,7 +240,7 @@ impl InspectorCapture {
 
     /// Borrow only the selected physical owner's actual sampling buffer.
     pub fn trace_for(&mut self, physical_id: u64) -> Option<&mut SensorTrace> {
-        if physical_id != self.target.physical_id {
+        if self.pure_probe || physical_id != self.target.physical_id {
             return None;
         }
         self.working_trace.valid = false;
@@ -260,6 +285,62 @@ impl InspectorCapture {
         baseline_action: Option<BaselineV2Action>,
         diagnostics: SensorSampleDiagnostics,
     ) -> bool {
+        if self.pure_probe {
+            return false;
+        }
+        self.stage_inner(
+            key,
+            snake,
+            source,
+            layout,
+            inputs,
+            outputs,
+            baseline_action,
+            diagnostics,
+            false,
+        )
+    }
+
+    /// Stage a sensor-only row without outputs, delivery acceptance or inference.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn stage_probe(
+        &mut self,
+        key: PhysicsStepKey,
+        snake: &SnakeState,
+        source: InspectorObservationSource,
+        layout: InspectorLayout,
+        inputs: &[f32],
+        diagnostics: SensorSampleDiagnostics,
+    ) -> bool {
+        if !self.needs_probe() {
+            return false;
+        }
+        self.stage_inner(
+            key,
+            snake,
+            source,
+            layout,
+            inputs,
+            None,
+            None,
+            diagnostics,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn stage_inner(
+        &mut self,
+        key: PhysicsStepKey,
+        snake: &SnakeState,
+        source: InspectorObservationSource,
+        layout: InspectorLayout,
+        inputs: &[f32],
+        outputs: Option<[f32; 2]>,
+        baseline_action: Option<BaselineV2Action>,
+        diagnostics: SensorSampleDiagnostics,
+        pure_probe: bool,
+    ) -> bool {
         if key.world_epoch() != self.target.world_epoch
             || key.generation() != self.target.generation
             || snake.id != self.target.physical_id
@@ -300,6 +381,7 @@ impl InspectorCapture {
         };
         let mut row = InspectorObservation {
             key,
+            pure_probe,
             subscription_sequence: self.subscription_sequence,
             target: self.target,
             source,
@@ -433,11 +515,11 @@ impl InspectorCapture {
         key: PhysicsStepKey,
         snapshots: [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS],
     ) {
-        let Some(row) = self
-            .latest
-            .as_mut()
-            .filter(|row| row.key == key && row.source == InspectorObservationSource::BaselineV2)
-        else {
+        let Some(row) = self.latest.as_mut().filter(|row| {
+            !row.pure_probe
+                && row.key == key
+                && row.source == InspectorObservationSource::BaselineV2
+        }) else {
             return;
         };
         for (index, snapshot) in snapshots.iter().enumerate() {
@@ -479,7 +561,9 @@ impl InspectorCapture {
             connection_id,
         } = row.source
         {
-            if !external_accepted(row.target.physical_id, lease_id, connection_id) {
+            if !row.pure_probe
+                && !external_accepted(row.target.physical_id, lease_id, connection_id)
+            {
                 return;
             }
         }

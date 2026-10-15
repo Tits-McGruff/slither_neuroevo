@@ -265,10 +265,11 @@
       <section id="decisionInspector" class="decision-inspector" hidden>
         <label><input id="decisionInspectorEnabled" type="checkbox"> Decision inspector</label>
         <div class="row inspector-owner"><label for="decisionInspectorSlot">Population slot (0-based)</label><input id="decisionInspectorSlot" type="number" min="0" max="299" step="1" value="0"><button id="decisionInspectorSelect" class="btn">Select individual</button></div>
+        <div class="row"><button id="decisionInspectorProbe" class="btn">Probe once</button><button id="decisionInspectorDelivered" class="btn">Show delivered</button></div>
         <p id="decisionInspectorStatus" class="meta" role="status">Decision inspector is off.</p>
         <div id="decisionInspectorData" hidden>
           <p id="decisionInspectorSummary" class="meta selected-entity-info"></p>
-          <canvas id="decisionInspectorCanvas" width="320" height="320" aria-label="Delivered native sensor directions and clearances"></canvas>
+          <canvas id="decisionInspectorCanvas" width="320" height="320" aria-label="Native sensor directions and clearances"></canvas>
           <p id="decisionInspectorLegend" class="meta">Red: body hits · dashed amber: unknown rays · blue: wall clearance · green: food strength. Plot distances stop at near reach; the values below retain the sampler's measurements.</p>
           <details open><summary>Raw scalars and economics</summary><pre id="decisionInspectorScalars"></pre></details>
           <details open><summary>Actual action and policy</summary><pre id="decisionInspectorPolicy"></pre></details>

@@ -498,11 +498,13 @@ impl RunningAuthorityLoop {
         selection: Option<(super::state::EntitySelectionToken, u32)>,
         budget_bytes: usize,
         sequence: u64,
+        pure_probe: bool,
     ) -> Result<(), String> {
         if sequence == 0 {
             return Err("inspector subscription sequence must be positive".into());
         }
         self.configure_inspector(expected_run_id, selection, budget_bytes)?;
+        self.coordinator.set_inspector_probe(pure_probe);
         self.coordinator.bind_inspector_subscription(sequence);
         Ok(())
     }

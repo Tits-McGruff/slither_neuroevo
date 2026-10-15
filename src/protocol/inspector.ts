@@ -53,6 +53,7 @@ export interface InspectorBaselineAction {
 }
 /** One exact last delivered observation; held controls update only its age. */
 export interface InspectorSample {
+  /** Explicit sensor-only query, never a delivered decision. */ pureProbe?: boolean;
   /** Full generation identity. */ generation: string;
   /** Full physical-life identity. */ physicalId: string;
   /** Exact frame-v1 identifier. */ snakeId: number;
@@ -143,7 +144,7 @@ export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
       || !identity(snapshot['completedStep'], true)) throw new TypeError('invalid inspector identity');
   if (snapshot['sample'] === null) return value as InspectorSnapshot;
   const sample = record(snapshot['sample'], ['generation', 'physicalId', 'snakeId', 'populationSlot', 'sampleStep', 'ageSteps',
-    'source', 'profile', 'bins', 'sensorSha256', 'normalizedInputs', 'neuralOutputs', 'baselineAction', 'raw', 'trace', 'diagnostics'], ['baselineV1Action', 'lifecycle', 'shadowOutputs']);
+    'source', 'profile', 'bins', 'sensorSha256', 'normalizedInputs', 'neuralOutputs', 'baselineAction', 'raw', 'trace', 'diagnostics'], ['baselineV1Action', 'lifecycle', 'shadowOutputs', 'pureProbe']);
   if (!identity(sample['generation']) || !identity(sample['physicalId']) || !identity(sample['sampleStep'])
       || !identity(sample['ageSteps'], true) || !integer(sample['snakeId'], 16_777_216) || sample['snakeId'] === 0
       || !(sample['populationSlot'] === null || integer(sample['populationSlot'], 299))
@@ -166,7 +167,10 @@ export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
   if (source['kind'] === 'external' ? !identity(source['leaseId']) || !identity(source['connectionId'])
     : !['neural', 'baseline-v1', 'baseline-v2'].includes(source['kind'] as string)) throw new TypeError('invalid inspector source');
   if (source['kind'] === 'baseline-v1' && profile !== 'v3') throw new TypeError('invalid legacy inspector profile');
-  if (source['kind'] === 'neural' ? !vector(sample['neuralOutputs'], 2, finite) : sample['neuralOutputs'] !== null) {
+  if (sample['pureProbe'] !== undefined && typeof sample['pureProbe'] !== 'boolean') throw new TypeError('invalid inspector probe flag');
+  const probe = sample['pureProbe'] === true;
+  const graphDecision = !probe && source['kind'] === 'neural';
+  if (graphDecision ? !vector(sample['neuralOutputs'], 2, finite) : sample['neuralOutputs'] !== null) {
     throw new TypeError('invalid inspector outputs');
   }
   const raw = record(sample['raw'], [...RAW_NUMBERS, 'kind', 'firstDelivery']);
@@ -175,8 +179,8 @@ export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
   const work = record(sample['diagnostics'], ['pelletChecks', 'segmentChecks', 'headChecks', 'rayWork', 'incompleteRays']);
   if (!Object.values(work).every(item => integer(item)) || (work['incompleteRays'] as number) > bins) throw new TypeError('invalid inspector work');
   if (sample['trace'] !== null) validTrace(sample['trace'], bins);
-  if (source['kind'] === 'baseline-v2') {
-    if (profile === 'v3') throw new TypeError('invalid v2 inspector profile');
+  if (source['kind'] === 'baseline-v2' && profile === 'v3') throw new TypeError('invalid v2 inspector profile');
+  if (!probe && source['kind'] === 'baseline-v2') {
     const action = record(sample['baselineAction'], ['turn', 'boost', 'sector', 'lifeStage', 'strategy', 'normalizedScore',
       'unsafeRoute', 'escapeOrPursuit', 'urgentSectors', 'committedHeading', 'commitmentRemainingSeconds']);
     if (!finite(action['turn']) || Math.abs(action['turn'] as number) > 1 || !finite(action['normalizedScore'])
@@ -200,6 +204,7 @@ export interface InspectEntityMsg {
   /** Observed process identity. */ expectedSessionId: string;
   /** Observed native run identity. */ expectedRunId: string;
   /** Exact native selection token when enabling capture. */ selectionToken?: string;
+  /** One sensor-only sample instead of continuously capturing delivered decisions. */ pureProbe?: boolean;
   /** Exact paired frame-v1 ID when enabling capture. */ snakeId?: number;
 }
 /** Reliable admission result, separate from replaceable diagnostic rows. */

@@ -260,6 +260,9 @@ it('validates inspector token/frame pairs and target-free closes', () => {
   const open = {...close, selectionToken: '1'.repeat(64), snakeId: 16_777_216};
   expect(parseClientMessage(close)).toEqual(close);
   expect(parseClientMessage(open)).toEqual(open);
+  expect(parseClientMessage({...open, pureProbe: true})).toMatchObject({pureProbe: true});
+  expect(parseClientMessage({...close, pureProbe: true})).toBeNull();
+  expect(parseClientMessage({...open, pureProbe: 'true'})).toBeNull();
   for (const invalid of [{...close, snakeId: 1}, {...close, selectionToken: '1'.repeat(64)},
     {...open, snakeId: 16_777_217}, {...open, selectionToken: '0'.repeat(64)}, {...open, unknown: 1}]) {
     expect(parseClientMessage(invalid)).toBeNull();

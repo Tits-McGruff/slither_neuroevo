@@ -604,8 +604,20 @@ actions include effective strategy and retained timers. Four shadow outputs join
 only the matching committed teacher row, with full candidate/capture/activation
 identity; held samples preserve their original values. Respawn/wallet modes,
 continuation with capture and four shadows, stale shadow rejection, bounded wire
-decoding and UI clearing are covered by regression tests. Explicit pure probes
-and integrated capacity qualification remain open. This lifecycle/action/shadow
+decoding and UI clearing are covered by regression tests. Explicit one-shot probes
+now use the same immutable pre-movement indexes, with an independent meter bounded
+by the admitted per-observation cap. They execute no controller/model, clear no
+delivery/first flag, advance no authoritative RNG or fair quota cursor, and keep
+their original step/age until another request. Successful whole-step publication
+gates visibility; failed attempts cannot expose a probe. The default delivered
+view remains unchanged, and closed or completed one-shot capture performs no more
+debug sampling. Native held-control continuation checks cover Basic/Motion through
+B32, including recurrent state and full RNG/quota witnesses. The browser labels
+probe rows and supports Probe once / Show delivered with bounded pending intent.
+Integrated capacity qualification remains open. The pure-probe checkpoint passes
+all 734 release library tests with engine hooks, actual addon and socket probes,
+413 unit cases (three existing skips), 88 component cases, 24 main UI cases,
+type/lint/client build and rustfmt/Clippy. The preceding lifecycle/action/shadow
 checkpoint passes all 732 release library tests with engine hooks, actual addon
 and socket inspector fixtures, 411 unit cases (three existing skips), 85 component
 cases, 24 main UI cases, type/lint/client build and rustfmt/Clippy.
