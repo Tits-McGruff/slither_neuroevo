@@ -43,3 +43,12 @@ persistence through the existing router, and stops/cleans its processes and file
 before exiting. It never opens an owner database or changes production defaults.
 The pinned PyRL CI job runs the same gate on Linux CPU with one and three workers;
 local Windows CPU/CUDA reports are retained here.
+
+
+The retained Windows cases are CPU with one/three workers and CUDA with one
+worker. The CUDA report's host bytes correspond to commit `ac360d2` (Windows
+line endings); CPU reports use `b39b741`, which adds strict host type checking and
+scheduler-debt telemetry. Native/core trainer math is unchanged between these
+hosts. CUDA with three workers and the named larger-workload/soak gates remain
+unqualified. A report's source hashes and explicit workload define its scope;
+none of these small-student runs selects production v4/v2 defaults.
