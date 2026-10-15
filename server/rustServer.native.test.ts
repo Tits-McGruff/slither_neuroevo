@@ -1,3 +1,4 @@
+import { parseInspectorSnapshot, type InspectEntityMsg } from '../src/protocol/inspector.ts';
 import { parseEvolvedLifecycleTelemetry } from '../src/protocol/evolvedLives.ts';
 import { parseDurationDraft } from '../src/protocol/duration.ts';
 import { mkdir, mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { request as httpRequest, Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { gzipSync } from 'node:zlib';
 import { expect, it, vi } from 'vitest';
@@ -325,7 +326,64 @@ async function selectPhysical(peer: Peer, requestId: string, target: { snakeId: 
   return result['entity'] as SelectedEntity;
 }
 
+/** Verify this task-owned scratch path before recursive cleanup. */
+async function cleanupInspectorFixture(root: string): Promise<void> {
+  if (dirname(resolve(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), 'slither-rust-inspector-'))) {
+    throw new Error('unsafe inspector fixture cleanup');
+  }
+  await rm(root, {recursive: true, force: true});
+}
+
 describeNetworkSuite('Rust server real sockets', () => {
+  it('routes one native decision inspector through real sockets and releases disconnected ownership', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-inspector-'));
+    const peers: Peer[] = [];
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    try {
+      server = await startRustServer({...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+        rustCalculationWorkers: 1, dbPath: join(root, 'game.sqlite')});
+      const first = await connect(server.port, 'ui'); peers.push(first);
+      const second = await connect(server.port, 'ui'); peers.push(second);
+      for (const peer of peers) {
+        await until(peer, () => peer.packets.some(packet => packet['type'] === 'welcome'));
+        peer.socket.send(JSON.stringify({type: 'join', mode: 'spectator'}));
+      }
+      const selected = await selectPhysical(first, 'inspector-selection', {populationSlot: 0});
+      const welcome = first.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
+      /** Send one actual protocol command and await its correlated native result. */
+      const command = async (peer: Peer, requestId: string, enabled = true): Promise<Record<string, unknown>> => {
+        const message: InspectEntityMsg = {type: 'inspectEntity', requestId,
+          expectedSessionId: welcome.sessionId, expectedRunId: welcome.runId,
+          ...(enabled ? {selectionToken: selected.token, snakeId: selected.snakeId} : {})};
+        peer.socket.send(JSON.stringify(message));
+        await until(peer, () => peer.packets.some(packet => packet['requestId'] === requestId));
+        return peer.packets.findLast(packet => packet['requestId'] === requestId)!;
+      };
+      const opened = await command(first, 'inspector-open');
+      expect(opened).toMatchObject({type: 'inspectorResult', applied: true, enabled: true});
+      await until(first, () => first.packets.some(packet => packet['type'] === 'inspector'));
+      const row = parseInspectorSnapshot(first.packets.find(packet => packet['type'] === 'inspector')!['snapshot']);
+      expect(row.subscriptionSequence).toBe(opened['subscriptionSequence']);
+      expect(row.sample).toMatchObject({snakeId: selected.snakeId, profile: 'v3', bins: 16, source: {kind: 'neural'}});
+      expect(await command(second, 'inspector-busy')).toMatchObject({applied: false, enabled: false});
+      expect(second.packets.some(packet => packet['type'] === 'inspector')).toBe(false);
+      first.socket.terminate();
+      let attempt = 0;
+      await vi.waitFor(async () => {
+        expect(await command(second, 'inspector-reclaim-' + ++attempt)).toMatchObject({applied: true, enabled: true});
+      }, {timeout: 5000, interval: 50});
+      await until(second, () => second.packets.some(packet => packet['type'] === 'inspector'));
+      const reclaimed = parseInspectorSnapshot(second.packets.find(packet => packet['type'] === 'inspector')!['snapshot']);
+      expect(reclaimed.subscriptionSequence).not.toBe(row.subscriptionSequence);
+      expect(await command(second, 'inspector-close', false)).toMatchObject({applied: true, enabled: false});
+      expect(second.frames).toBeGreaterThan(0);
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close();
+      await cleanupInspectorFixture(root);
+    }
+  }, 30_000);
+
   it('opens independent distillation discovery lazily and rejects v3 capture without controller ownership', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-distillation-'));
     const databasePath = join(root, 'source.sqlite');

@@ -1,3 +1,4 @@
+import type { InspectEntityMsg, InspectorResultMsg, InspectorMsg } from '../src/protocol/inspector.ts';
 import type { BrainArtifactDescriptor } from '../src/protocol/brainArtifacts.ts';
 import type { ManagedNeuralWeightsDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
 import type { EvolvedLifecycleTelemetry } from '../src/protocol/evolvedLives.ts';
@@ -194,6 +195,7 @@ export type ClientMessage =
   | LiveSettingsMsg
   | GodModeMsg
   | SelectEntityMsg
+  | InspectEntityMsg
   | NewRunMsg
   | FinishGenerationMsg;
 
@@ -437,6 +439,8 @@ export type ServerMessage =
   | FinishGenerationResultMsg
   | GodModeResultMsg
   | EntitySelectedMsg
+  | InspectorResultMsg
+  | InspectorMsg
   | NewRunResultMsg
   | StateReplacedMsg;
 
@@ -713,6 +717,19 @@ export function isSelectEntity(msg: unknown): msg is SelectEntityMsg {
     || (frame === undefined && Number.isSafeInteger(slot) && (slot as number) >= 0 && (slot as number) < 300);
 }
 
+/** Validate an exact token/frame pair, or a target-free close command. */
+export function isInspectEntity(msg: unknown): msg is InspectEntityMsg {
+  if (!isRecord(msg) || msg['type'] !== 'inspectEntity'
+    || !hasKeys(msg, ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'selectionToken', 'snakeId'],
+      ['type', 'requestId', 'expectedSessionId', 'expectedRunId'])
+    || !isRequestId(msg['requestId']) || !isRequestId(msg['expectedSessionId'])
+    || typeof msg['expectedRunId'] !== 'string' || msg['expectedRunId'].length === 0
+    || msg['expectedRunId'].length > 256 || msg['expectedRunId'].includes('\0')) return false;
+  return (msg['selectionToken'] === undefined && msg['snakeId'] === undefined)
+    || (isEntitySelectionToken(msg['selectionToken']) && Number.isSafeInteger(msg['snakeId'])
+      && (msg['snakeId'] as number) >= 1 && (msg['snakeId'] as number) <= 16_777_216);
+}
+
 /**
  * Validate a bounded generation-scoped finish request without coercing identities.
  * @param msg - Raw Protocol 2 payload.
@@ -769,6 +786,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return isLiveSettings(raw) ? raw : null;
     case 'selectEntity':
       return isSelectEntity(raw) ? raw : null;
+    case 'inspectEntity':
+      return isInspectEntity(raw) ? raw : null;
     case 'godMode':
       return isGodMode(raw) ? raw : null;
     case 'newRun':

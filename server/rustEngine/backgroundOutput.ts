@@ -42,6 +42,8 @@ export interface BackgroundOutputOptions {
   wantsVisualization?(): boolean;
   /** Accept one newer complete focused neural snapshot. */
   visualization?(snapshot: RustBackgroundVisualization | undefined): void;
+  /** Service optional diagnostics only after reliable output and frame work. */
+  diagnostics?(): void;
   /** Bound connected external controllers independently of native input capacity. */
   maxControllers: number;
   /** Observe one complete generation durability barrier. */
@@ -253,6 +255,7 @@ export class BackgroundOutputPump {
             catch (error) { lease.release(); throw error; }
           }
         }
+        this.options.diagnostics?.();
         return this.admission.blocked;
       }
     }

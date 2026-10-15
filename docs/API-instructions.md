@@ -1130,3 +1130,23 @@ retrieve that result. It does not cancel or duplicate a spawn. World replacement
 archive work and physical cleanup exclude active library file consumers. Shutdown
 joins Rust before releasing files for an unknown native outcome. Deleting catalog
 membership cannot revoke weights/origin already owned by a live Rust brain.
+
+### Selected decision inspector
+
+A joined UI peer may send `inspectEntity` with `requestId`, `expectedSessionId`,
+`expectedRunId` and the exact `selectionToken`/`snakeId` pair returned by
+`selectEntity`. Omitting both target fields closes capture. One UI connection
+owns the selected inspector globally; competing requests and overlapping pending
+changes reject with a reliable `inspectorResult`. The command's exact
+`subscriptionSequence` identifies its capture.
+
+`inspector` messages contain Rust-authored schema-v1 snapshots with full-width
+hexadecimal identities, publication/sample steps, exact sample age, actual sampler
+profile/digest, delivered inputs, raw measurements, outputs and work diagnostics.
+A null sample is an explicit retirement. Unknown body rays remain `incomplete`;
+v3 body rays are `not-sampled`. Consumers must match `subscriptionSequence` to the
+acknowledged command. Updates are at most 10 Hz and replace the socket's prior
+unsent diagnostic row, with gameplay replies and frames retaining priority.
+Disconnect disables capture; reconnect, replacement and applied settings require
+fresh admission. The inspector grants no controller ownership and performs no
+extra observation query or model execution.
