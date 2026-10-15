@@ -5,6 +5,7 @@ use super::baseline_v2::BaselineV2Action;
 use super::physics::PhysicsStepKey;
 use super::sensor_contract::SensorProfile;
 use super::sensor_layout::SensorLayout;
+use super::sensor_trace::SensorTrace;
 use super::sensors::SensorSampleDiagnostics;
 use super::state::{SnakeKind, SnakeState};
 
@@ -76,6 +77,7 @@ pub struct InspectorObservation {
     pub neural_outputs: Option<[f32; 2]>,
     pub baseline_action: Option<BaselineV2Action>,
     pub diagnostics: SensorSampleDiagnostics,
+    pub trace: Option<SensorTrace>,
 }
 
 impl InspectorObservation {
@@ -101,6 +103,7 @@ pub struct InspectorCapture {
     target: InspectorTarget,
     latest: Option<InspectorObservation>,
     pending: Option<InspectorObservation>,
+    working_trace: SensorTrace,
 }
 
 impl InspectorCapture {
@@ -119,11 +122,27 @@ impl InspectorCapture {
             target,
             latest: None,
             pending: None,
+            working_trace: SensorTrace::default(),
         })
     }
 
     pub const fn target(&self) -> InspectorTarget {
         self.target
+    }
+
+    /// Borrow only the selected physical owner's actual sampling buffer.
+    pub fn trace_for(&mut self, physical_id: u64) -> Option<&mut SensorTrace> {
+        if physical_id != self.target.physical_id {
+            return None;
+        }
+        self.working_trace.valid = false;
+        Some(&mut self.working_trace)
+    }
+
+    /// Move one exclusive buffer into the selected neural worker partition.
+    pub fn trace_request(&mut self) -> (u64, &mut SensorTrace) {
+        self.working_trace.valid = false;
+        (self.target.physical_id, &mut self.working_trace)
     }
 
     /// Previous successful delivery remains visible while an unrelated or held step is prepared.
@@ -206,6 +225,11 @@ impl InspectorCapture {
             neural_outputs: outputs,
             baseline_action,
             diagnostics,
+            trace: (self.working_trace.valid
+                && self.working_trace.physical_id == snake.id
+                && self.working_trace.profile == layout.profile
+                && self.working_trace.bins == layout.bins)
+                .then_some(self.working_trace),
         };
         row.normalized_inputs[..inputs.len()].copy_from_slice(inputs);
         self.pending = Some(row);

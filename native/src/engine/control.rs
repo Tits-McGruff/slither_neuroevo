@@ -453,6 +453,19 @@ impl NeuralControlPipeline {
         inputs: NeuralControlBatchInputs<'_, '_>,
         sensor_scratch: &mut SensorScratch,
     ) -> Result<NeuralControlBatchView<'a>, NeuralControlError> {
+        self.prepare_and_evaluate_traced(inputs, sensor_scratch, None)
+    }
+
+    /// Capture raw diagnostics in the same sampling pass, in exactly one worker.
+    pub(crate) fn prepare_and_evaluate_traced<'a>(
+        &'a mut self,
+        inputs: NeuralControlBatchInputs<'_, '_>,
+        sensor_scratch: &mut SensorScratch,
+        mut trace: Option<(u64, &mut super::sensor_trace::SensorTrace)>,
+    ) -> Result<NeuralControlBatchView<'a>, NeuralControlError> {
+        if let Some((_, value)) = trace.as_mut() {
+            value.valid = false;
+        }
         let NeuralControlBatchInputs {
             key,
             candidates,
@@ -529,11 +542,19 @@ impl NeuralControlPipeline {
                     .zip(self.parallel_sensor_errors.iter_mut())
                     .enumerate()
                 {
+                    let mut partition_trace = if trace
+                        .as_ref()
+                        .is_some_and(|(id, _)| units.iter().any(|unit| unit.snake_id() == *id))
+                    {
+                        trace.take()
+                    } else {
+                        None
+                    };
                     scope.spawn(move |_| {
                         run_calculation_worker("sensing", partition, || {
                             for (ordinal, unit) in units.iter().enumerate() {
                                 let offset = ordinal * sensor.layout().input_size;
-                                match sensor.sample_prepared(
+                                match sensor.sample_prepared_with_trace(
                                     indexed_world,
                                     generation,
                                     unit.snake_index(),
@@ -544,6 +565,9 @@ impl NeuralControlPipeline {
                                             .and_then(|points| points.get(slot as usize).copied())
                                     }),
                                     v4,
+                                    partition_trace.as_mut().and_then(|(id, value)| {
+                                        (*id == unit.snake_id()).then_some(&mut **value)
+                                    }),
                                 ) {
                                     Ok(sample) => {
                                         deliveries[ordinal] = Some(sample.delivery);
@@ -567,7 +591,7 @@ impl NeuralControlPipeline {
         } else {
             for (ordinal, unit) in work.iter().enumerate() {
                 let offset = ordinal * self.inference.input_size();
-                let sample = self.sensor.sample_prepared(
+                let sample = self.sensor.sample_prepared_with_trace(
                     indexed_world,
                     generation,
                     unit.snake_index(),
@@ -577,6 +601,9 @@ impl NeuralControlPipeline {
                         assessment_points.and_then(|points| points.get(slot as usize).copied())
                     }),
                     v4,
+                    trace
+                        .as_mut()
+                        .and_then(|(id, value)| (*id == unit.snake_id()).then_some(&mut **value)),
                 )?;
                 self.deliveries[ordinal] = Some(sample.delivery);
                 self.diagnostics[ordinal] = sample.diagnostics;
@@ -1967,6 +1994,7 @@ mod tests {
                 let mut generation = SensorGenerationState::new();
                 generation.update_after_step(&world).unwrap();
                 let mut expected = None;
+                let mut expected_trace = None;
                 for workers in [1, 2, 3, 4] {
                     // Twelve due evaluations exceed both parallel-phase thresholds.
                     assert!(workers == 1 || 12 >= 2 * workers);
@@ -1984,9 +2012,12 @@ mod tests {
                         .collect();
                     let mut scratch = SensorScratch::default();
                     let mut retained = None;
-                    for _ in 0..3 {
+                    for repeat in 0..4 {
+                        let selected_id = world.snakes[9].id;
+                        let mut trace = super::super::sensor_trace::SensorTrace::default();
+                        let trace_request = (repeat != 0).then_some((selected_id, &mut trace));
                         let batch = pipeline
-                            .prepare_and_evaluate(
+                            .prepare_and_evaluate_traced(
                                 NeuralControlBatchInputs {
                                     key: CalculationBatchKey::new(7, 101, EPOCH),
                                     candidates: &candidates,
@@ -1999,6 +2030,7 @@ mod tests {
                                     reset_brains: &[],
                                 },
                                 &mut scratch,
+                                trace_request,
                             )
                             .unwrap();
                         assert_eq!(batch.work().len(), 12);
@@ -2023,6 +2055,16 @@ mod tests {
                             assert_eq!(&result, expected);
                         } else {
                             expected = Some(result);
+                        }
+                        if repeat != 0 {
+                            assert!(trace.valid);
+                            assert_eq!(trace.physical_id, selected_id);
+                            assert_eq!((trace.profile, trace.bins), (profile, bins));
+                            if let Some(expected) = &expected_trace {
+                                assert_eq!(&trace, expected);
+                            } else {
+                                expected_trace = Some(trace);
+                            }
                         }
                         let capacity = (
                             pipeline.capacity_diagnostics(),

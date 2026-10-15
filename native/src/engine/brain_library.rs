@@ -489,6 +489,11 @@ mod tests {
             assert_eq!(sample.layout.profile, profile);
             assert_eq!(sample.layout.bins, bins);
             assert_eq!(sample.normalized_inputs().len(), width);
+            let trace = sample.trace.as_ref().expect("actual due sensor trace");
+            assert!(trace.valid);
+            assert_eq!(trace.physical_id, sample.target.physical_id);
+            assert_eq!((trace.profile, trace.bins), (profile, bins));
+            assert!(trace.near_radius > 0.0 && trace.far_radius >= trace.near_radius);
             assert_eq!(sample.sample_step(), Some(1));
             assert!(sample.raw.first_delivery && sample.neural_outputs.is_some());
             assert!(inspected
@@ -513,6 +518,7 @@ mod tests {
             assert_eq!(held.normalized_inputs(), sample.normalized_inputs());
             assert_eq!(held.age_steps(inspected.completed_step()), Some(1));
             assert_eq!(held.raw, sample.raw);
+            assert_eq!(held.trace, sample.trace);
             inspected
                 .configure_inspector("saved-brain-live-test", None, 0)
                 .unwrap();

@@ -538,9 +538,9 @@ impl SensorEvaluator {
             .map_or(self, |evaluator| evaluator.legacy_evaluator())
     }
 
-    /// Dispatch the configured layout inside existing coarse control staging.
+    /// Same production sample with an optional diagnostic destination; no additional query.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn sample_prepared(
+    pub(crate) fn sample_prepared_with_trace(
         &self,
         indexed: &IndexedSensorWorld<'_>,
         generation: &SensorGenerationState,
@@ -549,15 +549,17 @@ impl SensorEvaluator {
         scratch: &mut SensorScratch,
         assessment: Option<f64>,
         prepared_v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+        trace: Option<&mut super::sensor_trace::SensorTrace>,
     ) -> Result<SensorSample, SensorError> {
         let Some(evaluator) = &self.v4 else {
-            return self.sample_with_assessment(
+            return self.sample_with_assessment_traced(
                 indexed,
                 generation,
                 snake_index,
                 output,
                 scratch,
                 assessment,
+                trace,
             );
         };
         let prepared = prepared_v4.ok_or(SensorError::MissingV4Context)?;
@@ -570,7 +572,7 @@ impl SensorEvaluator {
             .ok_or(SensorError::UnknownSnakeIndex { snake_index })?;
         let mut meter = super::ray_work::RayWorkMeter::new(grant);
         let sample = evaluator
-            .sample(
+            .sample_with_trace(
                 indexed,
                 prepared.body_rays,
                 prepared.context,
@@ -578,6 +580,7 @@ impl SensorEvaluator {
                 output,
                 &mut meter,
                 &mut scratch.v4,
+                trace,
             )
             .map_err(SensorError::V4)?;
         let capped = sample.diagnostics.body.candidate_limit_reached;
@@ -698,6 +701,32 @@ impl SensorEvaluator {
         scratch: &mut SensorScratch,
         assessment: Option<f64>,
     ) -> Result<SensorSample, SensorError> {
+        self.sample_with_assessment_traced(
+            indexed_world,
+            generation,
+            snake_index,
+            output,
+            scratch,
+            assessment,
+            None,
+        )
+    }
+
+    /// Frozen v3 equations, optionally retaining their actual raw accumulators.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_with_assessment_traced(
+        &self,
+        indexed_world: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+        mut trace: Option<&mut super::sensor_trace::SensorTrace>,
+    ) -> Result<SensorSample, SensorError> {
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.valid = false;
+        }
         if self.v4.is_some() {
             return Err(SensorError::MissingV4Context);
         }
@@ -739,6 +768,20 @@ impl SensorEvaluator {
         );
         let radii = self.radii(size_normalized);
         let best_points = generation.best_points_this_generation.max(0.001);
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.begin(
+                snake,
+                super::sensor_contract::SensorProfile::V3,
+                self.layout.bins,
+                radii,
+            );
+            trace.size_factor = size_normalized;
+            trace.generation_best_points = Some(generation.best_points_this_generation);
+            trace.assessment_points = Some(assessment.unwrap_or(snake.points));
+            trace.generation_seconds = self.config.generation_seconds;
+            trace.food_saturation = self.config.food_saturation.max(0.1);
+            trace.boost_speed = self.config.snake_boost_speed;
+        }
 
         output[0] = snake.direction.sin() as f32;
         output[1] = snake.direction.cos() as f32;
@@ -779,6 +822,10 @@ impl SensorEvaluator {
         let effective_cost = self.config.boost_points_cost_per_second
             * (1.0 + self.config.boost_points_cost_size_factor * size_normalized);
         let cost_scale = self.config.boost_points_cost_per_second * 3.0;
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.boost_cost = effective_cost;
+            trace.boost_headroom = snake.points - self.config.minimum_boost_points;
+        }
         output[11] = clamp(
             2.0 * (effective_cost / cost_scale.max(1.0)) - 1.0,
             -1.0,
@@ -948,8 +995,14 @@ impl SensorEvaluator {
             let clearance = (distance - hit_threshold).max(0.0);
             let relative = normalize_angle(dy.atan2(dx) - snake.direction);
             let bin = angle_to_centered_bin(relative, self.layout.bins);
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.head_count[bin] += 1;
+            }
             if clearance < f64::from(scratch.head_bins[bin]) {
                 scratch.head_bins[bin] = clearance as f32;
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.head_ids[bin] = other.id;
+                }
             }
         }
         output[17] = clamp(
@@ -975,6 +1028,10 @@ impl SensorEvaluator {
             let clearance = clamp(distance - snake.radius, 0.0, radii.near);
             output[self.layout.offsets.wall + index] =
                 ratio_to_bipolar(clearance / radii.near) as f32;
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.ray_headings[index] = theta;
+                trace.wall_clearance[index] = clearance;
+            }
         }
 
         let age_ratio = (snake.age_seconds / self.config.generation_seconds.max(1.0)).min(1.0);
@@ -984,6 +1041,25 @@ impl SensorEvaluator {
         }
         #[cfg(feature = "engine-test-hooks")]
         scratch.record_phase(&mut phase_started, SensorPhase::Wall);
+        if let Some(trace) = trace {
+            trace.nearest_food_distance = found_food.then_some(nearest_food_distance);
+            trace.nearest_food_bearing =
+                (found_food && nearest_food_distance > 1.0e-6).then(|| {
+                    normalize_angle(
+                        nearest_food_delta.y.atan2(nearest_food_delta.x) - snake.direction,
+                    )
+                });
+            trace.nearest_body_clearance = Some(nearest_body_distance);
+            trace.nearest_head_clearance = Some(nearest_head_distance);
+            trace.pellet_saturated = pellet_capped;
+            trace.body_saturated = segment_capped;
+            for bin in 0..self.layout.bins {
+                trace.food_strength[bin] = f64::from(scratch.food_bins[bin]);
+                trace.body_clearance[bin] = f64::from(scratch.hazard_bins[bin]);
+                trace.head_clearance[bin] = f64::from(scratch.head_bins[bin]);
+            }
+            trace.valid = true;
+        }
         Ok(SensorSample {
             delivery: ObservationDeliveryMarker {
                 snake_id: snake.id,
@@ -2006,7 +2082,7 @@ mod tests {
             };
             let mut actual = vec![0.0; evaluator.layout().input_size];
             let mut scratch = SensorScratch::default();
-            evaluator
+            let plain = evaluator
                 .sample(
                     &indexed,
                     &generation,
@@ -2015,6 +2091,45 @@ mod tests {
                     &mut scratch,
                 )
                 .unwrap_or_else(|error| panic!("{} sample failed: {error}", case.name));
+            let mut traced_output = vec![0.0; actual.len()];
+            let mut trace = super::super::sensor_trace::SensorTrace::default();
+            let traced = evaluator
+                .sample_with_assessment_traced(
+                    &indexed,
+                    &generation,
+                    target_index,
+                    &mut traced_output,
+                    &mut SensorScratch::default(),
+                    None,
+                    Some(&mut trace),
+                )
+                .unwrap();
+            assert_eq!(traced_output, actual);
+            assert_eq!(traced.diagnostics, plain.diagnostics);
+            assert_eq!(traced.delivery, plain.delivery);
+            assert!(trace.valid);
+            assert_eq!(
+                trace.profile,
+                super::super::sensor_contract::SensorProfile::V3
+            );
+            assert_eq!(trace.physical_id, case.target_id);
+            assert_eq!(trace.body_length, world.snakes[target_index].body.len);
+            assert_eq!(
+                trace.generation_best_points,
+                Some(case.best_points_this_generation)
+            );
+            assert!(trace
+                .body_rays
+                .iter()
+                .all(|ray| *ray == super::super::sensor_trace::SensorTraceRay::NotSampled));
+            for bin in 0..evaluator.layout().bins {
+                assert_eq!(trace.food_strength[bin], f64::from(scratch.food_bins[bin]));
+                assert_eq!(
+                    trace.body_clearance[bin],
+                    f64::from(scratch.hazard_bins[bin])
+                );
+                assert_eq!(trace.head_clearance[bin], f64::from(scratch.head_bins[bin]));
+            }
             assert_eq!(actual.len(), case.expected.len(), "{} length", case.name);
             for (index, (actual, expected)) in actual.iter().zip(&case.expected).enumerate() {
                 let difference = f64::from((*actual - *expected).abs());

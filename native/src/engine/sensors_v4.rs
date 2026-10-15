@@ -168,6 +168,34 @@ impl SensorV4Evaluator {
         ray_work: &mut RayWorkMeter,
         scratch: &mut V4SensorScratch,
     ) -> Result<V4SensorSample, V4SensorError> {
+        self.sample_with_trace(
+            indexed,
+            body_rays,
+            context,
+            snake_index,
+            output,
+            ray_work,
+            scratch,
+            None,
+        )
+    }
+
+    /// Copy optional raw diagnostics during the same pure observation pass.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_with_trace(
+        &self,
+        indexed: &IndexedSensorWorld<'_>,
+        body_rays: BodyRayIndex<'_, '_>,
+        context: V4ObservationContext<'_>,
+        snake_index: usize,
+        output: &mut [f32],
+        ray_work: &mut RayWorkMeter,
+        scratch: &mut V4SensorScratch,
+        mut trace: Option<&mut super::sensor_trace::SensorTrace>,
+    ) -> Result<V4SensorSample, V4SensorError> {
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.valid = false;
+        }
         if !body_rays.is_from(indexed.body_index())
             || output.len() != self.layout.input_size()
             || !context.generation_elapsed_seconds.is_finite()
@@ -204,6 +232,19 @@ impl SensorV4Evaluator {
             && snake.points > 0.0
             && cost > 0.0;
         let delta = snake.points - snake.delivered_observation_points;
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.begin(snake, self.layout.profile(), bins, radii);
+            trace.size_factor = size;
+            trace.boost_cost = cost;
+            trace.boost_headroom = headroom;
+            trace.boost_eligible = Some(eligible);
+            trace.life_points = Some(life_points);
+            trace.assessment_points = Some(assessment);
+            trace.generation_elapsed_seconds = Some(context.generation_elapsed_seconds);
+            trace.generation_seconds = cfg.generation_seconds;
+            trace.food_saturation = cfg.food_saturation;
+            trace.boost_speed = cfg.snake_boost_speed;
+        }
         output.fill(0.0);
         output[..24].copy_from_slice(&[
             snake.direction.sin() as f32,
@@ -337,11 +378,21 @@ impl SensorV4Evaluator {
                     -1.0
                 }
             };
-            output[24 + 4 * bins + bin] = bipolar(
-                ray.wall_clearance(cfg.world_radius, snake.radius)
-                    .map_err(|_| V4SensorError::Geometry)?
-                    / radii.near,
-            );
+            let wall_clearance = ray
+                .wall_clearance(cfg.world_radius, snake.radius)
+                .map_err(|_| V4SensorError::Geometry)?;
+            output[24 + 4 * bins + bin] = bipolar(wall_clearance / radii.near);
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.ray_headings[bin] = angle;
+                trace.wall_clearance[bin] = wall_clearance;
+                trace.body_rays[bin] = match results[bin] {
+                    RayIntersection::Hit(distance) => {
+                        super::sensor_trace::SensorTraceRay::Hit(distance)
+                    }
+                    RayIntersection::Clear => super::sensor_trace::SensorTraceRay::Clear,
+                    RayIntersection::Incomplete => super::sensor_trace::SensorTraceRay::Incomplete,
+                };
+            }
         }
         output[23] = flag(body.candidate_limit_reached || incomplete_rays != 0);
         let motion = self.layout.profile() == SensorProfile::Motion;
@@ -395,12 +446,30 @@ impl SensorV4Evaluator {
                     );
                     scratch.urgency[bin] =
                         scratch.urgency[bin].max(1.0 - encounter.seconds / MOTION_HORIZON_SECONDS);
+                    if let Some(trace) = trace.as_deref_mut() {
+                        trace.encounter_seconds[bin] = Some(
+                            trace.encounter_seconds[bin].map_or(encounter.seconds, |previous| {
+                                previous.min(encounter.seconds)
+                            }),
+                        );
+                    }
                 }
             }
         }
         let mut representatives = [0; MAX_SENSOR_BINS];
         for bin in 0..bins {
             output[24 + 5 * bins + bin] = bipolar(scratch.head_clearance[bin] / radii.near);
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.food_strength[bin] = scratch.near_food[bin];
+                trace.far_food_strength[bin] = scratch.far_food[bin];
+                trace.body_clearance[bin] = scratch.body_clearance[bin];
+                trace.head_clearance[bin] = scratch.head_clearance[bin];
+                trace.head_count[bin] = scratch.head_count[bin];
+                trace.urgency[bin] = scratch.urgency[bin];
+                if scratch.nearest_head[bin] != usize::MAX {
+                    trace.head_ids[bin] = world.snakes[scratch.nearest_head[bin]].id;
+                }
+            }
             if !motion {
                 continue;
             }
@@ -431,12 +500,25 @@ impl SensorV4Evaluator {
                 signed((vx * forward_x + vy * forward_y) / (2.0 * cfg.snake_boost_speed));
             output[24 + 12 * bins + bin] =
                 signed((-vx * forward_y + vy * forward_x) / (2.0 * cfg.snake_boost_speed));
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.head_bearing_offset[bin] =
+                    wrap(bearing - (-PI + bin as f64 * TAU / bins as f64));
+                trace.head_length_ratio[bin] = other.body.len as f64 / snake.body.len as f64;
+                trace.relative_heading[bin] = heading;
+                trace.relative_forward_speed[bin] = vx * forward_x + vy * forward_y;
+                trace.relative_side_speed[bin] = -vx * forward_y + vy * forward_x;
+            }
         }
         if output
             .iter()
             .any(|value| !value.is_finite() || !(-1.0..=1.0).contains(value))
         {
             return Err(V4SensorError::Geometry);
+        }
+        if let Some(trace) = trace {
+            trace.pellet_saturated = pellets.candidate_limit_reached;
+            trace.body_saturated = body.candidate_limit_reached;
+            trace.valid = true;
         }
         Ok(V4SensorSample {
             delivery: ObservationDeliveryMarker {
@@ -652,6 +734,108 @@ mod tests {
             )
             .unwrap();
         (output, result)
+    }
+    #[test]
+    fn raw_trace_preserves_quota_results_and_distinguishes_incomplete_rays() {
+        use crate::engine::sensor_trace::{SensorTrace, SensorTraceRay};
+        let mut world = WorldState::default();
+        add_snake(&mut world, 1, SnakeKind::External, point(0.0, 0.0), 0.0, 10);
+        add_snake(&mut world, 2, SnakeKind::Baseline, point(80.0, 0.0), PI, 20);
+        let indexed = IndexedSensorWorld::build(
+            &world,
+            SensorIndexConfig {
+                body_cell_size: 70.0,
+                pellet_cell_size: 120.0,
+                maximum_body_entries: 1_000_000,
+                maximum_pellet_entries: 100_000,
+            },
+        )
+        .unwrap();
+        let mut rays = BodyRayIndexWorkspace::default();
+        let view = rays.prepare(indexed.body_index()).unwrap();
+        let lives = EvolvedGenerationState::default();
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for grant in [0, 4096] {
+                let evaluator = evaluator(profile, 16);
+                let context = V4ObservationContext {
+                    generation_elapsed_seconds: 120.0,
+                    evolved: &lives,
+                    experiment: EvolvedExperimentConfig::legacy(240.0),
+                };
+                let mut expected = vec![0.0; evaluator.layout().input_size()];
+                let mut actual = expected.clone();
+                let mut plain_meter = RayWorkMeter::new(grant);
+                let plain = evaluator
+                    .sample(
+                        &indexed,
+                        view,
+                        context,
+                        0,
+                        &mut expected,
+                        &mut plain_meter,
+                        &mut V4SensorScratch::default(),
+                    )
+                    .unwrap();
+                let mut trace = SensorTrace::default();
+                let mut traced_meter = RayWorkMeter::new(grant);
+                let traced = evaluator
+                    .sample_with_trace(
+                        &indexed,
+                        view,
+                        context,
+                        0,
+                        &mut actual,
+                        &mut traced_meter,
+                        &mut V4SensorScratch::default(),
+                        Some(&mut trace),
+                    )
+                    .unwrap();
+                assert_eq!(actual, expected);
+                assert_eq!(traced.diagnostics, plain.diagnostics);
+                assert_eq!(traced.delivery, plain.delivery);
+                assert_eq!(traced_meter, plain_meter);
+                assert!(trace.valid);
+                assert_eq!(trace.physical_id, 1);
+                assert_eq!(trace.head_ids[8], 2);
+                assert_eq!(trace.head_count[8], 1);
+                assert_eq!(
+                    trace.head_clearance[8],
+                    80.0 - 18.0 * evaluator.common.config().collision_hit_scale
+                );
+                if grant == 0 {
+                    assert!(trace.body_rays[..16].contains(&SensorTraceRay::Incomplete));
+                } else {
+                    assert!(trace.body_rays[..16]
+                        .iter()
+                        .all(|ray| matches!(ray, SensorTraceRay::Hit(_) | SensorTraceRay::Clear)));
+                    assert!(trace.body_rays[..16]
+                        .iter()
+                        .any(|ray| matches!(ray, SensorTraceRay::Hit(_))));
+                }
+                assert!(trace.body_rays[16..]
+                    .iter()
+                    .all(|ray| *ray == SensorTraceRay::NotSampled));
+                if profile == SensorProfile::Motion {
+                    assert_eq!(trace.relative_forward_speed[8], -330.0);
+                    assert_eq!(trace.head_length_ratio[8], 2.0);
+                    assert!(trace.encounter_seconds.iter().any(Option::is_some));
+                }
+                let mut invalid = vec![];
+                assert!(evaluator
+                    .sample_with_trace(
+                        &indexed,
+                        view,
+                        context,
+                        0,
+                        &mut invalid,
+                        &mut traced_meter,
+                        &mut V4SensorScratch::default(),
+                        Some(&mut trace)
+                    )
+                    .is_err());
+                assert!(!trace.valid);
+            }
+        }
     }
     fn simple(profile: SensorProfile, world: &WorldState) -> (Vec<f32>, V4SensorSample) {
         sample(

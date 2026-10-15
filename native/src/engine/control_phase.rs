@@ -1940,7 +1940,7 @@ impl ControlPhaseWorkspace {
             }
             for event in &mut self.external_events {
                 let end = event.observation_start + event.observation_len;
-                let sample = self.neural.sensor().sample_prepared(
+                let sample = self.neural.sensor().sample_prepared_with_trace(
                     indexed,
                     inputs.generation,
                     event.snake_index,
@@ -1948,6 +1948,9 @@ impl ControlPhaseWorkspace {
                     &mut self.sensor_scratch,
                     None,
                     prepared_v4,
+                    self.inspector
+                        .as_mut()
+                        .and_then(|capture| capture.trace_for(world.snakes[event.snake_index].id)),
                 )?;
                 event.delivery = sample.delivery;
                 event.diagnostics = sample.diagnostics;
@@ -1973,7 +1976,7 @@ impl ControlPhaseWorkspace {
             let neural_input_size = self.neural.sensor().layout().input_size;
             let neural_output_size = self.neural.inference().output_size();
             let neural_started = Instant::now();
-            let batch = self.neural.prepare_and_evaluate(
+            let batch = self.neural.prepare_and_evaluate_traced(
                 NeuralControlBatchInputs {
                     key: calculation_key,
                     candidates: &self.neural_candidates,
@@ -1986,6 +1989,9 @@ impl ControlPhaseWorkspace {
                     reset_brains: &self.reset_brains,
                 },
                 &mut self.sensor_scratch,
+                self.inspector
+                    .as_mut()
+                    .map(|capture| capture.trace_request()),
             )?;
             self.last_cost.neural_batch =
                 u64::try_from(neural_started.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -2102,13 +2108,21 @@ impl ControlPhaseWorkspace {
                 snake_id: snake.id,
                 field: "RNG",
             })?;
-        let sample = self.neural.sensor().legacy_evaluator().sample(
-            indexed,
-            inputs.generation,
-            snake_index,
-            &mut self.baseline_observation,
-            &mut self.sensor_scratch,
-        )?;
+        let sample = self
+            .neural
+            .sensor()
+            .legacy_evaluator()
+            .sample_with_assessment_traced(
+                indexed,
+                inputs.generation,
+                snake_index,
+                &mut self.baseline_observation,
+                &mut self.sensor_scratch,
+                None,
+                self.inspector
+                    .as_mut()
+                    .and_then(|capture| capture.trace_for(snake.id)),
+            )?;
         let evaluation = self.baseline.prepare(
             world,
             snake_index,
@@ -2292,7 +2306,7 @@ impl ControlPhaseWorkspace {
                 snake_id: snake.id,
                 field: "v2 behavior RNG",
             })?;
-        let sample = self.neural.sensor().sample_prepared(
+        let sample = self.neural.sensor().sample_prepared_with_trace(
             indexed,
             inputs.generation,
             snake_index,
@@ -2300,6 +2314,9 @@ impl ControlPhaseWorkspace {
             &mut self.sensor_scratch,
             None,
             v4,
+            self.inspector
+                .as_mut()
+                .and_then(|capture| capture.trace_for(snake.id)),
         )?;
         let step = key.step();
         let elapsed = match source_slot.v2_last_control_step {
@@ -4153,6 +4170,12 @@ mod tests {
                         crate::engine::inspector::InspectorObservationSource::BaselineV2
                     );
                     assert_eq!(observed.layout.profile, profile);
+                    let trace = observed
+                        .trace
+                        .as_ref()
+                        .expect("baseline-v2 actual raw trace");
+                    assert_eq!((trace.profile, trace.bins), (profile, 16));
+                    assert_eq!(trace.physical_id, observed.target.physical_id);
                     assert!(observed.baseline_action.is_some());
                     if due {
                         assert_eq!(observed.normalized_inputs(), expected_row);
@@ -4362,6 +4385,12 @@ mod tests {
                             crate::engine::inspector::InspectorObservationSource::BaselineV1
                         );
                         assert_eq!(observed.layout.profile, SensorProfile::V3);
+                        let trace = observed
+                            .trace
+                            .as_ref()
+                            .expect("legacy baseline actual raw trace");
+                        assert_eq!((trace.profile, trace.bins), (SensorProfile::V3, bins));
+                        assert_eq!(trace.physical_id, observed.target.physical_id);
                         assert_eq!(observed.normalized_inputs().len(), 19 + 4 * bins);
                         assert!(observed.baseline_action.is_none());
                     }
