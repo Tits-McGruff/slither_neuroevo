@@ -571,6 +571,15 @@ all 731 release library tests with engine hooks, 26 focused sensor cases, 45
 control cases, eight library/runtime cases, three inspector cases, rustfmt and
 Clippy. The preceding delivery-cache checkpoint passes the complete Windows/Linux
 and Node 24/26 CI matrix; unchanged client/server code reuses that evidence.
+The next native transport slice adds an ordered exact-token subscription command,
+a separate replaceable mailbox limited to 10 Hz, a sequenced clear on close, and
+a bounded Rust-authored JSON read. Its additional copy/encoding reserve is charged
+to the existing worker ceiling. Full-width source IDs and age chronology remain
+exact strings; raw graph outputs are separate from clipped motor actions. A
+strict presentation decoder checks profile widths, source/action combinations,
+finite scalars, exact bin arrays and explicit unknown rays. Actual production
+addon tests exercise select/enable/read/stale-run rejection/close through the
+command queue. Browser subscription/routing and presentation remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

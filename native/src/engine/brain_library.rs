@@ -484,6 +484,47 @@ mod tests {
                     .service_after_command_drain(17, SchedulerServiceMode::Background, None)
                     .unwrap();
             }
+            let display =
+                super::super::display::RunningDisplayCache::new(inspected.admitted_frame_bytes())
+                    .unwrap();
+            display.publish_inspector(&inspected, 0).unwrap();
+            let first_mailbox = display.latest_inspector(0).unwrap().unwrap();
+            let wire: serde_json::Value = serde_json::from_str(
+                &super::super::inspector_wire::encode(&first_mailbox).unwrap(),
+            )
+            .unwrap();
+            let mut exact = first_mailbox;
+            exact.sequence = u64::MAX;
+            let exact_sample = exact.observation.as_mut().unwrap();
+            exact_sample.target.physical_id = u64::MAX;
+            let exact_trace = exact_sample.trace.as_mut().unwrap();
+            exact_trace.physical_id = u64::MAX;
+            exact_trace.kills = u64::MAX;
+            exact_trace.head_ids[..bins].fill(u64::MAX);
+            let exact_wire: serde_json::Value =
+                serde_json::from_str(&super::super::inspector_wire::encode(&exact).unwrap())
+                    .unwrap();
+            assert_eq!(exact_wire["sequence"], "ffffffffffffffff");
+            assert_eq!(exact_wire["sample"]["physicalId"], "ffffffffffffffff");
+            assert_eq!(exact_wire["sample"]["trace"]["kills"], "ffffffffffffffff");
+            assert_eq!(
+                exact_wire["sample"]["trace"]["headIds"][0],
+                "ffffffffffffffff"
+            );
+            assert_eq!(wire["schemaVersion"], 1);
+            assert_eq!(wire["sample"]["sampleStep"], "0000000000000001");
+            assert_eq!(wire["sample"]["ageSteps"], "0000000000000000");
+            assert_eq!(
+                wire["sample"]["normalizedInputs"].as_array().unwrap().len(),
+                width
+            );
+            assert_eq!(
+                wire["sample"]["trace"]["bodyRays"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                bins
+            );
             let sample = *inspected.inspector_observation().unwrap();
             assert_eq!(sample.source, InspectorObservationSource::Neural);
             assert_eq!(sample.layout.profile, profile);
@@ -519,9 +560,50 @@ mod tests {
             assert_eq!(held.age_steps(inspected.completed_step()), Some(1));
             assert_eq!(held.raw, sample.raw);
             assert_eq!(held.trace, sample.trace);
+            display.publish_inspector(&inspected, 99).unwrap();
+            assert!(display
+                .latest_inspector(first_mailbox.sequence)
+                .unwrap()
+                .is_none());
+            display.publish_inspector(&inspected, 100).unwrap();
+            let aged = display
+                .latest_inspector(first_mailbox.sequence)
+                .unwrap()
+                .unwrap();
+            let aged_wire: serde_json::Value =
+                serde_json::from_str(&super::super::inspector_wire::encode(&aged).unwrap())
+                    .unwrap();
+            assert_eq!(
+                aged_wire["sample"]["sampleStep"],
+                wire["sample"]["sampleStep"]
+            );
+            assert_eq!(aged_wire["sample"]["ageSteps"], "0000000000000001");
+            assert_eq!(aged_wire["sample"]["trace"], wire["sample"]["trace"]);
+            let mut invalid = aged;
+            invalid
+                .observation
+                .as_mut()
+                .unwrap()
+                .trace
+                .as_mut()
+                .unwrap()
+                .fitness = f64::NAN;
+            assert!(super::super::inspector_wire::encode(&invalid).is_err());
             inspected
                 .configure_inspector("saved-brain-live-test", None, 0)
                 .unwrap();
+            display.publish_inspector(&inspected, 101).unwrap();
+            let cleared = display.latest_inspector(aged.sequence).unwrap().unwrap();
+            assert!(cleared.observation.is_none());
+            let clear_wire: serde_json::Value =
+                serde_json::from_str(&super::super::inspector_wire::encode(&cleared).unwrap())
+                    .unwrap();
+            assert!(clear_wire["sample"].is_null());
+            display.publish_inspector(&inspected, 102).unwrap();
+            assert!(display
+                .latest_inspector(cleared.sequence)
+                .unwrap()
+                .is_none());
             for wall in [51, 68, 85, 102] {
                 for running in [&mut inspected, &mut reference] {
                     running

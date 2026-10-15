@@ -64,6 +64,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/net/authoritativeControls.test.ts',
     'src/net/brainLibrary.test.ts',
     'src/net/entitySelection.test.ts',
+    'src/protocol/inspector.test.ts',
     'src/net/playerActionPump.test.ts',
     'src/net/wsClient.test.ts',
     'src/settings.test.ts',

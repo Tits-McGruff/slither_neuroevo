@@ -584,6 +584,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
     pub saved_brain_spawn: Option<BackgroundHallOfFameResurrection>,
     pub visualization_enabled: Option<bool>,
+    pub inspector_enabled: Option<bool>,
     pub teacher_capture_epoch: Option<String>,
     pub teacher_capture_enabled: Option<bool>,
     pub shadow_change: Option<BackgroundShadowChange>,
@@ -3759,6 +3760,14 @@ fn running_authority_event_to_napi(
                 effective_step: u64_hex(effective_step),
             });
         }
+        RunningAuthorityEvent::InspectorChanged {
+            command_sequence,
+            enabled,
+        } => {
+            output.kind = "inspectorChanged".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.inspector_enabled = Some(enabled);
+        }
         RunningAuthorityEvent::VisualizationChanged {
             command_sequence,
             enabled,
@@ -4043,6 +4052,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         hall_of_fame_resurrection: None,
         saved_brain_spawn: None,
         visualization_enabled: None,
+        inspector_enabled: None,
         teacher_capture_epoch: None,
         teacher_capture_enabled: None,
         shadow_change: None,

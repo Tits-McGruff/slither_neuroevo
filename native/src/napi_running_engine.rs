@@ -1394,6 +1394,42 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Admit or close one selected diagnostic cache through the ordinary command queue.
+    #[napi(catch_unwind)]
+    pub fn submit_inspector(
+        &self,
+        sequence: JsString<'_>,
+        expected_run_id: JsString<'_>,
+        token: Option<JsString<'_>>,
+        frame_v1_id: Option<f64>,
+    ) -> Result<()> {
+        let selection = match (token, frame_v1_id) {
+            (None, None) => None,
+            (Some(token), Some(frame)) => Some(Box::new((
+                crate::engine::state::EntitySelectionToken::parse(&bounded_js_string(
+                    token,
+                    "selectionToken",
+                    64,
+                    false,
+                )?)
+                .map_err(napi::Error::from_reason)?,
+                checked_entity_index(frame, crate::engine::state::FRAME_V1_MAX_EXACT_ID, false)?,
+            ))),
+            _ => {
+                return Err(napi::Error::from_reason(
+                    "inspector needs both token and frame ID, or neither",
+                ))
+            }
+        };
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ConfigureInspector {
+                expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
+                selection,
+            },
+        )
+    }
+
     /// Queue one browser-addressed God Mode translation at the next clean boundary.
     #[napi(catch_unwind)]
     pub fn submit_god_mode_move(
@@ -1718,6 +1754,26 @@ impl ExperimentalRunningAuthority {
                 .latest_display()
                 .map(|status| status.map(display_status_to_napi))
                 .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Return one bounded Rust-authored projection; never sample or execute a model here.
+    #[napi(catch_unwind)]
+    pub fn latest_inspector(&self, after_sequence: JsString<'_>) -> Result<Option<String>> {
+        let after_sequence = parse_u64_hex(
+            &bounded_js_string(after_sequence, "afterSequence", 16, false)?,
+            "afterSequence",
+            true,
+        )?;
+        self.root(|| {
+            self.runtime
+                .latest_inspector(after_sequence)
+                .map_err(engine_error_to_napi)?
+                .map(|snapshot| {
+                    crate::engine::inspector_wire::encode(&snapshot)
+                        .map_err(napi::Error::from_reason)
+                })
+                .transpose()
         })
     }
 
