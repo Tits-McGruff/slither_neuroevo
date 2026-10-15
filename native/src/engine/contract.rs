@@ -210,6 +210,7 @@ impl EngineCommand {
                     | RunningAuthorityCommand::StopShadow { .. }
                     | RunningAuthorityCommand::StopTeacherCapture { .. }
                     | RunningAuthorityCommand::SelectEntity { .. }
+                    | RunningAuthorityCommand::ConfigureInspector { .. }
                     | RunningAuthorityCommand::GodModeMove { .. }
                     | RunningAuthorityCommand::GodModeKill { .. }
                     | RunningAuthorityCommand::FinishGeneration { .. }
@@ -381,6 +382,11 @@ pub enum RunningAuthorityCommand {
         expected_run_id: String,
         expected_generation: u64,
     },
+    /// Enable one selected diagnostic cache or close it at a clean boundary.
+    ConfigureInspector {
+        expected_run_id: String,
+        selection: Option<Box<(super::state::EntitySelectionToken, u32)>>,
+    },
     /// Translate one browser-addressed live snake before the next step.
     GodModeMove {
         token: Box<super::state::EntitySelectionToken>,
@@ -514,6 +520,11 @@ impl RunningAuthorityCommand {
                     || *expected_generation == 0 || matches!(target, super::state::EntitySelectionTarget::Frame(0))
                     || matches!(target, super::state::EntitySelectionTarget::PopulationSlot(slot) if *slot >= 300) =>
             { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid entity selection scope")) }
+            Self::ConfigureInspector { expected_run_id, selection }
+                if expected_run_id.is_empty() || expected_run_id.len() > 256
+                    || expected_run_id.contains('\0')
+                    || selection.as_ref().is_some_and(|value| value.1 == 0 || value.1 > super::state::FRAME_V1_MAX_EXACT_ID) =>
+            { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid inspector scope")) }
             Self::GodModeMove { frame_v1_id, x, y, .. }
                 if *frame_v1_id == 0 || !x.is_finite() || !y.is_finite() =>
             {
@@ -646,6 +657,13 @@ impl RunningAuthorityCommand {
             Self::SelectEntity {
                 expected_run_id, ..
             } => Ok(expected_run_id.capacity()),
+            Self::ConfigureInspector {
+                expected_run_id,
+                selection,
+            } => Ok(expected_run_id.capacity().saturating_add(
+                usize::from(selection.is_some())
+                    * size_of::<(super::state::EntitySelectionToken, u32)>(),
+            )),
             Self::GodModeMove { .. } | Self::GodModeKill { .. } => {
                 Ok(size_of::<super::state::EntitySelectionToken>())
             }
@@ -854,6 +872,11 @@ pub enum RunningAuthorityEvent {
         frame_v1_id: u32,
         effective_step: u64,
     },
+    /// Selected diagnostic subscription changed; rows use a separate replaceable mailbox.
+    InspectorChanged {
+        command_sequence: u64,
+        enabled: bool,
+    },
     /// Focused capture work changed without mutating authoritative game state.
     VisualizationChanged {
         command_sequence: u64,
@@ -992,7 +1015,7 @@ impl RunningAuthorityEvent {
             Self::GodModeMoved { .. } => 0,
             Self::GodModeKilled { .. } => 0,
             Self::HallOfFameResurrected { .. } | Self::SavedBrainSpawned { .. } => 0,
-            Self::VisualizationChanged { .. } => 0,
+            Self::VisualizationChanged { .. } | Self::InspectorChanged { .. } => 0,
             Self::TeacherCaptureChanged { .. } | Self::ShadowChanged { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,

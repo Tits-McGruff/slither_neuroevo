@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
+import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
 import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createExperimentalServerRuntime } from './experimentalStartup.ts';
 import { RUST_CALCULATION_WORKER_MAX } from '../rustWorkers.ts';
 import { BackgroundOutputPump } from './backgroundOutput.ts';
@@ -897,6 +898,10 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(() => runtime.submitStopShadow('0000000000000001', {
         shadowSlot: 0, captureEpoch: '12'.repeat(16), activationSequence: '0000000000000000'
       })).toThrow(/zero|positive/i);
+      expect(runtime.latestInspector('0000000000000000')).toBeNull();
+      expect(() => runtime.latestInspector('x'.repeat(1000))).toThrow(/afterSequence/i);
+      expect(() => runtime.submitInspector('0000000000000001', startup.runId, '1'.repeat(64))).toThrow(/both token/i);
+      expect(() => runtime.submitInspector('0000000000000001', startup.runId, '1'.repeat(64), 16_777_217)).toThrow();
       expect(runtime.health().processedCommands).toBe('0000000000000000');
       runtime.start();
       expect(() => runtime.start()).toThrow(/cannot start/i);
@@ -1013,6 +1018,44 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(events).toContainEqual(expect.objectContaining({
         kind: 'commandRejected', commandSequence: '0000000000000003', rejectionCode: 'InvalidCommand'
       }));
+      /** Wait for one actual native receipt without routing or computing any model state. */
+      const inspectorReceipt = async (sequence: string): Promise<RustBackgroundEvent> => {
+        const limit = performance.now() + 5000;
+        while (performance.now() < limit) {
+          const event = runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events
+            .find(value => value.commandSequence === sequence);
+          if (event) return event;
+          await new Promise<void>(done => setImmediate(done));
+        }
+        throw new Error('inspector receipt deadline');
+      };
+      runtime.submitEntitySelection('0000000000000004', 'slot', 0, startup.runId, runtime.health().generation!);
+      const selected = (await inspectorReceipt('0000000000000004')).entitySelection;
+      expect(selected).toBeDefined();
+      runtime.submitInspector('0000000000000005', startup.runId, selected!.token, selected!.snakeId);
+      expect(await inspectorReceipt('0000000000000005')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: true});
+      let inspector: string | null = null;
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        inspector = runtime.latestInspector('0000000000000000');
+        expect(inspector).not.toBeNull();
+      }, {timeout: 5000, interval: 10});
+      const inspected = parseInspectorSnapshot(JSON.parse(inspector!));
+      expect(Buffer.byteLength(inspector!, 'utf8')).toBeLessThanOrEqual(64 * 1024);
+      expect(inspected).toMatchObject({schemaVersion: 1, sample: {snakeId: selected!.snakeId,
+        profile: 'v3', bins: 16, source: {kind: 'neural'}, normalizedInputs: expect.any(Array),
+        trace: {bodyRays: Array(16).fill({kind: 'not-sampled'})}}});
+      expect(inspected.sample!.normalizedInputs).toHaveLength(83);
+      runtime.submitInspector('0000000000000006', 'stale-inspector-run');
+      expect(await inspectorReceipt('0000000000000006')).toMatchObject({kind: 'commandRejected'});
+      expect(JSON.parse(runtime.latestInspector('0000000000000000')!).sample.snakeId).toBe(selected!.snakeId);
+      runtime.submitInspector('0000000000000007', startup.runId);
+      expect(await inspectorReceipt('0000000000000007')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
+      await vi.waitFor(() => {
+        const cleared = runtime.latestInspector(inspected.sequence);
+        expect(cleared).not.toBeNull();
+        expect(JSON.parse(cleared!).sample).toBeNull();
+      }, {timeout: 5000, interval: 10});
       expect(events.filter(event => event.kind === 'started')).toHaveLength(1);
       expect(runtime.health().faultCode).toBeUndefined();
       expect(wakes).toBeGreaterThan(0);

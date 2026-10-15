@@ -413,6 +413,20 @@ impl EngineRuntime {
         }
     }
 
+    /// Copy only a newer bounded selected diagnostic snapshot from its mailbox.
+    pub fn latest_inspector(
+        &self,
+        after_sequence: u64,
+    ) -> Result<Option<super::inspector::RunningInspectorStatus>, EngineError> {
+        match &self.mode {
+            RuntimeMode::RunningAuthority {
+                display: Some(display),
+                ..
+            } => display.latest_inspector(after_sequence),
+            _ => Ok(None),
+        }
+    }
+
     /// Copy only a newer single-brain visualization from the independent cache.
     pub fn latest_visualization(
         &self,

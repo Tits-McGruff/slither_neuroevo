@@ -691,7 +691,9 @@ pub(crate) fn run_running_coordinator(
             } else {
                 display.clear_visualization()?;
             }
-            display.publish_if_due(running, monotonic_elapsed_ms(wall_origin)?, output)?;
+            let now_ms = monotonic_elapsed_ms(wall_origin)?;
+            display.publish_inspector(running, now_ms)?;
+            display.publish_if_due(running, now_ms, output)?;
         }
         match wait {
             RunningWait::Immediate => {}
@@ -1078,6 +1080,13 @@ fn execute_running_authority_command(
             .select_entity(target, &expected_run_id, expected_generation)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|selection| RunningAuthorityEvent::EntitySelected { command_sequence, selection }),
+        RunningAuthorityCommand::ConfigureInspector { expected_run_id, selection } => {
+            let enabled = selection.is_some();
+            running.configure_inspector(&expected_run_id, selection.map(|value| *value),
+                super::inspector::MAX_INSPECTOR_BYTES)
+                .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                .map(|()| RunningAuthorityEvent::InspectorChanged { command_sequence, enabled })
+        }
         RunningAuthorityCommand::GodModeMove { token, frame_v1_id, x, y } => running
             .apply_god_mode_move(*token, frame_v1_id, x, y)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
@@ -1348,6 +1357,7 @@ fn running_response_owned_byte_bound(
         RunningAuthorityCommand::ApplyLiveSettings { .. } => 128,
         RunningAuthorityCommand::FinishGeneration { .. } => 0,
         RunningAuthorityCommand::SelectEntity { .. } => 0,
+        RunningAuthorityCommand::ConfigureInspector { .. } => 0,
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
         RunningAuthorityCommand::SetVisualization { .. } => 0,

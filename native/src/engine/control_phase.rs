@@ -1510,10 +1510,13 @@ impl ControlPhaseWorkspace {
         )?
         .max(self.neural.allocated_staging_bytes());
         neural
-            .checked_add(
-                std::mem::size_of::<super::inspector::InspectorCapture>()
-                    * (1 + usize::from(self.inspector.is_some())),
-            )
+            .checked_add(super::inspector::INSPECTOR_TRANSPORT_RESERVE)
+            .and_then(|bytes| {
+                bytes.checked_add(
+                    std::mem::size_of::<super::inspector::InspectorCapture>()
+                        * (1 + usize::from(self.inspector.is_some())),
+                )
+            })
             .ok_or(ControlPhaseError::ArithmeticOverflow {
                 context: "inspector staging bytes",
             })

@@ -66,6 +66,11 @@ struct CachedDisplay {
     packed_at_ms: u64,
     visualization_sequence: u64,
     visualization: Option<RunningVisualizationStatus>,
+    inspector_sequence: u64,
+    inspector_world_epoch: u64,
+    inspector_completed_step: u64,
+    inspector_published_at_ms: Option<u64>,
+    inspector: Option<Box<super::inspector::InspectorObservation>>,
 }
 
 /// One reusable Rust buffer charged to authority's admitted frame allocation.
@@ -99,6 +104,11 @@ impl RunningDisplayCache {
                 packed_at_ms: 0,
                 visualization_sequence: 0,
                 visualization: None,
+                inspector_sequence: 0,
+                inspector_world_epoch: 0,
+                inspector_completed_step: 0,
+                inspector_published_at_ms: None,
+                inspector: None,
             }),
         })
     }
@@ -106,6 +116,78 @@ impl RunningDisplayCache {
     /// Read cached welcome metadata without traversing or locking authority.
     pub fn latest(&self) -> Result<Option<RunningDisplayStatus>, EngineError> {
         Ok(self.try_cache()?.and_then(|cache| cache.status))
+    }
+
+    /// Copy one fixed-size published diagnostic snapshot, never waiting on authority.
+    pub fn latest_inspector(
+        &self,
+        after_sequence: u64,
+    ) -> Result<Option<super::inspector::RunningInspectorStatus>, EngineError> {
+        Ok(self.try_cache()?.and_then(|cache| {
+            (cache.inspector_sequence > after_sequence).then(|| {
+                super::inspector::RunningInspectorStatus {
+                    sequence: cache.inspector_sequence,
+                    world_epoch: cache.inspector_world_epoch,
+                    completed_step: cache.inspector_completed_step,
+                    observation: cache.inspector.as_deref().copied(),
+                }
+            })
+        }))
+    }
+
+    /// Publish only committed observations, at most 10 Hz; closing emits one small clear.
+    pub(crate) fn publish_inspector(
+        &self,
+        running: &RunningAuthorityLoop,
+        now_ms: u64,
+    ) -> Result<(), EngineError> {
+        self.publish_inspector_snapshot(
+            running.world_epoch(),
+            running.completed_step(),
+            running.inspector_observation(),
+            now_ms,
+        )
+    }
+
+    fn publish_inspector_snapshot(
+        &self,
+        world_epoch: u64,
+        completed_step: u64,
+        observation: Option<&super::inspector::InspectorObservation>,
+        now_ms: u64,
+    ) -> Result<(), EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(());
+        };
+        let Some(observation) = observation else {
+            if cache.inspector.take().is_some() {
+                cache.inspector_sequence = cache.inspector_sequence.saturating_add(1);
+                cache.inspector_world_epoch = world_epoch;
+                cache.inspector_completed_step = completed_step;
+            }
+            return Ok(());
+        };
+        if cache
+            .inspector_published_at_ms
+            .is_some_and(|previous| now_ms.saturating_sub(previous) < 100)
+            || cache.inspector.as_ref().is_some_and(|previous| {
+                previous.key == observation.key
+                    && previous.target == observation.target
+                    && cache.inspector_completed_step == completed_step
+            })
+        {
+            return Ok(());
+        }
+        if let Some(stored) = &mut cache.inspector {
+            **stored = *observation;
+        } else {
+            cache.inspector = Some(Box::new(*observation));
+        }
+        cache.inspector_sequence = cache.inspector_sequence.saturating_add(1);
+        cache.inspector_world_epoch = world_epoch;
+        cache.inspector_completed_step = completed_step;
+        cache.inspector_published_at_ms = Some(now_ms);
+        Ok(())
     }
 
     /// Copy the newest focused snapshot only when its sequence advanced.

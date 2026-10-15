@@ -13,6 +13,19 @@ use super::state::{SnakeKind, SnakeState};
 pub const MAX_INSPECTOR_INPUTS: usize = 504;
 /// Independent cold diagnostic admission; the ordinary worker envelope is unchanged.
 pub const MAX_INSPECTOR_BYTES: usize = 64 * 1024;
+/// Hard bound on one Rust-authored UTF-8 inspector projection.
+pub const MAX_INSPECTOR_WIRE_BYTES: usize = 64 * 1024;
+/// Projection tree, encoded reply and mailbox-copy peaks are admitted together.
+pub const INSPECTOR_TRANSPORT_RESERVE: usize = 8 * MAX_INSPECTOR_WIRE_BYTES;
+
+/// Replaceable native mailbox snapshot; no world or graph traversal occurs on reads.
+#[derive(Clone, Copy, Debug)]
+pub struct RunningInspectorStatus {
+    pub sequence: u64,
+    pub world_epoch: u64,
+    pub completed_step: u64,
+    pub observation: Option<InspectorObservation>,
+}
 
 /// Exact physical life selected at a clean authoritative boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -528,6 +528,8 @@ export interface RustBackgroundEvent {
   };
   /** Aggregate visualization subscription state confirmed by Rust. */
   visualizationEnabled?: boolean;
+  /** Selected diagnostic cache admission confirmed by Rust; rows use a separate mailbox. */
+  inspectorEnabled?: boolean;
   /** Explicit immutable shadow activation/stop at a completed boundary. */
   shadowChange?: {
     /** Independent diagnostic slot from zero through three. */
