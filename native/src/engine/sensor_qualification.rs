@@ -39,10 +39,57 @@ pub struct SensorQualificationOptions {
     pub workers: usize,
     pub math: InferenceMathBackend,
     pub ray_limits: Option<RayWorkLimits>,
+    pub baseline: Option<super::baseline_v2::BaselineV2Settings>,
     pub warmup_steps: usize,
     pub measured_steps: usize,
     /// Declared operating environment; never includes connection credentials.
     pub environment: String,
+}
+
+/// Fixed-size committed sensing work for one consumer class, without copied observations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumerSensorWork {
+    pub observations: u64,
+    pub v4_observations: u64,
+    pub ray_charged_units: u64,
+    pub ray_cells: u64,
+    pub ray_candidates: u64,
+    pub ray_intersections: u64,
+    pub incomplete_observations: u64,
+    pub incomplete_directions: u64,
+    pub pellet_capped_observations: u64,
+    pub body_capped_observations: u64,
+    pub baseline_action_world_reads: u64,
+    pub behavior_uniform_draws: u64,
+}
+impl ConsumerSensorWork {
+    pub(crate) fn record(&mut self, sample: &super::sensors::SensorSampleDiagnostics, v4: bool) {
+        self.observations += 1;
+        self.v4_observations += u64::from(v4);
+        self.ray_charged_units += sample.ray_work.charged();
+        self.ray_cells += u64::from(sample.ray_work.cells);
+        self.ray_candidates += u64::from(sample.ray_work.candidates);
+        self.ray_intersections += u64::from(sample.ray_work.intersections);
+        self.incomplete_observations += u64::from(sample.incomplete_rays != 0);
+        self.incomplete_directions += sample.incomplete_rays as u64;
+        self.pellet_capped_observations += sample.pellet_cap_hits;
+        self.body_capped_observations += sample.segment_cap_hits;
+    }
+    fn merge(&mut self, other: Self) {
+        self.observations += other.observations;
+        self.v4_observations += other.v4_observations;
+        self.ray_charged_units += other.ray_charged_units;
+        self.ray_cells += other.ray_cells;
+        self.ray_candidates += other.ray_candidates;
+        self.ray_intersections += other.ray_intersections;
+        self.incomplete_observations += other.incomplete_observations;
+        self.incomplete_directions += other.incomplete_directions;
+        self.pellet_capped_observations += other.pellet_capped_observations;
+        self.body_capped_observations += other.body_capped_observations;
+        self.baseline_action_world_reads += other.baseline_action_world_reads;
+        self.behavior_uniform_draws += other.behavior_uniform_draws;
+    }
 }
 
 /// Constant-storage distribution; exact extrema remain visible outside bucket bounds.
@@ -144,6 +191,15 @@ pub struct SensorQualificationReport {
     pub authoritative_memory_reservation_bytes: Option<usize>,
     pub population: usize,
     pub baseline_count: usize,
+    pub baseline_mode: String,
+    pub baseline_cadence_seconds: Option<f64>,
+    /// Neural, baseline and external classes; only exact committed samples are included.
+    pub consumer_work: [ConsumerSensorWork; 3],
+    pub minimum_due_consumers: Option<u64>,
+    pub maximum_due_consumers: u64,
+    pub all_consumer_ray_incomplete_fraction: Option<f64>,
+    pub all_consumer_ray_incomplete_below_one_percent: Option<bool>,
+    pub shared_batch_budget_held: Option<bool>,
     pub seed: u32,
     pub workers: usize,
     pub math_backend: String,
@@ -274,6 +330,28 @@ fn observe_committed(
     let (batch, world) = loop_
         .qualification_batch()
         .ok_or("missing matching committed observation batch")?;
+    let consumers = loop_
+        .qualification_sensor_work()
+        .ok_or("missing committed consumer work")?;
+    let mut total = ConsumerSensorWork::default();
+    for (retained, work) in report.consumer_work.iter_mut().zip(consumers) {
+        retained.merge(work);
+        total.merge(work);
+    }
+    report.minimum_due_consumers = Some(
+        report
+            .minimum_due_consumers
+            .map_or(total.observations, |previous| {
+                previous.min(total.observations)
+            }),
+    );
+    report.maximum_due_consumers = report.maximum_due_consumers.max(total.observations);
+    if let Some(batch) = report.ray_batch {
+        report.shared_batch_budget_held = Some(
+            report.shared_batch_budget_held.unwrap_or(true)
+                && total.ray_charged_units <= u64::from(batch),
+        );
+    }
     let count = batch.work().len();
     report.minimum_due_observations = Some(
         report
@@ -341,6 +419,30 @@ fn observe_committed(
     Ok(())
 }
 
+/// Operating-system lifetime high water, including admission/checkpoint construction.
+#[cfg(target_os = "windows")]
+fn process_peak_rss_bytes() -> Option<u64> {
+    use windows_sys::Win32::System::ProcessStatus::{
+        K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let size = u32::try_from(std::mem::size_of::<PROCESS_MEMORY_COUNTERS>()).ok()?;
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: size,
+        ..Default::default()
+    };
+    // SAFETY: The process pseudo-handle is not owned. The uniquely borrowed initialized
+    // output spans exactly `size` bytes, lives through this call, and is not retained.
+    if unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, size) } == 0 {
+        return None;
+    }
+    u64::try_from(counters.PeakWorkingSetSize).ok()
+}
+#[cfg(not(target_os = "windows"))]
+fn process_peak_rss_bytes() -> Option<u64> {
+    super::sensing_fixture::linux_process_status_bytes("VmHWM:")
+}
+
 /// Execute a bounded actual native run. Workspace must be an exclusively task-owned,
 /// empty directory; output/report retention and cleanup belong to the CLI caller.
 pub fn run_sensor_qualification(
@@ -380,13 +482,17 @@ fn run_with_observer(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        version:1,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
+        version:2,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
         cpu_model:super::sensing_fixture::system_cpu_model(),total_memory_bytes:super::sensing_fixture::linux_total_memory_bytes(),
         peak_rss_bytes:None,parameter_count:None,authoritative_memory_reservation_bytes:None,population:options.population,baseline_count:10,
         seed:options.seed,workers:options.workers,math_backend:options.math.label().into(),
+        baseline_mode: match options.baseline.map(|settings| settings.mode) {None=>"v1",Some(super::baseline_v2::BaselineV2Mode::Deterministic)=>"v2-deterministic",Some(super::baseline_v2::BaselineV2Mode::Stochastic)=>"v2-stochastic"}.into(),
+        baseline_cadence_seconds:options.baseline.map(|settings|settings.control_interval_seconds),
+        consumer_work:[ConsumerSensorWork::default();3],minimum_due_consumers:None,maximum_due_consumers:0,
+        all_consumer_ray_incomplete_fraction:None,all_consumer_ray_incomplete_below_one_percent:None,shared_batch_budget_held:None,
         graph_size:if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
         sensor_sha256:contract.sha256_hex().map_err(|error|error.to_string())?,
         ray_minimum:options.ray_limits.map(RayWorkLimits::minimum),ray_cap:options.ray_limits.map(RayWorkLimits::cap),
@@ -397,7 +503,7 @@ fn run_with_observer(
         ray_incomplete_observations:0,ray_incomplete_directions:0,body_capped_observations:0,pellet_capped_observations:0,
         ray_incomplete_fraction:None,minimum_due_observations:None,maximum_due_observations:0,
         step_cost:None,observer_cost:None,native_step_p95_within_60hz:None,ordinary_ray_incomplete_below_one_percent:None,
-        caveat:"Actual seeded native random-population gameplay with ten frozen v1 baselines, duration-only completion, optional unlimited evolved respawn, and discard-new overflow. Includes authoritative complete steps and frame packing; excludes startup/checkpoint publication, Node/browser/network and observer analysis. Run-start uses a real immutable checkpoint plus matching benchmark acknowledgement, without SQLite. Simulated wall times are controlled; this does not measure wall-debt scheduling under load. This is not a trained-policy distribution, baseline-v2/all-consumer qualification, tactical agreement, ablation or final production-default selection. Clearance metres invert encoded Float32 channel minima and are censored at the sensing radius; incomplete body values are conservative, not ground truth. Pellet values use a systematic maximum-64 subset per committed boundary. Decaying due counts remain explicit; no zero-sample quality pass.",
+        caveat:"Actual seeded native random-population gameplay with ten explicitly recorded v1/v2 baselines, duration-only completion, optional unlimited evolved respawn, and discard-new overflow. Includes authoritative complete steps and frame packing; excludes startup/checkpoint publication, Node/browser/network and observer analysis. Run-start uses a real immutable checkpoint plus matching benchmark acknowledgement, without SQLite. Simulated wall times are controlled; this does not measure wall-debt scheduling under load. This is not a trained-policy distribution, external-controller workload qualification, tactical agreement, ablation or final production-default selection. Clearance metres invert encoded Float32 channel minima and are censored at the sensing radius; incomplete body values are conservative, not ground truth. Pellet values use a systematic maximum-64 subset per committed boundary. Decaying due counts remain explicit; no zero-sample quality pass.",
     };
     let mut settings = production_default_settings(options.population, 10);
     for entry in &mut settings {
@@ -443,11 +549,13 @@ fn run_with_observer(
             ..RunningStepWorkLimits::provisional_defaults()
         },
         options.math,
+        options.baseline,
     );
     let mut pending = match pending {
         Ok(pending) => pending,
         Err(error) => {
             report.rejection = Some(error.to_string());
+            report.peak_rss_bytes = process_peak_rss_bytes();
             return Ok(report);
         }
     };
@@ -513,7 +621,7 @@ fn run_with_observer(
     }
     report.completed_steps = running.completed_step();
     report.continuation_sha256 = Some(running.qualification_continuation_sha256());
-    report.peak_rss_bytes = super::sensing_fixture::linux_process_status_bytes("VmHWM:");
+    report.peak_rss_bytes = process_peak_rss_bytes();
     let cost = distribution(&mut steps);
     report.native_step_p95_within_60hz = Some(cost.p95_ms <= 1000.0 / 60.0);
     report.step_cost = Some(cost);
@@ -522,6 +630,15 @@ fn run_with_observer(
         let fraction = report.ray_incomplete_observations as f64 / report.observations as f64;
         report.ray_incomplete_fraction = Some(fraction);
         report.ordinary_ray_incomplete_below_one_percent = Some(fraction < 0.01);
+    }
+    let mut total = ConsumerSensorWork::default();
+    for work in report.consumer_work {
+        total.merge(work);
+    }
+    if total.v4_observations > 0 {
+        let fraction = total.incomplete_observations as f64 / total.v4_observations as f64;
+        report.all_consumer_ray_incomplete_fraction = Some(fraction);
+        report.all_consumer_ray_incomplete_below_one_percent = Some(fraction < 0.01);
     }
     Ok(report)
 }
@@ -559,37 +676,75 @@ mod tests {
 
     #[test]
     fn committed_observer_does_not_change_world_rng_lives_weights_or_recurrence_across_workers() {
-        let mut options = SensorQualificationOptions {
-            population: 55,
-            profile: SensorProfile::Motion,
-            bins: 8,
-            large_graph: false,
-            respawn: true,
-            seed: 42,
-            workers: 1,
-            math: InferenceMathBackend::Scalar,
-            ray_limits: Some(RayWorkLimits::new(1, 256, 16384, 512).unwrap()),
-            warmup_steps: 1,
-            measured_steps: 2,
-            environment: "development".into(),
-        };
-        let observed = run_with_observer(&options, &Scratch::new().0, true).unwrap();
-        let unobserved = run_with_observer(&options, &Scratch::new().0, false).unwrap();
-        options.workers = 3;
-        let parallel = run_with_observer(&options, &Scratch::new().0, true).unwrap();
-        assert!(observed.admitted && unobserved.admitted && parallel.admitted);
-        assert_eq!(observed.completed_steps, 3);
-        assert!(observed.observations > 0);
-        assert_eq!(unobserved.observations, 0);
-        assert_eq!(observed.continuation_sha256, unobserved.continuation_sha256);
-        assert_eq!(observed.continuation_sha256, parallel.continuation_sha256);
-        assert_eq!(observed.observations, parallel.observations);
-        assert!(observed.normalized.iter().all(|histogram| histogram.samples
-            == observed.observations
-            && histogram.nonfinite == 0));
-        assert!(observed.raw[11].samples > 0);
-        assert!(observed.ray_charged_units <= 2 * 16384);
-        assert!(observed.step_cost.is_some() && observed.observer_cost.is_some());
+        for mode in [
+            None,
+            Some(super::super::baseline_v2::BaselineV2Mode::Deterministic),
+            Some(super::super::baseline_v2::BaselineV2Mode::Stochastic),
+        ] {
+            let mut options = SensorQualificationOptions {
+                population: 55,
+                profile: SensorProfile::Motion,
+                bins: 8,
+                large_graph: false,
+                respawn: true,
+                seed: 42,
+                workers: 1,
+                math: InferenceMathBackend::Scalar,
+                ray_limits: Some(RayWorkLimits::new(1, 256, 16384, 512).unwrap()),
+                baseline: mode.map(|mode| super::super::baseline_v2::BaselineV2Settings {
+                    mode,
+                    control_interval_seconds: 0.06,
+                }),
+                warmup_steps: 1,
+                measured_steps: 12,
+                environment: "development".into(),
+            };
+            let observed = run_with_observer(&options, &Scratch::new().0, true).unwrap();
+            let unobserved = run_with_observer(&options, &Scratch::new().0, false).unwrap();
+            options.workers = 3;
+            let parallel = run_with_observer(&options, &Scratch::new().0, true).unwrap();
+            assert!(observed.admitted && unobserved.admitted && parallel.admitted);
+            assert_eq!(observed.completed_steps, 13);
+            assert!(observed.observations > 0);
+            assert_eq!(unobserved.observations, 0);
+            assert_eq!(observed.continuation_sha256, unobserved.continuation_sha256);
+            assert_eq!(observed.continuation_sha256, parallel.continuation_sha256);
+            assert_eq!(observed.observations, parallel.observations);
+            assert!(observed
+                .normalized
+                .iter()
+                .all(|histogram| histogram.samples == observed.observations
+                    && histogram.nonfinite == 0));
+            assert!(observed.raw[11].samples > 0);
+            assert!(observed.ray_charged_units <= 12 * 16384);
+            assert!(observed.step_cost.is_some() && observed.observer_cost.is_some());
+            assert_eq!(observed.consumer_work, parallel.consumer_work);
+            assert_eq!(
+                observed.consumer_work[0].observations,
+                observed.observations
+            );
+            assert!(observed.consumer_work[1].observations > 0);
+            assert_eq!(observed.consumer_work[2].observations, 0);
+            assert_eq!(observed.shared_batch_budget_held, Some(true));
+            if let Some(mode) = mode {
+                assert_eq!(
+                    observed.consumer_work[1].observations,
+                    observed.consumer_work[1].v4_observations
+                );
+                assert!(
+                    observed.consumer_work[1].observations < 12 * 10,
+                    "v2 cadence holds between deliveries"
+                );
+                assert_eq!(observed.consumer_work[1].baseline_action_world_reads, 0);
+                if mode == super::super::baseline_v2::BaselineV2Mode::Deterministic {
+                    assert_eq!(observed.consumer_work[1].behavior_uniform_draws, 0);
+                }
+                // Stochastic mode may take an entirely unsafe/deterministic route;
+                // it must not consume a draw merely to advertise that mode.
+            } else {
+                assert_eq!(observed.consumer_work[1].v4_observations, 0);
+            }
+        }
     }
 
     #[test]

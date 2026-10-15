@@ -71,6 +71,8 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
     let mut values = BTreeMap::new();
     while let Some(flag) = arguments.next() {
         if ![
+            "--baseline",
+            "--baseline-cadence",
             "--scenario",
             "--profile",
             "--bins",
@@ -134,6 +136,30 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
             512,
         )?)
     };
+    let baseline = match values.get("--baseline").map(String::as_str).unwrap_or("v1") {
+        "v1" => {
+            if values.contains_key("--baseline-cadence") {
+                return Err("v1 has fixed-step cadence".into());
+            }
+            None
+        }
+        name @ ("v2-deterministic" | "v2-stochastic") => {
+            if profile == SensorProfile::V3 {
+                return Err("baseline v2 requires v4".into());
+            }
+            let settings = slither_native::engine::baseline_v2::BaselineV2Settings {
+                mode: if name == "v2-deterministic" {
+                    slither_native::engine::baseline_v2::BaselineV2Mode::Deterministic
+                } else {
+                    slither_native::engine::baseline_v2::BaselineV2Mode::Stochastic
+                },
+                control_interval_seconds: required("--baseline-cadence")?.parse()?,
+            };
+            settings.validate()?;
+            Some(settings)
+        }
+        _ => return Err("baseline must be v1/v2-deterministic/v2-stochastic".into()),
+    };
     let options = SensorQualificationOptions {
         population: match required("--scenario")? {
             "P0" => 55,
@@ -143,6 +169,7 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
         profile,
         bins: integer("--bins", "16")?,
         ray_limits,
+        baseline,
         large_graph: match values
             .get("--graph")
             .map(String::as_str)
@@ -217,10 +244,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         file.write_all(b"\n")?;
         file.sync_all()?;
         println!(
-            "admitted={} observations={} incomplete={:?} p95_ms={:?} report={}",
+            "admitted={} neural_observations={} all_observations={} all_incomplete={:?} p95_ms={:?} report={}",
             report.admitted,
             report.observations,
-            report.ray_incomplete_fraction,
+            report.consumer_work.iter().map(|work|work.observations).sum::<u64>(),
+            report.all_consumer_ray_incomplete_fraction,
             report.step_cost.map(|cost| cost.p95_ms),
             output.display()
         );

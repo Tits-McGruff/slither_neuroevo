@@ -709,6 +709,13 @@ impl RunningStepCoordinator {
         ))
     }
 
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_sensor_work(
+        &self,
+    ) -> [super::sensor_qualification::ConsumerSensorWork; 3] {
+        self.control.qualification_sensor_work()
+    }
+
     /// Exact active neural/external width used for coarse output-byte admission.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.control.sensor_input_size()

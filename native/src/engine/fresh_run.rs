@@ -368,6 +368,7 @@ pub(crate) fn prepare_sensor_qualification_run(
     bins: usize,
     limits: RunningStepWorkLimits,
     math: InferenceMathBackend,
+    baseline: Option<super::baseline_v2::BaselineV2Settings>,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
     let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
@@ -376,13 +377,22 @@ pub(crate) fn prepare_sensor_qualification_run(
             "v4 requires explicit ray limits; v3 does not use them".into(),
         ));
     }
-    let mut prepared = prepare_fresh_boundary_with_sensor(
+    if let Some(baseline) = baseline {
+        baseline
+            .validate()
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        if profile == super::sensor_contract::SensorProfile::V3 {
+            return Err(FreshRunError::Settings("baseline v2 requires v4".into()));
+        }
+    }
+    let mut prepared = prepare_fresh_boundary_with_sensor_and_baseline(
         request,
         settings,
         graph,
         true,
         (profile != super::sensor_contract::SensorProfile::V3).then_some(identity),
         limits,
+        baseline,
     )?;
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();

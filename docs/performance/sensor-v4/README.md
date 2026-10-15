@@ -16,7 +16,10 @@ The runner requires two GiB free on the scratch filesystem, preserving one GiB
 beyond conservative checkpoint construction. It exclusively creates and removes
 its scratch tree; reports use create-new semantics and remain after cleanup.
 Choose v3/basic/motion, P0 (55 evolved plus ten baselines) or P1 (300 plus ten),
-modest/large graphs, respawn off/on, and scalar/sse2. V4 requires explicit
+modest/large graphs, respawn off/on, and scalar/sse2. Baselines default to frozen
+v1. Select `--baseline v2-deterministic` or `--baseline v2-stochastic` with an
+explicit `--baseline-cadence` (0.008 through 0.06 seconds) to measure v2. V2
+requires v4; v1 rejects a cadence override. V4 requires explicit
 minimum, cap and batch; v3 rejects ray limits. No values select production defaults.
 Warmup plus measured steps is bounded at 60,000. The oxygen-debian environment
 label identifies target runs; the report still records actual build and hardware.
@@ -33,16 +36,22 @@ counts, ray work and incomplete rates, complete-step percentiles, and fixed
 32-bucket raw/normalized histograms with extrema and overflow. Normalized columns
 are actual controller inputs. Clearance metres invert Float32 channel minima;
 they are censored by range and conservative when incomplete. Pellet values are a
-systematic maximum-64 subset per boundary. Linux reports RAM and process peak RSS;
-unavailable platform probes remain null.
+systematic maximum-64 subset per boundary. Linux reports total RAM; Windows and
+Linux report the operating-system lifetime peak RSS, including startup/checkpoint
+construction. Unavailable platform probes remain null. Version 2 adds fixed
+`consumerWork` groups in neural/baseline/external order, v4-only incomplete
+denominators, policy world-read/draw counts and a per-step shared batch-budget
+witness. Legacy histogram/`observations` fields remain neural-only.
 
-These runs use seeded random populations and frozen baseline v1, an immutable
-run-start checkpoint with benchmark acknowledgement, and controlled clock input.
+These runs use seeded random populations, explicitly recorded baseline mode and
+cadence, an immutable run-start checkpoint with benchmark acknowledgement, and controlled clock input.
 They exclude Node/browser/network, SQLite, startup, checkpoint timing and wall-debt
 behavior under load. Short random runs do not qualify trained-policy distributions,
-baseline v2/all-consumer workloads, tactical correctness, ablation or production
+external-controller workloads, tactical correctness, ablation or production
 limits. Native p95 <= 16.667 ms and ordinary incomplete observations < 1% are
-necessary gates. No observations produces no quality pass.
+necessary gates. No observations produces no quality pass. The fixture uses
+a 604,800-second duration with duration-only completion, so bounded runs do not
+enter generation persistence. It does not qualify generation-age distributions.
 
 ## Retained Windows exploration
 
@@ -103,3 +112,66 @@ remains below 1%; B32 requires traversal/profile work at unchanged budgets.
 RSS includes process startup and checkpoint construction, whose timing is
 excluded. Reports were copied back before the exact task-owned remote source,
 runner, build cache and scratch were removed; the disk reserve was preserved.
+
+## Baseline-v2 workload reports (version 2)
+
+The version-2 Windows reports use the same modest graphs, four SSE2 workers,
+seed 42, unlimited evolved respawn, five warmup and 300 measured steps. Unless labelled 60 Hz, v2
+baselines use an explicit 0.06-second decision interval; v1 retains its normal
+fixed-step cadence. Counts below combine neural and baseline v4 deliveries;
+external consumers are absent. Background load is uncontrolled on this development
+machine, so these measurements do not select production defaults.
+
+| Scenario/profile/baseline | Neural / baseline deliveries | Incomplete v4 deliveries | Step p95 | Peak RSS |
+|---|---:|---:|---:|---:|
+| P0 Motion/B16 deterministic v2 | 16,500 / 617 | 0% | 5.983 ms | 18.9 MiB |
+| P1 Basic/B16 deterministic v2 | 90,000 / 326 | 0.866% | 20.049 ms | 34.7 MiB |
+| P1 Motion/B16 deterministic v2 | 90,000 / 395 | 0.374% | 18.145 ms | 46.1 MiB |
+| P1 Motion/B16 stochastic v2 | 90,000 / 395 | 0.374% | 18.014 ms | 45.9 MiB |
+| P1 Motion/B16 v1 | 90,000 / 1,886 | 0.384% | 18.426 ms | 45.9 MiB |
+| P1 v3/B16 v1 | 90,000 / 1,579 | Not applicable | 12.516 ms | 31.3 MiB |
+| P1 Motion/B16 deterministic v2 at 60 Hz | 90,000 / 1,549 | 0.779% | 22.447 ms | 47.0 MiB |
+| P1 Motion/B16 stochastic v2 at 60 Hz | 90,000 / 1,549 | 0.779% | 20.393 ms | 46.0 MiB |
+
+Every admitted v4 report preserves the shared batch budget. V2 action selection
+performs zero world reads; the v1 Motion reference records 584,660 snake reads.
+The v2 Motion baseline subgroup has five incomplete deliveries out of 395
+(1.266%); its pooled rate must not obscure that teacher-specific quality issue.
+Deterministic and stochastic v2 follow the same trajectory here with no strategy
+draws: this short workload does not exercise or qualify stochastic exploration.
+Cadence, baseline deaths and respawn waiting also limit teacher sample counts;
+this is not sustained ten-teacher throughput evidence. At 60 Hz, the baseline
+subgroup has four incomplete deliveries out of 1,549 (0.258%), still without
+strategy draws. The change in cadence changes the simulated trajectory; these
+are separate workloads, not an isolated timing comparison.
+
+P1 large Motion/B32 with v2 rejects before allocation at 593,324,392 decoded
+checkpoint bytes against the unchanged 536,870,912-byte ceiling. Its report has
+no quality/timing verdict and a 6.5 MiB admission-stage peak RSS. Production
+worker scratch remains 512 MiB.
+
+The matching version-2 Oxygen reports use the same native source digest, worker
+count, budgets and cadence choices on x86_64 Debian. Host load average changed
+from 2.77/3.22/3.24 to 4.14/3.67/3.42 during the sequential matrix. Scratch free
+space exceeded 6.9 GiB throughout. No unrelated process was stopped. These remain
+loaded-target observations; even the fresh frozen-v3 reference fails the cost gate.
+
+| Scenario/profile/baseline | Neural / baseline deliveries | Incomplete v4 deliveries | Step p95 | Peak RSS |
+|---|---:|---:|---:|---:|
+| P0 Motion/B16 deterministic v2 | 16,500 / 608 | 0% | 40.743 ms | 17.8 MiB |
+| P1 Basic/B16 deterministic v2 | 90,000 / 373 | 1.069% | 135.631 ms | 34.7 MiB |
+| P1 Motion/B16 deterministic v2 | 90,000 / 362 | 0.518% | 147.478 ms | 46.3 MiB |
+| P1 Motion/B16 stochastic v2 | 90,000 / 362 | 0.518% | 140.174 ms | 46.1 MiB |
+| P1 Motion/B16 v1 | 90,000 / 2,059 | 0.560% | 207.050 ms | 44.5 MiB |
+| P1 v3/B16 v1 | 90,000 / 1,580 | Not applicable | 122.071 ms | 30.8 MiB |
+| P1 Motion/B16 deterministic v2 at 60 Hz | 90,000 / 1,602 | 0.624% | 174.920 ms | 45.3 MiB |
+| P1 Motion/B16 stochastic v2 at 60 Hz | 90,000 / 1,602 | 0.624% | 124.332 ms | 45.5 MiB |
+
+Oxygen Basic/B16 fails the pooled quality gate as well as timing; its baseline
+subgroup has eight incomplete deliveries out of 373 (2.145%). Motion's v2
+subgroups have two of 362 (0.552%) at 0.06 seconds and 13 of 1,602 (0.811%) at
+60 Hz. Shared budgets hold, policy world reads and v2 strategy draws are zero.
+Platform/build-dependent trajectories remain distinct; equal seeds do not promise
+cross-platform bit-identical continuation. The large graph rejects at the same
+checkpoint ceiling, with a 5.2 MiB peak RSS. All nine JSON transfers were SHA-256
+verified before deleting the exact task-owned remote source/build/scratch tree.
