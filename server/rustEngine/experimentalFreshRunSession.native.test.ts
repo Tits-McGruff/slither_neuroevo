@@ -1042,7 +1042,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       }, {timeout: 5000, interval: 10});
       const inspected = parseInspectorSnapshot(JSON.parse(inspector!));
       expect(Buffer.byteLength(inspector!, 'utf8')).toBeLessThanOrEqual(64 * 1024);
-      expect(inspected).toMatchObject({schemaVersion: 1, sample: {snakeId: selected!.snakeId,
+      expect(inspected).toMatchObject({schemaVersion: 1, subscriptionSequence: '0000000000000005', sample: {snakeId: selected!.snakeId,
         profile: 'v3', bins: 16, source: {kind: 'neural'}, normalizedInputs: expect.any(Array),
         trace: {bodyRays: Array(16).fill({kind: 'not-sampled'})}}});
       expect(inspected.sample!.normalizedInputs).toHaveLength(83);
@@ -1056,6 +1056,16 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         expect(cleared).not.toBeNull();
         expect(JSON.parse(cleared!).sample).toBeNull();
       }, {timeout: 5000, interval: 10});
+      runtime.submitInspector('0000000000000008', startup.runId, selected!.token, selected!.snakeId);
+      expect(await inspectorReceipt('0000000000000008')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: true});
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        const next = parseInspectorSnapshot(JSON.parse(runtime.latestInspector('0000000000000000')!));
+        expect(next.subscriptionSequence).toBe('0000000000000008');
+        expect(next.sample?.snakeId).toBe(selected!.snakeId);
+      }, {timeout: 5000, interval: 10});
+      runtime.submitInspector('0000000000000009', startup.runId);
+      expect(await inspectorReceipt('0000000000000009')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
       expect(events.filter(event => event.kind === 'started')).toHaveLength(1);
       expect(runtime.health().faultCode).toBeUndefined();
       expect(wakes).toBeGreaterThan(0);

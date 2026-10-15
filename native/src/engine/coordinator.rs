@@ -1082,8 +1082,8 @@ fn execute_running_authority_command(
             .map(|selection| RunningAuthorityEvent::EntitySelected { command_sequence, selection }),
         RunningAuthorityCommand::ConfigureInspector { expected_run_id, selection } => {
             let enabled = selection.is_some();
-            running.configure_inspector(&expected_run_id, selection.map(|value| *value),
-                super::inspector::MAX_INSPECTOR_BYTES)
+            running.configure_inspector_subscription(&expected_run_id, selection.map(|value| *value),
+                super::inspector::MAX_INSPECTOR_BYTES, command_sequence)
                 .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
                 .map(|()| RunningAuthorityEvent::InspectorChanged { command_sequence, enabled })
         }

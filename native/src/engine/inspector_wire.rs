@@ -122,7 +122,7 @@ fn trace_json(trace: &SensorTrace) -> Result<Value, String> {
 pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
     let sample = snapshot.observation.as_ref().map(|sample| {
         let age = sample.age_steps(snapshot.completed_step).ok_or("inspector sample is newer than publication")?;
-        if sample.target.world_epoch != snapshot.world_epoch {
+        if sample.target.world_epoch != snapshot.world_epoch || sample.subscription_sequence != snapshot.subscription_sequence {
             return Err("inspector world identity mismatch".into());
         }
         let contract = super::sensor_contract::SensorContractIdentity::new(sample.layout.profile, sample.layout.bins)
@@ -179,6 +179,7 @@ pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
         }))
     }).transpose()?;
     let value = json!({"schemaVersion":1,"sequence":hex(snapshot.sequence),
+        "subscriptionSequence":hex(snapshot.subscription_sequence),
         "worldEpoch":hex(snapshot.world_epoch),"completedStep":hex(snapshot.completed_step),"sample":sample});
     let result = serde_json::to_string(&value).map_err(|error| error.to_string())?;
     if result.len() > MAX_INSPECTOR_WIRE_BYTES {

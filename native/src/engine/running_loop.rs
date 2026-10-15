@@ -485,6 +485,22 @@ impl RunningAuthorityLoop {
             .map_err(|error| error.to_string())
     }
 
+    /// Native queue admission binds all future rows to this exact subscription command.
+    pub(crate) fn configure_inspector_subscription(
+        &mut self,
+        expected_run_id: &str,
+        selection: Option<(super::state::EntitySelectionToken, u32)>,
+        budget_bytes: usize,
+        sequence: u64,
+    ) -> Result<(), String> {
+        if sequence == 0 {
+            return Err("inspector subscription sequence must be positive".into());
+        }
+        self.configure_inspector(expected_run_id, selection, budget_bytes)?;
+        self.coordinator.bind_inspector_subscription(sequence);
+        Ok(())
+    }
+
     /// Exact last delivered row, including held-control age; no sensing or neural evaluation occurs.
     pub fn inspector_observation(&self) -> Option<&super::inspector::InspectorObservation> {
         self.coordinator.inspector_observation(&self.authority)

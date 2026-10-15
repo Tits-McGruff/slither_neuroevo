@@ -472,10 +472,11 @@ mod tests {
                 .unwrap()
                 .unwrap();
             inspected
-                .configure_inspector(
+                .configure_inspector_subscription(
                     "saved-brain-live-test",
                     Some((selected.token, selected.frame_v1_id)),
                     MAX_INSPECTOR_BYTES,
+                    17,
                 )
                 .unwrap();
             assert!(inspected.inspector_observation().is_none());
@@ -489,6 +490,7 @@ mod tests {
                     .unwrap();
             display.publish_inspector(&inspected, 0).unwrap();
             let first_mailbox = display.latest_inspector(0).unwrap().unwrap();
+            assert_eq!(first_mailbox.subscription_sequence, 17);
             let wire: serde_json::Value = serde_json::from_str(
                 &super::super::inspector_wire::encode(&first_mailbox).unwrap(),
             )
@@ -595,6 +597,7 @@ mod tests {
             display.publish_inspector(&inspected, 101).unwrap();
             let cleared = display.latest_inspector(aged.sequence).unwrap().unwrap();
             assert!(cleared.observation.is_none());
+            assert_eq!(cleared.subscription_sequence, 17);
             let clear_wire: serde_json::Value =
                 serde_json::from_str(&super::super::inspector_wire::encode(&cleared).unwrap())
                     .unwrap();
