@@ -1,0 +1,1015 @@
+{
+  "schemaVersion": 1,
+  "gate": "live-canonical-distillation-v1",
+  "device": "cpu",
+  "workers": 3,
+  "seed": 42,
+  "source": {
+    "slitherRevision": "af4684d8cd1e7b21f02a27704c40df14704a681f",
+    "pyrlRevision": "f8bee470cb3631d2d5f99b4409853f410db6a912",
+    "hostSha256": "dfd64f406202cbae0b4db3fe453116f4c6ec3947cbf802b8b8f97466c8092353",
+    "trainerGateSha256": "e7c568aae6d2320eeb4fdd3e7e3c9dd12a6a8ecd88ff1407425f16ef162b375f",
+    "nativeSourceSha256": "f7a9d83eea6ce85da452bc458605488b55f1588de4121c20d5283a2b0b48b039",
+    "target": "x86_64-pc-windows-msvc"
+  },
+  "workload": {
+    "population": 55,
+    "baselines": 10,
+    "profile": "basic",
+    "bins": 8,
+    "populationGraph": "Dense 72 to 2",
+    "studentGraph": "GRU8 and Dense2",
+    "studentParameters": 1962,
+    "studentState": 8,
+    "cadenceSeconds": 0.06
+  },
+  "hostPeakRssBytes": 154394624,
+  "train": {
+    "burnInSamples": 129024,
+    "device": "cpu",
+    "elapsedWallSeconds": 17.09299999999348,
+    "environment": {
+      "atenCpuCapability": null,
+      "autocast": false,
+      "cpuCapability": "AVX2",
+      "cpuProcessor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+      "cublasWorkspaceConfig": null,
+      "cudaRuntime": "12.6",
+      "cudnnBenchmark": false,
+      "cudnnDeterministic": false,
+      "deterministicAlgorithms": false,
+      "deterministicWarnOnly": false,
+      "device": "cpu",
+      "float32": true,
+      "implementation": "CPython",
+      "machine": "AMD64",
+      "matmulPrecision": "highest",
+      "numpy": "2.5.3",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "python": "3.12.10",
+      "tf32": false,
+      "threads": 2,
+      "torch": "2.14.0+cu126",
+      "torchBuildSha256": "62667d88337d001cde4cafba9f11abd5a7bda80f936d118135e21982cb2f1eec"
+    },
+    "peakDeviceBytes": 0,
+    "peakReservedDeviceBytes": 0,
+    "peakRssBytes": 803065856,
+    "phase": "train",
+    "replayBytes": 904480,
+    "retainedChunks": 44,
+    "schemaVersion": 1,
+    "sequence": {
+      "batch_size": 32,
+      "bptt_steps": 64,
+      "burn_in_steps": 32,
+      "gradient_clip": 1,
+      "learning_rate": 0.0003
+    },
+    "sourceRows": 724,
+    "trainerSourceSha256": "482d8b9abc86fb5c38b413c98643c2af33ed7548e63786fb6415906d2c6559d3",
+    "trainingSamples": 133970,
+    "updates": 126
+  },
+  "resume": {
+    "burnInSamples": 256000,
+    "candidateSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+    "candidateWeightsSha256": "83bbb52776857d160d3df4c9016a64aefcf92134f821b5d43691644aa5152c6d",
+    "checkpointSha256": "7dd19e068b661f7ce1952d79ccfe9bc8c4df0c3b7909fb8f9c882ca35050489c",
+    "device": "cpu",
+    "elapsedWallSeconds": 10.485000000044238,
+    "environment": {
+      "atenCpuCapability": null,
+      "autocast": false,
+      "cpuCapability": "AVX2",
+      "cpuProcessor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+      "cublasWorkspaceConfig": null,
+      "cudaRuntime": "12.6",
+      "cudnnBenchmark": false,
+      "cudnnDeterministic": false,
+      "deterministicAlgorithms": false,
+      "deterministicWarnOnly": false,
+      "device": "cpu",
+      "float32": true,
+      "implementation": "CPython",
+      "machine": "AMD64",
+      "matmulPrecision": "highest",
+      "numpy": "2.5.3",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "python": "3.12.10",
+      "tf32": false,
+      "threads": 2,
+      "torch": "2.14.0+cu126",
+      "torchBuildSha256": "62667d88337d001cde4cafba9f11abd5a7bda80f936d118135e21982cb2f1eec"
+    },
+    "metrics": {
+      "activationSequence": "0000000000000002",
+      "activationStep": "00000000000007b5",
+      "artifactSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+      "baselineSlot": 0,
+      "captureEpoch": "f0bc9714ace18f11903b071141cc4e59",
+      "completedStep": "00000000000007b9",
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.31099361181259155,
+        "turnMae": 0.31099361181259155,
+        "turnMse": 0.09671702658824088,
+        "turnSquaredError": 0.09671702658824088
+      },
+      "deaths": "0000000000000000",
+      "enabled": true,
+      "error": null,
+      "generation": "0000000000000001",
+      "lastSampleStep": "00000000000007b7",
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.31099361181259155,
+          "turnMae": 0.31099361181259155,
+          "turnMse": 0.09671702658824088,
+          "turnSquaredError": 0.09671702658824088
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "physicalSnakeId": "800000000000000a",
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "rawOutputs": [
+        -0.3085663616657257,
+        -0.4001503586769104
+      ],
+      "shadowSlot": 0,
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.31099361181259155,
+          "turnMae": 0.31099361181259155,
+          "turnMse": 0.09671702658824088,
+          "turnSquaredError": 0.09671702658824088
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.31099361181259155,
+        "turnMae": 0.31099361181259155,
+        "turnMse": 0.09671702658824088,
+        "turnSquaredError": 0.09671702658824088
+      }
+    },
+    "peakDeviceBytes": 0,
+    "peakReservedDeviceBytes": 0,
+    "peakRssBytes": 804925440,
+    "phase": "resume",
+    "receipt": {
+      "acknowledgedAt": 1792081799585,
+      "activationSequence": "0000000000000002",
+      "artifactSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+      "baselineSlot": 0,
+      "captureEpoch": "f0bc9714ace18f11903b071141cc4e59",
+      "commandSequence": "0000000000000002",
+      "configRevision": "0000000000000001",
+      "effectiveStep": "00000000000007b5",
+      "enabled": true,
+      "previousActivationSequence": "0000000000000000",
+      "processEpoch": "a247efe8a045623f10a9ad07b9032d85",
+      "requestId": "d397284619a24770824cf551dba6fd39",
+      "runId": "live-distillation-2ab45f10c44beb30",
+      "schemaVersion": 1,
+      "shadowSlot": 0
+    },
+    "replayBytes": 904480,
+    "restartExact": true,
+    "schemaVersion": 1,
+    "sequence": {
+      "batch_size": 32,
+      "bptt_steps": 64,
+      "burn_in_steps": 32,
+      "gradient_clip": 1,
+      "learning_rate": 0.0003
+    },
+    "trainerSourceSha256": "482d8b9abc86fb5c38b413c98643c2af33ed7548e63786fb6415906d2c6559d3",
+    "trainingSamples": 266781,
+    "updates": 250,
+    "validation": {
+      "boost_disagreement": 0,
+      "samples": 958,
+      "turn_mae": 0.24106016755104065,
+      "turn_mse": 0.07307662814855576
+    }
+  },
+  "authority": {
+    "completedStepBefore": "000000000000000d",
+    "completedStepAfter": "00000000000007e5",
+    "generationAfter": "0000000000000001",
+    "stepTimingP95Micros": "0000000000001770",
+    "stepTimingP99Micros": "0000000000001f40"
+  },
+  "shadows": [
+    {
+      "shadowSlot": 0,
+      "artifactSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+      "captureEpoch": "f0bc9714ace18f11903b071141cc4e59",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000002",
+      "activationStep": "00000000000007b5",
+      "completedStep": "00000000000007e5",
+      "lastSampleStep": "00000000000007e3",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.47547540068626404,
+        -0.6678508520126343
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "000000000000000d",
+        "turnAbsoluteError": 5.76860123872757,
+        "turnMae": 0.44373855682519764,
+        "turnMse": 0.1992768153608062,
+        "turnSquaredError": 2.5905985996904803
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "000000000000000d",
+          "turnAbsoluteError": 5.76860123872757,
+          "turnMae": 0.44373855682519764,
+          "turnMse": 0.1992768153608062,
+          "turnSquaredError": 2.5905985996904803
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "000000000000000d",
+          "turnAbsoluteError": 5.76860123872757,
+          "turnMae": 0.44373855682519764,
+          "turnMse": 0.1992768153608062,
+          "turnSquaredError": 2.5905985996904803
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "000000000000000d",
+        "turnAbsoluteError": 5.76860123872757,
+        "turnMae": 0.44373855682519764,
+        "turnMse": 0.1992768153608062,
+        "turnSquaredError": 2.5905985996904803
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    },
+    {
+      "shadowSlot": 1,
+      "artifactSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+      "captureEpoch": "f0bc9714ace18f11903b071141cc4e59",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000003",
+      "activationStep": "00000000000007e1",
+      "completedStep": "00000000000007e5",
+      "lastSampleStep": "00000000000007e3",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.3234921395778656,
+        -0.36876311898231506
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.32398369908332825,
+        "turnMae": 0.32398369908332825,
+        "turnMse": 0.10496543727171659,
+        "turnSquaredError": 0.10496543727171659
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.32398369908332825,
+          "turnMae": 0.32398369908332825,
+          "turnMse": 0.10496543727171659,
+          "turnSquaredError": 0.10496543727171659
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.32398369908332825,
+          "turnMae": 0.32398369908332825,
+          "turnMse": 0.10496543727171659,
+          "turnSquaredError": 0.10496543727171659
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.32398369908332825,
+        "turnMae": 0.32398369908332825,
+        "turnMse": 0.10496543727171659,
+        "turnSquaredError": 0.10496543727171659
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    },
+    {
+      "shadowSlot": 2,
+      "artifactSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+      "captureEpoch": "f0bc9714ace18f11903b071141cc4e59",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000004",
+      "activationStep": "00000000000007e1",
+      "completedStep": "00000000000007e5",
+      "lastSampleStep": "00000000000007e3",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.3234921395778656,
+        -0.36876311898231506
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.32398369908332825,
+        "turnMae": 0.32398369908332825,
+        "turnMse": 0.10496543727171659,
+        "turnSquaredError": 0.10496543727171659
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.32398369908332825,
+          "turnMae": 0.32398369908332825,
+          "turnMse": 0.10496543727171659,
+          "turnSquaredError": 0.10496543727171659
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.32398369908332825,
+          "turnMae": 0.32398369908332825,
+          "turnMse": 0.10496543727171659,
+          "turnSquaredError": 0.10496543727171659
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.32398369908332825,
+        "turnMae": 0.32398369908332825,
+        "turnMse": 0.10496543727171659,
+        "turnSquaredError": 0.10496543727171659
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    },
+    {
+      "shadowSlot": 3,
+      "artifactSha256": "583e4e0af3517ece8d84849d07a02dd47847b2ba9fac0112edcfb6a595d132ee",
+      "captureEpoch": "f0bc9714ace18f11903b071141cc4e59",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000005",
+      "activationStep": "00000000000007e2",
+      "completedStep": "00000000000007e5",
+      "lastSampleStep": "00000000000007e3",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.3234921395778656,
+        -0.36876311898231506
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.32398369908332825,
+        "turnMae": 0.32398369908332825,
+        "turnMse": 0.10496543727171659,
+        "turnSquaredError": 0.10496543727171659
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.32398369908332825,
+          "turnMae": 0.32398369908332825,
+          "turnMse": 0.10496543727171659,
+          "turnSquaredError": 0.10496543727171659
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.32398369908332825,
+          "turnMae": 0.32398369908332825,
+          "turnMse": 0.10496543727171659,
+          "turnSquaredError": 0.10496543727171659
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.32398369908332825,
+        "turnMae": 0.32398369908332825,
+        "turnMse": 0.10496543727171659,
+        "turnSquaredError": 0.10496543727171659
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    }
+  ],
+  "http": {
+    "forbiddenRequests": 0,
+    "routes": {
+      "GET /api/distillation/v1/datasets/:id/chunks": 34,
+      "POST /api/distillation/v1/datasets/:id/leases": 7,
+      "GET /api/distillation/v1/datasets/:id/chunks/:id": 44,
+      "DELETE /api/distillation/v1/leases/:id": 7,
+      "POST /api/distillation/v1/candidates/:id": 1,
+      "GET /api/distillation/v1/shadows": 2,
+      "POST /api/distillation/v1/shadows/0/activate": 1,
+      "POST /api/distillation/v1/shadows/1/activate": 1,
+      "POST /api/distillation/v1/shadows/2/activate": 1,
+      "POST /api/distillation/v1/shadows/3/activate": 1
+    }
+  }
+}

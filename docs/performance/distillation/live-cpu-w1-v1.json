@@ -1,0 +1,1015 @@
+{
+  "schemaVersion": 1,
+  "gate": "live-canonical-distillation-v1",
+  "device": "cpu",
+  "workers": 1,
+  "seed": 42,
+  "source": {
+    "slitherRevision": "af4684d8cd1e7b21f02a27704c40df14704a681f",
+    "pyrlRevision": "f8bee470cb3631d2d5f99b4409853f410db6a912",
+    "hostSha256": "dfd64f406202cbae0b4db3fe453116f4c6ec3947cbf802b8b8f97466c8092353",
+    "trainerGateSha256": "e7c568aae6d2320eeb4fdd3e7e3c9dd12a6a8ecd88ff1407425f16ef162b375f",
+    "nativeSourceSha256": "f7a9d83eea6ce85da452bc458605488b55f1588de4121c20d5283a2b0b48b039",
+    "target": "x86_64-pc-windows-msvc"
+  },
+  "workload": {
+    "population": 55,
+    "baselines": 10,
+    "profile": "basic",
+    "bins": 8,
+    "populationGraph": "Dense 72 to 2",
+    "studentGraph": "GRU8 and Dense2",
+    "studentParameters": 1962,
+    "studentState": 8,
+    "cadenceSeconds": 0.06
+  },
+  "hostPeakRssBytes": 172142592,
+  "train": {
+    "burnInSamples": 129024,
+    "device": "cpu",
+    "elapsedWallSeconds": 21.094000000040978,
+    "environment": {
+      "atenCpuCapability": null,
+      "autocast": false,
+      "cpuCapability": "AVX2",
+      "cpuProcessor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+      "cublasWorkspaceConfig": null,
+      "cudaRuntime": "12.6",
+      "cudnnBenchmark": false,
+      "cudnnDeterministic": false,
+      "deterministicAlgorithms": false,
+      "deterministicWarnOnly": false,
+      "device": "cpu",
+      "float32": true,
+      "implementation": "CPython",
+      "machine": "AMD64",
+      "matmulPrecision": "highest",
+      "numpy": "2.5.3",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "python": "3.12.10",
+      "tf32": false,
+      "threads": 2,
+      "torch": "2.14.0+cu126",
+      "torchBuildSha256": "62667d88337d001cde4cafba9f11abd5a7bda80f936d118135e21982cb2f1eec"
+    },
+    "peakDeviceBytes": 0,
+    "peakReservedDeviceBytes": 0,
+    "peakRssBytes": 803295232,
+    "phase": "train",
+    "replayBytes": 905732,
+    "retainedChunks": 44,
+    "schemaVersion": 1,
+    "sequence": {
+      "batch_size": 32,
+      "bptt_steps": 64,
+      "burn_in_steps": 32,
+      "gradient_clip": 1,
+      "learning_rate": 0.0003
+    },
+    "sourceRows": 726,
+    "trainerSourceSha256": "482d8b9abc86fb5c38b413c98643c2af33ed7548e63786fb6415906d2c6559d3",
+    "trainingSamples": 133433,
+    "updates": 126
+  },
+  "resume": {
+    "burnInSamples": 256000,
+    "candidateSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+    "candidateWeightsSha256": "415bd8159bd7f26e57eacdebe79188276a9dce829fd129903f5d2ba5798c9cf3",
+    "checkpointSha256": "4be1237e7aeac212136bdd73d9974fd6b79253dec99438ec67d51bb5fc4cfb53",
+    "device": "cpu",
+    "elapsedWallSeconds": 18.75,
+    "environment": {
+      "atenCpuCapability": null,
+      "autocast": false,
+      "cpuCapability": "AVX2",
+      "cpuProcessor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+      "cublasWorkspaceConfig": null,
+      "cudaRuntime": "12.6",
+      "cudnnBenchmark": false,
+      "cudnnDeterministic": false,
+      "deterministicAlgorithms": false,
+      "deterministicWarnOnly": false,
+      "device": "cpu",
+      "float32": true,
+      "implementation": "CPython",
+      "machine": "AMD64",
+      "matmulPrecision": "highest",
+      "numpy": "2.5.3",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "python": "3.12.10",
+      "tf32": false,
+      "threads": 2,
+      "torch": "2.14.0+cu126",
+      "torchBuildSha256": "62667d88337d001cde4cafba9f11abd5a7bda80f936d118135e21982cb2f1eec"
+    },
+    "metrics": {
+      "activationSequence": "0000000000000002",
+      "activationStep": "0000000000000a90",
+      "artifactSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+      "baselineSlot": 0,
+      "captureEpoch": "8e0c1f83fde32cbca09b8c0211910c02",
+      "completedStep": "0000000000000a92",
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.16308313608169556,
+        "turnMae": 0.16308313608169556,
+        "turnMse": 0.02659610927424083,
+        "turnSquaredError": 0.02659610927424083
+      },
+      "deaths": "0000000000000000",
+      "enabled": true,
+      "error": null,
+      "generation": "0000000000000001",
+      "lastSampleStep": "0000000000000a92",
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.16308313608169556,
+          "turnMae": 0.16308313608169556,
+          "turnMse": 0.02659610927424083,
+          "turnSquaredError": 0.02659610927424083
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "physicalSnakeId": "800000000000000a",
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "rawOutputs": [
+        -0.28486502170562744,
+        -0.5931893587112427
+      ],
+      "shadowSlot": 0,
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.16308313608169556,
+          "turnMae": 0.16308313608169556,
+          "turnMse": 0.02659610927424083,
+          "turnSquaredError": 0.02659610927424083
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.16308313608169556,
+        "turnMae": 0.16308313608169556,
+        "turnMse": 0.02659610927424083,
+        "turnSquaredError": 0.02659610927424083
+      }
+    },
+    "peakDeviceBytes": 0,
+    "peakReservedDeviceBytes": 0,
+    "peakRssBytes": 803422208,
+    "phase": "resume",
+    "receipt": {
+      "acknowledgedAt": 1792081764787,
+      "activationSequence": "0000000000000002",
+      "artifactSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+      "baselineSlot": 0,
+      "captureEpoch": "8e0c1f83fde32cbca09b8c0211910c02",
+      "commandSequence": "0000000000000002",
+      "configRevision": "0000000000000001",
+      "effectiveStep": "0000000000000a90",
+      "enabled": true,
+      "previousActivationSequence": "0000000000000000",
+      "processEpoch": "0f7a779d0223c0d2d36164a39d8f2c23",
+      "requestId": "df15e02f97404eaf9c76b310762fbe4e",
+      "runId": "live-distillation-36b47dfd94d421d8",
+      "schemaVersion": 1,
+      "shadowSlot": 0
+    },
+    "replayBytes": 905732,
+    "restartExact": true,
+    "schemaVersion": 1,
+    "sequence": {
+      "batch_size": 32,
+      "bptt_steps": 64,
+      "burn_in_steps": 32,
+      "gradient_clip": 1,
+      "learning_rate": 0.0003
+    },
+    "trainerSourceSha256": "482d8b9abc86fb5c38b413c98643c2af33ed7548e63786fb6415906d2c6559d3",
+    "trainingSamples": 265925,
+    "updates": 250,
+    "validation": {
+      "boost_disagreement": 0,
+      "samples": 958,
+      "turn_mae": 0.23566479980945587,
+      "turn_mse": 0.07080034166574478
+    }
+  },
+  "authority": {
+    "completedStepBefore": "0000000000000009",
+    "completedStepAfter": "0000000000000ac6",
+    "generationAfter": "0000000000000001",
+    "stepTimingP95Micros": "0000000000003e80",
+    "stepTimingP99Micros": "0000000000005dc0"
+  },
+  "shadows": [
+    {
+      "shadowSlot": 0,
+      "artifactSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+      "captureEpoch": "8e0c1f83fde32cbca09b8c0211910c02",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000002",
+      "activationStep": "0000000000000a90",
+      "completedStep": "0000000000000ac6",
+      "lastSampleStep": "0000000000000ac5",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.3186918795108795,
+        -0.7147790193557739
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "000000000000000f",
+        "turnAbsoluteError": 4.3490400314331055,
+        "turnMae": 0.2899360020955404,
+        "turnMse": 0.08872749375917598,
+        "turnSquaredError": 1.3309124063876396
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "000000000000000f",
+          "turnAbsoluteError": 4.3490400314331055,
+          "turnMae": 0.2899360020955404,
+          "turnMse": 0.08872749375917598,
+          "turnSquaredError": 1.3309124063876396
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "000000000000000f",
+          "turnAbsoluteError": 4.3490400314331055,
+          "turnMae": 0.2899360020955404,
+          "turnMse": 0.08872749375917598,
+          "turnSquaredError": 1.3309124063876396
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "000000000000000f",
+        "turnAbsoluteError": 4.3490400314331055,
+        "turnMae": 0.2899360020955404,
+        "turnMse": 0.08872749375917598,
+        "turnSquaredError": 1.3309124063876396
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    },
+    {
+      "shadowSlot": 1,
+      "artifactSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+      "captureEpoch": "8e0c1f83fde32cbca09b8c0211910c02",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000003",
+      "activationStep": "0000000000000ac1",
+      "completedStep": "0000000000000ac6",
+      "lastSampleStep": "0000000000000ac5",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.2200431376695633,
+        -0.549814760684967
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.2008880078792572,
+        "turnMae": 0.2008880078792572,
+        "turnMse": 0.040355991709696504,
+        "turnSquaredError": 0.040355991709696504
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.2008880078792572,
+          "turnMae": 0.2008880078792572,
+          "turnMse": 0.040355991709696504,
+          "turnSquaredError": 0.040355991709696504
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.2008880078792572,
+          "turnMae": 0.2008880078792572,
+          "turnMse": 0.040355991709696504,
+          "turnSquaredError": 0.040355991709696504
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.2008880078792572,
+        "turnMae": 0.2008880078792572,
+        "turnMse": 0.040355991709696504,
+        "turnSquaredError": 0.040355991709696504
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    },
+    {
+      "shadowSlot": 2,
+      "artifactSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+      "captureEpoch": "8e0c1f83fde32cbca09b8c0211910c02",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000004",
+      "activationStep": "0000000000000ac2",
+      "completedStep": "0000000000000ac6",
+      "lastSampleStep": "0000000000000ac5",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.2200431376695633,
+        -0.549814760684967
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.2008880078792572,
+        "turnMae": 0.2008880078792572,
+        "turnMse": 0.040355991709696504,
+        "turnSquaredError": 0.040355991709696504
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.2008880078792572,
+          "turnMae": 0.2008880078792572,
+          "turnMse": 0.040355991709696504,
+          "turnSquaredError": 0.040355991709696504
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.2008880078792572,
+          "turnMae": 0.2008880078792572,
+          "turnMse": 0.040355991709696504,
+          "turnSquaredError": 0.040355991709696504
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.2008880078792572,
+        "turnMae": 0.2008880078792572,
+        "turnMse": 0.040355991709696504,
+        "turnSquaredError": 0.040355991709696504
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    },
+    {
+      "shadowSlot": 3,
+      "artifactSha256": "933d830dfbe7fc4983335d89306bac22660ad5686c2c5d577d47e196839d8e8e",
+      "captureEpoch": "8e0c1f83fde32cbca09b8c0211910c02",
+      "baselineSlot": 0,
+      "activationSequence": "0000000000000005",
+      "activationStep": "0000000000000ac2",
+      "completedStep": "0000000000000ac6",
+      "lastSampleStep": "0000000000000ac5",
+      "generation": "0000000000000001",
+      "physicalSnakeId": "800000000000000a",
+      "enabled": true,
+      "error": null,
+      "rawOutputs": [
+        -0.2200431376695633,
+        -0.549814760684967
+      ],
+      "totals": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.2008880078792572,
+        "turnMae": 0.2008880078792572,
+        "turnMse": 0.040355991709696504,
+        "turnSquaredError": 0.040355991709696504
+      },
+      "strategies": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.2008880078792572,
+          "turnMae": 0.2008880078792572,
+          "turnMse": 0.040355991709696504,
+          "turnSquaredError": 0.040355991709696504
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "lifeStages": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000001",
+          "turnAbsoluteError": 0.2008880078792572,
+          "turnMae": 0.2008880078792572,
+          "turnMse": 0.040355991709696504,
+          "turnSquaredError": 0.040355991709696504
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "strata": [
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        },
+        {
+          "boostDisagreementRate": 0,
+          "boostDisagreements": "0000000000000000",
+          "samples": "0000000000000000",
+          "turnAbsoluteError": 0,
+          "turnMae": 0,
+          "turnMse": 0,
+          "turnSquaredError": 0
+        }
+      ],
+      "cruising": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000001",
+        "turnAbsoluteError": 0.2008880078792572,
+        "turnMae": 0.2008880078792572,
+        "turnMse": 0.040355991709696504,
+        "turnSquaredError": 0.040355991709696504
+      },
+      "preDeath": {
+        "boostDisagreementRate": 0,
+        "boostDisagreements": "0000000000000000",
+        "samples": "0000000000000000",
+        "turnAbsoluteError": 0,
+        "turnMae": 0,
+        "turnMse": 0,
+        "turnSquaredError": 0
+      },
+      "deaths": "0000000000000000"
+    }
+  ],
+  "http": {
+    "forbiddenRequests": 0,
+    "routes": {
+      "GET /api/distillation/v1/datasets/:id/chunks": 34,
+      "POST /api/distillation/v1/datasets/:id/leases": 7,
+      "GET /api/distillation/v1/datasets/:id/chunks/:id": 44,
+      "DELETE /api/distillation/v1/leases/:id": 7,
+      "POST /api/distillation/v1/candidates/:id": 1,
+      "GET /api/distillation/v1/shadows": 2,
+      "POST /api/distillation/v1/shadows/0/activate": 1,
+      "POST /api/distillation/v1/shadows/1/activate": 1,
+      "POST /api/distillation/v1/shadows/2/activate": 1,
+      "POST /api/distillation/v1/shadows/3/activate": 1
+    }
+  }
+}
