@@ -449,6 +449,22 @@ retained in PyRL alongside the prior canonical evidence. The exact 60-second
 checkpoint deadline uses direct deadline comparison, with the CI rounding case
 covered by a deterministic regression.
 
+The live distillation gate now consumes actual committed v4/v2 samples over the
+production HTTP spool with the default 32-window/32-burn-in/64-BPTT sequence.
+A second Python process restores update 125 and exactly reproduces update 126's
+weights, optimizer, sampler, recurrence and private RNG witnesses. Update 250
+freezes an immutable trained candidate for independent Rust validation and four
+actual shadow slots. Windows CPU one/three-worker and CUDA one-worker cases pass;
+compact source/environment/RSS/allocator/step/route reports are retained under
+`docs/performance/distillation/`. No actor/controller traffic is admitted, and
+world steps continue through training and activation. PyRL CI pins the Slither
+host and runs this gate on Linux CPU with one/three workers. Unchanged native
+capture/four-shadow continuation tests remain the mathematical isolation
+witnesses; these live runs add committed provenance and cross-process handoff.
+CUDA three-worker qualification, larger-workload resource/VRAM measurements,
+held-out tactical/ablation evaluation and final integrated soak remain open.
+
+
 Stage I's native origin foundation is implemented: retained brains own bounded
 immutable HoF or saved-brain origins through shared Arcs. Admission binds origin
 to exact packed weights, population/external owners reject retained provenance,
