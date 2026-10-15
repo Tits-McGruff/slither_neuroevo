@@ -650,11 +650,29 @@ checkpoint passes all 732 release library tests with engine hooks, actual addon
 and socket inspector fixtures, 411 unit cases (three existing skips), 85 component
 cases, 24 main UI cases, type/lint/client build and rustfmt/Clippy.
 
-Stages D through J and the remaining B/C qualification gates remain open.
-Baseline v2 workload/tactical qualification, complete candidate/job integration,
-integrated shadow/training resource qualification, library qualification and
-the new inspector remain unfinished.
-Existing v3/v1 runtime defaults remain until their stages qualify.
+The live distillation gate now trains GRU and Dense candidates for 250 updates
+with an independent-process restart at update 125, validates immutable artifacts,
+activates native shadows, saves/exports/deploys compatible Dense weights and
+retains native inference/provenance after catalog deletion. Linux CPU CI passes
+with one/three native workers; Windows CPU reports retain the same path. CUDA
+one-worker training/restart/shadow evidence passes; its three-worker rerun and
+integrated resource qualification remain open. Reports and their exact scope
+live under `docs/performance/distillation/`.
+
+The sensor workload runner accepts explicit v2 mode/cadence and records committed
+neural/baseline/external work separately, with shared ray-budget witnesses and
+OS peak RSS. Observer-on/off and one/three-worker complete continuation witnesses
+match across v1 and both v2 modes; all 734 release library tests pass. Retained
+version-2 Windows/Oxygen measurements are described in
+`docs/performance/sensor-v4/README.md`. These random-population workloads do not
+qualify representative tactical batches, stochastic exploration or ablation.
+
+Stages D through J and remaining B/C acceptance gates remain open: representative
+sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
+and device-memory admission, crowded/saturated geometry, and the integrated
+six-hour-equivalent soak. Inspector and library implementation are present; their
+capacity qualification remains open. Existing v3/v1 runtime defaults remain until
+their stages qualify.
 
 Repository inspection baseline:
 

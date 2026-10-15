@@ -1390,6 +1390,15 @@ impl RunningAuthorityLoop {
         Some((batch, world))
     }
 
+    /// Read source-class work only after the same exact publication gate as observation rows.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_sensor_work(
+        &self,
+    ) -> Option<[super::sensor_qualification::ConsumerSensorWork; 3]> {
+        self.qualification_batch()?;
+        Some(self.coordinator.qualification_sensor_work())
+    }
+
     /// Exact active observation width; no world scan or sensor execution.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.coordinator.sensor_input_size()
