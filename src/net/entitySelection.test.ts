@@ -19,6 +19,15 @@ function fixture() {
 }
 
 describe('native physical selection presentation', () => {
+  it('selects an individual from the keyboard and retains its pending life without guessing a physical ID', () => {
+    const f = fixture(); f.client.selectIndividual(4);
+    expect(f.requests[0]).toMatchObject({populationSlot: 4}); expect(f.requests[0]).not.toHaveProperty('snakeId');
+    f.client.receive({type: 'entitySelected', requestId: f.requests[0]!.requestId, found: false});
+    expect(f.client.followedPopulationSlot()).toBe(4); f.client.observeFrame(1, () => false, 0);
+    expect(f.requests[1]).toMatchObject({populationSlot: 4});
+    f.client.selectIndividual(300); expect(f.requests).toHaveLength(2);
+  });
+
   it('waits for the exact native token before killing and ignores superseded clicks', () => {
     const f = fixture(); f.client.kill(7);
     expect(f.kill).not.toHaveBeenCalled();

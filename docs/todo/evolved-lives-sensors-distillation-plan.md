@@ -589,8 +589,15 @@ admits one joined UI owner and one pending command globally, isolates diagnostic
 failures, filters old subscriptions and retains cleanup across disconnect or
 scope replacement. Each socket keeps one replaceable diagnostic row behind
 reliable replies, stats and frames. Actual sockets verify exclusive ownership,
-native rows, disconnect/reclaim and explicit close. Browser controls/presentation
-remain open.
+native rows, disconnect/reclaim and explicit close. The capability-gated Stats
+inspector is now opt-in and default-off. Canvas or keyboard slot selection uses
+the existing native identity resolver; pending lives retain their individual.
+The display shows exact step/age/source identity, raw scalars/sectors/rays/motion,
+actual graph/v2 action values and the normalized vector. Missing profile channels
+remain labelled not-sampled. Browser tests cover scope changes, stale rows,
+coalesced opt-out and clearing; a disposable real browser run verifies delivered
+data, drawing and opt-out. Lifecycle/shadow joins, v1 tactical projection, explicit
+pure probes and integrated capacity qualification remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

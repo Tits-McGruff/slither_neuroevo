@@ -1,3 +1,4 @@
+import { inspectorFixture } from './test/inspectorFixture.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Generic element surface sufficient for the application startup boundary. */
@@ -99,6 +100,7 @@ function makeElement(id: string): SmokeElement {
     createPattern() { return null; },
     fillRect() { },
     setTransform() { },
+    setLineDash() { },
     clearRect() { },
     beginPath() { },
     moveTo() { },
@@ -313,7 +315,7 @@ describe('main.ts startup smoke', () => {
   });
 
   /** Connect a spectator to a large arena with one selectable snake and a real binary frame. */
-  async function openCameraSession(): Promise<{ socket: StubSocketSurface; canvas: SmokeElement }> {
+  async function openCameraSession(inspector = false): Promise<{ socket: StubSocketSurface; canvas: SmokeElement }> {
     await import('./main.ts');
     const socket = activeSocket;
     if (!socket) throw new Error('missing browser WebSocket');
@@ -321,6 +323,7 @@ describe('main.ts startup smoke', () => {
     socket.onmessage?.({ data: JSON.stringify({
       type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
       worldSeed: 42, runId: 'camera-run', configRevision: 1, configHash: 'cfg-camera',
+      capabilities: {decisionInspector: inspector},
       settings: { core: { simSpeed: 1 }, updates: [
         { path: 'worldRadius', value: 10000 }, { path: 'observer.overviewPadding', value: 1.25 },
         { path: 'observer.overviewExtraWorldMargin', value: 0 }
@@ -496,6 +499,34 @@ describe('main.ts startup smoke', () => {
       entity: { token: '2'.repeat(64), snakeId: 9, populationSlot: 0, lifeOrdinal: '0000000000000002', x: 900, y: 700, radius: 9, skin: 0 } }) });
     socket.onmessage?.({ data: frame([7, 9]) }); renderCameraFrame();
     expect(window.currentWorld.cameraX).toBe(900); expect(window.currentWorld.cameraY).toBe(700);
+  });
+
+  it('enables selected decision inspection explicitly and clears delivered data on close and disconnect', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+    const {canvas, socket} = await openCameraSession(true);
+    expect(elements.get('decisionInspector')!.hidden).toBe(false);
+    expect(elements.get('decisionInspectorEnabled')!.checked).toBe(false);
+    const zoom = window.currentWorld.zoom;
+    canvas.dispatch('click', cameraMouse(400 + 200 * zoom, 300 + 100 * zoom));
+    const selection = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'selectEntity');
+    socket.onmessage?.({data: JSON.stringify({type: 'entitySelected', requestId: selection.requestId, found: true,
+      entity: {token: '1'.repeat(64), snakeId: 7, x: 200, y: 100, radius: 9, skin: 0}})});
+    expect(socket.sent.map(payload => JSON.parse(payload)).some(packet => packet.type === 'inspectEntity')).toBe(false);
+    const checkbox = elements.get('decisionInspectorEnabled')!; checkbox.checked = true; checkbox.dispatch('change', {} as Event);
+    const request = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'inspectEntity');
+    expect(request).toMatchObject({snakeId: 7, selectionToken: '1'.repeat(64)});
+    socket.onmessage?.({data: JSON.stringify({type: 'inspectorResult', requestId: request.requestId, applied: true,
+      enabled: true, subscriptionSequence: '0000000000000001'})});
+    const snapshot = inspectorFixture(); snapshot.sample!.snakeId = 7;
+    socket.onmessage?.({data: JSON.stringify({type: 'inspector', snapshot})});
+    expect(elements.get('decisionInspectorData')!.hidden).toBe(false);
+    expect(elements.get('decisionInspectorSummary')!.textContent).toContain('Sample step 1 · age 1 completed steps');
+    expect(elements.get('decisionInspectorInputs')!.textContent).toContain('heading_sin');
+    checkbox.checked = false; checkbox.dispatch('change', {} as Event);
+    expect(elements.get('decisionInspectorData')!.hidden).toBe(true);
+    expect(elements.get('decisionInspectorInputs')!.textContent).toBe('');
+    expect(socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'inspectEntity').selectionToken).toBeUndefined();
+    socket.onclose?.(); expect(elements.get('decisionInspector')!.hidden).toBe(true);
   });
 
   it('shows native retained provenance for the selected snake and clears it on disconnect', async () => {

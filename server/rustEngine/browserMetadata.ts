@@ -57,7 +57,7 @@ export function createRustWelcome(
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
     graphSpec: metadata.graphSpec,
-    capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true },
+    capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true, decisionInspector: true },
     settings: createRustSettings(metadata),
     sensorSpec: getSensorSpec(nativeSensorLayout(metadata), metadata.sensorContract),
     inferenceMode: {

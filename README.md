@@ -1002,3 +1002,12 @@ Trainer datasets and optimizer checkpoints remain separate exports.
 - **Import input size mismatch**: Re-export from a build with the same v3
   sensor size and graph parameter count; do not delete the database as a first
   troubleshooting step.
+
+The **Stats** tab includes an optional **Decision inspector**. Select a snake on
+the canvas, or enter its zero-based **Population slot** and choose **Select
+individual**, then enable the checkbox. It shows the actual last delivered
+observation, its step and age, raw sensor measurements, normalized inputs and
+available action outputs. Unknown rays remain labelled; channels absent from a
+profile show **not sampled**. One viewer can inspect one target at a time. Turn
+the checkbox off to stop capture. Following an individual retains its selection
+while it waits for another physical life.

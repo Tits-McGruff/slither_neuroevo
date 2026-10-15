@@ -8,7 +8,7 @@ import type { GraphSpec } from './brains/graph/schema.ts';
 /** Initial browser settings/presentation values, replaced by authoritative metadata. */
 export const CFG_DEFAULT = {
   /** Local diagnostic presentation; never submitted as authoritative gameplay settings. */
-  diagnostics: { followIndividual: true },
+  diagnostics: { followIndividual: true, inspectorEnabled: false },
   worldRadius: 3500,
   pelletCountTarget: 3500,
   pelletSpawnPerSecond: 170,
