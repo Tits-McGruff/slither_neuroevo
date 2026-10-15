@@ -774,8 +774,24 @@ impl RunningStepCoordinator {
                 .into());
             }
         }
+        let evolution = target
+            .map(|_| authority.evolution_config())
+            .transpose()
+            .map_err(|error| RunningStepError::Config(Box::new(error)))?;
         self.control.configure_inspector(target, budget_bytes)?;
+        if let Some(config) = evolution {
+            self.control.configure_inspector_evolution(config);
+        }
         Ok(())
+    }
+
+    /// Join private diagnostics by the exact published teacher boundary.
+    pub(crate) fn join_inspector_shadows(
+        &mut self,
+        key: PhysicsStepKey,
+        snapshots: [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS],
+    ) {
+        self.control.join_inspector_shadows(key, snapshots);
     }
 
     /// Called immediately after cold cache admission, before any control preparation.
@@ -1025,30 +1041,37 @@ impl RunningStepCoordinator {
                     .observe_assessments(&self.staged_assessment_points)?;
             }
             let control_started = Instant::now();
-            let selected = self.control.prepare(ControlPhaseInputs {
-                prefix,
-                generation: &self.staged_sensor_generation,
-                assessment_points: selected_score_context
-                    .then_some(self.staged_assessment_points.as_slice()),
-                v4: self
-                    .work_limits
-                    .ray_work
-                    .filter(|_| {
-                        self.projection.sensor_profile != super::sensor_contract::SensorProfile::V3
-                    })
-                    .map(|limits| super::control_phase::V4BoundaryContext {
-                        context: super::sensors_v4::V4ObservationContext {
-                            generation_elapsed_seconds: prefix.generation_elapsed_seconds(),
-                            evolved: &self.staged_evolved_generation,
-                            experiment: self.projection.evolved,
-                        },
-                        limits,
-                    }),
-                population: &state.population,
-                brains: &state.brains,
-                wall_now_ms: inputs.wall_now_ms,
-                config: self.projection.world_step.control,
-            })?;
+            let selected = self.control.prepare_with_inspector_lifecycle(
+                ControlPhaseInputs {
+                    prefix,
+                    generation: &self.staged_sensor_generation,
+                    assessment_points: selected_score_context
+                        .then_some(self.staged_assessment_points.as_slice()),
+                    v4: self
+                        .work_limits
+                        .ray_work
+                        .filter(|_| {
+                            self.projection.sensor_profile
+                                != super::sensor_contract::SensorProfile::V3
+                        })
+                        .map(|limits| super::control_phase::V4BoundaryContext {
+                            context: super::sensors_v4::V4ObservationContext {
+                                generation_elapsed_seconds: prefix.generation_elapsed_seconds(),
+                                evolved: &self.staged_evolved_generation,
+                                experiment: self.projection.evolved,
+                            },
+                            limits,
+                        }),
+                    population: &state.population,
+                    brains: &state.brains,
+                    wall_now_ms: inputs.wall_now_ms,
+                    config: self.projection.world_step.control,
+                },
+                Some(super::inspector::InspectorLifecycleContext {
+                    lives: &self.staged_evolved_generation,
+                    policy: self.projection.evolved,
+                }),
+            )?;
             self.last_step_cost.control_selection =
                 u64::try_from(control_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.last_step_cost.control_index = selected.cost_micros().spatial_index;

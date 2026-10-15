@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { inspectorFixture, inspectorLifecycleFixture } from '../test/inspectorFixture.ts';
 import { parseInspectorSnapshot } from './inspector.ts';
 
 /** Synthetic metadata only; no graph or observation is executed in this fixture. */
@@ -98,4 +99,42 @@ describe('native selected inspector projection', () => {
       expect(() => parseInspectorSnapshot(changed(snapshot(), path, replacement))).toThrow();
     }
   });
+
+  it('preserves lifecycle ledger, assessment and provisional native fitness while rejecting invalid details', () => {
+    const value = inspectorFixture(); value.sample!.lifecycle = inspectorLifecycleFixture();
+    expect(parseInspectorSnapshot(value).sample!.lifecycle).toMatchObject({provisionalFitness: -2, assessment: {points: 30},
+      current: {peakPoints: 12}, bestPointLife: {peakPoints: 30}, ledger: {operations: 'ffffffffffffffff'}});
+    const corruptions: readonly [readonly string[], unknown][] = [
+      [['sample', 'lifecycle', 'lifeOrdinal'], 2], [['sample', 'lifecycle', 'fitnessComponents'], Array(8).fill(0)],
+      [['sample', 'lifecycle', 'ledger', 'lifeLocalWallet'], Infinity], [['sample', 'lifecycle', 'ledger', 'operations'], 2],
+      [['sample', 'lifecycle', 'current', 'ordinal'], '0'.repeat(16)], [['sample', 'lifecycle', 'assessment', 'kills'], 9007199254740992],
+      [['sample', 'lifecycle', 'pointMode'], 'invented'], [['sample', 'raw', 'kind'], 'baseline']
+    ];
+    for (const [path, replacement] of corruptions) expect(() => parseInspectorSnapshot(changed(value, path, replacement))).toThrow();
+  });
+
+  it('validates actual v1 actions and exact shadow step, slot and activation identities', () => {
+    const original = snapshot('v3', 8);
+    const v1 = {...original, sample: {...original.sample, source: {kind: 'baseline-v1'}, neuralOutputs: null,
+      baselineV1Action: {turn: -0.5, boost: true, baselineSlot: 1, strategy: 'roam', effectiveStrategy: 'avoid',
+        lifeStage: 'small', sector: 7, targetPhysicalId: 'ffffffffffffffff', uniformDraws: 2,
+        strategyTimerSeconds: 2.5, wanderAngle: -1, wanderRemainingSeconds: 1}}};
+    expect(parseInspectorSnapshot(v1).sample!.baselineV1Action?.effectiveStrategy).toBe('avoid');
+    expect(() => parseInspectorSnapshot(changed(v1, ['sample', 'baselineV1Action', 'sector'], 8))).toThrow();
+    expect(() => parseInspectorSnapshot(changed(v1, ['sample', 'baselineV1Action', 'targetPhysicalId'], 42))).toThrow();
+    expect(() => parseInspectorSnapshot(changed(v1, ['sample', 'source'], {kind: 'neural'}))).toThrow();
+    const v2 = {...v1, sample: {...v1.sample, baselineV1Action: null, source: {kind: 'baseline-v2'}, profile: 'basic', normalizedInputs: Array(72).fill(0),
+      baselineAction: {turn: 0, boost: false, sector: 0, lifeStage: 'small', strategy: 'roam', normalizedScore: 0,
+        unsafeRoute: false, escapeOrPursuit: false, urgentSectors: 0, committedHeading: null, commitmentRemainingSeconds: 0},
+      shadowOutputs: [{shadowSlot: 0, artifactSha256: 'b'.repeat(64), captureEpoch: 'c'.repeat(32),
+        activationSequence: 'ffffffffffffffff', sampleStep: original.sample.sampleStep, rawOutputs: [2.5, -3]}]}};
+    expect(parseInspectorSnapshot(v2).sample!.shadowOutputs?.[0]?.rawOutputs).toEqual([2.5, -3]);
+    const corruptions: readonly [readonly string[], unknown][] = [
+      [['sampleStep'], '0'.repeat(16)], [['captureEpoch'], '0'.repeat(32)], [['activationSequence'], '0'.repeat(16)],
+      [['rawOutputs', '0'], NaN], [['shadowSlot'], 4], [['artifactSha256'], 'b'.repeat(65)]
+    ];
+    for (const [path, replacement] of corruptions) expect(() => parseInspectorSnapshot(changed(v2, ['sample', 'shadowOutputs', '0', ...path], replacement))).toThrow();
+    expect(() => parseInspectorSnapshot(changed(v2, ['sample', 'shadowOutputs'], [v2.sample.shadowOutputs[0], v2.sample.shadowOutputs[0]]))).toThrow();
+  });
+
 });

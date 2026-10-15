@@ -430,7 +430,8 @@ fn physical<'a>(
         })
         .ok_or_else(|| "experiment physical owner mismatch".into())
 }
-fn selected_assessment(
+/// Shared selected tuple for terminal records and provisional native diagnostics.
+pub(crate) fn selected_assessment(
     slot: &EvolvedSlotRuntime,
     snake: &SnakeState,
     policy: EvolvedExperimentConfig,

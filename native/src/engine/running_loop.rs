@@ -440,6 +440,7 @@ impl RunningAuthorityLoop {
         else {
             return;
         };
+        let mut inspector_key = None;
         let result = self
             .coordinator
             .published_teacher_boundary()
@@ -448,8 +449,13 @@ impl RunningAuthorityLoop {
             ))
             .and_then(|boundary| {
                 self.shadows.observe(boundary);
+                inspector_key = Some(boundary.key);
                 capture.observe(boundary, generation_ended)
             });
+        if let Some(key) = inspector_key {
+            self.coordinator
+                .join_inspector_shadows(key, self.shadows.snapshots());
+        }
         if let Err(error) = result {
             self.shadows.stop_all("teacher publication failed");
             self.teacher_capture_error = Some(error.to_string());

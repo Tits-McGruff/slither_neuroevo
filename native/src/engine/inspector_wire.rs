@@ -118,6 +118,74 @@ fn trace_json(trace: &SensorTrace) -> Result<Value, String> {
     Ok(projection)
 }
 
+fn strategy(value: super::state::BaselineStrategyState) -> &'static str {
+    match value {
+        super::state::BaselineStrategyState::Roam => "roam",
+        super::state::BaselineStrategyState::Seek => "seek",
+        super::state::BaselineStrategyState::Avoid => "avoid",
+        super::state::BaselineStrategyState::Boost => "boost",
+    }
+}
+fn life_stage(value: super::baseline_control::BaselineLifeStage) -> &'static str {
+    match value {
+        super::baseline_control::BaselineLifeStage::Small => "small",
+        super::baseline_control::BaselineLifeStage::Medium => "medium",
+        super::baseline_control::BaselineLifeStage::Large => "large",
+    }
+}
+fn life_json(life: super::evolved_lives::LifeAssessment) -> Result<Value, String> {
+    if [life.peak_points, life.alive_seconds, life.food]
+        .iter()
+        .any(|value| !value.is_finite())
+    {
+        return Err("nonfinite inspector life tuple".into());
+    }
+    Ok(
+        json!({"ordinal":hex(life.ordinal),"peakPoints":life.peak_points,"aliveSeconds":life.alive_seconds,"food":life.food,
+        "kills":hex(life.kills),"startingLength":life.starting_length,"finalLength":life.final_length,"peakLength":life.peak_length}),
+    )
+}
+fn lifecycle_json(life: super::inspector::InspectorLifecycle) -> Result<Value, String> {
+    let ledger = life.ledger;
+    let assessment = life.assessment;
+    ledger.validate().map_err(|error| error.to_string())?;
+    if [
+        assessment.points,
+        assessment.alive_seconds,
+        assessment.food,
+        assessment.retained_growth,
+        life.pending_seconds,
+        life.maximum_assessment_points,
+        life.provisional_fitness,
+    ]
+    .iter()
+    .chain(life.fitness_components.iter())
+    .any(|value| !value.is_finite())
+    {
+        return Err("nonfinite inspector lifecycle".into());
+    }
+    let current = life_json(life.current)?;
+    let best = life_json(life.best_point_life)?;
+    Ok(
+        json!({"lifeOrdinal":hex(life.life_ordinal),"livesStarted":hex(life.lives_started),"deaths":hex(life.deaths),
+        "successfulRespawns":hex(life.successful_respawns),"failedPlacements":hex(life.failed_placements),"pendingSeconds":life.pending_seconds,
+        "pointMode":match life.point_mode {super::evolved_lives::PointAssessmentMode::Reset=>"reset",
+            super::evolved_lives::PointAssessmentMode::CumulativeNet=>"cumulative-net",super::evolved_lives::PointAssessmentMode::CumulativeGross=>"cumulative-gross",
+            super::evolved_lives::PointAssessmentMode::BestLife=>"best-life"},
+        "nonpointMode":match life.nonpoint_mode {super::evolved_lives::NonPointAggregation::GenerationTotals=>"generation-totals",
+            super::evolved_lives::NonPointAggregation::FollowScore=>"follow-score",super::evolved_lives::NonPointAggregation::LegacyTerminal=>"legacy-terminal"},
+        "current":current,"bestPointLife":best,
+        "ledger":{"lifeGrossEarned":ledger.life_gross_earned,"lifeBoostSpent":ledger.life_boost_spent,
+            "lifeBoostSpentFromLifeCredits":ledger.life_boost_spent_from_life_credits,"lifeBoostSpentFromPriorBank":ledger.life_boost_spent_from_prior_bank,
+            "lifeLocalWallet":ledger.life_local_wallet,"priorBankRemaining":ledger.prior_bank_remaining,
+            "generationGrossEarned":ledger.generation_gross_earned,"generationBoostSpent":ledger.generation_boost_spent,
+            "generationNetEarned":ledger.generation_net_earned,"operations":hex(ledger.operations)},
+        "assessment":{"points":assessment.points,"aliveSeconds":assessment.alive_seconds,"food":assessment.food,"kills":hex(assessment.kills),
+            "retainedGrowth":assessment.retained_growth,"peakLength":assessment.peak_length},
+        "maximumAssessmentPoints":life.maximum_assessment_points,"provisionalFitness":life.provisional_fitness,"fitnessComponents":life.fitness_components}),
+    )
+}
+
 /// Serialize one mailbox copy with exact string identities and a hard UTF-8 ceiling.
 pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
     let sample = snapshot.observation.as_ref().map(|sample| {
@@ -161,6 +229,16 @@ pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
             || trace.profile != sample.layout.profile || trace.bins != sample.layout.bins) {
             return Err("inspector trace identity mismatch".into());
         }
+        let baseline_v1 = sample.baseline_v1_action.map(|action| json!({
+            "turn":action.turn,"boost":action.boost,"baselineSlot":action.baseline_slot,"strategy":strategy(action.strategy),
+            "effectiveStrategy":strategy(action.effective_strategy),"lifeStage":life_stage(action.life_stage),"sector":action.sector,
+            "targetPhysicalId":action.target_physical_id.map(hex),"uniformDraws":action.uniform_draws,
+            "strategyTimerSeconds":action.strategy_timer_seconds,"wanderAngle":action.wander_angle,"wanderRemainingSeconds":action.wander_remaining_seconds}));
+        let shadows: Vec<_> = sample.shadow_outputs.iter().flatten().map(|output| json!({
+            "shadowSlot":output.shadow_slot,"artifactSha256":output.artifact_sha256.iter().map(|value| format!("{value:02x}")).collect::<String>(),
+            "captureEpoch":output.capture_epoch.iter().map(|value| format!("{value:02x}")).collect::<String>(),
+            "activationSequence":hex(output.activation_sequence),"sampleStep":hex(output.sample_step),"rawOutputs":output.raw_outputs})).collect();
+        let lifecycle = sample.lifecycle.map(lifecycle_json).transpose()?;
         let trace = sample.trace.as_ref().map(trace_json).transpose()?;
         Ok::<_,String>(json!({
             "generation":hex(sample.target.generation),"physicalId":hex(sample.target.physical_id),
@@ -173,6 +251,7 @@ pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
                 "firstDelivery":raw.first_delivery,"x":raw.x,"y":raw.y,"heading":raw.heading,"radius":raw.radius,
                 "speed":raw.speed,"controlAccumulatorSeconds":raw.control_accumulator_seconds},
             "trace":trace,
+            "baselineV1Action":baseline_v1,"lifecycle":lifecycle,"shadowOutputs":shadows,
             "diagnostics":{"pelletChecks":sample.diagnostics.pellet_checks,
                 "segmentChecks":sample.diagnostics.segment_checks,"headChecks":sample.diagnostics.head_checks,
                 "rayWork":sample.diagnostics.ray_work.charged(),"incompleteRays":sample.diagnostics.incomplete_rays},

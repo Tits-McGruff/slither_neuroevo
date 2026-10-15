@@ -79,6 +79,61 @@ pub struct InspectorRawScalars {
     pub control_accumulator_seconds: f64,
 }
 
+/// Native ledger and the existing evolution formula at the observation boundary.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InspectorLifecycle {
+    pub life_ordinal: u64,
+    pub lives_started: u64,
+    pub deaths: u64,
+    pub successful_respawns: u64,
+    pub failed_placements: u64,
+    pub pending_seconds: f64,
+    pub point_mode: super::evolved_lives::PointAssessmentMode,
+    pub nonpoint_mode: super::evolved_lives::NonPointAggregation,
+    pub current: super::evolved_lives::LifeAssessment,
+    pub best_point_life: super::evolved_lives::LifeAssessment,
+    pub ledger: super::evolved_lives::EvolvedEconomicLedger,
+    pub assessment: super::evolved_lives::EvolvedAssessment,
+    pub maximum_assessment_points: f64,
+    pub provisional_fitness: f64,
+    pub fitness_components: [f64; 7],
+}
+
+/// Actual v1 policy result, copied before reusable baseline storage changes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InspectorBaselineV1Action {
+    pub turn: f32,
+    pub boost: bool,
+    pub baseline_slot: u32,
+    pub strategy: super::state::BaselineStrategyState,
+    pub effective_strategy: super::state::BaselineStrategyState,
+    pub life_stage: super::baseline_control::BaselineLifeStage,
+    pub sector: usize,
+    pub target_physical_id: Option<u64>,
+    pub uniform_draws: usize,
+    pub strategy_timer_seconds: f64,
+    pub wander_angle: f64,
+    pub wander_remaining_seconds: f64,
+}
+
+/// One candidate output from the exact same committed teacher row.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InspectorShadowOutput {
+    pub shadow_slot: u32,
+    pub artifact_sha256: [u8; 32],
+    pub capture_epoch: [u8; 16],
+    pub activation_sequence: u64,
+    pub sample_step: u64,
+    pub raw_outputs: [f32; 2],
+}
+
+/// Borrowed pre-control life state; this does not create or advance any assessment.
+#[derive(Clone, Copy)]
+pub(crate) struct InspectorLifecycleContext<'a> {
+    pub lives: &'a super::evolved_lives::EvolvedGenerationState,
+    pub policy: super::evolved_lives::EvolvedExperimentConfig,
+}
+
 /// Fixed-size exact row; graph output and teacher policy remain separately labelled.
 #[derive(Clone, Copy, Debug)]
 pub struct InspectorObservation {
@@ -91,6 +146,9 @@ pub struct InspectorObservation {
     normalized_inputs: [f32; MAX_INSPECTOR_INPUTS],
     pub neural_outputs: Option<[f32; 2]>,
     pub baseline_action: Option<BaselineV2Action>,
+    pub baseline_v1_action: Option<InspectorBaselineV1Action>,
+    pub lifecycle: Option<InspectorLifecycle>,
+    pub shadow_outputs: [Option<InspectorShadowOutput>; super::shadows::MAX_SHADOWS],
     pub diagnostics: SensorSampleDiagnostics,
     pub trace: Option<SensorTrace>,
 }
@@ -120,6 +178,7 @@ pub struct InspectorCapture {
     latest: Option<InspectorObservation>,
     pending: Option<InspectorObservation>,
     working_trace: SensorTrace,
+    evolution: Option<super::evolution::EvolutionConfig>,
 }
 
 impl InspectorCapture {
@@ -140,6 +199,7 @@ impl InspectorCapture {
             latest: None,
             pending: None,
             working_trace: SensorTrace::default(),
+            evolution: None,
         })
     }
 
@@ -248,6 +308,9 @@ impl InspectorCapture {
             normalized_inputs: [0.0; MAX_INSPECTOR_INPUTS],
             neural_outputs: outputs,
             baseline_action,
+            baseline_v1_action: None,
+            lifecycle: None,
+            shadow_outputs: [None; super::shadows::MAX_SHADOWS],
             diagnostics,
             trace: (self.working_trace.valid
                 && self.working_trace.physical_id == snake.id
@@ -258,6 +321,145 @@ impl InspectorCapture {
         row.normalized_inputs[..inputs.len()].copy_from_slice(inputs);
         self.pending = Some(row);
         true
+    }
+
+    /// Cache immutable reward settings only at explicit cold admission.
+    pub(crate) fn configure_evolution(&mut self, config: super::evolution::EvolutionConfig) {
+        self.evolution = Some(config);
+    }
+
+    /// Attach the actual staged v1 action to its exact pending observation.
+    pub(crate) fn stage_baseline_v1(
+        &mut self,
+        key: PhysicsStepKey,
+        physical_id: u64,
+        action: InspectorBaselineV1Action,
+    ) {
+        if let Some(row) = self.pending.as_mut().filter(|row| {
+            row.key == key
+                && row.target.physical_id == physical_id
+                && row.source == InspectorObservationSource::BaselineV1
+        }) {
+            row.baseline_v1_action = Some(action);
+        }
+    }
+
+    /// Copy ledger values and calculate provisional fitness with the existing native formula.
+    pub(crate) fn stage_lifecycle(
+        &mut self,
+        key: PhysicsStepKey,
+        world: &super::state::WorldState,
+        context: InspectorLifecycleContext<'_>,
+    ) {
+        let Some(config) = self.evolution else {
+            return;
+        };
+        let Some(row) = self
+            .pending
+            .as_mut()
+            .filter(|row| row.key == key && row.raw.kind == SnakeKind::Evolved)
+        else {
+            return;
+        };
+        let Some(slot) = row
+            .raw
+            .population_slot
+            .and_then(|slot| context.lives.slots.get(slot as usize))
+            .filter(|slot| {
+                Some(slot.population_slot) == row.raw.population_slot
+                    && slot.physical_id == row.target.physical_id
+            })
+        else {
+            return;
+        };
+        let Some(snake) = world.snakes.iter().find(|snake| {
+            snake.id == row.target.physical_id
+                && snake.frame_v1_id == row.target.frame_v1_id
+                && snake.population_slot == row.raw.population_slot
+        }) else {
+            return;
+        };
+        let entry =
+            super::experiment_records::selected_assessment(slot, snake, context.policy, config);
+        let maximum = if context.policy.uses_life_assessments() {
+            context
+                .lives
+                .slots
+                .iter()
+                .map(|slot| {
+                    slot.assessment(context.policy.points, context.policy.nonpoints)
+                        .points
+                })
+                .fold(0.0_f64, f64::max)
+        } else {
+            world
+                .snakes
+                .iter()
+                .filter(|snake| snake.kind == SnakeKind::Evolved)
+                .map(|snake| snake.points)
+                .fold(0.0_f64, f64::max)
+        };
+        let fitness = super::evolution::assessment_fitness_breakdown(
+            entry,
+            maximum,
+            config,
+            context.policy.objective,
+        );
+        if !fitness.total.is_finite() || fitness.components.iter().any(|value| !value.is_finite()) {
+            return;
+        }
+        row.lifecycle = Some(InspectorLifecycle {
+            life_ordinal: slot.life_ordinal,
+            lives_started: slot.lives_started,
+            deaths: slot.deaths,
+            successful_respawns: slot.successful_respawns,
+            failed_placements: slot.failed_placements,
+            pending_seconds: slot.pending_seconds,
+            point_mode: context.policy.points,
+            nonpoint_mode: context.policy.nonpoints,
+            current: slot.current,
+            best_point_life: slot.best_point_life,
+            ledger: slot.ledger,
+            assessment: entry.assessment,
+            maximum_assessment_points: maximum,
+            provisional_fitness: fitness.total,
+            fitness_components: fitness.components,
+        });
+    }
+
+    /// Join only outputs actually evaluated on this published teacher row, never nearest-in-time data.
+    pub(crate) fn join_shadows(
+        &mut self,
+        key: PhysicsStepKey,
+        snapshots: [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS],
+    ) {
+        let Some(row) = self
+            .latest
+            .as_mut()
+            .filter(|row| row.key == key && row.source == InspectorObservationSource::BaselineV2)
+        else {
+            return;
+        };
+        for (index, snapshot) in snapshots.iter().enumerate() {
+            row.shadow_outputs[index] = snapshot
+                .filter(|shadow| {
+                    shadow.enabled
+                        && shadow.activation_sequence > 0
+                        && shadow.capture_epoch != [0; 16]
+                        && shadow.generation == row.target.generation
+                        && shadow.physical_snake_id == row.target.physical_id
+                        && Some(shadow.last_sample_step) == row.sample_step()
+                        && shadow.raw_outputs.iter().all(|value| value.is_finite())
+                })
+                .map(|shadow| InspectorShadowOutput {
+                    shadow_slot: index as u32,
+                    artifact_sha256: shadow.artifact_sha256,
+                    capture_epoch: shadow.capture_epoch,
+                    activation_sequence: shadow.activation_sequence,
+                    sample_step: shadow.last_sample_step,
+                    raw_outputs: shadow.raw_outputs,
+                });
+        }
     }
 
     /// Join only the exact successful step and, for external rows, its accepted socket delivery.

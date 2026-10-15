@@ -1150,3 +1150,14 @@ unsent diagnostic row, with gameplay replies and frames retaining priority.
 Disconnect disables capture; reconnect, replacement and applied settings require
 fresh admission. The inspector grants no controller ownership and performs no
 extra observation query or model execution.
+
+Optional schema-v1 details extend that exact delivered boundary: `lifecycle`
+contains the evolved life counters, current/best tuples, economic ledger, selected
+assessment and provisional native fitness components. `baselineV1Action` is the
+actual frozen-v1 action and effective strategy. `shadowOutputs` contains at most
+four raw candidate outputs joined by exact physical life, generation and sample
+step, with candidate digest, capture epoch and activation sequence. Held rows
+retain their historical values and age; these fields do not describe newer world
+state. Missing details are absent or null, and an empty shadow array means no
+matching candidate output was attached. Consumers must not calculate fitness or
+infer a missing observation from these projections.

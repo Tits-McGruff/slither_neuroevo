@@ -1529,6 +1529,26 @@ impl ControlPhaseWorkspace {
         }
     }
 
+    /// Inspector settings are copied only after successful cold cache construction.
+    pub(crate) fn configure_inspector_evolution(
+        &mut self,
+        config: super::evolution::EvolutionConfig,
+    ) {
+        if let Some(capture) = &mut self.inspector {
+            capture.configure_evolution(config);
+        }
+    }
+    /// Attach already evaluated private shadow results after matching whole-step publication.
+    pub(crate) fn join_inspector_shadows(
+        &mut self,
+        key: PhysicsStepKey,
+        snapshots: [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS],
+    ) {
+        if let Some(capture) = &mut self.inspector {
+            capture.join_shadows(key, snapshots);
+        }
+    }
+
     pub(crate) fn inspector(&self) -> Option<&super::inspector::InspectorCapture> {
         self.inspector.as_deref()
     }
@@ -1679,6 +1699,15 @@ impl ControlPhaseWorkspace {
         &'workspace mut self,
         inputs: ControlPhaseInputs<'prefix, 'source>,
     ) -> Result<PreparedControlPhase<'workspace, 'prefix, 'source>, ControlPhaseError> {
+        self.prepare_with_inspector_lifecycle(inputs, None)
+    }
+
+    /// Same control evaluation with optional immutable accounting for the selected diagnostic row.
+    pub(crate) fn prepare_with_inspector_lifecycle<'workspace, 'prefix, 'source>(
+        &'workspace mut self,
+        inputs: ControlPhaseInputs<'prefix, 'source>,
+        inspector_context: Option<super::inspector::InspectorLifecycleContext<'_>>,
+    ) -> Result<PreparedControlPhase<'workspace, 'prefix, 'source>, ControlPhaseError> {
         self.clear_active();
         self.last_cost = ControlPhaseCostMicros::default();
         inputs.config.validate()?;
@@ -1813,6 +1842,9 @@ impl ControlPhaseWorkspace {
         self.ready = true;
         self.teacher_key = Some(inputs.prefix.key());
         self.diagnostics = self.collect_diagnostics();
+        if let (Some(capture), Some(context)) = (&mut self.inspector, inspector_context) {
+            capture.stage_lifecycle(inputs.prefix.key(), inputs.prefix.world(), context);
+        }
         self.prepared(inputs, calculation_key)
     }
 
@@ -2158,6 +2190,26 @@ impl ControlPhaseWorkspace {
                 None,
                 None,
                 sample.diagnostics,
+            );
+        }
+        if let Some(capture) = &mut self.inspector {
+            capture.stage_baseline_v1(
+                inputs.prefix.key(),
+                snake.id,
+                super::inspector::InspectorBaselineV1Action {
+                    turn: next_slot.turn,
+                    boost: next_slot.boost,
+                    baseline_slot: slot,
+                    strategy: next_strategy,
+                    effective_strategy: evaluation.effective_strategy(),
+                    life_stage: evaluation.life_stage(),
+                    sector: evaluation.target_bin(),
+                    target_physical_id: diagnostics.target_snake_id,
+                    uniform_draws: diagnostics.uniform_draws,
+                    strategy_timer_seconds: next_slot.strategy_timer_seconds,
+                    wander_angle: next_slot.wander_angle,
+                    wander_remaining_seconds: next_slot.wander_timer_seconds,
+                },
             );
         }
         let result_index = self.baseline_control_count;
@@ -4403,6 +4455,19 @@ mod tests {
                         assert_eq!(trace.physical_id, observed.target.physical_id);
                         assert_eq!(observed.normalized_inputs().len(), 19 + 4 * bins);
                         assert!(observed.baseline_action.is_none());
+                        let action = observed
+                            .baseline_v1_action
+                            .expect("actual frozen v1 policy result");
+                        let committed_baseline = committed
+                            .world()
+                            .snakes
+                            .iter()
+                            .find(|snake| snake.id == observed.target.physical_id)
+                            .unwrap();
+                        assert_eq!(action.turn, committed_baseline.turn);
+                        assert_eq!(action.boost, committed_baseline.input_boost);
+                        assert_eq!(Some(action.strategy), committed_baseline.baseline_strategy);
+                        assert!(action.sector < bins);
                     }
                 }
             }

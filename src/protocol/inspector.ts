@@ -1,3 +1,4 @@
+import { validateInspectorDetails, type InspectorBaselineV1Action, type InspectorLifecycle, type InspectorShadowOutput } from './inspectorDetails.ts';
 import { getSensorLayout, type SensorProfile } from './sensors.ts';
 
 /** Exact unnormalized scalar fields copied by the Rust sampler. */
@@ -65,6 +66,9 @@ export interface InspectorSample {
   /** Exact delivered Float32 row. */ normalizedInputs: readonly number[];
   /** Raw native graph outputs, before motor clipping. */ neuralOutputs: readonly [number, number] | null;
   /** Actual baseline action, only for baseline-v2. */ baselineAction: InspectorBaselineAction | null;
+  /** Optional exact frozen-v1 decision. */ baselineV1Action?: InspectorBaselineV1Action | null;
+  /** Optional pre-control native ledger and provisional fitness. */ lifecycle?: InspectorLifecycle | null;
+  /** Optional exact-step candidate comparisons, at most four. */ shadowOutputs?: readonly InspectorShadowOutput[];
   /** Pre-movement scalar boundary. */ raw: Record<typeof RAW_NUMBERS[number], number> & {
     /** Physical ownership kind. */ kind: 'evolved' | 'baseline' | 'external' | 'retained-neural';
     /** Actual delivery flag. */ firstDelivery: boolean;
@@ -89,9 +93,10 @@ export interface InspectorSnapshot {
 }
 
 /** Reject extensions and malformed containers before accepting bounded native metadata. */
-function record(value: unknown, keys: readonly string[]): Record<string, unknown> {
+function record(value: unknown, keys: readonly string[], optional: readonly string[] = []): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-      || Object.keys(value).sort().join(',') !== [...keys].sort().join(',')) throw new TypeError('invalid inspector fields');
+      || !keys.every(key => Object.hasOwn(value, key))
+      || Object.keys(value).some(key => !keys.includes(key) && !optional.includes(key))) throw new TypeError('invalid inspector fields');
   return value as Record<string, unknown>;
 }
 /** Reject invalid scalars without substituting a value for a missing measurement. */
@@ -138,7 +143,7 @@ export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
       || !identity(snapshot['completedStep'], true)) throw new TypeError('invalid inspector identity');
   if (snapshot['sample'] === null) return value as InspectorSnapshot;
   const sample = record(snapshot['sample'], ['generation', 'physicalId', 'snakeId', 'populationSlot', 'sampleStep', 'ageSteps',
-    'source', 'profile', 'bins', 'sensorSha256', 'normalizedInputs', 'neuralOutputs', 'baselineAction', 'raw', 'trace', 'diagnostics']);
+    'source', 'profile', 'bins', 'sensorSha256', 'normalizedInputs', 'neuralOutputs', 'baselineAction', 'raw', 'trace', 'diagnostics'], ['baselineV1Action', 'lifecycle', 'shadowOutputs']);
   if (!identity(sample['generation']) || !identity(sample['physicalId']) || !identity(sample['sampleStep'])
       || !identity(sample['ageSteps'], true) || !integer(sample['snakeId'], 16_777_216) || sample['snakeId'] === 0
       || !(sample['populationSlot'] === null || integer(sample['populationSlot'], 299))
@@ -184,6 +189,7 @@ export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
       throw new TypeError('invalid inspector baseline action');
     }
   } else if (sample['baselineAction'] !== null) throw new TypeError('unexpected inspector baseline action');
+  validateInspectorDetails(sample, source['kind'] as string, raw['kind'], bins);
   return value as InspectorSnapshot;
 }
 

@@ -1,3 +1,4 @@
+import type { InspectorLifecycle } from '../protocol/inspectorDetails.ts';
 import type { InspectorSnapshot } from '../protocol/inspector.ts';
 import type { SensorProfile } from '../protocol/sensors.ts';
 import { getSensorLayout } from '../protocol/sensors.ts';
@@ -26,4 +27,19 @@ export function inspectorFixture(profile: SensorProfile = 'v3', bins = 16): Insp
         pelletSaturated: false, bodySaturated: false, bodyRays: Array.from({length: bins}, () => ({kind: profile === 'v3' ? 'not-sampled' : 'incomplete'})),
         headCount: Array<number>(bins).fill(0), headIds: Array<null>(bins).fill(null), encounterSeconds: Array<null>(bins).fill(null)},
       diagnostics: {pelletChecks: 0, segmentChecks: 0, headChecks: 0, rayWork: 0, incompleteRays: profile === 'v3' ? 0 : bins}}};
+}
+
+/** Synthetic lifecycle boundary with an earlier best peak and spend attribution. */
+export function inspectorLifecycleFixture(): InspectorLifecycle {
+  const current = {ordinal: '0000000000000002', peakPoints: 12, aliveSeconds: 1, food: 4, kills: 'ffffffffffffffff',
+    startingLength: 5, finalLength: 7, peakLength: 8};
+  return {lifeOrdinal: current.ordinal, livesStarted: current.ordinal, deaths: '0000000000000001',
+    successfulRespawns: '0000000000000001', failedPlacements: '0000000000000003', pendingSeconds: 0.5,
+    pointMode: 'best-life', nonpointMode: 'generation-totals', current,
+    bestPointLife: {...current, ordinal: '0000000000000001', peakPoints: 30},
+    ledger: {lifeGrossEarned: 12, lifeBoostSpent: 5, lifeBoostSpentFromLifeCredits: 4, lifeBoostSpentFromPriorBank: 1,
+      lifeLocalWallet: 8, priorBankRemaining: 2, generationGrossEarned: 35, generationBoostSpent: 25, generationNetEarned: 10,
+      operations: 'ffffffffffffffff'},
+    assessment: {points: 30, aliveSeconds: 10, food: 20, kills: 'ffffffffffffffff', retainedGrowth: 3, peakLength: 8},
+    maximumAssessmentPoints: 40, provisionalFitness: -2, fitnessComponents: [1, 2, 3, 4, 5, 0, 17]};
 }
