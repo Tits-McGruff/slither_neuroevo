@@ -463,6 +463,18 @@ capture/four-shadow continuation tests remain the mathematical isolation
 witnesses; these live runs add committed provenance and cross-process handoff.
 CUDA three-worker qualification, larger-workload resource/VRAM measurements,
 held-out tactical/ablation evaluation and final integrated soak remain open.
+The extended live gate also trains a compatible Dense student to update 250 with
+the same exact process-restart check. It saves both trained architectures,
+rejects GRU deployment in the Dense world, exports the compatible original
+byte-for-byte and applies an explicit matching neural cadence in the disposable
+fixture. Native deployment and immutable receipt retry then succeed. Deleting
+the catalog record reclaims its cold original/weight files while the live snake
+continues actual Rust inference and retains its distilled origin. Windows CPU
+one/three-worker reports cover this path under `docs/performance/distillation/`.
+The preceding v1 Linux live gate passed both worker counts in PyRL CI; the
+extended library gate is pinned for subsequent CI runs. Other Stage I resource,
+capacity and final acceptance obligations remain open.
+
 
 
 Stage I's native origin foundation is implemented: retained brains own bounded

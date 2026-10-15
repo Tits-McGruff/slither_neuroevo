@@ -52,3 +52,16 @@ scheduler-debt telemetry. Native/core trainer math is unchanged between these
 hosts. CUDA with three workers and the named larger-workload/soak gates remain
 unqualified. A report's source hashes and explicit workload define its scope;
 none of these small-student runs selects production v4/v2 defaults.
+
+
+`live-canonical-distillation-v2` adds the managed-library handoff. A second
+250-update student matches the Dense world graph. Both trained architectures are
+saved with distilled provenance; GRU live deployment is rejected in that world,
+and the compatible Dense original exports byte-for-byte. The fixture explicitly
+applies the matching 0.06-second neural cadence after training, then checks native
+deployment, exact retry receipts, catalog deletion, cold file reclamation and
+continued inference/provenance from the retained live brain. The four-GRU-shadow
+snapshot is taken before the compatible-student handoff. The new
+`live-library-cpu-w1-v1.json` and `live-library-cpu-w3-v1.json` reports pass on
+Windows; the pinned Linux job runs the same extended gate. The earlier v1 reports
+retain their original scope and source identities.
