@@ -32,12 +32,12 @@ export function describeInspector(snapshot: InspectorSnapshot): {summary: string
         : ['not-sampled', 'not-sampled', 'not-sampled', 'not-sampled']), trace.headIds[bin]].map(display).join(' | '));
   }
   const action = sample.baselineV1Action ?? sample.baselineAction;
-  const policy = action ? Object.entries(action).map(([key, value]) => label(key) + ': ' + display(value)).join('\n')
+  const policy = sample.pureProbe ? 'Pure sensor probe. No graph, teacher or controller consumed this sample; no action was evaluated.' : action ? Object.entries(action).map(([key, value]) => label(key) + ': ' + display(value)).join('\n')
     : sample.neuralOutputs ? 'Graph turn output: ' + display(sample.neuralOutputs[0]) + '\nGraph boost output: ' + display(sample.neuralOutputs[1])
       : sample.source.kind === 'baseline-v1' ? 'Baseline v1 action details are unavailable for this sample.'
         : sample.source.kind === 'baseline-v2' ? 'Baseline v2 action details are unavailable for this sample.' : 'External controller observation; no internal graph action.';
   const life = sample.lifecycle;
-  const lifecycle = life ? ['At delivered sample boundary · provisional fitness is not the final generation outcome.',
+  const lifecycle = life ? [(sample.pureProbe ? 'At pure probe boundary' : 'At delivered sample boundary') + ' · provisional fitness is not the final generation outcome.',
     ...(['lifeOrdinal', 'livesStarted', 'deaths', 'successfulRespawns', 'failedPlacements'] as const).map(key =>
       label(key) + ': ' + BigInt('0x' + life[key])),
     'Pending seconds: ' + display(life.pendingSeconds), 'Point assessment: ' + life.pointMode,
@@ -55,7 +55,7 @@ export function describeInspector(snapshot: InspectorSnapshot): {summary: string
   const shadows = (sample.shadowOutputs ?? []).map(output => `Shadow slot ${output.shadowSlot} · at delivered sample step ${BigInt('0x' + output.sampleStep)}\n` +
     `Candidate SHA256 ${output.artifactSha256}\nCapture epoch ${output.captureEpoch} · activation ${BigInt('0x' + output.activationSequence)}\n` +
     `Graph turn output: ${display(output.rawOutputs[0])}\nGraph boost output: ${display(output.rawOutputs[1])}`).join('\n\n');
-  return {summary: `Snake #${sample.snakeId} · ${sample.source.kind} · ${sample.profile} B${sample.bins}\n` +
+  return {summary: (sample.pureProbe ? 'PURE SENSOR PROBE · not delivered\n' : '') + `Snake #${sample.snakeId} · ${sample.source.kind} · ${sample.profile} B${sample.bins}\n` +
     `Sample step ${BigInt('0x' + sample.sampleStep)} · age ${BigInt('0x' + sample.ageSteps)} completed steps\n` +
     `Physical ID ${sample.physicalId} · generation ${BigInt('0x' + sample.generation)}\nSensor SHA256 ${sample.sensorSha256}`,
     scalars: scalars.join('\n'), sectors: sectors.join('\n'), policy, lifecycle, shadows,

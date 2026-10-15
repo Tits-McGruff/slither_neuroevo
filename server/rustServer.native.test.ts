@@ -351,10 +351,10 @@ describeNetworkSuite('Rust server real sockets', () => {
       const selected = await selectPhysical(first, 'inspector-selection', {populationSlot: 0});
       const welcome = first.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
       /** Send one actual protocol command and await its correlated native result. */
-      const command = async (peer: Peer, requestId: string, enabled = true): Promise<Record<string, unknown>> => {
+      const command = async (peer: Peer, requestId: string, enabled = true, pureProbe = false): Promise<Record<string, unknown>> => {
         const message: InspectEntityMsg = {type: 'inspectEntity', requestId,
           expectedSessionId: welcome.sessionId, expectedRunId: welcome.runId,
-          ...(enabled ? {selectionToken: selected.token, snakeId: selected.snakeId} : {})};
+          ...(enabled ? {selectionToken: selected.token, snakeId: selected.snakeId, ...(pureProbe ? {pureProbe: true} : {})} : {})};
         peer.socket.send(JSON.stringify(message));
         await until(peer, () => peer.packets.some(packet => packet['requestId'] === requestId));
         return peer.packets.findLast(packet => packet['requestId'] === requestId)!;
@@ -375,6 +375,14 @@ describeNetworkSuite('Rust server real sockets', () => {
       await until(second, () => second.packets.some(packet => packet['type'] === 'inspector'));
       const reclaimed = parseInspectorSnapshot(second.packets.find(packet => packet['type'] === 'inspector')!['snapshot']);
       expect(reclaimed.subscriptionSequence).not.toBe(row.subscriptionSequence);
+      const probe = await command(second, 'inspector-probe', true, true);
+      expect(probe).toMatchObject({applied: true, enabled: true});
+      await until(second, () => second.packets.some(packet => packet['type'] === 'inspector'
+        && (packet['snapshot'] as ReturnType<typeof parseInspectorSnapshot>).subscriptionSequence === probe['subscriptionSequence']));
+      const probed = parseInspectorSnapshot(second.packets.findLast(packet => packet['type'] === 'inspector'
+        && (packet['snapshot'] as ReturnType<typeof parseInspectorSnapshot>).subscriptionSequence === probe['subscriptionSequence'])!['snapshot']);
+      expect(probed.sample).toMatchObject({pureProbe: true, snakeId: selected.snakeId, profile: 'v3', neuralOutputs: null,
+        baselineV1Action: null, baselineAction: null, shadowOutputs: []});
       expect(await command(second, 'inspector-close', false)).toMatchObject({applied: true, enabled: false});
       expect(second.frames).toBeGreaterThan(0);
     } finally {

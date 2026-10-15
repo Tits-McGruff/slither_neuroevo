@@ -1497,6 +1497,13 @@ impl ControlPhaseWorkspace {
         Ok(())
     }
 
+    /// Change mode only on the newly admitted fixed diagnostic cache.
+    pub(crate) fn set_inspector_probe(&mut self, enabled: bool) {
+        if let Some(capture) = &mut self.inspector {
+            capture.set_pure_probe(enabled);
+        }
+    }
+
     /// Charge the admitted neural envelope plus both old/new cache owners during cold replacement.
     pub(crate) fn inspector_staging_requirement(
         &self,
@@ -2033,6 +2040,7 @@ impl ControlPhaseWorkspace {
                 &mut self.sensor_scratch,
                 self.inspector
                     .as_mut()
+                    .filter(|capture| capture.delivered_enabled())
                     .map(|capture| capture.trace_request()),
             )?;
             self.last_cost.neural_batch =
@@ -2105,11 +2113,91 @@ impl ControlPhaseWorkspace {
                         Some((frame_v1_id, calculation_key.step(), unit.snake_id()));
                 }
             }
+            self.prepare_inspector_probe(inputs, indexed, prepared_v4);
             Ok(calculation_key)
         })();
         self.ray_index = ray_index;
         self.ray_grants = ray_grants;
         result
+    }
+
+    /// Isolated diagnostic work after all controlling observations; failures cannot gate physics.
+    fn prepare_inspector_probe(
+        &mut self,
+        inputs: &ControlPhaseInputs<'_, '_>,
+        indexed: &IndexedSensorWorld<'_>,
+        prepared_v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+    ) {
+        let Some(capture) = self
+            .inspector
+            .as_mut()
+            .filter(|capture| capture.needs_probe())
+        else {
+            return;
+        };
+        let world = indexed.world();
+        let target = capture.target();
+        let Some((index, snake)) = world.snakes.iter().enumerate().find(|(_, snake)| {
+            snake.alive && snake.id == target.physical_id && snake.frame_v1_id == target.frame_v1_id
+        }) else {
+            return;
+        };
+        use super::inspector::InspectorObservationSource as Source;
+        let source = if snake.kind == SnakeKind::Baseline {
+            if inputs.config.baseline_v2.is_some() {
+                Source::BaselineV2
+            } else {
+                Source::BaselineV1
+            }
+        } else if snake.kind == SnakeKind::External {
+            find_lease_index(world, &self.lease_order, snake.id)
+                .and_then(|index| world.controller_leases.get(index))
+                .and_then(|lease| {
+                    lease.connection_id.map(|connection_id| Source::External {
+                        lease_id: lease.id,
+                        connection_id,
+                    })
+                })
+                .unwrap_or(Source::Neural)
+        } else {
+            Source::Neural
+        };
+        let sensor = if source == Source::BaselineV1 {
+            self.neural.sensor().legacy_evaluator()
+        } else {
+            self.neural.sensor()
+        };
+        let layout = super::inspector::InspectorLayout::from(sensor.layout());
+        let mut values = [0.0; super::inspector::MAX_INSPECTOR_INPUTS];
+        let assessment = snake
+            .population_slot
+            .and_then(|slot| {
+                inputs
+                    .assessment_points
+                    .and_then(|values| values.get(slot as usize))
+            })
+            .copied();
+        let cap = inputs.v4.map_or(0, |context| context.limits.cap());
+        if let Ok(sample) = sensor.sample_probe_with_trace(
+            indexed,
+            inputs.generation,
+            index,
+            &mut values[..layout.input_size],
+            &mut self.sensor_scratch,
+            assessment,
+            prepared_v4,
+            cap,
+            capture.probe_trace(),
+        ) {
+            capture.stage_probe(
+                inputs.prefix.key(),
+                snake,
+                source,
+                layout,
+                &values[..layout.input_size],
+                sample.diagnostics,
+            );
+        }
     }
 
     fn prepare_baseline(

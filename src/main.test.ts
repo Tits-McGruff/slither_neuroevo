@@ -525,6 +525,21 @@ describe('main.ts startup smoke', () => {
     expect(elements.get('decisionInspectorLifecycleSection')!.hidden).toBe(false);
     expect(elements.get('decisionInspectorLifecycle')!.textContent).toContain('Provisional fitness: -2');
     expect(elements.get('decisionInspectorShadowsSection')!.hidden).toBe(true);
+    elements.get('decisionInspectorProbe')!.dispatch('click', {} as Event);
+    const probe = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'inspectEntity');
+    expect(probe).toMatchObject({pureProbe: true, snakeId: 7});
+    socket.onmessage?.({data: JSON.stringify({type: 'inspectorResult', requestId: probe.requestId, applied: true,
+      enabled: true, subscriptionSequence: '0000000000000002'})});
+    snapshot.sequence = '0000000000000002'; snapshot.subscriptionSequence = '0000000000000002';
+    snapshot.sample!.pureProbe = true; snapshot.sample!.neuralOutputs = null;
+    socket.onmessage?.({data: JSON.stringify({type: 'inspector', snapshot})});
+    expect(elements.get('decisionInspectorSummary')!.textContent).toContain('PURE SENSOR PROBE');
+    expect(elements.get('decisionInspectorPolicy')!.textContent).toContain('no action was evaluated');
+    elements.get('decisionInspectorDelivered')!.dispatch('click', {} as Event);
+    const delivered = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'inspectEntity');
+    expect(delivered.pureProbe).toBeUndefined();
+    socket.onmessage?.({data: JSON.stringify({type: 'inspectorResult', requestId: delivered.requestId, applied: true,
+      enabled: true, subscriptionSequence: '0000000000000003'})});
     checkbox.checked = false; checkbox.dispatch('change', {} as Event);
     expect(elements.get('decisionInspectorData')!.hidden).toBe(true);
     expect(elements.get('decisionInspectorInputs')!.textContent).toBe('');

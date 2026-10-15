@@ -477,6 +477,7 @@ mod tests {
                     Some((selected.token, selected.frame_v1_id)),
                     MAX_INSPECTOR_BYTES,
                     17,
+                    false,
                 )
                 .unwrap();
             assert!(inspected.inspector_observation().is_none());
@@ -640,6 +641,138 @@ mod tests {
                 actual, expected,
                 "inspection must preserve native continuation for {profile:?} B{bins}"
             );
+        }
+    }
+
+    #[test]
+    fn inspector_pure_probe_is_one_shot_on_a_held_control_and_preserves_continuation() {
+        use super::super::inspector::MAX_INSPECTOR_BYTES;
+        use super::super::scheduler::SchedulerServiceMode;
+        use super::super::sensor_contract::{SensorContractIdentity, SensorProfile};
+        use super::super::state::EntitySelectionTarget;
+        for (profile, bins) in [
+            (SensorProfile::Basic, 8),
+            (SensorProfile::Basic, 20),
+            (SensorProfile::Motion, 8),
+            (SensorProfile::Motion, 32),
+        ] {
+            let width = SensorContractIdentity::new(profile, bins)
+                .unwrap()
+                .input_size();
+            let artifact = validate_brain_artifact(&fs::read(source()).unwrap()).unwrap();
+            let mut graph = artifact.graph.spec().clone();
+            for node in &mut graph.nodes {
+                match &mut node.kind {
+                    super::super::graph::GraphNodeKind::Input { output_size } => {
+                        *output_size = width
+                    }
+                    super::super::graph::GraphNodeKind::Gru { input_size, .. } => {
+                        *input_size = width
+                    }
+                    _ => {}
+                }
+            }
+            let mut probed = admitted_graph_loop(0.06, profile, bins, graph.clone());
+            let mut reference = admitted_graph_loop(0.06, profile, bins, graph);
+            for running in [&mut probed, &mut reference] {
+                running
+                    .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                    .unwrap();
+            }
+            let selected = probed
+                .select_entity(
+                    EntitySelectionTarget::PopulationSlot(0),
+                    "saved-brain-live-test",
+                    1,
+                )
+                .unwrap()
+                .unwrap();
+            probed
+                .configure_inspector_subscription(
+                    "saved-brain-live-test",
+                    Some((selected.token, selected.frame_v1_id)),
+                    MAX_INSPECTOR_BYTES,
+                    22,
+                    true,
+                )
+                .unwrap();
+            let mut first = None;
+            for step in 2..=8 {
+                for running in [&mut probed, &mut reference] {
+                    running
+                        .service_after_command_drain(
+                            step * 17,
+                            SchedulerServiceMode::Background,
+                            None,
+                        )
+                        .unwrap();
+                }
+                let sample = *probed.inspector_observation().expect("one explicit probe");
+                assert!(sample.pure_probe);
+                assert_eq!(sample.sample_step(), Some(2));
+                assert_eq!(sample.age_steps(probed.completed_step()), Some(step - 2));
+                assert!(!sample.raw.first_delivery);
+                assert!(
+                    sample.neural_outputs.is_none()
+                        && sample.baseline_action.is_none()
+                        && sample.baseline_v1_action.is_none()
+                );
+                assert!(sample.shadow_outputs.iter().all(Option::is_none));
+                assert_eq!(sample.normalized_inputs().len(), width);
+                assert!(sample.diagnostics.ray_work.charged() <= 256);
+                assert!(sample.lifecycle.is_some());
+                if let Some(first) = first {
+                    assert_eq!(sample.trace, Some(first));
+                } else {
+                    first = sample.trace;
+                }
+                let mut actual = Vec::with_capacity(probed.admitted_frame_bytes());
+                let mut expected = Vec::with_capacity(reference.admitted_frame_bytes());
+                probed.pack_display_into(1, &mut actual).unwrap();
+                reference.pack_display_into(1, &mut expected).unwrap();
+                assert_eq!(
+                    actual, expected,
+                    "probe leaves physical continuation unchanged"
+                );
+                #[cfg(feature = "engine-test-hooks")]
+                assert_eq!(
+                    probed.qualification_continuation_sha256(),
+                    reference.qualification_continuation_sha256(),
+                    "probe leaves RNG, delivery, recurrence and quota continuation unchanged"
+                );
+            }
+            probed
+                .configure_inspector_subscription(
+                    "saved-brain-live-test",
+                    Some((selected.token, selected.frame_v1_id)),
+                    MAX_INSPECTOR_BYTES,
+                    23,
+                    true,
+                )
+                .unwrap();
+            probed
+                .service_after_command_drain(153, SchedulerServiceMode::Background, None)
+                .unwrap();
+            assert_eq!(
+                probed.inspector_observation().unwrap().sample_step(),
+                Some(9)
+            );
+            probed
+                .configure_inspector_subscription(
+                    "saved-brain-live-test",
+                    Some((selected.token, selected.frame_v1_id)),
+                    MAX_INSPECTOR_BYTES,
+                    24,
+                    false,
+                )
+                .unwrap();
+            for wall in [170, 187, 204, 221, 238] {
+                probed
+                    .service_after_command_drain(wall, SchedulerServiceMode::Background, None)
+                    .unwrap();
+            }
+            let delivered = probed.inspector_observation().unwrap();
+            assert!(!delivered.pure_probe && delivered.neural_outputs.is_some());
         }
     }
 

@@ -206,6 +206,10 @@ pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
             InspectorObservationSource::External { lease_id, connection_id } =>
                 json!({"kind":"external","leaseId":hex(lease_id),"connectionId":hex(connection_id)}),
         };
+        if sample.pure_probe && (sample.neural_outputs.is_some() || sample.baseline_action.is_some()
+            || sample.baseline_v1_action.is_some() || sample.shadow_outputs.iter().any(Option::is_some)) {
+            return Err("pure inspector probe cannot contain evaluated actions".into());
+        }
         let raw = &sample.raw;
         let kind = match raw.kind {
             super::state::SnakeKind::Evolved => "evolved",
@@ -241,7 +245,7 @@ pub fn encode(snapshot: &RunningInspectorStatus) -> Result<String, String> {
         let lifecycle = sample.lifecycle.map(lifecycle_json).transpose()?;
         let trace = sample.trace.as_ref().map(trace_json).transpose()?;
         Ok::<_,String>(json!({
-            "generation":hex(sample.target.generation),"physicalId":hex(sample.target.physical_id),
+            "pureProbe":sample.pure_probe,"generation":hex(sample.target.generation),"physicalId":hex(sample.target.physical_id),
             "snakeId":sample.target.frame_v1_id,"populationSlot":raw.population_slot,
             "sampleStep":hex(sample.sample_step().ok_or("inspector step overflow")?),"ageSteps":hex(age),
             "source":source,"profile":sample.layout.profile,"bins":sample.layout.bins,

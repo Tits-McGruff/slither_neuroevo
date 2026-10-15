@@ -1149,7 +1149,7 @@ acknowledged command. Updates are at most 10 Hz and replace the socket's prior
 unsent diagnostic row, with gameplay replies and frames retaining priority.
 Disconnect disables capture; reconnect, replacement and applied settings require
 fresh admission. The inspector grants no controller ownership and performs no
-extra observation query or model execution.
+extra observation query or model execution in delivered mode.
 
 Optional schema-v1 details extend that exact delivered boundary: `lifecycle`
 contains the evolved life counters, current/best tuples, economic ledger, selected
@@ -1161,3 +1161,15 @@ retain their historical values and age; these fields do not describe newer world
 state. Missing details are absent or null, and an empty shadow array means no
 matching candidate output was attached. Consumers must not calculate fitness or
 infer a missing observation from these projections.
+
+Set `pureProbe: true` on an exact-token `inspectEntity` enable request to capture
+one sensor-only observation at the next stable pre-movement boundary. The usual
+subscription result and 10 Hz mailbox carry it, with `sample.pureProbe: true`.
+The probe retains its own step and increasing age until replaced or closed. It
+runs no policy/inference and consumes no delivery marker, first flag, RNG or
+normal fair-quota cursor. V4 probe rays use a private meter bounded by the admitted
+per-observation cap. Graph, baseline and shadow outputs are absent for probes.
+Omit `pureProbe` (or send false) to resume delivered decisions. A true probe flag
+requires an exact token/frame pair; it is invalid on a close command. The UI
+closes a probe subscription when physical selection changes and requires another
+explicit probe request for the new life.

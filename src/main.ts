@@ -1199,6 +1199,15 @@ if (decisionInspectorInput) {
     decisionInspector.setEnabled(decisionInspectorInput.checked);
   });
 }
+/** Explicit diagnostic buttons enable capture and choose one-shot or delivered data. */
+function chooseInspectorProbe(probe: boolean): void {
+  CFG.diagnostics.inspectorEnabled = true;
+  if (decisionInspectorInput) decisionInspectorInput.checked = true;
+  if (probe) decisionInspector.probeOnce(); else decisionInspector.showDelivered();
+}
+document.getElementById('decisionInspectorProbe')?.addEventListener('click', () => chooseInspectorProbe(true));
+document.getElementById('decisionInspectorDelivered')?.addEventListener('click', () => chooseInspectorProbe(false));
+
 decisionInspectorView.supported(false);
 /** Bounded native selection transport; no gameplay identity is reconstructed in the browser. */
 const entitySelection = createEntitySelectionClient({

@@ -1072,6 +1072,28 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       }, {timeout: 5000, interval: 10});
       runtime.submitInspector('0000000000000009', startup.runId);
       expect(await inspectorReceipt('0000000000000009')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
+      runtime.submitInspector('000000000000000a', startup.runId, selected!.token, selected!.snakeId, true);
+      expect(await inspectorReceipt('000000000000000a')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: true});
+      let probed: ReturnType<typeof parseInspectorSnapshot> | undefined;
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        const value = parseInspectorSnapshot(JSON.parse(runtime.latestInspector('0000000000000000')!));
+        expect(value.subscriptionSequence).toBe('000000000000000a');
+        expect(value.sample).toMatchObject({pureProbe: true, snakeId: selected!.snakeId, neuralOutputs: null,
+          baselineAction: null, baselineV1Action: null, shadowOutputs: []});
+        probed = value;
+      }, {timeout: 5000, interval: 10});
+      const probeStep = probed!.sample!.sampleStep;
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        const value = parseInspectorSnapshot(JSON.parse(runtime.latestInspector('0000000000000000')!));
+        expect(BigInt('0x' + value.completedStep)).toBeGreaterThan(BigInt('0x' + probeStep) + 8n);
+        expect(value.sample!.sampleStep).toBe(probeStep);
+        expect(value.sample!.trace).toEqual(probed!.sample!.trace);
+        expect(value.sample!.lifecycle).toEqual(probed!.sample!.lifecycle);
+      }, {timeout: 5000, interval: 10});
+      runtime.submitInspector('000000000000000b', startup.runId);
+      expect(await inspectorReceipt('000000000000000b')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
       expect(events.filter(event => event.kind === 'started')).toHaveLength(1);
       expect(runtime.health().faultCode).toBeUndefined();
       expect(wakes).toBeGreaterThan(0);

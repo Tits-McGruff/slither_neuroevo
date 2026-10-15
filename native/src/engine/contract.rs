@@ -384,6 +384,7 @@ pub enum RunningAuthorityCommand {
     },
     /// Enable one selected diagnostic cache or close it at a clean boundary.
     ConfigureInspector {
+        pure_probe: bool,
         expected_run_id: String,
         selection: Option<Box<(super::state::EntitySelectionToken, u32)>>,
     },
@@ -520,9 +521,10 @@ impl RunningAuthorityCommand {
                     || *expected_generation == 0 || matches!(target, super::state::EntitySelectionTarget::Frame(0))
                     || matches!(target, super::state::EntitySelectionTarget::PopulationSlot(slot) if *slot >= 300) =>
             { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid entity selection scope")) }
-            Self::ConfigureInspector { expected_run_id, selection }
+            Self::ConfigureInspector { expected_run_id, selection, pure_probe }
                 if expected_run_id.is_empty() || expected_run_id.len() > 256
                     || expected_run_id.contains('\0')
+                    || (*pure_probe && selection.is_none())
                     || selection.as_ref().is_some_and(|value| value.1 == 0 || value.1 > super::state::FRAME_V1_MAX_EXACT_ID) =>
             { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid inspector scope")) }
             Self::GodModeMove { frame_v1_id, x, y, .. }
@@ -660,6 +662,7 @@ impl RunningAuthorityCommand {
             Self::ConfigureInspector {
                 expected_run_id,
                 selection,
+                ..
             } => Ok(expected_run_id.capacity().saturating_add(
                 usize::from(selection.is_some())
                     * size_of::<(super::state::EntitySelectionToken, u32)>(),

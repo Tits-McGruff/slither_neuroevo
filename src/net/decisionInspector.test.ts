@@ -74,4 +74,33 @@ describe('selected decision inspector client', () => {
     f.client.snapshot(row); expect(f.shown.at(-1)?.sample?.ageSteps).toBe('0000000000000001');
     f.client.selection(null); expect(f.sent[2]?.selectionToken).toBeUndefined(); f.client.dispose();
   });
+
+  it('coalesces explicit one-shot probes and resumes delivered samples without accepting mixed modes', () => {
+    const f = fixture(); f.client.probeOnce();
+    expect(f.sent[0]).toMatchObject({pureProbe: true, snakeId: 3});
+    f.client.probeOnce(); f.client.probeOnce(); expect(f.sent).toHaveLength(1);
+    f.ack(0, true); expect(f.sent).toHaveLength(2); expect(f.sent[1]?.pureProbe).toBe(true);
+    f.ack(1, true, '0000000000000002');
+    const row = inspectorFixture(); row.subscriptionSequence = '0000000000000002';
+    f.client.snapshot(row); expect(f.shown.at(-1)).toBeNull();
+    row.sample!.pureProbe = true; row.sample!.neuralOutputs = null;
+    f.client.snapshot(row); expect(f.shown.at(-1)).toBe(row); expect(f.status.at(-1)).toContain('explicit pure sensor probe');
+    f.client.showDelivered(); expect(f.sent[2]?.pureProbe).toBeUndefined();
+    f.ack(2, true, '0000000000000003'); row.subscriptionSequence = '0000000000000003';
+    f.client.snapshot(row); expect(f.shown.at(-1)).toBeNull();
+    row.sample!.pureProbe = false; row.sample!.neuralOutputs = [0, 0];
+    f.client.snapshot(row); expect(f.shown.at(-1)).toBe(row);
+    f.client.setEnabled(false); expect(f.sent[3]?.selectionToken).toBeUndefined(); f.client.dispose();
+  });
+
+
+  it('does not automatically probe a replacement life while following an individual', () => {
+    const f = fixture(); f.client.probeOnce(); f.ack(0, true);
+    f.client.selection({...SELECTED, token: '2'.repeat(64), snakeId: 4});
+    expect(f.sent[1]?.selectionToken).toBeUndefined(); f.ack(1, false);
+    expect(f.sent).toHaveLength(2);
+    f.client.probeOnce(); expect(f.sent[2]).toMatchObject({selectionToken: '2'.repeat(64), snakeId: 4, pureProbe: true});
+    f.client.dispose();
+  });
+
 });

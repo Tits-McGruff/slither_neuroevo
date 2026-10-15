@@ -6,13 +6,13 @@ import type { InspectorMsg, InspectorResultMsg } from '../../src/protocol/inspec
 function fixture() {
   const reliable: Array<{connection: number; result: InspectorResultMsg}> = [];
   const rows: Array<{connection: number; message: InspectorMsg}> = [];
-  const commands: Array<{sequence: string; run: string; token?: string; frame?: number}> = [];
+  const commands: Array<{sequence: string; run: string; token?: string; frame?: number; pureProbe?: boolean}> = [];
   const scope = {sessionId: 'session', runId: 'run', available: true};
   const state = {next: 1n, capacity: true, json: null as string | null, send: true};
   const read = vi.fn(() => state.json);
   const router = new DecisionInspectorRouting({runtime: () => ({latestInspector: read,
-    submitInspector(sequence, run, token, frame) {commands.push({sequence, run,
-      ...(token === undefined ? {} : {token}), ...(frame === undefined ? {} : {frame})});}}),
+    submitInspector(sequence, run, token, frame, pureProbe) {commands.push({sequence, run,
+      ...(token === undefined ? {} : {token}), ...(frame === undefined ? {} : {frame}), ...(pureProbe === undefined ? {} : {pureProbe})});}}),
     scope: () => scope, admission: {trySubmitControl(submit) {
       if (!state.capacity) return false;
       submit((state.next++).toString(16).padStart(16, '0')); return true;
@@ -81,4 +81,13 @@ describe('selected inspector routing', () => {
     f.router.event({kind: 'commandRejected', commandSequence: f.commands[1]!.sequence, rejectionDetail: 'stale token'});
     f.state.json = clear(1); f.router.service(); expect(f.rows).toHaveLength(1);
   });
+
+  it('routes an explicit probe through the same exact-token exclusive admission', () => {
+    const f = fixture(); f.router.request(1, {type: 'inspectEntity', requestId: 'probe', expectedSessionId: 'session',
+      expectedRunId: 'run', selectionToken: '1'.repeat(64), snakeId: 3, pureProbe: true});
+    expect(f.commands[0]).toMatchObject({pureProbe: true, token: '1'.repeat(64), frame: 3});
+    f.ack(0, true); f.request(2); expect(f.commands).toHaveLength(1);
+    f.router.disconnect(1); f.router.service(); expect(f.commands[1]?.token).toBeUndefined();
+  });
+
 });

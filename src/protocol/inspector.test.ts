@@ -137,4 +137,18 @@ describe('native selected inspector projection', () => {
     expect(() => parseInspectorSnapshot(changed(v2, ['sample', 'shadowOutputs'], [v2.sample.shadowOutputs[0], v2.sample.shadowOutputs[0]]))).toThrow();
   });
 
+
+  it('labels sensor-only probes and rejects any claimed graph, policy or shadow execution', () => {
+    const row = inspectorFixture('motion', 32); row.sample!.pureProbe = true; row.sample!.neuralOutputs = null;
+    expect(parseInspectorSnapshot(row).sample!.pureProbe).toBe(true);
+    const invalid: readonly [readonly string[], unknown][] = [
+      [['pureProbe'], 'true'], [['neuralOutputs'], [0, 0]], [['baselineV1Action'], {}], [['baselineAction'], {}],
+      [['shadowOutputs'], [{}]]
+    ];
+    for (const [path, value] of invalid) expect(() => parseInspectorSnapshot(changed(row, ['sample', ...path], value))).toThrow();
+    const original = snapshot('motion', 32);
+    const baseline = {...original, sample: {...original.sample, pureProbe: true, source: {kind: 'baseline-v2'}, neuralOutputs: null}};
+    expect(parseInspectorSnapshot(baseline).sample!.source.kind).toBe('baseline-v2');
+  });
+
 });

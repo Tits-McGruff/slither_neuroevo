@@ -613,6 +613,76 @@ impl SensorEvaluator {
         })
     }
 
+    /// Explicit sensor-only query with an independent per-observation meter.
+    /// Its receipt is returned only for diagnostics and must never be committed.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_probe_with_trace(
+        &self,
+        indexed: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+        prepared_v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+        ray_cap: u32,
+        trace: &mut super::sensor_trace::SensorTrace,
+    ) -> Result<SensorSample, SensorError> {
+        let Some(evaluator) = &self.v4 else {
+            return self.sample_with_assessment_traced(
+                indexed,
+                generation,
+                snake_index,
+                output,
+                scratch,
+                assessment,
+                Some(trace),
+            );
+        };
+        let prepared = prepared_v4.ok_or(SensorError::MissingV4Context)?;
+        let mut meter = super::ray_work::RayWorkMeter::new(ray_cap);
+        let sample = evaluator
+            .sample_with_trace(
+                indexed,
+                prepared.body_rays,
+                prepared.context,
+                snake_index,
+                output,
+                &mut meter,
+                &mut scratch.v4,
+                Some(trace),
+            )
+            .map_err(SensorError::V4)?;
+        let capped = sample.diagnostics.body.candidate_limit_reached;
+        Ok(SensorSample {
+            delivery: sample.delivery,
+            radii: sample.radii,
+            diagnostics: SensorSampleDiagnostics {
+                #[cfg(feature = "engine-test-hooks")]
+                radii_bits: [sample.radii.near.to_bits(), sample.radii.far.to_bits()],
+                ray_work: sample.diagnostics.ray,
+                incomplete_rays: sample.diagnostics.incomplete_rays,
+                pellet_query: sample.diagnostics.pellets,
+                body_query: sample.diagnostics.body,
+                pellet_checks: sample.diagnostics.pellets.candidates,
+                segment_checks: if capped {
+                    0
+                } else {
+                    sample.diagnostics.body.candidates
+                },
+                head_checks: sample.diagnostics.head_checks,
+                pellet_cap_hits: u64::from(sample.diagnostics.pellets.candidate_limit_reached),
+                segment_cap_hits: u64::from(capped),
+                conservative_body_saturation: capped,
+                target_outside_world: indexed.world().snakes[snake_index]
+                    .position
+                    .x
+                    .hypot(indexed.world().snakes[snake_index].position.y)
+                    > self.config.world_radius,
+            },
+        })
+    }
+
     /// Read the exact layout required by this evaluator.
     #[must_use]
     pub fn layout(&self) -> &SensorLayout {

@@ -50,7 +50,7 @@ export class DecisionInspectorRouting {
     try {
       let sequence: string | undefined;
       const admitted = this.options.admission.trySubmitControl(value => {
-        this.options.runtime().submitInspector(value, scope.runId, message.selectionToken, message.snakeId);
+        this.options.runtime().submitInspector(value, scope.runId, message.selectionToken, message.snakeId, message.pureProbe);
         sequence = value;
       });
       if (!admitted || !sequence) { reject('authoritative command queue is busy'); return; }
