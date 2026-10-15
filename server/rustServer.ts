@@ -1,3 +1,4 @@
+import { DecisionInspectorRouting } from './rustEngine/decisionInspector.ts';
 import type {
   RustBackgroundVisualization,
   RustImportBranchNotice,
@@ -400,6 +401,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let visualizationApplied = false;
   let visualizationCommand: { sequence: string; enabled: boolean } | undefined;
   let flushVisualization = (): void => {};
+  /** One selected diagnostic owner shares the existing native command sequence. */
+  let inspector: DecisionInspectorRouting | undefined;
   const pendingSettings = new Map<string, {
     connection: number;
     requestId: string;
@@ -867,6 +870,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       send: (id, message) => sockets.sendJsonTo(Number(BigInt(`0x${id}`)), message),
       event(event) {
         routing.event(event);
+        inspector?.event(event);
         distillation?.event(event);
         savedBrains?.event(event);
         if (pendingFinish && pendingFinish.sequence === event.commandSequence &&
@@ -901,6 +905,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
                 fail(new Error('Rust live-settings result omitted its authoritative identity'));
                 return;
               }
+              inspector?.reset('inspector cleared by applied settings');
               activeMetadata = applyMetadataSettings(
                 activeMetadata,
                 pending.updates,
@@ -1022,6 +1027,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
       },
       hasFrameRecipients: () => sockets.hasFrameRecipients() && performance.now() - lastFrame >= 1000 / config.uiFrameRateHz,
+      diagnostics: () => inspector?.service(),
       wantsVisualization: () => visualizationConnections.size > 0,
       visualization(snapshot) { latestVisualization = snapshot; },
       frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
@@ -1067,6 +1073,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       });
       if (admitted && sequence) visualizationCommand = { sequence, enabled };
     };
+    inspector = new DecisionInspectorRouting({runtime: () => owner.runtime, admission: output.admission,
+      scope: () => ({sessionId, runId: activeMetadata.runId,
+        available: !fault && !stopping && (!importOperation || importAuthorityPublished)}),
+      reliable: (connection, message) => sockets.sendJsonTo(connection, message),
+      replaceable: (connection, message) => sockets.sendInspectorTo(connection, message),
+      clear: connection => sockets.clearInspectorTo(connection), schedule});
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
       const failure = error instanceof Error ? error : new Error(String(error));
@@ -1234,6 +1246,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         importAuthorityPublished = true;
         const welcome = { ...createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
         void distillation?.runReplaced().catch(error => { console.error('[distillation.replacement]', error instanceof Error ? error.message : error); });
+        inspector?.reset('inspector cleared by authority replacement');
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
@@ -1370,6 +1383,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         importAuthorityPublished = true;
         const welcome = createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
         void distillation?.runReplaced().catch(error => { console.error('[distillation.replacement]', error instanceof Error ? error.message : error); });
+        inspector?.reset('inspector cleared by authority replacement');
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome
@@ -1491,6 +1505,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         for (const [sequence, pending] of pendingSelections) {
           if (pending.connection === connection) pendingSelections.delete(sequence);
         }
+        inspector?.disconnect(connection);
         visualizationConnections.delete(connection);
         if (visualizationConnections.size === 0) latestVisualization = undefined;
         flushVisualization();
@@ -1594,6 +1609,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         pendingSelections.set(admittedSequence, { connection, requestId: message.requestId });
         schedule();
       },
+      onInspectEntity(connection, message) { route(() => { inspector?.request(connection, message); }); },
       onGodMode(connection, message: GodModeMsg) {
         if (!message.selectionToken) {
           sockets.sendJsonTo(connection, { type: 'godModeResult', requestId: message.requestId,

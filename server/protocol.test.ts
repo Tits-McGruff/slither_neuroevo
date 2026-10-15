@@ -253,3 +253,15 @@ describe(SUITE, () => {
     expect(stats.type).toBe('stats');
   });
 });
+
+/** Exact inspector commands remain current-scope metadata only. */
+it('validates inspector token/frame pairs and target-free closes', () => {
+  const close = {type: 'inspectEntity', requestId: 'inspect', expectedSessionId: 'session', expectedRunId: 'run'};
+  const open = {...close, selectionToken: '1'.repeat(64), snakeId: 16_777_216};
+  expect(parseClientMessage(close)).toEqual(close);
+  expect(parseClientMessage(open)).toEqual(open);
+  for (const invalid of [{...close, snakeId: 1}, {...close, selectionToken: '1'.repeat(64)},
+    {...open, snakeId: 16_777_217}, {...open, selectionToken: '0'.repeat(64)}, {...open, unknown: 1}]) {
+    expect(parseClientMessage(invalid)).toBeNull();
+  }
+});

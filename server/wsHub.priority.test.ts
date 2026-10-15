@@ -61,6 +61,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     reliableQueue: [],
     reliableQueueBytes: 0,
     pendingStats: null,
+    pendingInspector: null,
     pendingFrame: null,
     pendingFrameRelease: null,
     sending: false,
@@ -90,6 +91,38 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
 }
 
 describe('WsHub lifecycle priority', () => {
+  it('admits inspector commands only from joined UI clients', () => {
+    const {hub, state} = buildFakeHub();
+    const handler = vi.fn(); hub.setHandlers({onInspectEntity: handler});
+    const routing = hub as unknown as {maxMessageBytes: number;
+      handleMessage(state: ConnectionState, data: Buffer, binary: boolean): void};
+    routing.maxMessageBytes = 65536;
+    const message = Buffer.from(JSON.stringify({type: 'inspectEntity', requestId: 'inspect', expectedSessionId: 'session', expectedRunId: 'run'}));
+    state.joined = false; routing.handleMessage(state, message, false); expect(handler).not.toHaveBeenCalled();
+    state.joined = true; state.clientType = 'bot'; routing.handleMessage(state, message, false); expect(handler).not.toHaveBeenCalled();
+    state.clientType = 'ui'; routing.handleMessage(state, message, false); expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('replaces slow inspector rows and keeps reliable replies and frames ahead of diagnostics', () => {
+    const {hub, state, socket} = buildFakeHub();
+    const snapshot = {schemaVersion: 1 as const, sequence: '0000000000000001', subscriptionSequence: '0000000000000001',
+      worldEpoch: '0000000000000001', completedStep: '0000000000000001', sample: null};
+    hub.broadcastFrame(Uint8Array.of(1));
+    expect(hub.sendInspectorTo(1, {type: 'inspector', snapshot})).toBe(true);
+    expect(hub.sendInspectorTo(1, {type: 'inspector', snapshot: {...snapshot, sequence: '0000000000000002'}})).toBe(true);
+    hub.sendJsonTo(1, {type: 'inspectorResult', requestId: 'inspect', applied: true, enabled: true});
+    hub.broadcastFrame(Uint8Array.of(2));
+    socket.sent[0]!.complete();
+    expect(JSON.parse(String(socket.sent[1]!.payload)).type).toBe('inspectorResult');
+    socket.sent[1]!.complete();
+    expect(socket.sent[2]!.binary).toBe(true);
+    socket.sent[2]!.complete();
+    expect(JSON.parse(String(socket.sent[3]!.payload)).snapshot.sequence).toBe('0000000000000002');
+    expect(state.pendingInspector).toBeNull();
+    socket.sent[3]!.complete();
+    expect(socket.sent).toHaveLength(4);
+  });
+
   it('keeps an incomplete original admission deadline across replacement', () => {
     vi.useFakeTimers();
     const { hub, state, socket } = buildFakeHub();

@@ -186,3 +186,27 @@ export function parseInspectorSnapshot(value: unknown): InspectorSnapshot {
   } else if (sample['baselineAction'] !== null) throw new TypeError('unexpected inspector baseline action');
   return value as InspectorSnapshot;
 }
+
+/** One current-scope command; omitting both target fields closes the subscription. */
+export interface InspectEntityMsg {
+  /** Command discriminator. */ type: 'inspectEntity';
+  /** Client correlation identity. */ requestId: string;
+  /** Observed process identity. */ expectedSessionId: string;
+  /** Observed native run identity. */ expectedRunId: string;
+  /** Exact native selection token when enabling capture. */ selectionToken?: string;
+  /** Exact paired frame-v1 ID when enabling capture. */ snakeId?: number;
+}
+/** Reliable admission result, separate from replaceable diagnostic rows. */
+export interface InspectorResultMsg {
+  /** Result discriminator. */ type: 'inspectorResult';
+  /** Original command correlation. */ requestId: string;
+  /** Whether Rust accepted the requested change. */ applied: boolean;
+  /** Whether this client owns the admitted selected capture. */ enabled: boolean;
+  /** Exact admitting command when applied. */ subscriptionSequence?: string;
+  /** Bounded rejection or retirement explanation. */ reason?: string;
+}
+/** Replaceable native metadata; a slow client retains only its newest pending row. */
+export interface InspectorMsg {
+  /** Message discriminator. */ type: 'inspector';
+  /** Complete Rust-authored snapshot. */ snapshot: InspectorSnapshot;
+}

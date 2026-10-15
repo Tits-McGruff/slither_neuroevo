@@ -584,8 +584,13 @@ checkpoint, together with focused display/queue/control tests, type/lint and the
 client build. Rows and their clear messages additionally retain the exact queue
 sequence of the subscription that admitted them, so an old mailbox row cannot
 be confused with a newly acknowledged target. Close/reopen and rejected-subscribe
-regressions exercise that identity through the real addon. Browser subscription/
-routing and presentation remain open.
+regressions exercise that identity through the real addon. WebSocket routing now
+admits one joined UI owner and one pending command globally, isolates diagnostic
+failures, filters old subscriptions and retains cleanup across disconnect or
+scope replacement. Each socket keeps one replaceable diagnostic row behind
+reliable replies, stats and frames. Actual sockets verify exclusive ownership,
+native rows, disconnect/reclaim and explicit close. Browser controls/presentation
+remain open.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,
