@@ -873,3 +873,14 @@ summary {
 
 /* Selected origin is bounded cold metadata and may contain full immutable digests. */
 .selected-entity-info { white-space: pre-line; overflow-wrap: anywhere; }
+
+/* Selected native diagnostics update only while explicitly subscribed. */
+.decision-inspector { margin-top: 1rem; border-top: 1px solid var(--border, #394253); padding-top: 0.8rem; }
+.decision-inspector[hidden], .decision-inspector [hidden] { display: none; }
+.decision-inspector canvas { display: block; width: 100%; max-width: 320px; height: auto; margin: 0.5rem auto; }
+.decision-inspector details { margin: 0.65rem 0; }
+.decision-inspector summary { cursor: pointer; }
+.decision-inspector pre { max-height: 20rem; overflow: auto; font-size: 11px; line-height: 1.5; padding: 0.5rem; background: rgba(0,0,0,0.15); }
+
+.inspector-owner { flex-wrap: wrap; gap: 0.4rem; margin: 0.6rem 0; }
+.inspector-owner input { width: 4.5rem; }

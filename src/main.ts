@@ -1,3 +1,5 @@
+import { DecisionInspectorClient } from './net/decisionInspector.ts';
+import { DecisionInspectorView } from './decisionInspectorView.ts';
 /** Entry point for the simulation UI, canvas, and client networking. */
 
 import { BrainLibraryClient } from './net/brainLibrary.ts';
@@ -1183,12 +1185,31 @@ if (followIndividualInput) {
 /** Text-only live provenance comes from the selected native owner, never a catalog lookup. */
 const selectedEntityInfo = document.getElementById('selectedEntityInfo');
 if (selectedEntityInfo) selectedEntityInfo.textContent = describeSelectedEntity(null);
+/** On-demand decision data remains separate from the ordinary frame renderer. */
+const decisionInspectorView = new DecisionInspectorView();
+/** One selected native subscription; default-off presentation never samples locally. */
+const decisionInspector = new DecisionInspectorClient({send: request => wsClient?.sendInspector(request),
+  changed: snapshot => decisionInspectorView.snapshot(snapshot), status: message => decisionInspectorView.status(message)});
+/** Explicit capture preference, independent of gameplay settings. */
+const decisionInspectorInput = document.getElementById('decisionInspectorEnabled') as HTMLInputElement | null;
+if (decisionInspectorInput) {
+  decisionInspectorInput.checked = CFG.diagnostics.inspectorEnabled;
+  decisionInspectorInput.addEventListener('change', () => {
+    CFG.diagnostics.inspectorEnabled = decisionInspectorInput.checked;
+    decisionInspector.setEnabled(decisionInspectorInput.checked);
+  });
+}
+decisionInspectorView.supported(false);
 /** Bounded native selection transport; no gameplay identity is reconstructed in the browser. */
 const entitySelection = createEntitySelectionClient({
   send: request => wsClient?.sendSelectEntity(request),
   kill: (id, token) => { authoritativeControls.killSnake(id, token); },
   followIndividual: () => followIndividualInput?.checked ?? true,
   changed: entity => {
+    decisionInspector.selection(entity);
+    if (!entity && entitySelection.followedPopulationSlot() !== null && decisionInspectorInput?.checked) {
+      decisionInspectorView.status('Waiting for the selected individual’s next physical life.');
+    }
     const description = describeSelectedEntity(entity);
     if (selectedEntityInfo && selectedEntityInfo.textContent !== description) selectedEntityInfo.textContent = description;
     if (selectedSnake?.token !== entity?.token) {
@@ -1199,6 +1220,17 @@ const entitySelection = createEntitySelectionClient({
     selectedSnake = entity ? { id: entity.snakeId, x: entity.x, y: entity.y,
       radius: entity.radius, skin: entity.skin, token: entity.token } : null;
   }
+});
+/** Keyboard selection names a population owner rather than guessing a physical ID. */
+const decisionInspectorSlot = document.getElementById('decisionInspectorSlot') as HTMLInputElement | null;
+/** Native identity lookup is shared with ordinary canvas selection. */
+const decisionInspectorSelect = document.getElementById('decisionInspectorSelect');
+decisionInspectorSelect?.addEventListener('click', () => {
+  const slot = Number(decisionInspectorSlot?.value ?? '');
+  if (!Number.isSafeInteger(slot) || slot < 0 || slot >= 300) {
+    decisionInspectorView.status('Choose a population slot from 0 to 299.'); return;
+  }
+  entitySelection.selectIndividual(slot);
 });
 /** Exact generation from scalar native stats; frame floats can round large counters. */
 let selectionGeneration = 1;
@@ -3626,6 +3658,8 @@ function refreshServerHallOfFame(clearExisting = true): void {
 
 wsClient = createWsClient({
   onConnected: (info) => {
+    decisionInspector.context({sessionId: info.sessionId, runId: info.runId, supported: info.capabilities?.decisionInspector === true});
+    decisionInspectorView.supported(info.capabilities?.decisionInspector === true);
     entitySelection.reset();
     selectionGeneration = 1; selectionSessionId = info.sessionId;
     entitySelection.setScope({ sessionId: info.sessionId, runId: info.runId, generation: 1 });
@@ -3697,6 +3731,8 @@ wsClient = createWsClient({
     refreshServerHallOfFame();
   },
   onDisconnected: () => {
+    decisionInspector.dispose();
+    decisionInspectorView.supported(false);
     brainLibrary.contextChanged(false);
     entitySelection.reset();
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
@@ -3860,6 +3896,8 @@ wsClient = createWsClient({
     console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
   },
   onEntitySelected: msg => entitySelection.receive(msg),
+  onInspectorResult: msg => decisionInspector.result(msg),
+  onInspector: msg => decisionInspector.snapshot(msg.snapshot),
   onGodModeResult: (msg) => {
     godModeLog.push({
       time: Date.now(),
@@ -3908,6 +3946,8 @@ wsClient = createWsClient({
   onStateReplaced: (msg) => {
     setResetStatus(msg.reason === 'reset' ? 'Reset applied.' : '');
     const info = msg.welcome;
+    decisionInspector.context({sessionId: info.sessionId, runId: info.runId, supported: info.capabilities?.decisionInspector === true});
+    decisionInspectorView.supported(info.capabilities?.decisionInspector === true);
     entitySelection.reset();
     selectionGeneration = 1; selectionSessionId = info.sessionId;
     entitySelection.setScope({ sessionId: info.sessionId, runId: info.runId, generation: 1 });
@@ -4036,6 +4076,8 @@ btnApply.addEventListener('click', () => {
 btnDefaults.addEventListener('click', () => {
   resetCFGToDefaults();
   if (followIndividualInput) followIndividualInput.checked = CFG.diagnostics.followIndividual;
+  if (decisionInspectorInput) decisionInspectorInput.checked = CFG.diagnostics.inspectorEnabled;
+  decisionInspector.setEnabled(CFG.diagnostics.inspectorEnabled);
   setupSettingsUI(settingsContainer, liveUpdateFromSlider); // Re-apply defaults to dynamic UI
   wireBaselineBotControls();
   elSnakes.value = '55';

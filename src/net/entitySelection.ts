@@ -28,6 +28,8 @@ export interface EntitySelectionClient {
   setScope: (scope: SelectionScope) => void;
   /** Resolve an explicitly selected displayed snake. */
   select: (snakeId: number) => void;
+  /** Select a persistent population owner by its zero-based native slot. */
+  selectIndividual: (populationSlot: number) => void;
   /** Resolve or reuse a current token for one right-click kill. */
   kill: (snakeId: number) => void;
   /** Consume only the matching current-scope native result. */
@@ -158,7 +160,13 @@ export function createEntitySelectionClient(transport: EntitySelectionTransport)
       }
     }
   };
+  /** Keyboard-accessible selection also retains a temporarily pending individual. */
+  const selectIndividual = (populationSlot: number): void => {
+    if (!scope || !Number.isSafeInteger(populationSlot) || populationSlot < 0 || populationSlot >= 300) return;
+    selected = null; followedSlot = populationSlot; transport.changed(null);
+    request({action: 'follow', kind: 'slot', index: populationSlot});
+  };
   /** Disconnect invalidates all observed world ownership. */
   const reset = (): void => { clear(); scope = null; };
-  return { setScope, select, kill, receive, observeFrame, followedPopulationSlot: () => followedSlot, clear, reset };
+  return { setScope, select, selectIndividual, kill, receive, observeFrame, followedPopulationSlot: () => followedSlot, clear, reset };
 }

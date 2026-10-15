@@ -1,3 +1,4 @@
+import type { InspectEntityMsg, InspectorResultMsg, InspectorMsg } from '../protocol/inspector.ts';
 import type { EvolvedLifecycleTelemetry } from '../protocol/evolvedLives.ts';
 import type { SelectEntityMsg, EntitySelectedMsg } from '../protocol/entitySelection.ts';
 import type { FinishGenerationResultMsg } from '../protocol/generation.ts';
@@ -68,6 +69,8 @@ export interface WelcomeMsg {
     savedBrainLibrary?: boolean;
     /** Explicit saved-brain selection in checkpoint archive version 4. */
     savedBrainArchive?: boolean;
+    /** Selected native decision snapshots are available on demand. */
+    decisionInspector?: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
     /** Whether the selected archive can be uploaded unchanged. */
@@ -233,6 +236,10 @@ export interface WsClientCallbacks {
   onSettingsApplied?: (msg: SettingsAppliedMsg) => void;
   /** Reliable result of one native physical/individual selection. */
   onEntitySelected?: (msg: EntitySelectedMsg) => void;
+  /** Reliable selected-inspector admission result. */
+  onInspectorResult?: (msg: InspectorResultMsg) => void;
+  /** Replaceable actual native observation. */
+  onInspector?: (msg: InspectorMsg) => void;
   onGodModeResult?: (msg: GodModeResultMsg) => void;
   onNewRunResult?: (msg: NewRunResultMsg) => void;
   /** Native admission and durable completion of manual finish. */
@@ -253,6 +260,8 @@ export interface WsClient {
   sendSettings: (requestId: string, updates: LiveSettingsUpdate[]) => void;
   /** Resolve a bounded selector before sending physical mutations. */
   sendSelectEntity: (request: SelectEntityMsg) => void;
+  /** Subscribe or close using an exact native selection. */
+  sendInspector: (request: InspectEntityMsg) => void;
   sendGodModeKill: (requestId: string, snakeId: number, token: string) => void;
   sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number, token: string) => void;
   sendNewRun: (requestId: string) => void;
@@ -540,6 +549,12 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     socket.send(JSON.stringify(request));
   };
 
+  /** Queue only explicit current-scope diagnostic intent. */
+  const sendInspector = (request: InspectEntityMsg): void => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
+    socket.send(JSON.stringify(request));
+  };
+
   /** Send one token-bound authoritative God Mode kill. */
   const sendGodModeKill = (requestId: string, snakeId: number, token: string): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
@@ -633,6 +648,12 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
       case 'settingsApplied':
         callbacks.onSettingsApplied?.(msg as unknown as SettingsAppliedMsg);
         return;
+      case 'inspectorResult':
+        callbacks.onInspectorResult?.(msg as unknown as InspectorResultMsg);
+        return;
+      case 'inspector':
+        callbacks.onInspector?.(msg as unknown as InspectorMsg);
+        return;
       case 'entitySelected':
         callbacks.onEntitySelected?.(msg as unknown as EntitySelectedMsg);
         break;
@@ -667,6 +688,7 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
     sendReset,
     sendSettings,
     sendSelectEntity,
+    sendInspector,
     sendGodModeKill,
     sendGodModeMove,
     sendNewRun,
