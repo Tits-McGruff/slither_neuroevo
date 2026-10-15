@@ -1046,6 +1046,12 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
         profile: 'v3', bins: 16, source: {kind: 'neural'}, normalizedInputs: expect.any(Array),
         trace: {bodyRays: Array(16).fill({kind: 'not-sampled'})}}});
       expect(inspected.sample!.normalizedInputs).toHaveLength(83);
+      expect(inspected.sample!.lifecycle).toMatchObject({lifeOrdinal: '0000000000000001', livesStarted: '0000000000000001',
+        deaths: '0000000000000000', provisionalFitness: expect.any(Number), fitnessComponents: expect.any(Array),
+        ledger: {lifeLocalWallet: expect.any(Number), priorBankRemaining: expect.any(Number), operations: expect.any(String)}});
+      expect(inspected.sample!.lifecycle!.fitnessComponents).toHaveLength(7);
+      expect(inspected.sample!.shadowOutputs).toEqual([]);
+      expect(inspected.sample!.baselineV1Action).toBeNull();
       runtime.submitInspector('0000000000000006', 'stale-inspector-run');
       expect(await inspectorReceipt('0000000000000006')).toMatchObject({kind: 'commandRejected'});
       expect(JSON.parse(runtime.latestInspector('0000000000000000')!).sample.snakeId).toBe(selected!.snakeId);

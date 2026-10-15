@@ -6638,6 +6638,90 @@ mod tests {
     }
 
     #[test]
+    fn inspector_shadow_join_rejects_other_lives_generations_steps_and_activations() {
+        use super::super::inspector::*;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut snake = source.world.snakes[0].clone();
+        snake.kind = SnakeKind::Baseline;
+        snake.population_slot = None;
+        let target = InspectorTarget {
+            world_epoch: 1,
+            generation: 1,
+            physical_id: snake.id,
+            frame_v1_id: snake.frame_v1_id,
+        };
+        let key = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 1);
+        let mut capture = InspectorCapture::new(target, MAX_INSPECTOR_BYTES).unwrap();
+        let layout = InspectorLayout::from(
+            &super::super::sensor_layout::SensorLayout::for_profile(
+                super::super::sensor_contract::SensorProfile::Basic,
+                8,
+            )
+            .unwrap(),
+        );
+        capture.stage(
+            key,
+            &snake,
+            InspectorObservationSource::BaselineV2,
+            layout,
+            &vec![0.0; layout.input_size],
+            None,
+            None,
+            Default::default(),
+        );
+        capture.publish(key, |_, _, _| false);
+        let good = super::super::shadows::ShadowSnapshot {
+            artifact_sha256: [2; 32],
+            capture_epoch: [1; 16],
+            baseline_slot: 7,
+            activation_sequence: 9,
+            activation_step: 0,
+            completed_step: 6,
+            last_sample_step: 6,
+            generation: 1,
+            physical_snake_id: snake.id,
+            enabled: true,
+            error: None,
+            raw_outputs: [0.25, 0.75],
+            totals: Default::default(),
+            strategies: [Default::default(); 4],
+            life_stages: [Default::default(); 3],
+            strata: [Default::default(); 6],
+            cruising: Default::default(),
+            pre_death: Default::default(),
+            deaths: 0,
+        };
+        let mut mismatches = [good; 7];
+        mismatches[0].physical_snake_id += 1;
+        mismatches[1].generation += 1;
+        mismatches[2].last_sample_step += 1;
+        mismatches[3].enabled = false;
+        mismatches[4].activation_sequence = 0;
+        mismatches[5].capture_epoch = [0; 16];
+        mismatches[6].raw_outputs[0] = f32::NAN;
+        for invalid in mismatches {
+            capture.join_shadows(key, [Some(invalid), None, None, None]);
+            assert!(capture
+                .latest(1, 1, 6)
+                .unwrap()
+                .shadow_outputs
+                .iter()
+                .all(Option::is_none));
+        }
+        let wrong_key = super::super::physics::PhysicsStepKey::new(2, 1, 5, 1, 1, [0; 32], 1);
+        capture.join_shadows(wrong_key, [Some(good), None, None, None]);
+        assert!(capture.latest(1, 1, 6).unwrap().shadow_outputs[0].is_none());
+        capture.join_shadows(key, [Some(good), None, None, None]);
+        assert_eq!(
+            capture.latest(1, 1, 6).unwrap().shadow_outputs[0]
+                .unwrap()
+                .raw_outputs,
+            [0.25, 0.75]
+        );
+    }
+
+    #[test]
     fn inspector_cache_is_publication_gated_bounded_and_keeps_last_delivered_age() {
         use super::super::inspector::*;
         let graph = default_graph();
@@ -9724,6 +9808,78 @@ mod tests {
             );
             refresh_config_hash(&mut source);
             let (mut authority, _) = one_respawn_step(source, Arc::clone(&graph));
+            // Inspect the immutable newborn ledger directly; no extra physical step or sensor delivery.
+            let state = authority.state();
+            let life_policy =
+                super::super::step_config::project_evolved_experiment_config(&state.config)
+                    .unwrap();
+            let target = super::super::inspector::InspectorTarget {
+                world_epoch: authority.world_epoch(),
+                generation: state.generation.generation,
+                physical_id: state.world.snakes[0].id,
+                frame_v1_id: state.world.snakes[0].frame_v1_id,
+            };
+            let mut capture = super::super::inspector::InspectorCapture::new(
+                target,
+                super::super::inspector::MAX_INSPECTOR_BYTES,
+            )
+            .unwrap();
+            capture.configure_evolution(authority.evolution_config().unwrap());
+            let key = super::super::physics::PhysicsStepKey::new(
+                target.world_epoch,
+                target.generation,
+                state.generation.completed_step,
+                1,
+                state.identity.config_revision,
+                [0; 32],
+                1,
+            );
+            let layout = super::super::inspector::InspectorLayout::from(
+                &super::super::sensor_layout::SensorLayout::new(8).unwrap(),
+            );
+            capture.stage(
+                key,
+                &state.world.snakes[0],
+                super::super::inspector::InspectorObservationSource::Neural,
+                layout,
+                &vec![0.0; layout.input_size],
+                Some([0.0; 2]),
+                None,
+                Default::default(),
+            );
+            capture.stage_lifecycle(
+                key,
+                &state.world,
+                super::super::inspector::InspectorLifecycleContext {
+                    lives: &state.fixed_step.evolved_generation,
+                    policy: life_policy,
+                },
+            );
+            capture.publish(key, |_, _, _| false);
+            let observed = capture
+                .latest(
+                    target.world_epoch,
+                    target.generation,
+                    state.generation.completed_step + 1,
+                )
+                .unwrap();
+            let life = observed.lifecycle.unwrap();
+            let expected = if mode == 2 { points } else { points - 0.01 };
+            assert!(
+                (life.assessment.points - expected).abs() < 1e-12,
+                "assessment {mode}/{basis}/{carried}"
+            );
+            assert!(
+                (life.ledger.life_local_wallet + life.ledger.prior_bank_remaining - wallet).abs()
+                    < 1e-12
+            );
+            assert_eq!(life.life_ordinal, 2);
+            assert_eq!(life.deaths, 1);
+            assert_eq!(life.successful_respawns, 1);
+            assert_eq!(
+                life.ledger,
+                state.fixed_step.evolved_generation.slots[0].ledger
+            );
             let newborn = &authority.state().world.snakes[0];
             assert!((newborn.points - wallet).abs() < 1e-12);
             assert_eq!(newborn.delivered_observation_points, newborn.points);

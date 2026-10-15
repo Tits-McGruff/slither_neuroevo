@@ -1,4 +1,4 @@
-import { inspectorFixture } from './test/inspectorFixture.ts';
+import { inspectorFixture, inspectorLifecycleFixture } from './test/inspectorFixture.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Generic element surface sufficient for the application startup boundary. */
@@ -517,14 +517,20 @@ describe('main.ts startup smoke', () => {
     expect(request).toMatchObject({snakeId: 7, selectionToken: '1'.repeat(64)});
     socket.onmessage?.({data: JSON.stringify({type: 'inspectorResult', requestId: request.requestId, applied: true,
       enabled: true, subscriptionSequence: '0000000000000001'})});
-    const snapshot = inspectorFixture(); snapshot.sample!.snakeId = 7;
+    const snapshot = inspectorFixture(); snapshot.sample!.snakeId = 7; snapshot.sample!.lifecycle = inspectorLifecycleFixture();
     socket.onmessage?.({data: JSON.stringify({type: 'inspector', snapshot})});
     expect(elements.get('decisionInspectorData')!.hidden).toBe(false);
     expect(elements.get('decisionInspectorSummary')!.textContent).toContain('Sample step 1 · age 1 completed steps');
     expect(elements.get('decisionInspectorInputs')!.textContent).toContain('heading_sin');
+    expect(elements.get('decisionInspectorLifecycleSection')!.hidden).toBe(false);
+    expect(elements.get('decisionInspectorLifecycle')!.textContent).toContain('Provisional fitness: -2');
+    expect(elements.get('decisionInspectorShadowsSection')!.hidden).toBe(true);
     checkbox.checked = false; checkbox.dispatch('change', {} as Event);
     expect(elements.get('decisionInspectorData')!.hidden).toBe(true);
     expect(elements.get('decisionInspectorInputs')!.textContent).toBe('');
+    expect(elements.get('decisionInspectorLifecycleSection')!.hidden).toBe(true);
+    expect(elements.get('decisionInspectorLifecycle')!.textContent).toBe('');
+    expect(elements.get('decisionInspectorShadows')!.textContent).toBe('');
     expect(socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'inspectEntity').selectionToken).toBeUndefined();
     socket.onclose?.(); expect(elements.get('decisionInspector')!.hidden).toBe(true);
   });

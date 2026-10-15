@@ -13,9 +13,9 @@ function label(value: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 /** Format actual native values for accessible text beside the angular plot. */
-export function describeInspector(snapshot: InspectorSnapshot): {summary: string; scalars: string; sectors: string; inputs: string; policy: string} {
+export function describeInspector(snapshot: InspectorSnapshot): {summary: string; scalars: string; sectors: string; inputs: string; policy: string; lifecycle: string; shadows: string} {
   const sample = snapshot.sample;
-  if (!sample) return {summary: 'Waiting for a delivered sample from this life.', scalars: '', sectors: '', inputs: '', policy: ''};
+  if (!sample) return {summary: 'Waiting for a delivered sample from this life.', scalars: '', sectors: '', inputs: '', policy: '', lifecycle: '', shadows: ''};
   const layout = getSensorLayout(sample.bins, sample.profile === 'v3' ? 'v3' : 'v4', sample.profile === 'v3' ? undefined : sample.profile);
   const trace = sample.trace;
   const scalars = Object.entries(sample.raw).map(([key, value]) => label(key) + ': ' + display(value));
@@ -31,13 +31,34 @@ export function describeInspector(snapshot: InspectorSnapshot): {summary: string
       trace.headCount[bin], ...(sample.profile === 'motion' ? [trace.encounterSeconds[bin], trace.relativeForwardSpeed[bin], trace.relativeSideSpeed[bin], trace.urgency[bin]]
         : ['not-sampled', 'not-sampled', 'not-sampled', 'not-sampled']), trace.headIds[bin]].map(display).join(' | '));
   }
-  const policy = sample.baselineAction ? Object.entries(sample.baselineAction).map(([key, value]) => label(key) + ': ' + display(value)).join('\n')
+  const action = sample.baselineV1Action ?? sample.baselineAction;
+  const policy = action ? Object.entries(action).map(([key, value]) => label(key) + ': ' + display(value)).join('\n')
     : sample.neuralOutputs ? 'Graph turn output: ' + display(sample.neuralOutputs[0]) + '\nGraph boost output: ' + display(sample.neuralOutputs[1])
-      : sample.source.kind === 'baseline-v1' ? 'Baseline v1 observation; no graph output.' : 'External controller observation; no internal graph action.';
+      : sample.source.kind === 'baseline-v1' ? 'Baseline v1 action details are unavailable for this sample.'
+        : sample.source.kind === 'baseline-v2' ? 'Baseline v2 action details are unavailable for this sample.' : 'External controller observation; no internal graph action.';
+  const life = sample.lifecycle;
+  const lifecycle = life ? ['At delivered sample boundary · provisional fitness is not the final generation outcome.',
+    ...(['lifeOrdinal', 'livesStarted', 'deaths', 'successfulRespawns', 'failedPlacements'] as const).map(key =>
+      label(key) + ': ' + BigInt('0x' + life[key])),
+    'Pending seconds: ' + display(life.pendingSeconds), 'Point assessment: ' + life.pointMode,
+    'Nonpoint aggregation: ' + life.nonpointMode, 'Provisional fitness: ' + display(life.provisionalFitness),
+    'Population maximum assessment points: ' + display(life.maximumAssessmentPoints),
+    ...['Survival', 'Food', 'Growth', 'Kills', 'Points', 'Top bonus', 'Life penalty (subtracted)'].map((key, index) =>
+      key + ': ' + display(life.fitnessComponents[index])),
+    ...Object.entries(life.assessment).map(([key, value]) => 'Selected ' + label(key).toLowerCase() + ': ' +
+      (key === 'kills' ? String(BigInt('0x' + String(value))) : display(value))),
+    ...Object.entries(life.ledger).map(([key, value]) => label(key) + ': ' +
+      (key === 'operations' ? String(BigInt('0x' + String(value))) : display(value))),
+    ...(['current', 'bestPointLife'] as const).flatMap(tuple => [label(tuple) + ':', ...Object.entries(life[tuple]).map(([key, value]) =>
+      '  ' + label(key) + ': ' + (key === 'ordinal' || key === 'kills' ? String(BigInt('0x' + String(value))) : display(value)))])
+    ].join('\n') : '';
+  const shadows = (sample.shadowOutputs ?? []).map(output => `Shadow slot ${output.shadowSlot} · at delivered sample step ${BigInt('0x' + output.sampleStep)}\n` +
+    `Candidate SHA256 ${output.artifactSha256}\nCapture epoch ${output.captureEpoch} · activation ${BigInt('0x' + output.activationSequence)}\n` +
+    `Graph turn output: ${display(output.rawOutputs[0])}\nGraph boost output: ${display(output.rawOutputs[1])}`).join('\n\n');
   return {summary: `Snake #${sample.snakeId} · ${sample.source.kind} · ${sample.profile} B${sample.bins}\n` +
     `Sample step ${BigInt('0x' + sample.sampleStep)} · age ${BigInt('0x' + sample.ageSteps)} completed steps\n` +
     `Physical ID ${sample.physicalId} · generation ${BigInt('0x' + sample.generation)}\nSensor SHA256 ${sample.sensorSha256}`,
-    scalars: scalars.join('\n'), sectors: sectors.join('\n'), policy,
+    scalars: scalars.join('\n'), sectors: sectors.join('\n'), policy, lifecycle, shadows,
     inputs: sample.normalizedInputs.map((value, index) => `${index}  ${layout.order[index]}: ${display(value)}`).join('\n')};
 }
 
@@ -83,8 +104,12 @@ export class DecisionInspectorView {
     const content = document.getElementById('decisionInspectorData'); if (content) content.hidden = !snapshot?.sample;
     const result = snapshot ? describeInspector(snapshot) : null;
     for (const [id, value] of Object.entries({decisionInspectorSummary: result?.summary, decisionInspectorScalars: result?.scalars,
-      decisionInspectorSectors: result?.sectors, decisionInspectorInputs: result?.inputs, decisionInspectorPolicy: result?.policy})) {
+      decisionInspectorSectors: result?.sectors, decisionInspectorInputs: result?.inputs, decisionInspectorPolicy: result?.policy,
+      decisionInspectorLifecycle: result?.lifecycle, decisionInspectorShadows: result?.shadows})) {
       const node = document.getElementById(id); if (node) node.textContent = value ?? '';
+    }
+    for (const [id, value] of [['decisionInspectorLifecycleSection', result?.lifecycle], ['decisionInspectorShadowsSection', result?.shadows]]) {
+      const section = document.getElementById(id!); if (section) section.hidden = !value;
     }
     const legend = document.getElementById('decisionInspectorLegend');
     if (legend) legend.textContent = snapshot?.sample?.profile === 'v3'

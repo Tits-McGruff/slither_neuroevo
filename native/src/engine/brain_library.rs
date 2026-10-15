@@ -537,6 +537,21 @@ mod tests {
             assert_eq!(trace.physical_id, sample.target.physical_id);
             assert_eq!((trace.profile, trace.bins), (profile, bins));
             assert!(trace.near_radius > 0.0 && trace.far_radius >= trace.near_radius);
+            let life = sample.lifecycle.expect("selected native life assessment");
+            assert_eq!(life.life_ordinal, 1);
+            assert_eq!(life.deaths, 0);
+            assert_eq!(life.assessment.points, sample.raw.points);
+            assert!(
+                (life.ledger.life_local_wallet + life.ledger.prior_bank_remaining
+                    - sample.raw.points)
+                    .abs()
+                    < 1e-12
+            );
+            assert!(life.provisional_fitness.is_finite());
+            assert_eq!(
+                wire["sample"]["lifecycle"]["lifeOrdinal"],
+                "0000000000000001"
+            );
             assert_eq!(sample.sample_step(), Some(1));
             assert!(sample.raw.first_delivery && sample.neural_outputs.is_some());
             assert!(inspected
@@ -562,6 +577,7 @@ mod tests {
             assert_eq!(held.age_steps(inspected.completed_step()), Some(1));
             assert_eq!(held.raw, sample.raw);
             assert_eq!(held.trace, sample.trace);
+            assert_eq!(held.lifecycle, sample.lifecycle);
             display.publish_inspector(&inspected, 99).unwrap();
             assert!(display
                 .latest_inspector(first_mailbox.sequence)

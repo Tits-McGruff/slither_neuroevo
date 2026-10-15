@@ -596,8 +596,19 @@ The display shows exact step/age/source identity, raw scalars/sectors/rays/motio
 actual graph/v2 action values and the normalized vector. Missing profile channels
 remain labelled not-sampled. Browser tests cover scope changes, stale rows,
 coalesced opt-out and clearing; a disposable real browser run verifies delivered
-data, drawing and opt-out. Lifecycle/shadow joins, v1 tactical projection, explicit
-pure probes and integrated capacity qualification remain open.
+data, drawing and opt-out. The inspector now attaches exact pre-movement evolved
+life counters, current/best tuples, ledger attribution and selected assessment.
+Provisional fitness reuses the existing native formula and population maximum;
+the browser only presents its seven components and native total. Actual frozen-v1
+actions include effective strategy and retained timers. Four shadow outputs join
+only the matching committed teacher row, with full candidate/capture/activation
+identity; held samples preserve their original values. Respawn/wallet modes,
+continuation with capture and four shadows, stale shadow rejection, bounded wire
+decoding and UI clearing are covered by regression tests. Explicit pure probes
+and integrated capacity qualification remain open. This lifecycle/action/shadow
+checkpoint passes all 732 release library tests with engine hooks, actual addon
+and socket inspector fixtures, 411 unit cases (three existing skips), 85 component
+cases, 24 main UI cases, type/lint/client build and rustfmt/Clippy.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

@@ -2218,6 +2218,43 @@ mod tests {
                         crate::engine::running_loop::RunningAuthorityLoopProgress::Published { .. }
                     ));
                     assert_eq!(running.completed_step(), step);
+                    if shadow && step == 1 {
+                        // Resolve the spawned baseline through real frame IDs and native full identities.
+                        let physical = running.published_teacher_boundary().unwrap().decisions[0]
+                            .physical_snake_id;
+                        let mut frame = Vec::with_capacity(running.admitted_frame_bytes());
+                        running.pack_display_into(1, &mut frame).unwrap();
+                        let read = |offset: usize| {
+                            f32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap())
+                        };
+                        let mut offset = 7 * 4;
+                        let mut selected = None;
+                        for _ in 0..read(2 * 4) as usize {
+                            let frame_id = read(offset) as u32;
+                            if let Some(entity) = running
+                                .select_entity(
+                                    crate::engine::state::EntitySelectionTarget::Frame(frame_id),
+                                    &prepared.candidate.identity.run_id,
+                                    1,
+                                )
+                                .unwrap()
+                            {
+                                if entity.token.physical_id() == physical {
+                                    selected = Some(entity);
+                                    break;
+                                }
+                            }
+                            offset += (8 + 2 * read(offset + 7 * 4) as usize) * 4;
+                        }
+                        let selected = selected.expect("spawned teacher in native frame");
+                        running
+                            .configure_inspector(
+                                &prepared.candidate.identity.run_id,
+                                Some((selected.token, selected.frame_v1_id)),
+                                crate::engine::inspector::MAX_INSPECTOR_BYTES,
+                            )
+                            .unwrap();
+                    }
                     if let Some(rows) = running.published_teacher_boundary() {
                         assert!(capture);
                         assert_eq!(rows.key.source_completed_step() + 1, step);
@@ -2238,6 +2275,25 @@ mod tests {
                         assert!(snapshot.enabled, "{:?}", snapshot.error);
                         assert_eq!(snapshot.totals.samples, captured_rows as u64);
                         assert_eq!(snapshot.completed_step, 16);
+                    }
+                    let observed = running
+                        .inspector_observation()
+                        .expect("selected actual teacher row");
+                    assert_eq!(
+                        observed.source,
+                        crate::engine::inspector::InspectorObservationSource::BaselineV2
+                    );
+                    assert!(observed.lifecycle.is_none());
+                    for (index, snapshot) in running.shadow_snapshots().iter().enumerate() {
+                        let snapshot = snapshot.unwrap();
+                        let output =
+                            observed.shadow_outputs[index].expect("exact joined shadow output");
+                        assert_eq!(output.sample_step, snapshot.last_sample_step);
+                        assert_eq!(Some(output.sample_step), observed.sample_step());
+                        assert_eq!(output.raw_outputs, snapshot.raw_outputs);
+                        assert_eq!(output.capture_epoch, [17; 16]);
+                        assert_eq!(output.activation_sequence, index as u64 + 1);
+                        assert_eq!(snapshot.physical_snake_id, observed.target.physical_id);
                     }
                     let before = running.qualification_continuation_sha256();
                     assert!(running.stop_shadow(0, [17; 16], 99).is_err());
