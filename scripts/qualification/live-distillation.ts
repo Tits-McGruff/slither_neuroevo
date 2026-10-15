@@ -205,7 +205,7 @@ async function run(): Promise<void> {
         studentGraph: 'GRU8 and Dense2', studentParameters: 1962, studentState: 8, cadenceSeconds: 0.06},
       hostPeakRssBytes, train, resume, authority: {completedStepBefore: before.completedStep, completedStepAfter: after.completedStep,
         generationAfter: after.generation, stepTimingP95Micros: after.stepTimingP95Micros, stepTimingP99Micros: after.stepTimingP99Micros,
-        discardedWallSeconds: after.discardedWallSeconds}, shadows: metrics.slots,
+        schedulerDroppedWallMicros: after.schedulerDroppedWallMicros}, shadows: metrics.slots,
       http: {forbiddenRequests, routes: Object.fromEntries(routes)}};
     await mkdir(dirname(output), {recursive: true});
     await writeFile(output, JSON.stringify(report, null, 2) + '\n', {flag: 'wx'});
