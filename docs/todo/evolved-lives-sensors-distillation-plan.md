@@ -559,8 +559,18 @@ their actual sampler layout and boundary scalars/diagnostics. Whole-step publica
 and exact accepted socket receipts gate visibility; held controls preserve the last
 row and its age. Tests cover late failure, mixed receipts, equal-width profiles,
 B32 Motion, closed capture, unchanged native continuation and scratch rejection.
-Transport, raw spatial traces, probes, lifecycle/shadow joins and browser inspection
-remain open; no inspector capability or large debug stream is advertised yet.
+The cache now also copies actual pre-normalization scalar, food, sector, wall,
+body-ray and motion values from that same sample. Incomplete rays retain an
+explicit unknown result. One exclusive fixed buffer follows the selected neural
+owner into its worker partition; closed capture performs no diagnostic query or
+allocation. Frozen v3 vectors, actual one/two/three/four-worker v4 observations,
+quota use, warm capacities and held sample ages remain unchanged. Transport,
+probes, lifecycle/shadow joins and browser inspection remain open; no inspector
+capability or large debug stream is advertised yet. This raw-trace slice passes
+all 731 release library tests with engine hooks, 26 focused sensor cases, 45
+control cases, eight library/runtime cases, three inspector cases, rustfmt and
+Clippy. The preceding delivery-cache checkpoint passes the complete Windows/Linux
+and Node 24/26 CI matrix; unchanged client/server code reuses that evidence.
 
 Stages D through J and the remaining B/C qualification gates remain open.
 Baseline v2 workload/tactical qualification, complete candidate/job integration,

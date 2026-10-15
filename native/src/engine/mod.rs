@@ -141,6 +141,8 @@ pub mod sensor_layout;
 pub mod sensor_qualification;
 /// Bounded reusable sensor-only traversal over complete body segments.
 pub mod sensor_rays;
+/// Opt-in actual-sample raw diagnostics with fixed bounded storage.
+pub mod sensor_trace;
 /// Corrected sensor-v3 construction and delivered-observation boundaries.
 pub mod sensors;
 /// Complete Basic/Motion candidate observations for native qualification.
