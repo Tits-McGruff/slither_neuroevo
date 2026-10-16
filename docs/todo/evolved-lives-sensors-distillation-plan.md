@@ -724,6 +724,16 @@ pooled incompleteness and 150.829 ms three-worker p95 on the loaded target;
 this is no timing pass. Full reports and their scope live under
 `docs/performance/sensor-v4/`; no limits/defaults are raised. Full byte pressure, spool/trainer resources and the integrated soak remain.
 
+Version-4 workload reports now partition existing native timers without adding
+hot-path timing calls. The matching P1 Windows/Oxygen baselines attribute about
+66% of service time to sensing. A shared inflated-bounds ray-packet experiment
+preserves exact observations, counters and authority continuations in adjacent
+ABBA comparisons, but provides no consistent target-platform timing benefit;
+the implementation is reverted. The comparison utility and eight fingerprinted
+reports remain under `scripts/qualification/` and
+`docs/performance/sensor-v4/` for reproducibility. The final runtime retains
+only the bounded qualification attribution, with no admission/default changes.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
