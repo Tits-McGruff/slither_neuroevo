@@ -53,6 +53,25 @@ pub struct FirstAction {
     pub boost_agrees_with_v1: bool,
 }
 
+/// Last actual delivered decisions of a failed v2 trial; encoded clearances copy actual sampler values.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TacticalDecision {
+    pub step: u32,
+    pub position: [f64; 2],
+    pub heading: f64,
+    pub turn: f32,
+    pub boost: bool,
+    pub committed_heading: Option<f64>,
+    pub commitment_remaining_seconds: f64,
+    pub forward_body_encoded: f32,
+    pub forward_ray_encoded: f32,
+    pub forward_wall_encoded: f32,
+    pub forward_head_encoded: f32,
+    pub urgent_sectors: u32,
+    pub unsafe_route: bool,
+}
+
 /// One complete physical trajectory; deaths end the trial before any replacement.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,6 +95,8 @@ pub struct TacticalTrial {
     pub shared_batch_budget_held: bool,
     pub first_action: FirstAction,
     pub trajectory_witness_sha256: String,
+    /// At most 32 delivered v2 decisions; empty for surviving or frozen-v1 trials.
+    pub decision_tail: Vec<TacticalDecision>,
 }
 
 /// No universal v2 superiority or real-time performance verdict is implied.
@@ -569,6 +590,7 @@ fn trial(
             boost_agrees_with_v1: true,
         },
         trajectory_witness_sha256: String::new(),
+        decision_tail: Vec::with_capacity(32),
     };
     for step in 0..options.steps {
         let key = PhysicsStepKey::new(1, 1, u64::from(step), 1, 1, [1; 32], u64::from(step) + 1);
@@ -619,6 +641,42 @@ fn trial(
                 report.first_action.escape_or_pursuit = Some(decision.escape_or_pursuit);
             }
         }
+        let delivered = phase.teacher_samples();
+        if let Some(decision) = delivered.decisions.first() {
+            let row = delivered
+                .observation(0)
+                .ok_or("missing delivered tactical row")?;
+            let subject = prefix
+                .world()
+                .snakes
+                .iter()
+                .find(|snake| snake.id == 1)
+                .ok_or("missing tactical subject")?;
+            let continuation = phase
+                .baseline_controls()
+                .first()
+                .and_then(|control| control.next_slot().v2_policy)
+                .ok_or("missing tactical policy continuation")?;
+            if report.decision_tail.len() == 32 {
+                report.decision_tail.remove(0);
+            }
+            let front = BINS / 2;
+            report.decision_tail.push(TacticalDecision {
+                step: step + 1,
+                position: [subject.position.x, subject.position.y],
+                heading: subject.direction,
+                turn: decision.applied_turn,
+                boost: decision.boost_request,
+                committed_heading: continuation.committed_heading,
+                commitment_remaining_seconds: continuation.commitment_remaining_seconds,
+                forward_body_encoded: row[24 + 2 * BINS + front],
+                forward_ray_encoded: row[24 + 3 * BINS + front],
+                forward_wall_encoded: row[24 + 4 * BINS + front],
+                forward_head_encoded: row[24 + 5 * BINS + front],
+                urgent_sectors: decision.urgent_sectors,
+                unsafe_route: decision.unsafe_route,
+            });
+        }
         let committed = commits.prepare(phase)?;
         let prepared = physics.prepare(committed, config)?;
         state.world = prepared.world().clone();
@@ -665,6 +723,9 @@ fn trial(
                     .any(|snake| snake.id == 2 && !snake.alive),
         );
     }
+    if report.alive {
+        report.decision_tail.clear();
+    }
     report.trajectory_witness_sha256 = format!("{:x}", witness.finalize());
     Ok(report)
 }
@@ -700,7 +761,7 @@ pub fn run_tactical_qualification(options: TacticalOptions) -> Result<TacticalRe
             }
         }
     }
-    Ok(TacticalReport{version:1,source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),math_backend:super::inference::InferenceMathBackend::detect().label(),sensor_sha256:[super::sensor_contract::SensorContractIdentity::new(SensorProfile::V3,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Basic,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion,BINS)?.sha256_hex()?],workers:options.workers,seed_count:options.seed_count,maximum_steps:options.steps,v2_cadence_seconds:options.cadence_seconds,bins:BINS,ordinary_ray_limits:[1,256,4096],saturation_ray_limits:[1,1,256],caveat:"Synthetic paired initial geometry; native prefix, actual delivered control/inference, all three physics substeps, food, collisions, effects and baseline death handling. Neural opponents use zero-turn constant Dense policies, with an explicit boosted pursuer in boost-escape. Trials stop on subject death; no respawn, evolution, server, dataset or student agreement is qualified. First-action differences compare identical initial geometry to frozen v1, whose cadence remains fixed-step; later trajectories may diverge. Debug trajectory witnesses apply only within a matching source/build, not across platforms or revisions. Copies and reporting are unmeasured; this is not a real-time cost or universal policy-superiority gate.",trials})
+    Ok(TacticalReport{version:2,source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),math_backend:super::inference::InferenceMathBackend::detect().label(),sensor_sha256:[super::sensor_contract::SensorContractIdentity::new(SensorProfile::V3,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Basic,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion,BINS)?.sha256_hex()?],workers:options.workers,seed_count:options.seed_count,maximum_steps:options.steps,v2_cadence_seconds:options.cadence_seconds,bins:BINS,ordinary_ray_limits:[1,256,4096],saturation_ray_limits:[1,1,256],caveat:"Synthetic paired initial geometry; native prefix, actual delivered control/inference, all three physics substeps, food, collisions, effects and baseline death handling. Neural opponents use zero-turn constant Dense policies, with an explicit boosted pursuer in boost-escape. Trials stop on subject death; no respawn, evolution, server, dataset or student agreement is qualified. First-action differences compare identical initial geometry to frozen v1, whose cadence remains fixed-step; later trajectories may diverge. Debug trajectory witnesses apply only within a matching source/build, not across platforms or revisions. Copies and reporting are unmeasured; this is not a real-time cost or universal policy-superiority gate.",trials})
 }
 
 #[cfg(test)]
@@ -724,6 +785,14 @@ mod tests {
         assert_eq!(first.trials, parallel.trials);
         for trial in &first.trials {
             assert!(trial.observations > 0 && trial.shared_batch_budget_held);
+            assert!(trial.decision_tail.len() <= 32);
+            assert!(trial
+                .decision_tail
+                .windows(2)
+                .all(|pair| pair[0].step < pair[1].step));
+            if trial.alive {
+                assert!(trial.decision_tail.is_empty());
+            }
             assert_eq!(trial.alive, trial.death_cause.is_none());
             if trial.policy != "v1" {
                 assert_eq!(trial.policy_world_reads, 0);
@@ -797,6 +866,30 @@ mod tests {
         }
         let escape = trial(Scenario::BoostEscape, 2, Policy::MotionDet, extended).unwrap();
         assert!(escape.first_action.boost && escape.boost_points_spent > 0.0);
+    }
+
+    #[test]
+    fn avoidance_turning_clears_real_walls_and_food_traps_at_both_admitted_cadences() {
+        for cadence_seconds in [DT, 0.06] {
+            let extended = TacticalOptions {
+                steps: 180,
+                cadence_seconds,
+                ..options()
+            };
+            for scenario in [Scenario::WallEscape, Scenario::FoodTrap] {
+                for seed in 1..=16 {
+                    for policy in [
+                        Policy::BasicDet,
+                        Policy::BasicStoch,
+                        Policy::MotionDet,
+                        Policy::MotionStoch,
+                    ] {
+                        let result = trial(scenario, seed, policy, extended).unwrap();
+                        assert!(result.alive, "cadence={cadence_seconds} {result:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

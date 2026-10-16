@@ -38,12 +38,13 @@ the extra fields nor the work.
 
 Reports bind exact source, build, target, math backend and the three canonical
 sensor digests. Teacher dataset identity also binds the native source hash,
-keeping this policy revision distinct from earlier captures. Trajectory witnesses include every completed world, RNG,
+keeping this policy revision distinct from earlier captures. Trajectory witnesses
+include every completed world, RNG,
 allocator, brain and baseline continuation. Their Debug value encoding is only a
 within-build comparison, not a persistence format or cross-platform replay claim.
 Neither short synthetic batches nor first-action checks establish universal
-policy superiority or select production defaults. Wall/food-trap weaknesses and
-representative held-out/student agreement remain evaluation gates.
+policy superiority or select production defaults. Representative held-out/student
+agreement and the remaining tactical limitations stay open.
 
 The crossing regression checks 180 actual steps on both mirrored sides in both
 Motion modes. Urgency names relative head contact, which can occupy a different
@@ -53,7 +54,7 @@ escape away from lateral incoming pressure. Rear pressure still permits a safe
 forward boost escape. Basic has no urgency channels and preserves its limited
 information behavior; frozen v1 is unchanged.
 
-## Retained Windows batch
+## Retained version-1 Windows batch
 
 The Windows release reports use seeds 1..16, B16, 180 steps (three simulated
 seconds), explicit 60 Hz v2 cadence and one/three native workers. All 1,120
@@ -88,7 +89,7 @@ acceptance pass for baseline v2. Interception, food, kill, boost, contact and
 first-action comparison details remain in each JSON record. No product defaults
 or admission ceilings change.
 
-## Retained Oxygen batch
+## Retained version-1 Oxygen batch
 
 The x86_64 Debian release reports use the same source digest, seeds, B16, exact
 60 Hz cadence, 180-step bound and one/three-worker choices. All 1,120 trial
@@ -104,3 +105,53 @@ Shared v4 budgets hold, v2 action selection performs zero world reads and
 deterministic v2 consumes no strategy draws. Platform-dependent trajectories
 remain separate experiments; matching seeds do not imply cross-platform exact
 replay. Both report transfers were SHA-256 verified before task-workspace cleanup.
+
+## Avoidance correction and version-2 reports
+
+The decision traces exposed premature steering relaxation while the current
+forward path still approached a wall/body. Avoidance now uses stronger bounded
+proportional steering, keeps an escape side while a safe route remains there,
+and suppresses exploration until the manoeuvre finishes. If that side becomes
+fully blocked, the controller can select the other side. Existing safe commitment
+and score-improvement rules remain. Odd bin counts check both sectors bracketing
+straight ahead. These changes use declared observations and existing policy state;
+they add no world scans, probes, RNG owners or serialized state fields.
+
+All 256 wall/food-trap regression trajectories pass across 16 seeds, both v2
+profiles/modes and both 60 Hz/0.06-second cadences. All 740 native release tests
+pass. The version-2 reports retain at most 32 actual delivered decisions for each
+failed v2 trial: pre-movement position/heading, issued action, heading commitment
+and encoded forward clearances. Held steps do not fabricate samples, and surviving
+or frozen-v1 trials omit the tail. This is diagnostic evidence, not policy input.
+
+Each Windows/Oxygen release cadence has 1,120 trials at one and three workers:
+8,960 trials across the two platforms and cadences. Complete trial records agree
+between worker counts within each platform; every frozen-v1 record also matches
+the preceding platform cohort. Both platforms produce the survival counts below. Shared v4 budgets hold and v2 policy world reads are zero.
+
+| Scenario | Policy | Prior 60 Hz | Corrected 60 Hz | Corrected 0.06 s |
+|---|---|---:|---:|---:|
+| Wall escape | Basic/Motion deterministic | 0/16 | 16/16 | 16/16 |
+| Wall escape | Basic/Motion stochastic | 7/16 | 16/16 | 16/16 |
+| Food-body trap | All four v2 variants | 0/16 | 16/16 | 16/16 |
+| Predicted crossing | Motion deterministic | 16/16 | 16/16 | 16/16 |
+| Predicted crossing | Motion stochastic | 14/16 | 16/16 | 16/16 |
+| Crowd opening | Both Motion modes | 9/16 | 12/16 | 14/16 |
+
+Close head-on, crowded and intentionally one-unit ray-cap cases still expose
+limits. Basic geometric boost escape and representative student agreement remain
+open; these results do not freeze the teacher or production sensor defaults.
+
+Version-2 report files are retained as `.json.gz` to keep complete decision tails
+compact. Decompression reproduces the original CLI JSON byte stream; the older
+version-1 files remain unchanged. CI uploads its ordinary JSON report. For example:
+
+```powershell
+node -e "const fs=require('node:fs'),z=require('node:zlib');const r=JSON.parse(z.gunzipSync(fs.readFileSync(process.argv[1])));console.log(r.version,r.trials.length)" docs/performance/baseline-v2/windows-b16-60hz-w1-v2.json.gz
+```
+
+
+Oxygen's load average changed from 3.83/3.46/3.15 to 3.45/3.61/3.33 during this
+matrix, and scratch free space stayed above 6.8 GiB. Reports retain target/source
+provenance and make no timing claim. All four JSON transfers were SHA-256 verified
+before lossless compression and removal of the exact task-owned remote workspace.
