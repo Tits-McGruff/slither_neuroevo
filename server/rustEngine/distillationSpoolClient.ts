@@ -5,7 +5,7 @@ import { Worker } from 'node:worker_threads';
 import type { TeacherCaptureDrain, TeacherChunkDescriptor } from '../../src/protocol/distillation.ts';
 import { DISTILLATION_SPOOL_DEFAULTS, distillationHex, distillationInteger, parseSpoolLimits,
   parseTeacherDrain, type DistillationChunkPage, type DistillationDataset, type DistillationLease,
-  type DistillationSpoolLimits, type DistillationDatasetSummary } from './distillationProtocol.ts';
+  type DistillationSpoolLimits, type DistillationDatasetPage } from './distillationProtocol.ts';
 
 /** Bounded request ownership while an isolated worker performs disk/SQLite work. */
 interface Pending {
@@ -143,9 +143,9 @@ export class DistillationSpoolClient {
   }
 
   /** Fetch one bounded metadata page without reading any sample object. */
-  async datasets(after: string, limit: number): Promise<{ datasets: DistillationDatasetSummary[]; nextCursor: string; hasMore: boolean }> {
+  async datasets(after: string, limit: number): Promise<DistillationDatasetPage> {
     distillationHex(after, 32, 'dataset cursor'); distillationInteger(limit, 1, 256, 'dataset page limit');
-    return await this.request('datasets', [after, limit]) as { datasets: DistillationDatasetSummary[]; nextCursor: string; hasMore: boolean };
+    return await this.request('datasets', [after, limit]) as DistillationDatasetPage;
   }
 
   /** Fetch one bounded metadata page without reading any sample object. */

@@ -1,3 +1,7 @@
+import { distillationHex, distillationInteger } from '../../src/protocol/distillation.ts';
+/** Shared diagnostic wire contracts remain browser-safe and contain no sample codec. */
+export { distillationHex, distillationInteger } from '../../src/protocol/distillation.ts';
+export type { DistillationDataset, DistillationChunkPage, DistillationLease, DistillationDatasetSummary, DistillationDatasetPage } from '../../src/protocol/distillation.ts';
 import { createHash } from 'node:crypto';
 import { sensorLayoutFromContract } from '../../src/protocol/sensors.ts';
 import type { TeacherCaptureContract, TeacherCaptureDrain, TeacherChunkDescriptor, TeacherChunkTransfer } from '../../src/protocol/distillation.ts';
@@ -35,97 +39,6 @@ export const DISTILLATION_SPOOL_DEFAULTS: Readonly<DistillationSpoolLimits> = {
   maxLeases: 64, maxPinnedChunks: 1024, maxPinnedBytes: 512 * 1024 ** 2,
   maxLeaseMs: 300_000, diskReserveBytes: 1024 ** 3
 };
-
-/** Coherent immutable dataset identity plus current durable dispositions. */
-export interface DistillationDataset {
-  /** Portable metadata schema. */
-  schemaVersion: 1;
-  /** Native run seed used by stable stream partitioning; legacy manifests may lack it. */
-  runSeed: number | null;
-  /** Exact Rust capture identity. */
-  contract: TeacherCaptureContract;
-  /** Exact Rust canonical bytes represented as UTF-8 JSON. */
-  sensorContractJson: string;
-  /** Interrupted epochs cannot resume or acquire newly produced tail objects. */
-  state: 'active' | 'stopped' | 'interrupted';
-  /** Highest durably observed assigned native sequence, including drops. */
-  productionWatermark: string;
-  /** Highest successfully published immutable object, not a contiguous guarantee. */
-  storageWatermark: string;
-  /** No retained object has a lower sequence; holes may also exist above it. */
-  retentionFloor: string;
-  /** All sequences through here have settled stored/unavailable dispositions. */
-  resolvedThrough: string;
-  /** Absolute native whole-object drop counter last durably observed. */
-  nativeDroppedChunks: string;
-  /** Absolute native sample drop counter. */
-  nativeDroppedSamples: string;
-  /** Absolute native encoded-byte drop counter. */
-  nativeDroppedBytes: string;
-  /** Whole transferred objects refused by spool quota/disk admission. */
-  spoolDroppedChunks: string;
-  /** Number of complete currently retained objects. */
-  retainedChunks: number;
-  /** Exact encoded bytes currently retained. */
-  retainedBytes: string;
-  /** Last bounded native capture diagnostic. */
-  error: string | null;
-}
-
-/** Listing includes the same snapshot used to select its bounded page. */
-export interface DistillationChunkPage {
-  /** Coherent durable watermarks, contracts and drop counters. */
-  dataset: DistillationDataset;
-  /** Available immutable descriptors strictly after the cursor. */
-  chunks: TeacherChunkDescriptor[];
-  /** Last returned sequence, or the unchanged input cursor for an empty page. */
-  nextCursor: string;
-  /** Another available descriptor follows; finish pagination before inferring gaps. */
-  hasMore: boolean;
-}
-
-/** Expiring immutable-object pin, separate from any gameplay controller lease. */
-export interface DistillationLease {
-  /** Random storage-only lease identifier. */
-  id: string;
-  /** Dataset whose complete objects are protected. */
-  captureEpoch: string;
-  /** Absolute Unix millisecond expiry. */
-  expiresAt: number;
-  /** Exact bounded immutable descriptors protected by this lease. */
-  chunks: TeacherChunkDescriptor[];
-}
-
-/** Bounded discovery omits large sensor manifests until one dataset is selected. */
-export interface DistillationDatasetSummary {
-  /** Exact immutable dataset key. */
-  captureEpoch: string;
-  /** Associated authoritative run. */
-  runId: string;
-  /** Durable capture closure status. */
-  state: DistillationDataset['state'];
-  /** Highest durably observed production sequence. */
-  productionWatermark: string;
-  /** Highest historically stored object. */
-  storageWatermark: string;
-  /** Contiguous durable stored/unavailable disposition. */
-  resolvedThrough: string;
-}
-
-/** Strict lowercase identity used exclusively for safe managed paths and keys. */
-export function distillationHex(value: unknown, length: 16 | 32 | 64, field: string, nonzero = false): string {
-  if (typeof value !== 'string' || value.length !== length || !/^[0-9a-f]+$/u.test(value) ||
-      (nonzero && /^0+$/u.test(value))) throw new TypeError(`invalid ${field}`);
-  return value;
-}
-
-/** Bound integer metadata without converting long sequence identities through Number. */
-export function distillationInteger(value: unknown, min: number, max: number, field: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min || value > max) {
-    throw new TypeError(`invalid ${field}`);
-  }
-  return value;
-}
 
 /** Reject arrays, inherited fields, unknown fields and incomplete metadata records. */
 function record(value: unknown, keys: readonly string[], field: string): Record<string, unknown> {

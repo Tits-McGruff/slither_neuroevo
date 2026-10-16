@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import type { TeacherCaptureDrain, TeacherChunkDescriptor } from '../../src/protocol/distillation.ts';
 import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationHex, distillationInteger,
   parseSpoolLimits, parseTeacherDrain, type DistillationChunkPage, type DistillationDataset,
-  type DistillationLease, type DistillationSpoolLimits, type DistillationDatasetSummary } from './distillationProtocol.ts';
+  type DistillationLease, type DistillationSpoolLimits, type DistillationDatasetPage } from './distillationProtocol.ts';
 
 /** SQLite metadata retained separately from the owner's game database. */
 interface DatasetRow {
@@ -201,7 +201,7 @@ export class DistillationSpoolStore {
   }
 
   /** Bound pagination and include its watermarks from the same serialized worker turn. */
-  datasets(after = '0'.repeat(32), limit = 100): { datasets: DistillationDatasetSummary[]; nextCursor: string; hasMore: boolean } {
+  datasets(after = '0'.repeat(32), limit = 100): DistillationDatasetPage {
     distillationHex(after, 32, 'dataset cursor'); distillationInteger(limit, 1, 256, 'dataset page limit');
     const rows = this.db.prepare('SELECT * FROM datasets WHERE epoch > ? ORDER BY epoch LIMIT ?').all(after, limit + 1) as DatasetRow[];
     const selected = rows.slice(0, limit);

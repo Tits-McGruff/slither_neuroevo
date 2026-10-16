@@ -50,6 +50,20 @@ describe('Rust startup metadata', () => {
     expect(welcome.settings.updates).toContainEqual({path:'sense.layoutVersion',value:metadata.sensorVersion});
   });
 
+  it('advertises diagnostics while capture requires the applied v4/v2 teacher contract', () => {
+    for (const contract of CONTRACTS.filter(value => value.bins === 16)) {
+      for (const version of [1, 2]) {
+        for (const count of [0, 10]) {
+          const current = contractMetadata(contract);
+          current.settings.push({path: 'baselineBots.controlVersion', value: version}, {path: 'baselineBots.count', value: count});
+          const welcome = createRustWelcome(current, 'capture-capability');
+          expect(welcome.capabilities?.distillation).toBe(true);
+          expect(welcome.capabilities?.teacherCapture).toBe(contract.profile !== 'v3' && version === 2 && count > 0);
+        }
+      }
+    }
+  });
+
   it('rejects changed byte digests, profiles, revisions, order, recorded settings and graph width',()=>{
     const contract=CONTRACTS.find(value=>value.profile==='motion' && value.bins===32)!;
     const original=contractMetadata(contract);

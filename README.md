@@ -944,6 +944,35 @@ Use GRU for smoother, more deliberate behavior.
 - GRU mutation std: 0.12–0.25
 - Brain control dt: 0.010–0.020
 
+## Teacher capture and shadow comparison
+
+The **Distillation** tab appears when the connected server supports diagnostic
+capture. **Start teacher capture** requires an explicitly admitted v4 sensor
+profile, a v2 baseline and at least one configured teacher. Ordinary production
+defaults remain frozen v3/v1 while candidate qualification is open.
+
+Enter existing zero-based teacher slots in increasing comma-separated order,
+then start capture explicitly. **Refresh status** lists retained captures and
+the four native shadow slots. Inspect a capture to see its exact epoch,
+production/storage/resolution watermarks, retained bytes and drop counts.
+**Stop selected capture** seals that exact epoch. Capture, dataset discovery and
+shadows do not join a player or change snake control.
+
+Train a candidate in PyRL-trainer and upload it through its dedicated distillation
+client. Select an active capture, paste the candidate's complete digest into a
+shadow slot, choose its teacher slot and click **Activate candidate**. Rust
+validates compatibility, starts a new metric segment and resets shadow memory.
+Refresh to inspect turn MAE/MSE and boost disagreement for overall, strategy,
+life-stage, rare-event and pre-death groups. **Stop shadow** targets the observed
+activation. Candidate saving and deployment remain explicit Brain Library commands.
+
+A lost shadow reply exposes **Retry shadow command**, preserving the original
+request. Capture starts have a server-assigned epoch and are never automatically
+replayed: refresh retained captures to discover the result of an uncertain start.
+Dismissing a pending request only forgets its local retry/warning. Reconnects,
+run replacements and applied settings changes clear old displayed status; opening
+the tab only fetches metadata.
+
 ## Brain Library
 
 The **Brain Library** tab appears when the connected server supports saved brains.

@@ -252,6 +252,10 @@ export interface WelcomeMsg {
     checkpointPinning: boolean;
     /** Whether generation-scoped manual completion is supported. */
     finishGeneration?: boolean;
+    /** Dedicated on-demand capture/dataset/shadow controls are available. */
+    distillation?: boolean;
+    /** Current admitted structural settings permit teacher capture. */
+    teacherCapture?: boolean;
     /** Whether explicit saved-brain library controls are available. */
     savedBrainLibrary?: boolean;
     /** Explicit saved-brain selection in checkpoint archive version 4. */

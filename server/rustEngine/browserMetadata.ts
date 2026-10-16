@@ -57,7 +57,11 @@ export function createRustWelcome(
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
     graphSpec: metadata.graphSpec,
-    capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true, decisionInspector: true },
+    capabilities: { distillation: true,
+      teacherCapture: nativeSensorLayout(metadata).layoutVersion === 'v4' &&
+        metadata.settings.some(setting => setting.path === 'baselineBots.controlVersion' && setting.value === 2) &&
+        nativeSetting(metadata, 'baselineBots.count') > 0,
+      checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true, decisionInspector: true },
     settings: createRustSettings(metadata),
     sensorSpec: getSensorSpec(nativeSensorLayout(metadata), metadata.sensorContract),
     inferenceMode: {

@@ -611,7 +611,14 @@ the socket.
 
 ## Sensor contract
 
-The only supported sensor layout is `v3`. Its size is:
+The ordinary production default is the frozen `v3` layout, described below.
+Explicitly admitted candidate v4 profiles use `24 + 6 * bubbleBins` inputs for
+Basic and `24 + 15 * bubbleBins` for Motion, with 8..32 bins. They require the
+exact Rust canonical sensor contract carried in welcome metadata; equal widths
+do not imply equal meanings. Their workload/ablation and production-default
+qualification remains open.
+
+The frozen `v3` size is:
 
 ```text
 19 + 4 * max(8, floor(bubbleBins))
@@ -920,6 +927,15 @@ Protocol 2 actor/player control. A distillation consumer does not open
 `ActorClient`, join a snake, submit actions, or obtain a gameplay controller
 lease. Capture requires an explicitly admitted baseline-v2/v4 run; ordinary v3
 production defaults reject arm requests. This API does not change those defaults.
+
+Welcome advertises `capabilities.distillation` for on-demand dataset/shadow
+controls and `capabilities.teacherCapture` only when the applied v4/v2 contract
+has at least one teacher. These flags describe the current run, not browser
+draft settings. The browser's Distillation tab uses this API without actor
+traffic, automatic capture, or animation-frame polling. Capture start assigns
+its epoch on the server, so an uncertain start is discovered through dataset
+listing rather than replayed automatically. Shadow retries retain their original
+idempotency key, destination and complete command body.
 
 The server lazily opens a separate `<db-path>.distillation/` diagnostic store.
 Its worker stores opaque Rust-encoded objects and SQLite metadata. It does not
