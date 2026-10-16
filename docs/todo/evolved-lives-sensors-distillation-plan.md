@@ -807,6 +807,22 @@ All 230 trainer tests pass with two existing optional-fixture skips; full Pylint
 passes. Loaded maximum-quota RAM/VRAM and integrated-soak qualification remain
 open. Native scratch ceilings stay at 512 MiB.
 
+V4 shares stack-only centered-sector boundaries across dense food, body, head
+and predicted-contact queries, retaining original normalization at ambiguous
+boundaries, zero/subnormal norms and large headings. Sparse queries keep the
+original path. Native reference regressions cover both profiles, every B8..32,
+raw accumulations/minima/IDs/urgency, extreme vectors and squared-distance
+underflow; frozen v3 meanings and all five identity-fixture bytes are preserved.
+All 754 Windows release library tests and 183 rebuilt-addon required-native checks
+pass, with six existing skips in that overlay; rustfmt and both Clippy configurations
+pass. Sixteen retained Windows/Oxygen ABBA reports preserve exact continuation,
+consumer work, raw/normalized histograms and captured row witnesses. Windows P1
+mean/CPU fall about 17.5%/21.4%; loaded Oxygen P1 mean/CPU fall 13.1%/17.1%.
+These descriptive gains still leave P1 above the necessary p95 bound and around
+4.1% pooled ray incompleteness. Measurements and reproduction scope are in
+`docs/performance/sensor-v4/README.md`. No production defaults or resource ceilings
+change; unchanged capture transport reuses the preceding byte-pressure evidence.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

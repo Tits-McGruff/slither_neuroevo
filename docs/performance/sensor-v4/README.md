@@ -443,3 +443,67 @@ Use `--environment oxygen-debian` on that target. The bounded driver uses only
 the Python standard library and keeps checks active under `python -O`. Node 24 CI
 runs the same cohort on Windows and Ubuntu and retains the complete JSON reports.
 Disposable source/build trees and raw transfers are removed after verified retention.
+
+
+## Shared centered-sector classification
+
+V4 now prepares one bounded stack array of angular boundaries per dense observation
+and reuses it for food, body, head and predicted-contact sectors. Interior vectors
+use the same geometric classification already used by frozen v3 food bins. Sparse
+queries retain the original formula. Near a boundary, at zero/subnormal/nonfinite
+norms, or for large restored headings, v4 retains its original sine/atan2 angle
+normalization; v3 retains its own remainder normalization. Squared body distances
+can underflow for nonzero vectors, so they explicitly fall back as well. Continuous
+bearings and all other channel formulas remain unchanged. No sensor revision,
+ray-work unit, query limit, heap buffer or scratch ceiling changes.
+
+Three new native regressions compare the old formulas across both profiles and
+all B8..32 layouts, dense/boundary/tiny/huge/signed-zero vectors, sparse and dense
+raw food accumulation, body/head minima and IDs, and projected urgency sectors.
+The existing v3 classifier and five source-identity fixtures remain unchanged in
+meaning and bytes. Source comments and the regression preserve the underflow case.
+All 754 release library tests and 183 rebuilt-addon required-native checks pass,
+with six existing skips in that overlay; rustfmt and both Clippy configurations
+pass.
+
+The four `sectors-abba-*/` directories retain sixteen compressed version-4 native
+reports and comparison manifests. Baseline is commit `601acaf` (native source
+`9e913dd9`); the candidate source begins `b9dec41f`. Full source/build identities,
+binary/report fingerprints and sample witnesses are in the retained metadata.
+Every case uses Motion B16, the modest graph, seed 42, three workers, SSE2,
+stochastic v2 at exact 60 Hz, capture enabled, five warmup and 1,200 measured steps.
+Each table value is the median of two runs in baseline/candidate/candidate/baseline
+order. CPU seconds cover the complete CLI process; native times exclude the
+external observer and startup/checkpoint publication.
+
+| Target/workload | Mean native service, baseline / candidate | Sensing, baseline / candidate | Native p95, baseline / candidate | Process CPU seconds, baseline / candidate |
+|---|---:|---:|---:|---:|
+| Windows P0 | 4.369 / 3.760 ms | 1.817 / 1.341 ms | 5.345 / 4.664 ms | 10.172 / 8.094 |
+| Windows P1 | 19.677 / 16.243 ms | 13.037 / 9.764 ms | 22.481 / 18.920 ms | 56.742 / 44.625 |
+| Oxygen P0 | 31.348 / 25.405 ms | 14.240 / 9.986 ms | 64.183 / 51.203 ms | 50.287 / 39.240 |
+| Oxygen P1 | 105.160 / 91.427 ms | 67.834 / 53.260 ms | 194.379 / 167.700 ms | 230.213 / 190.938 |
+
+Windows mean/CPU decrease 13.9%/20.4% for P0 and 17.5%/21.4% for P1. Oxygen
+mean/CPU decrease 19.0%/22.0% for P0 and 13.1%/17.1% for P1. Oxygen is a loaded
+shared host: one one-second utilization sample selected logical CPUs 0,3,4,5 from
+the eight initially allowed CPUs. Only the comparison process and its children
+use that affinity; both workloads retain the same set. Each Linux cohort includes
+that selection record. Load drift is visible within the four P1 runs, so these are
+descriptive comparisons without statistical confidence or a release-cost pass.
+
+Every case preserves complete continuation, consumer work, raw/normalized
+histograms and exact source/drained teacher row witnesses within its platform and
+workload. All eleven Oxygen transfers were independently fingerprint-verified,
+and each compressed raw report roundtrips to its manifest fingerprint. These
+finite same-target equalities do not promise cross-build/platform long-horizon
+replay. The necessary P1 p95 gate still fails on both platforms; pooled ray
+incompleteness remains 4.103% / 4.093% on Windows/Oxygen. No v4/v2 production
+default, ray admission, normalization freeze or full-stack throughput is selected.
+The unchanged capture owner reuses the preceding byte-pressure qualification;
+this change adds no new transport ownership or quotas.
+
+Reproduce with the existing comparison utility and these two source revisions,
+using `--scenario P0` for P0 and `--environment oxygen-debian` on that target.
+For the Linux measurements, set the parent process's affinity to `{0,3,4,5}`
+before launching the utility; children inherit it. The reusable source/build
+copies and raw transfers are removed after permanent evidence verification.
