@@ -3,7 +3,7 @@
 //! and empty-cell scans. Collision truth continues to use the complete grid.
 
 use super::ray_work::{RayWorkMeter, RayWorkUnit};
-use super::sensor_geometry::{RayIntersection, SensorGeometryError, SensorRay};
+use super::sensor_geometry::{InflatedRayAabb, RayIntersection, SensorGeometryError, SensorRay};
 use super::spatial::{BodySegmentRecord, BodySpatialIndex};
 use super::state::WorldPoint;
 use std::cmp::Ordering;
@@ -294,13 +294,14 @@ impl BodyRayIndex<'_, '_> {
                     }
                     let (minimum, maximum) = record_bounds(record);
                     let inflation = (observer_radius + record.owner_radius) * hit_scale;
+                    let bounds = InflatedRayAabb::new(minimum, maximum, inflation)?;
                     let mut remaining = active;
                     while remaining != 0 {
                         let bin = remaining.trailing_zeros() as usize;
                         remaining &= remaining - 1;
                         let ray = rays[bin];
-                        if !ray
-                            .aabb_clearance(minimum, maximum, inflation)?
+                        if !bounds
+                            .clearance(ray)
                             .is_some_and(|entry| entry <= best[bin])
                         {
                             continue;
@@ -368,6 +369,9 @@ impl BodyRayIndex<'_, '_> {
             return Ok(true);
         }
         let inflation = (observer_radius + node.maximum_radius) * hit_scale;
+        // Validate/inflate once after charging this node, preserving exhaustion
+        // and error ordering while sharing the box across all active rays.
+        let bounds = InflatedRayAabb::new(node.minimum, node.maximum, inflation)?;
         let mut packet = PendingPacket {
             node: index,
             mask: 0,
@@ -378,7 +382,7 @@ impl BodyRayIndex<'_, '_> {
         while remaining != 0 {
             let bin = remaining.trailing_zeros() as usize;
             remaining &= remaining - 1;
-            if let Some(entry) = rays[bin].aabb_clearance(node.minimum, node.maximum, inflation)? {
+            if let Some(entry) = bounds.clearance(rays[bin]) {
                 if entry <= best[bin] {
                     packet.mask |= 1u32 << bin;
                     packet.entries[bin] = entry;
