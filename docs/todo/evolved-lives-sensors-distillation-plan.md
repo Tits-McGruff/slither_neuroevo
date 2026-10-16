@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-14)
+## Implementation progress (2026-10-16)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -666,6 +666,20 @@ match across v1 and both v2 modes; all 734 release library tests pass. Retained
 version-2 Windows/Oxygen measurements are described in
 `docs/performance/sensor-v4/README.md`. These random-population workloads do not
 qualify representative tactical batches, stochastic exploration or ablation.
+
+A native tactical runner now drives fourteen seeded paired geometries through
+actual prefix/control/three-substep physics, recording survival, food, kills,
+boost spend, collision causes, first-action v1 comparison and full continuation
+witnesses. Windows and Oxygen release batches contain 1,120 trials per worker
+count and match exactly at one/three workers within each platform. They exercise
+stochastic behavior RNG and verify zero v2 action-selection world reads. The runner exposed a Motion crossing
+error: projected relative contact in a different sector did not veto holding the
+colliding forward velocity. Selection now applies a front-contact escape veto
+and lateral pressure using declared observations only; rear boost escape remains
+covered. All 738 release library tests pass. Reports and remaining wall/crowd/
+food-trap/stochastic-crossing limitations are explicit under
+`docs/performance/baseline-v2/`; this is not final teacher qualification. CI runs
+and retains a bounded Windows/Ubuntu tactical matrix.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

@@ -70,6 +70,18 @@ jobs:
         run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
       - name: Test native crate
         run: cargo test --manifest-path native/Cargo.toml --release --features engine-test-hooks -- --test-threads=1
+      - name: Native baseline-v2 tactical batch
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin baseline-v2-qualification -- --seed-count 4 --steps 180 --workers 1
+          --cadence "0.016666666666666666" --output "${{ runner.temp }}/baseline-v2-tactics.json"
+      - name: Retain native tactical outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-v2-tactics-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: ${{ runner.temp }}/baseline-v2-tactics.json
+          if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
       - name: Build checkpoint handoff test addon

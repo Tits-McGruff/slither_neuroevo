@@ -382,6 +382,10 @@ pub struct WorldStepWorkspace {
     external_disconnects: Vec<ExternalObservationResolution>,
     ready: bool,
     diagnostics: WorldStepDiagnostics,
+    #[cfg(feature = "engine-test-hooks")]
+    qualification_subject: Option<u64>,
+    #[cfg(feature = "engine-test-hooks")]
+    qualification_outcome: super::evolved_lives::EvolvedPhysicsDelta,
     teacher_capture_enabled: bool,
     teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes,
     #[cfg(feature = "engine-test-hooks")]
@@ -389,6 +393,21 @@ pub struct WorldStepWorkspace {
 }
 
 impl WorldStepWorkspace {
+    /// Opt-in single-subject evidence; production builds have no fields or extra work.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn track_qualification_subject(&mut self, physical_id: u64) {
+        self.qualification_subject = Some(physical_id);
+    }
+
+    /// Expose only the joined successful step, never a partially prepared substep.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_outcome(
+        &self,
+    ) -> Option<super::evolved_lives::EvolvedPhysicsDelta> {
+        (self.ready && self.qualification_subject == Some(self.qualification_outcome.snake_id))
+            .then_some(self.qualification_outcome)
+    }
+
     /// Enable bounded outcome diagnostics only for an admitted capture selection.
     pub(crate) fn set_teacher_capture_enabled(&mut self, enabled: bool) {
         self.teacher_capture_enabled = enabled;
@@ -440,6 +459,10 @@ impl WorldStepWorkspace {
         self.key = None;
         self.prepared_config = None;
         self.ready = false;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            self.qualification_outcome = super::evolved_lives::EvolvedPhysicsDelta::default();
+        }
         self.pending_external_deliveries = 0;
         self.pending_replacement_deliveries = 0;
         self.replacement_active = false;
@@ -474,6 +497,24 @@ impl WorldStepWorkspace {
             });
             self.physics
                 .advance_substep_with_lifecycle(&mut self.phases, key, lifecycle)?;
+            #[cfg(feature = "engine-test-hooks")]
+            if let Some(subject) = self.qualification_subject {
+                if let Some(delta) = self
+                    .physics
+                    .evolved_deltas()
+                    .iter()
+                    .find(|delta| delta.snake_id == subject)
+                {
+                    let outcome = &mut self.qualification_outcome;
+                    outcome.snake_id = subject;
+                    outcome.food += delta.food;
+                    outcome.boost_points_spent += delta.boost_points_spent;
+                    outcome.kills += delta.kills;
+                    outcome.death = outcome.death.or(delta.death);
+                    outcome.death_flags |= delta.death_flags;
+                    outcome.alive_after = delta.alive_after;
+                }
+            }
             if self.teacher_capture_enabled {
                 super::teacher_capture::record_teacher_physics(
                     &mut self.teacher_outcomes,

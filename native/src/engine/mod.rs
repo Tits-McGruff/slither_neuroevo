@@ -201,3 +201,7 @@ pub use scheduler::{
 };
 pub use state::GenerationStartPublication;
 pub use world_step::ExternalDeliveryStatus;
+
+/// Seeded tactical batches using the real native prefix/control/physics pipeline.
+#[cfg(feature = "engine-test-hooks")]
+pub mod baseline_qualification;
