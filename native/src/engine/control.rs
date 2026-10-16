@@ -66,6 +66,8 @@ struct ReadyBatch {
 pub struct NeuralControlCapacityDiagnostics {
     /// Persistent calculation threads allocated for this pipeline.
     pub calculation_workers: usize,
+    /// One shared cold-admitted v4 head-velocity array; zero for frozen v3.
+    pub v4_head_capacity: usize,
     /// Packed observation slots.
     pub observations: usize,
     /// Packed controller-output slots.
@@ -162,6 +164,7 @@ impl NeuralControlBatchView<'_> {
 #[derive(Debug)]
 pub struct NeuralControlPipeline {
     sensor: SensorEvaluator,
+    v4_heads: super::sensors_v4::V4HeadWorkspace,
     inference: GraphExecutionPlan,
     workspace: CalculationWorkspace<()>,
     calculation_pool: Option<ThreadPool>,
@@ -257,6 +260,32 @@ impl NeuralControlPipeline {
         ])
     }
 
+    /// Include the optional shared v4 head facts in the same unchanged scratch ceiling.
+    pub fn required_staging_bytes_for_sensor(
+        max_work: usize,
+        sensor: &SensorEvaluator,
+        inference: &GraphExecutionPlan,
+        calculation_workers: usize,
+    ) -> Result<usize, NeuralControlError> {
+        checked_sum(&[
+            Self::required_staging_bytes(max_work, inference, calculation_workers)?,
+            if sensor.is_v4() {
+                checked_element_bytes::<super::state::WorldPoint>(max_work, "shared v4 head facts")?
+            } else {
+                0
+            },
+        ])
+    }
+
+    /// Temporarily lend the admitted shared owner to the pre-movement coordinator.
+    /// The coordinator returns it after all borrowed worker views have expired.
+    pub(crate) fn swap_v4_head_workspace(
+        &mut self,
+        other: &mut super::sensors_v4::V4HeadWorkspace,
+    ) {
+        std::mem::swap(&mut self.v4_heads, other);
+    }
+
     /// Allocate fixed packed staging after checking the sensor/graph contract.
     ///
     /// `staging_budget_bytes` covers this owner, canonical work, graph scratch,
@@ -282,7 +311,12 @@ impl NeuralControlPipeline {
                 required: CONTROLLER_OUTPUT_SIZE,
             });
         }
-        let required = Self::required_staging_bytes(max_work, &inference, calculation_workers)?;
+        let required = Self::required_staging_bytes_for_sensor(
+            max_work,
+            &sensor,
+            &inference,
+            calculation_workers,
+        )?;
         if required > staging_budget_bytes {
             return Err(NeuralControlError::StagingBudgetExceeded {
                 required_bytes: required,
@@ -290,6 +324,11 @@ impl NeuralControlPipeline {
             });
         }
 
+        let v4_heads = if sensor.is_v4() {
+            super::sensors_v4::V4HeadWorkspace::try_new(max_work).map_err(SensorError::V4)?
+        } else {
+            super::sensors_v4::V4HeadWorkspace::default()
+        };
         let workspace = CalculationWorkspace::try_new(
             max_work,
             calculation_workers,
@@ -364,6 +403,10 @@ impl NeuralControlPipeline {
         let allocated_staging_bytes = checked_sum(&[
             size_of::<Self>(),
             workspace.allocated_bytes(),
+            checked_element_bytes::<super::state::WorldPoint>(
+                v4_heads.capacity(),
+                "shared v4 head capacity",
+            )?,
             checked_capacity_bytes(&parallel_sensor_scratch, "parallel sensor scratch records")?,
             checked_capacity_bytes(&parallel_sensor_errors, "parallel sensor error records")?,
             checked_capacity_bytes(
@@ -389,6 +432,7 @@ impl NeuralControlPipeline {
 
         Ok(Self {
             sensor,
+            v4_heads,
             inference,
             workspace,
             calculation_pool,
@@ -421,6 +465,7 @@ impl NeuralControlPipeline {
     pub fn capacity_diagnostics(&self) -> NeuralControlCapacityDiagnostics {
         NeuralControlCapacityDiagnostics {
             calculation_workers: self.workspace.worker_count(),
+            v4_head_capacity: self.v4_heads.capacity(),
             observations: self.observations.capacity(),
             outputs: self.staged_outputs.capacity(),
             recurrent: self.staged_recurrent.capacity(),
@@ -1956,6 +2001,38 @@ mod tests {
     }
 
     #[test]
+    fn shared_head_storage_is_charged_only_for_v4_and_rejects_an_insufficient_budget() {
+        let v3 = SensorEvaluator::new(SensorConfig::default()).unwrap();
+        let v3_plan = graph_plan(v3.layout().input_size);
+        let v3_required = NeuralControlPipeline::required_staging_bytes(12, &v3_plan, 1).unwrap();
+        assert_eq!(
+            NeuralControlPipeline::required_staging_bytes_for_sensor(12, &v3, &v3_plan, 1).unwrap(),
+            v3_required
+        );
+        let pipeline = NeuralControlPipeline::try_new(12, v3, v3_plan, 1, v3_required).unwrap();
+        assert_eq!(pipeline.capacity_diagnostics().v4_head_capacity, 0);
+        let v4 = SensorEvaluator::new_v4(
+            SensorConfig::default(),
+            crate::engine::movement::MovementConfig::typescript_defaults(),
+            1.0 / 60.0,
+            crate::engine::sensor_contract::SensorProfile::Motion,
+        )
+        .unwrap();
+        let plan = graph_plan(v4.layout().input_size);
+        let base = NeuralControlPipeline::required_staging_bytes(12, &plan, 1).unwrap();
+        let required =
+            NeuralControlPipeline::required_staging_bytes_for_sensor(12, &v4, &plan, 1).unwrap();
+        assert_eq!(required - base, 12 * std::mem::size_of::<WorldPoint>());
+        assert!(matches!(
+            NeuralControlPipeline::try_new(12, v4.clone(), plan.clone(), 1, required - 1),
+            Err(NeuralControlError::StagingBudgetExceeded { .. })
+        ));
+        let pipeline = NeuralControlPipeline::try_new(12, v4, plan, 1, required).unwrap();
+        assert_eq!(pipeline.capacity_diagnostics().v4_head_capacity, 12);
+        assert!(pipeline.allocated_staging_bytes() <= required);
+    }
+
+    #[test]
     fn v4_actual_parallel_sensing_and_inference_match_scalar_with_fixed_grants_and_warm_capacity() {
         use crate::engine::evolved_lives::{EvolvedExperimentConfig, EvolvedGenerationState};
         use crate::engine::sensor_contract::SensorProfile;
@@ -1982,8 +2059,12 @@ mod tests {
                 let body_rays = hierarchy.prepare(indexed_world.body_index()).unwrap();
                 let lives = EvolvedGenerationState::default();
                 let grants: Vec<_> = (0..12).map(|index| 40 + index * 7).collect();
+                let mut shared_heads =
+                    super::super::sensors_v4::V4HeadWorkspace::try_new(world.snakes.len()).unwrap();
+                let heads = shared_heads.prepare(&world, profile).unwrap();
                 let context = PreparedV4Sensing {
                     body_rays,
+                    heads,
                     context: V4ObservationContext {
                         generation_elapsed_seconds: 10.0,
                         evolved: &lives,

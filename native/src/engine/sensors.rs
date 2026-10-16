@@ -581,6 +581,7 @@ impl SensorEvaluator {
                 &mut meter,
                 &mut scratch.v4,
                 trace,
+                prepared.heads,
             )
             .map_err(SensorError::V4)?;
         let capped = sample.diagnostics.body.candidate_limit_reached;
@@ -651,6 +652,7 @@ impl SensorEvaluator {
                 &mut meter,
                 &mut scratch.v4,
                 Some(trace),
+                prepared.heads,
             )
             .map_err(SensorError::V4)?;
         let capped = sample.diagnostics.body.candidate_limit_reached;

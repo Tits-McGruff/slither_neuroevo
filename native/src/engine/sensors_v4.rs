@@ -18,7 +18,7 @@ use super::sensors::{
 use super::spatial::{
     BodySensorQueryScratch, IndexedSensorWorld, PelletQueryScratch, SpatialQueryDiagnostics,
 };
-use super::state::{SnakeKind, SnakeState};
+use super::state::{SnakeKind, SnakeState, WorldPoint, WorldState};
 use std::f64::consts::{PI, TAU};
 use std::fmt::{Display, Formatter};
 
@@ -90,12 +90,86 @@ impl V4SensorScratch {
     }
 }
 
+/// Cold-admitted shared head facts; physical array indices are never population slots.
+#[derive(Debug, Default)]
+pub struct V4HeadWorkspace {
+    velocities: Vec<WorldPoint>,
+}
+
+/// Read-only head facts bound to the same immutable pre-movement world.
+#[derive(Clone, Copy)]
+pub struct PreparedV4Heads<'source> {
+    source: &'source WorldState,
+    velocities: &'source [WorldPoint],
+    profile: SensorProfile,
+}
+
+impl V4HeadWorkspace {
+    /// Allocate only within the caller's checked shared staging allowance.
+    pub fn try_new(maximum: usize) -> Result<Self, V4SensorError> {
+        let mut velocities = Vec::new();
+        velocities
+            .try_reserve_exact(maximum)
+            .map_err(|_| V4SensorError::Allocation)?;
+        Ok(Self { velocities })
+    }
+
+    /// Actual owned slots, included in neural staging admission/capacity diagnostics.
+    pub fn capacity(&self) -> usize {
+        self.velocities.capacity()
+    }
+
+    /// Validate alive heads once and retain exact separate sin/cos products for Motion.
+    /// A standalone caller whose world exceeds its neural staging width keeps the
+    /// original uncached path; this optimization never imposes a new world-size cap.
+    pub fn prepare<'source>(
+        &'source mut self,
+        world: &'source WorldState,
+        profile: SensorProfile,
+    ) -> Result<Option<PreparedV4Heads<'source>>, V4SensorError> {
+        if profile == SensorProfile::V3 {
+            return Err(V4SensorError::Config);
+        }
+        self.velocities.clear();
+        if world.snakes.len() > self.velocities.capacity() {
+            return Ok(None);
+        }
+        for snake in &world.snakes {
+            let mut velocity = WorldPoint { x: 0.0, y: 0.0 };
+            if snake.alive {
+                validate_snake_for_sensing(snake).map_err(|_| V4SensorError::Shape)?;
+                if profile == SensorProfile::Motion {
+                    // Preserve the reference formula's operations and rounding.
+                    velocity.x = snake.direction.cos() * snake.speed;
+                    velocity.y = snake.direction.sin() * snake.speed;
+                }
+            }
+            self.velocities.push(velocity);
+        }
+        Ok(Some(PreparedV4Heads {
+            source: world,
+            velocities: &self.velocities,
+            profile,
+        }))
+    }
+}
+
+impl PreparedV4Heads<'_> {
+    fn is_from(self, world: &WorldState, profile: SensorProfile) -> bool {
+        std::ptr::eq(self.source, world)
+            && self.velocities.len() == world.snakes.len()
+            && self.profile == profile
+    }
+}
+
 /// One coordinator-bound v4 observation context, including its fixed grants.
 /// Ray hierarchy and life ledger borrow the same stable pre-movement boundary.
 #[derive(Clone, Copy)]
 pub struct PreparedV4Sensing<'source> {
     pub body_rays: BodyRayIndex<'source, 'source>,
     pub context: V4ObservationContext<'source>,
+    /// Optional shared validation/velocity facts; None retains the pure reference path.
+    pub heads: Option<PreparedV4Heads<'source>>,
     pub grants_by_snake: &'source [u32],
 }
 
@@ -177,6 +251,7 @@ impl SensorV4Evaluator {
             ray_work,
             scratch,
             None,
+            None,
         )
     }
 
@@ -192,6 +267,7 @@ impl SensorV4Evaluator {
         ray_work: &mut RayWorkMeter,
         scratch: &mut V4SensorScratch,
         mut trace: Option<&mut super::sensor_trace::SensorTrace>,
+        heads: Option<PreparedV4Heads<'_>>,
     ) -> Result<V4SensorSample, V4SensorError> {
         if let Some(trace) = trace.as_deref_mut() {
             trace.valid = false;
@@ -208,6 +284,9 @@ impl SensorV4Evaluator {
             .validate()
             .map_err(|_| V4SensorError::Life)?;
         let world = indexed.world();
+        if heads.is_some_and(|heads| !heads.is_from(world, self.layout.profile())) {
+            return Err(V4SensorError::Shape);
+        }
         let snake = world.snakes.get(snake_index).ok_or(V4SensorError::Shape)?;
         validate_snake_for_sensing(snake).map_err(|_| V4SensorError::Shape)?;
         if snake.id == 0
@@ -404,7 +483,9 @@ impl SensorV4Evaluator {
             if !other.alive || other.id == snake.id {
                 continue;
             }
-            validate_snake_for_sensing(other).map_err(|_| V4SensorError::Shape)?;
+            if heads.is_none() {
+                validate_snake_for_sensing(other).map_err(|_| V4SensorError::Shape)?;
+            }
             head_checks += 1;
             let dx = other.position.x - snake.position.x;
             let dy = other.position.y - snake.position.y;
@@ -424,11 +505,18 @@ impl SensorV4Evaluator {
                 }
             }
             if motion {
+                let velocity = heads.map_or_else(
+                    || WorldPoint {
+                        x: other.direction.cos() * other.speed,
+                        y: other.direction.sin() * other.speed,
+                    },
+                    |heads| heads.velocities[index],
+                );
                 let encounter = projected_head_encounter(
                     super::state::WorldPoint { x: dx, y: dy },
                     super::state::WorldPoint {
-                        x: other.direction.cos() * other.speed - own_vx,
-                        y: other.direction.sin() * other.speed - own_vy,
+                        x: velocity.x - own_vx,
+                        y: velocity.y - own_vy,
                     },
                     radius,
                 )
@@ -494,8 +582,15 @@ impl SensorV4Evaluator {
             let heading = other.direction - snake.direction;
             output[24 + 9 * bins + bin] = heading.sin() as f32;
             output[24 + 10 * bins + bin] = heading.cos() as f32;
-            let vx = other.direction.cos() * other.speed - own_vx;
-            let vy = other.direction.sin() * other.speed - own_vy;
+            let velocity = heads.map_or_else(
+                || WorldPoint {
+                    x: other.direction.cos() * other.speed,
+                    y: other.direction.sin() * other.speed,
+                },
+                |heads| heads.velocities[index],
+            );
+            let vx = velocity.x - own_vx;
+            let vy = velocity.y - own_vy;
             output[24 + 11 * bins + bin] =
                 signed((vx * forward_x + vy * forward_y) / (2.0 * cfg.snake_boost_speed));
             output[24 + 12 * bins + bin] =
@@ -607,6 +702,7 @@ fn flag(value: bool) -> f32 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum V4SensorError {
+    Allocation,
     Config,
     Shape,
     Life,
@@ -736,6 +832,186 @@ mod tests {
         (output, result)
     }
     #[test]
+    fn shared_head_facts_preserve_every_vector_receipt_and_trace_across_profiles_bins_and_grants() {
+        let mut world = WorldState::default();
+        for (index, heading) in [0.0, PI, PI / 2.0, -PI / 2.0, TAU * 1.0e8, -TAU * 1.0e8]
+            .into_iter()
+            .enumerate()
+        {
+            add_snake(
+                &mut world,
+                900 - index as u64 * 13,
+                SnakeKind::External,
+                point(index as f64 * 37.0 - 100.0, (index % 3) as f64 * 41.0),
+                heading,
+                10 + index,
+            );
+            world.snakes[index].speed = [0.0, 165.0, 247.5, 42.0, 1.0e5, 5.0][index];
+        }
+        let original = world.clone();
+        let indexed = IndexedSensorWorld::build(
+            &world,
+            SensorIndexConfig {
+                body_cell_size: 70.0,
+                pellet_cell_size: 120.0,
+                maximum_body_entries: 1_000_000,
+                maximum_pellet_entries: 100_000,
+            },
+        )
+        .unwrap();
+        let mut rays = BodyRayIndexWorkspace::default();
+        let body_rays = rays.prepare(indexed.body_index()).unwrap();
+        let lives = EvolvedGenerationState::default();
+        let context = V4ObservationContext {
+            generation_elapsed_seconds: 120.0,
+            evolved: &lives,
+            experiment: EvolvedExperimentConfig::legacy(240.0),
+        };
+        let mut heads = V4HeadWorkspace::try_new(world.snakes.len()).unwrap();
+        let capacity = heads.capacity();
+        let mut reference_scratch = V4SensorScratch::default();
+        let mut cached_scratch = V4SensorScratch::default();
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            let prepared = heads.prepare(&world, profile).unwrap().unwrap();
+            for bins in 8..=32 {
+                let evaluator = evaluator(profile, bins);
+                for grant in [0, 7, 128, 4096] {
+                    for observer in 0..world.snakes.len() {
+                        let mut reference = vec![0.0; evaluator.layout().input_size()];
+                        let mut cached = reference.clone();
+                        let mut reference_trace =
+                            super::super::sensor_trace::SensorTrace::default();
+                        let mut cached_trace = super::super::sensor_trace::SensorTrace::default();
+                        let mut reference_meter = RayWorkMeter::new(grant);
+                        let mut cached_meter = RayWorkMeter::new(grant);
+                        let expected = evaluator
+                            .sample_with_trace(
+                                &indexed,
+                                body_rays,
+                                context,
+                                observer,
+                                &mut reference,
+                                &mut reference_meter,
+                                &mut reference_scratch,
+                                Some(&mut reference_trace),
+                                None,
+                            )
+                            .unwrap();
+                        let actual = evaluator
+                            .sample_with_trace(
+                                &indexed,
+                                body_rays,
+                                context,
+                                observer,
+                                &mut cached,
+                                &mut cached_meter,
+                                &mut cached_scratch,
+                                Some(&mut cached_trace),
+                                Some(prepared),
+                            )
+                            .unwrap();
+                        assert_eq!(
+                            reference
+                                .iter()
+                                .map(|value| value.to_bits())
+                                .collect::<Vec<_>>(),
+                            cached
+                                .iter()
+                                .map(|value| value.to_bits())
+                                .collect::<Vec<_>>()
+                        );
+                        assert_eq!(actual, expected);
+                        assert_eq!(cached_meter, reference_meter);
+                        assert_eq!(cached_trace, reference_trace);
+                    }
+                }
+            }
+            assert_eq!(heads.capacity(), capacity);
+        }
+        assert_eq!(world, original);
+    }
+
+    #[test]
+    fn shared_head_facts_reject_wrong_world_profile_and_invalid_alive_heads_without_growth() {
+        let mut world = WorldState::default();
+        add_snake(&mut world, 7, SnakeKind::External, point(0.0, 0.0), 0.0, 10);
+        add_snake(
+            &mut world,
+            99,
+            SnakeKind::Baseline,
+            point(80.0, 0.0),
+            PI,
+            20,
+        );
+        let other_world = world.clone();
+        let mut heads = V4HeadWorkspace::try_new(2).unwrap();
+        let prepared = heads
+            .prepare(&world, SensorProfile::Motion)
+            .unwrap()
+            .unwrap();
+        assert!(prepared.is_from(&world, SensorProfile::Motion));
+        assert!(!prepared.is_from(&other_world, SensorProfile::Motion));
+        assert!(!prepared.is_from(&world, SensorProfile::Basic));
+        let indexed = IndexedSensorWorld::build(
+            &other_world,
+            SensorIndexConfig {
+                body_cell_size: 70.0,
+                pellet_cell_size: 120.0,
+                maximum_body_entries: 1_000_000,
+                maximum_pellet_entries: 100_000,
+            },
+        )
+        .unwrap();
+        let mut rays = BodyRayIndexWorkspace::default();
+        let view = rays.prepare(indexed.body_index()).unwrap();
+        let lives = EvolvedGenerationState::default();
+        let evaluator = evaluator(SensorProfile::Motion, 8);
+        let mut output = vec![0.25; evaluator.layout().input_size()];
+        assert_eq!(
+            evaluator.sample_with_trace(
+                &indexed,
+                view,
+                V4ObservationContext {
+                    generation_elapsed_seconds: 0.0,
+                    evolved: &lives,
+                    experiment: EvolvedExperimentConfig::legacy(240.0),
+                },
+                0,
+                &mut output,
+                &mut RayWorkMeter::new(128),
+                &mut V4SensorScratch::default(),
+                None,
+                Some(prepared)
+            ),
+            Err(V4SensorError::Shape)
+        );
+        assert!(output.iter().all(|value| *value == 0.25));
+        let capacity = heads.capacity();
+        world.snakes[1].speed = f64::NAN;
+        assert!(matches!(
+            heads.prepare(&world, SensorProfile::Motion),
+            Err(V4SensorError::Shape)
+        ));
+        world.snakes[1].alive = false;
+        assert!(heads
+            .prepare(&world, SensorProfile::Motion)
+            .unwrap()
+            .is_some());
+        assert_eq!(heads.capacity(), capacity);
+        let mut short = V4HeadWorkspace::try_new(1).unwrap();
+        assert!(short
+            .prepare(&world, SensorProfile::Motion)
+            .unwrap()
+            .is_none());
+        assert_eq!(short.capacity(), 1);
+        assert!(matches!(
+            short.prepare(&world, SensorProfile::V3),
+            Err(V4SensorError::Config)
+        ));
+        assert!(V4HeadWorkspace::try_new(usize::MAX).is_err());
+    }
+
+    #[test]
     fn raw_trace_preserves_quota_results_and_distinguishes_incomplete_rays() {
         use crate::engine::sensor_trace::{SensorTrace, SensorTraceRay};
         let mut world = WorldState::default();
@@ -788,6 +1064,7 @@ mod tests {
                         &mut traced_meter,
                         &mut V4SensorScratch::default(),
                         Some(&mut trace),
+                        None,
                     )
                     .unwrap();
                 assert_eq!(actual, expected);
@@ -830,7 +1107,8 @@ mod tests {
                         &mut invalid,
                         &mut traced_meter,
                         &mut V4SensorScratch::default(),
-                        Some(&mut trace)
+                        Some(&mut trace),
+                        None,
                     )
                     .is_err());
                 assert!(!trace.valid);
