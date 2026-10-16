@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "initialAllowedCpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "selectedCpus": [
+    0,
+    3,
+    4,
+    5
+  ],
+  "selectionIntervalSeconds": 1,
+  "initialBusyFraction": {
+    "0": 0.23584905660377353,
+    "1": 0.7128712871287128,
+    "2": 0.27884615384615385,
+    "3": 0.21153846153846156,
+    "4": 0.14018691588785048,
+    "5": 0.23529411764705888,
+    "6": 0.2647058823529411,
+    "7": 0.2912621359223301
+  },
+  "caveat": "One least-busy four-CPU selection on a shared host, applied only to this process and children. No other process or system configuration changes; later load may drift."
+}

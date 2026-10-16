@@ -929,7 +929,7 @@ impl SensorEvaluator {
         let mut nearest_food_distance = radii.far;
         let mut nearest_food_delta = WorldPoint { x: 0.0, y: 0.0 };
         let mut found_food = false;
-        let pellet_bins = PelletAngularBins::new(snake.direction, self.layout.bins);
+        let pellet_bins = CenteredAngularBins::new(snake.direction, self.layout.bins);
         #[cfg(feature = "engine-test-hooks")]
         let pellet_accumulation_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         for pellet in indexed_world
@@ -1277,18 +1277,19 @@ struct PelletBinBoundary {
     bin_after: usize,
 }
 
-/// Per-observation angular boundaries for cheap exact-bin pellet classification.
+/// Per-observation angular boundaries for cheap exact centered-sector classification.
 ///
 /// A vector close to a boundary uses the original atan2 calculation so floating
 /// point rounding at that boundary preserves the existing observation.
-struct PelletAngularBins {
+pub(crate) struct CenteredAngularBins {
     boundaries: [PelletBinBoundary; MAX_SENSOR_BINS],
     count: usize,
     direction: f64,
 }
 
-impl PelletAngularBins {
-    fn new(direction: f64, count: usize) -> Self {
+impl CenteredAngularBins {
+    /// Prepare stack-only boundaries for an already validated 8..32-bin layout.
+    pub(crate) fn new(direction: f64, count: usize) -> Self {
         let mut boundaries = [PelletBinBoundary::default(); MAX_SENSOR_BINS];
         // A finite restored direction can be outside the ordinary movement
         // range. Preserve the original subtraction/remainder rounding there.
@@ -1321,8 +1322,17 @@ impl PelletAngularBins {
 
     #[inline]
     fn classify(&self, x: f64, y: f64, distance: f64) -> usize {
+        self.classify_interior(x, y, distance).unwrap_or_else(|| {
+            angle_to_centered_bin(normalize_angle(y.atan2(x) - self.direction), self.count)
+        })
+    }
+
+    /// Return only an unambiguous interior bin. The caller retains its original
+    /// angle normalization for boundary/large-heading fallback; v3 and v4 differ there.
+    #[inline]
+    pub(crate) fn classify_interior(&self, x: f64, y: f64, distance: f64) -> Option<usize> {
         if self.direction.abs() > TAU {
-            return angle_to_centered_bin(normalize_angle(y.atan2(x) - self.direction), self.count);
+            return None;
         }
         let upper = y > 0.0 || (y == 0.0 && x >= 0.0);
         let mut low = 0;
@@ -1346,13 +1356,10 @@ impl PelletAngularBins {
         let following = low % self.count;
         for boundary in [self.boundaries[preceding], self.boundaries[following]] {
             if (x * boundary.y - y * boundary.x).abs() <= 1.0e-10 * distance {
-                return angle_to_centered_bin(
-                    normalize_angle(y.atan2(x) - self.direction),
-                    self.count,
-                );
+                return None;
             }
         }
-        self.boundaries[preceding].bin_after
+        Some(self.boundaries[preceding].bin_after)
     }
 }
 
@@ -1505,7 +1512,7 @@ mod tests {
             for direction in [
                 -1.0e20, -1.0e6, -TAU, -PI, -2.1, -0.37, 0.0, 0.37, 2.1, PI, TAU, 1.0e6, 1.0e20,
             ] {
-                let classifier = PelletAngularBins::new(direction, bins);
+                let classifier = CenteredAngularBins::new(direction, bins);
                 for sample in 0..20_000_u64 {
                     let angle = (sample.wrapping_mul(65_537) % 20_000) as f64 / 20_000.0 * TAU;
                     let (y, x) = angle.sin_cos();

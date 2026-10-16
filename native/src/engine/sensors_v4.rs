@@ -13,7 +13,7 @@ use super::sensor_layout::MAX_SENSOR_BINS;
 use super::sensor_rays::{BodyRayIndex, RayIndexError, RayQueryScratch};
 use super::sensors::{
     angle_to_centered_bin, closest_point_on_segment, validate_snake_for_sensing,
-    ObservationDeliveryMarker, SensorConfig, SensorEvaluator, SensorRadii,
+    CenteredAngularBins, ObservationDeliveryMarker, SensorConfig, SensorEvaluator, SensorRadii,
 };
 use super::spatial::{
     BodySensorQueryScratch, IndexedSensorWorld, PelletQueryScratch, SpatialQueryDiagnostics,
@@ -374,11 +374,23 @@ impl SensorV4Evaluator {
                 &mut scratch.pellets,
             )
             .map_err(|_| V4SensorError::Spatial)?;
+        // Share one stack-only set across dense pellet, body and head queries.
+        // Sparse queries keep their original formula instead of preparing boundaries.
+        let mut sector_bins = (snake.direction.abs() <= TAU
+            && (pellets.candidates >= bins || world.snakes.len() >= bins))
+            .then(|| CenteredAngularBins::new(snake.direction, bins));
         for pellet in indexed.pellet_index().candidates(&scratch.pellets) {
             let dx = pellet.position.x - snake.position.x;
             let dy = pellet.position.y - snake.position.y;
             let distance = dx.hypot(dy);
-            let bin = angle_to_centered_bin(wrap(dy.atan2(dx) - snake.direction), bins);
+            let bin = sector_bin(
+                sector_bins.as_ref(),
+                dx,
+                dy,
+                distance,
+                snake.direction,
+                bins,
+            );
             let strength = (1.0 - distance / radii.far).clamp(0.0, 1.0)
                 * (pellet.value / cfg.food_value).clamp(0.0, 6.0);
             if distance <= radii.near {
@@ -404,18 +416,22 @@ impl SensorV4Evaluator {
         if body.candidate_limit_reached {
             scratch.body_clearance.fill(0.0);
         } else {
+            if sector_bins.is_none() && body.candidates >= bins && snake.direction.abs() <= TAU {
+                sector_bins = Some(CenteredAngularBins::new(snake.direction, bins));
+            }
             for segment in indexed.body_index().sensor_candidates(&scratch.body) {
                 let closest = closest_point_on_segment(snake.position, segment.start, segment.end);
-                let clearance = (closest.distance_squared.sqrt()
+                let distance = closest.distance_squared.sqrt();
+                let clearance = (distance
                     - (snake.radius + segment.owner_radius) * cfg.collision_hit_scale)
                     .max(0.0);
                 if clearance <= radii.near {
-                    let bin = angle_to_centered_bin(
-                        wrap(
-                            (closest.point.y - snake.position.y)
-                                .atan2(closest.point.x - snake.position.x)
-                                - snake.direction,
-                        ),
+                    let bin = sector_bin(
+                        sector_bins.as_ref(),
+                        closest.point.x - snake.position.x,
+                        closest.point.y - snake.position.y,
+                        distance,
+                        snake.direction,
                         bins,
                     );
                     scratch.body_clearance[bin] = scratch.body_clearance[bin].min(clearance);
@@ -490,9 +506,17 @@ impl SensorV4Evaluator {
             let dx = other.position.x - snake.position.x;
             let dy = other.position.y - snake.position.y;
             let radius = (snake.radius + other.radius) * cfg.collision_hit_scale;
-            let clearance = (dx.hypot(dy) - radius).max(0.0);
+            let distance = dx.hypot(dy);
+            let clearance = (distance - radius).max(0.0);
             if clearance <= radii.near {
-                let bin = angle_to_centered_bin(wrap(dy.atan2(dx) - snake.direction), bins);
+                let bin = sector_bin(
+                    sector_bins.as_ref(),
+                    dx,
+                    dy,
+                    distance,
+                    snake.direction,
+                    bins,
+                );
                 scratch.head_count[bin] += 1;
                 let previous = scratch.nearest_head[bin];
                 if previous == usize::MAX
@@ -522,14 +546,18 @@ impl SensorV4Evaluator {
                 )
                 .map_err(|_| V4SensorError::Geometry)?;
                 if let Some(encounter) = encounter {
-                    let bin = angle_to_centered_bin(
-                        wrap(
-                            encounter
-                                .relative_at_contact
-                                .y
-                                .atan2(encounter.relative_at_contact.x)
-                                - snake.direction,
-                        ),
+                    let contact = encounter.relative_at_contact;
+                    let distance = if sector_bins.is_some() {
+                        contact.x.hypot(contact.y)
+                    } else {
+                        0.0
+                    };
+                    let bin = sector_bin(
+                        sector_bins.as_ref(),
+                        contact.x,
+                        contact.y,
+                        distance,
+                        snake.direction,
                         bins,
                     );
                     scratch.urgency[bin] =
@@ -680,6 +708,27 @@ fn life_scalars(
     }
     Ok((life_points, assessment, budget))
 }
+/// Cheap shared geometry only decides interior bins. Keep v4's exact sine/atan2
+/// normalization for coincident/boundary/extreme vectors and large restored headings.
+#[inline]
+fn sector_bin(
+    classifier: Option<&CenteredAngularBins>,
+    x: f64,
+    y: f64,
+    distance: f64,
+    direction: f64,
+    bins: usize,
+) -> usize {
+    // Squared-distance norms can underflow for a nonzero vector. Subnormal norms
+    // also lack enough guard precision; both retain the original angle formula.
+    let interior = if distance.is_finite() && distance >= f64::MIN_POSITIVE {
+        classifier.and_then(|classifier| classifier.classify_interior(x, y, distance))
+    } else {
+        None
+    };
+    interior.unwrap_or_else(|| angle_to_centered_bin(wrap(y.atan2(x) - direction), bins))
+}
+
 fn wrap(angle: f64) -> f64 {
     angle.sin().atan2(angle.cos())
 }
@@ -831,6 +880,415 @@ mod tests {
             .unwrap();
         (output, result)
     }
+    #[test]
+    fn sector_bin_matches_original_v4_formula_for_dense_boundary_and_extreme_vectors() {
+        let mut interior = 0;
+        let mut ordinary = 0;
+        for bins in 8..=MAX_SENSOR_BINS {
+            for direction in [
+                -1.0e300, -1.0e20, -TAU, -PI, -2.1, -0.37, -0.0, 0.0, 0.37, 2.1, PI, TAU, 1.0e20,
+                1.0e300,
+            ] {
+                let classifier = CenteredAngularBins::new(direction, bins);
+                for scale in [
+                    1.0e-320,
+                    f64::MIN_POSITIVE / 2.0,
+                    f64::MIN_POSITIVE,
+                    1.0e-300,
+                    1.0e-12,
+                    1.0,
+                    1.0e12,
+                    1.0e300,
+                ] {
+                    for sample in 0..2000_u64 {
+                        let angle = (sample.wrapping_mul(65_537) % 2000) as f64 / 2000.0 * TAU;
+                        let (y, x) = angle.sin_cos();
+                        let (x, y) = (x * scale, y * scale);
+                        let distance = x.hypot(y);
+                        let expected = angle_to_centered_bin(wrap(y.atan2(x) - direction), bins);
+                        assert_eq!(
+                            sector_bin(Some(&classifier), x, y, distance, direction, bins),
+                            expected,
+                            "B={bins} heading={direction} scale={scale} angle={angle}"
+                        );
+                        // Body proximity supplies sqrt(dx*dx+dy*dy), which can underflow.
+                        let squared_distance = (x * x + y * y).sqrt();
+                        assert_eq!(sector_bin(Some(&classifier),x,y,squared_distance,direction,bins),
+                            expected, "squared norm: B={bins} heading={direction} scale={scale} angle={angle}");
+                        if scale == 1.0 && direction.abs() <= TAU {
+                            ordinary += 1;
+                            interior +=
+                                usize::from(classifier.classify_interior(x, y, distance).is_some());
+                        }
+                        if sample % 101 == 0 {
+                            assert_eq!(sector_bin(None, x, y, distance, direction, bins), expected);
+                        }
+                    }
+                    for boundary in 0..bins {
+                        let angle = direction - PI + (boundary as f64 + 0.5) * TAU / bins as f64;
+                        for delta in [
+                            -1.0e-9,
+                            -1.0e-10,
+                            -1.0e-12,
+                            -f64::EPSILON,
+                            0.0,
+                            f64::EPSILON,
+                            1.0e-12,
+                            1.0e-10,
+                            1.0e-9,
+                        ] {
+                            let (y, x) = (angle + delta).sin_cos();
+                            let (x, y) = (x * scale, y * scale);
+                            let expected =
+                                angle_to_centered_bin(wrap(y.atan2(x) - direction), bins);
+                            assert_eq!(sector_bin(Some(&classifier), x,y,x.hypot(y),direction,bins),
+                                       expected, "B={bins} heading={direction} scale={scale} boundary={boundary} delta={delta}");
+                        }
+                    }
+                }
+                for (x, y) in [
+                    (0.0, 0.0),
+                    (-0.0, 0.0),
+                    (0.0, -0.0),
+                    (-0.0, -0.0),
+                    (f64::INFINITY, 1.0),
+                    (1.0, f64::INFINITY),
+                    (f64::NAN, 1.0),
+                ] {
+                    let expected = angle_to_centered_bin(wrap(y.atan2(x) - direction), bins);
+                    assert_eq!(
+                        sector_bin(Some(&classifier), x, y, x.hypot(y), direction, bins),
+                        expected
+                    );
+                }
+            }
+        }
+        // Ensure dense ordinary inputs exercise the optimization rather than always falling back.
+        assert!(interior > ordinary * 9 / 10);
+    }
+
+    #[test]
+    fn food_channels_and_raw_traces_match_reference_accumulation_for_sparse_and_dense_queries() {
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in 8..=MAX_SENSOR_BINS {
+                let evaluator = evaluator(profile, bins);
+                for direction in [-TAU, -PI, -0.37, 0.0, PI, TAU, 1.0e20] {
+                    let mut source = WorldState::default();
+                    add_snake(
+                        &mut source,
+                        1,
+                        SnakeKind::External,
+                        point(0.0, 0.0),
+                        direction,
+                        5,
+                    );
+                    let mut positions = Vec::new();
+                    for index in 0..256 {
+                        let angle = index as f64 * 2.399963229728653;
+                        let distance = [
+                            0.0, 50.0, 519.999999, 520.0, 520.000001, 1199.0, 1200.0, 1200.1,
+                        ][index % 8];
+                        positions.push(point(angle.cos() * distance, angle.sin() * distance));
+                    }
+                    for boundary in 0..bins {
+                        let angle = direction - PI + (boundary as f64 + 0.5) * TAU / bins as f64;
+                        for delta in [-1.0e-9, -1.0e-12, 0.0, 1.0e-12, 1.0e-9] {
+                            for distance in [520.0, 521.0] {
+                                positions.push(point(
+                                    (angle + delta).cos() * distance,
+                                    (angle + delta).sin() * distance,
+                                ));
+                            }
+                        }
+                    }
+                    positions.extend([
+                        point(0.0, 0.0),
+                        point(-0.0, 0.0),
+                        point(0.0, -0.0),
+                        point(-0.0, -0.0),
+                    ]);
+                    for (index, position) in positions.into_iter().enumerate() {
+                        source.pellets.push(PelletState {
+                            id: index as u64 + 1000,
+                            position,
+                            value: [0.1, 1.0, 6.0, 8.0][index % 4],
+                            kind: 0,
+                            color: 0,
+                            owner: None,
+                        });
+                    }
+                    for sparse in [true, false] {
+                        let mut world = source.clone();
+                        if sparse {
+                            world.pellets.truncate(bins - 1);
+                        }
+                        let before = world.clone();
+                        let indexed = IndexedSensorWorld::build(
+                            &world,
+                            SensorIndexConfig {
+                                body_cell_size: 70.0,
+                                pellet_cell_size: 120.0,
+                                maximum_body_entries: 1_000_000,
+                                maximum_pellet_entries: 100_000,
+                            },
+                        )
+                        .unwrap();
+                        let mut rays = BodyRayIndexWorkspace::default();
+                        let view = rays.prepare(indexed.body_index()).unwrap();
+                        let lives = EvolvedGenerationState::default();
+                        let context = V4ObservationContext {
+                            generation_elapsed_seconds: 120.0,
+                            evolved: &lives,
+                            experiment: EvolvedExperimentConfig::legacy(240.0),
+                        };
+                        let mut output = vec![0.0; evaluator.layout().input_size()];
+                        let mut scratch = V4SensorScratch::default();
+                        let mut trace = super::super::sensor_trace::SensorTrace::default();
+                        let result = evaluator
+                            .sample_with_trace(
+                                &indexed,
+                                view,
+                                context,
+                                0,
+                                &mut output,
+                                &mut RayWorkMeter::new(4096),
+                                &mut scratch,
+                                Some(&mut trace),
+                                None,
+                            )
+                            .unwrap();
+                        let mut near = [0.0; MAX_SENSOR_BINS];
+                        let mut far = [0.0; MAX_SENSOR_BINS];
+                        let cfg = evaluator.common.config();
+                        for pellet in indexed.pellet_index().candidates(&scratch.pellets) {
+                            let (dx, dy) = (pellet.position.x, pellet.position.y);
+                            let distance = dx.hypot(dy);
+                            // Independent old v4 bin formula and original ordered accumulation.
+                            let bin = angle_to_centered_bin(wrap(dy.atan2(dx) - direction), bins);
+                            let strength = (1.0 - distance / result.radii.far).clamp(0.0, 1.0)
+                                * (pellet.value / cfg.food_value).clamp(0.0, 6.0);
+                            if distance <= result.radii.near {
+                                near[bin] += strength;
+                            } else {
+                                far[bin] += strength;
+                            }
+                        }
+                        for bin in 0..bins {
+                            assert_eq!(trace.food_strength[bin].to_bits(), near[bin].to_bits());
+                            assert_eq!(trace.far_food_strength[bin].to_bits(), far[bin].to_bits());
+                            assert_eq!(
+                                output[24 + bin].to_bits(),
+                                saturate(near[bin], cfg.food_saturation).to_bits()
+                            );
+                            assert_eq!(
+                                output[24 + bins + bin].to_bits(),
+                                saturate(far[bin], cfg.food_saturation).to_bits()
+                            );
+                        }
+                        assert_eq!(world, before);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn body_head_and_projected_sectors_match_original_scan_across_profiles_and_bins() {
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in 8..=MAX_SENSOR_BINS {
+                let evaluator = evaluator(profile, bins);
+                for direction in [-TAU, -PI, -0.37, 0.0, PI, TAU, 1.0e20] {
+                    let mut world = WorldState::default();
+                    add_snake(
+                        &mut world,
+                        1,
+                        SnakeKind::External,
+                        point(0.0, 0.0),
+                        direction,
+                        5,
+                    );
+                    for index in 0..bins * 2 {
+                        let angle = direction - PI
+                            + (index as f64 + 0.5) * TAU / bins as f64
+                            + [-1.0e-12, 0.0, 1.0e-12][index % 3];
+                        let distance = [0.0, 20.0, 100.0, 519.0, 530.0, 600.0, 1200.0][index % 7];
+                        let heading = angle + [0.0, PI, PI / 2.0][index % 3];
+                        add_snake(
+                            &mut world,
+                            900 - index as u64 * 13,
+                            SnakeKind::External,
+                            point(angle.cos() * distance, angle.sin() * distance),
+                            heading,
+                            10 + index % 3,
+                        );
+                        let other = world.snakes.last_mut().unwrap();
+                        other.speed = [0.0, 165.0, 247.5, 1.0e5][index % 4];
+                        other.alive = index % 11 != 0;
+                    }
+                    let before = world.clone();
+                    let indexed = IndexedSensorWorld::build(
+                        &world,
+                        SensorIndexConfig {
+                            body_cell_size: 70.0,
+                            pellet_cell_size: 120.0,
+                            maximum_body_entries: 1_000_000,
+                            maximum_pellet_entries: 100_000,
+                        },
+                    )
+                    .unwrap();
+                    let mut rays = BodyRayIndexWorkspace::default();
+                    let view = rays.prepare(indexed.body_index()).unwrap();
+                    let lives = EvolvedGenerationState::default();
+                    let context = V4ObservationContext {
+                        generation_elapsed_seconds: 120.0,
+                        evolved: &lives,
+                        experiment: EvolvedExperimentConfig::legacy(240.0),
+                    };
+                    let mut output = vec![0.0; evaluator.layout().input_size()];
+                    let mut scratch = V4SensorScratch::default();
+                    let mut trace = super::super::sensor_trace::SensorTrace::default();
+                    let result = evaluator
+                        .sample_with_trace(
+                            &indexed,
+                            view,
+                            context,
+                            0,
+                            &mut output,
+                            &mut RayWorkMeter::new(4096),
+                            &mut scratch,
+                            Some(&mut trace),
+                            None,
+                        )
+                        .unwrap();
+                    let cfg = evaluator.common.config();
+                    let snake = &world.snakes[0];
+                    let mut body = [result.radii.near; MAX_SENSOR_BINS];
+                    if result.diagnostics.body.candidate_limit_reached {
+                        body.fill(0.0);
+                    } else {
+                        for segment in indexed.body_index().sensor_candidates(&scratch.body) {
+                            let closest = closest_point_on_segment(
+                                snake.position,
+                                segment.start,
+                                segment.end,
+                            );
+                            let clearance = (closest.distance_squared.sqrt()
+                                - (snake.radius + segment.owner_radius) * cfg.collision_hit_scale)
+                                .max(0.0);
+                            if clearance <= result.radii.near {
+                                let bin = angle_to_centered_bin(
+                                    wrap(
+                                        (closest.point.y - snake.position.y)
+                                            .atan2(closest.point.x - snake.position.x)
+                                            - direction,
+                                    ),
+                                    bins,
+                                );
+                                body[bin] = body[bin].min(clearance);
+                            }
+                        }
+                    }
+                    let mut counts = [0_usize; MAX_SENSOR_BINS];
+                    let mut clearance = [result.radii.near; MAX_SENSOR_BINS];
+                    let mut nearest = [usize::MAX; MAX_SENSOR_BINS];
+                    let mut urgency = [0.0_f64; MAX_SENSOR_BINS];
+                    let mut seconds = [None::<f64>; MAX_SENSOR_BINS];
+                    for (index, other) in world.snakes.iter().enumerate().skip(1) {
+                        if !other.alive {
+                            continue;
+                        }
+                        let (dx, dy) = (
+                            other.position.x - snake.position.x,
+                            other.position.y - snake.position.y,
+                        );
+                        let radius = (snake.radius + other.radius) * cfg.collision_hit_scale;
+                        let gap = (dx.hypot(dy) - radius).max(0.0);
+                        if gap <= result.radii.near {
+                            let bin = angle_to_centered_bin(wrap(dy.atan2(dx) - direction), bins);
+                            counts[bin] += 1;
+                            if nearest[bin] == usize::MAX
+                                || gap < clearance[bin]
+                                || (gap == clearance[bin]
+                                    && other.id < world.snakes[nearest[bin]].id)
+                            {
+                                nearest[bin] = index;
+                                clearance[bin] = gap;
+                            }
+                        }
+                        if profile == SensorProfile::Motion {
+                            let encounter = projected_head_encounter(
+                                point(dx, dy),
+                                point(
+                                    other.direction.cos() * other.speed
+                                        - direction.cos() * snake.speed,
+                                    other.direction.sin() * other.speed
+                                        - direction.sin() * snake.speed,
+                                ),
+                                radius,
+                            )
+                            .unwrap();
+                            if let Some(encounter) = encounter {
+                                let bin = angle_to_centered_bin(
+                                    wrap(
+                                        encounter
+                                            .relative_at_contact
+                                            .y
+                                            .atan2(encounter.relative_at_contact.x)
+                                            - direction,
+                                    ),
+                                    bins,
+                                );
+                                urgency[bin] = urgency[bin]
+                                    .max(1.0 - encounter.seconds / MOTION_HORIZON_SECONDS);
+                                seconds[bin] =
+                                    Some(seconds[bin].map_or(encounter.seconds, |previous| {
+                                        previous.min(encounter.seconds)
+                                    }));
+                            }
+                        }
+                    }
+                    for bin in 0..bins {
+                        assert_eq!(trace.body_clearance[bin].to_bits(), body[bin].to_bits());
+                        assert_eq!(
+                            trace.head_clearance[bin].to_bits(),
+                            clearance[bin].to_bits()
+                        );
+                        assert_eq!(trace.head_count[bin], counts[bin]);
+                        let id = if nearest[bin] == usize::MAX {
+                            0
+                        } else {
+                            world.snakes[nearest[bin]].id
+                        };
+                        assert_eq!(trace.head_ids[bin], id);
+                        assert_eq!(trace.urgency[bin].to_bits(), urgency[bin].to_bits());
+                        assert_eq!(trace.encounter_seconds[bin], seconds[bin]);
+                        assert_eq!(
+                            output[24 + 2 * bins + bin].to_bits(),
+                            bipolar(body[bin] / result.radii.near).to_bits()
+                        );
+                        assert_eq!(
+                            output[24 + 5 * bins + bin].to_bits(),
+                            bipolar(clearance[bin] / result.radii.near).to_bits()
+                        );
+                        if profile == SensorProfile::Motion {
+                            assert_eq!(result.representative_head_ids[bin], id);
+                            assert_eq!(
+                                output[24 + 13 * bins + bin].to_bits(),
+                                (urgency[bin] as f32).to_bits()
+                            );
+                            assert_eq!(
+                                output[24 + 14 * bins + bin].to_bits(),
+                                ((counts[bin] as f64 / (counts[bin] as f64 + 4.0)) as f32)
+                                    .to_bits()
+                            );
+                        }
+                    }
+                    assert_eq!(world, before);
+                }
+            }
+        }
+    }
+
     #[test]
     fn shared_head_facts_preserve_every_vector_receipt_and_trace_across_profiles_bins_and_grants() {
         let mut world = WorldState::default();
