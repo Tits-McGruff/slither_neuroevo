@@ -1510,8 +1510,9 @@ impl ControlPhaseWorkspace {
         max_work: usize,
         workers: usize,
     ) -> Result<usize, ControlPhaseError> {
-        let neural = NeuralControlPipeline::required_staging_bytes(
+        let neural = NeuralControlPipeline::required_staging_bytes_for_sensor(
             max_work,
+            self.neural.sensor(),
             self.neural.inference(),
             workers,
         )?
@@ -1943,6 +1944,8 @@ impl ControlPhaseWorkspace {
             });
         }
 
+        let mut heads = super::sensors_v4::V4HeadWorkspace::default();
+        self.neural.swap_v4_head_workspace(&mut heads);
         let mut ray_index = std::mem::take(&mut self.ray_index);
         let mut ray_grants = std::mem::take(&mut self.ray_grants);
         let result = (|| {
@@ -1995,8 +1998,16 @@ impl ControlPhaseWorkspace {
                 let body_rays = ray_index
                     .prepare(indexed.body_index())
                     .map_err(ControlPhaseError::Rays)?;
+                let prepared_heads = if self.ray_keys.is_empty() {
+                    None
+                } else {
+                    heads
+                        .prepare(world, self.neural.sensor().layout().profile)
+                        .map_err(SensorError::V4)?
+                };
                 Some(super::sensors_v4::PreparedV4Sensing {
                     body_rays,
+                    heads: prepared_heads,
                     context: boundary.context,
                     grants_by_snake: &ray_grants,
                 })
@@ -2141,6 +2152,7 @@ impl ControlPhaseWorkspace {
             self.prepare_inspector_probe(inputs, indexed, prepared_v4);
             Ok(calculation_key)
         })();
+        self.neural.swap_v4_head_workspace(&mut heads);
         self.ray_index = ray_index;
         self.ray_grants = ray_grants;
         result
