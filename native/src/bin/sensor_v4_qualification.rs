@@ -71,6 +71,9 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
     let mut values = BTreeMap::new();
     while let Some(flag) = arguments.next() {
         if ![
+            "--capture",
+            "--capture-drain-steps",
+            "--capture-queue-chunks",
             "--baseline",
             "--baseline-cadence",
             "--scenario",
@@ -160,6 +163,29 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
         }
         _ => return Err("baseline must be v1/v2-deterministic/v2-stochastic".into()),
     };
+    let capture = match values.get("--capture").map(String::as_str).unwrap_or("off") {
+        "off" => {
+            if ["--capture-drain-steps", "--capture-queue-chunks"]
+                .iter()
+                .any(|key| values.contains_key(*key))
+            {
+                return Err("capture pressure requires --capture on".into());
+            }
+            None
+        }
+        "on" => {
+            if baseline.is_none() {
+                return Err("capture requires baseline v2".into());
+            }
+            Some(
+                slither_native::engine::capture_qualification::CaptureQualificationOptions {
+                    drain_every_steps: integer("--capture-drain-steps", "1")?,
+                    queue_chunks: integer("--capture-queue-chunks", "1024")?,
+                },
+            )
+        }
+        _ => return Err("--capture must be off/on".into()),
+    };
     let options = SensorQualificationOptions {
         population: match required("--scenario")? {
             "P0" => 55,
@@ -170,6 +196,7 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
         bins: integer("--bins", "16")?,
         ray_limits,
         baseline,
+        capture,
         large_graph: match values
             .get("--graph")
             .map(String::as_str)

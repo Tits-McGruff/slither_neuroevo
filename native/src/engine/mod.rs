@@ -23,6 +23,9 @@ pub mod baseline_v2;
 pub mod calculation;
 /// Process-available logical CPU limits for the Rust calculation pool.
 pub mod calculation_workers;
+/// Actual committed capture throughput and bounded slow-drain evidence.
+#[cfg(feature = "engine-test-hooks")]
+pub mod capture_qualification;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.
 pub mod checkpoint;
 /// Deterministic test-hook fixture for the real checkpoint publication boundary.

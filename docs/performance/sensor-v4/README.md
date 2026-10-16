@@ -15,6 +15,32 @@ native/target/release/sensor-v4-qualification --scenario P1 --profile motion --b
 The runner requires two GiB free on the scratch filesystem, preserving one GiB
 beyond conservative checkpoint construction. It exclusively creates and removes
 its scratch tree; reports use create-new semantics and remain after cleanup.
+Version-3 reports optionally qualify the ordinary native teacher capture. Add
+`--capture on` with v4 and v2; capture starts after warmup and selects all ten
+baseline slots. Pending and queue budgets remain 16 MiB each. Explicit pressure
+options are `--capture-drain-steps` (1..60,000, default 1) and
+`--capture-queue-chunks` (1..65,536, default 1,024). Pressure flags require capture.
+One drain transfers at most 64 chunks/one MiB; stopping seals and drains final
+partial chunks. `--capture off` remains the default.
+
+The capture report compares streaming per-slot witnesses from exact committed
+observations/actions/outcomes against decoded complete chunks, including Float32
+bits, IDs, steps/ordinals, strategy, life stage and strata. It validates descriptor
+identity/digests, bounds and chronology. Reported counts reconcile observed rows
+with drained plus dropped samples and assigned chunks with drained plus dropped
+chunks. Zero samples or any drop yields no exact-sample pass. Per-teacher counts,
+a due-count histogram and longest ten-due-teacher streak expose deaths/cadence;
+they never substitute invented rows for a missing 600-sample/second workload.
+
+Step service timing includes native encoding/queue publication. Observer hashing,
+bounded drain/decoding and final partial-chunk publication have separate timing;
+encoded bytes per native service second include final-stop time. The report
+includes queue peaks, drops, rates per simulated second and process peak RSS.
+This is native capture evidence, excluding Node spool/HTTP, training, shadows,
+disk rotation and actual wall-debt scheduling. It does not complete the integrated
+soak or sustained ten-living-teacher throughput gate. CI retains short normal and
+one-chunk slow-drain reports on Windows/Linux.
+
 Choose v3/basic/motion, P0 (55 evolved plus ten baselines) or P1 (300 plus ten),
 modest/large graphs, respawn off/on, and scalar/sse2. Baselines default to frozen
 v1. Select `--baseline v2-deterministic` or `--baseline v2-stochastic` with an
@@ -175,3 +201,42 @@ Platform/build-dependent trajectories remain distinct; equal seeds do not promis
 cross-platform bit-identical continuation. The large graph rejects at the same
 checkpoint ceiling, with a 5.2 MiB peak RSS. All nine JSON transfers were SHA-256
 verified before deleting the exact task-owned remote source/build/scratch tree.
+
+## Version-3 Windows native capture batches
+
+The eight compressed `windows-p[01]-motion-b16-60hz-*-v3.json.gz` reports use
+seed 42, the modest graph, unlimited evolved respawn, stochastic v2 at exact
+60 Hz, five warmup and 1,200 measured steps (20 simulated seconds). Each workload
+has capture-off/one-worker, normal/one-worker, normal/three-worker and
+slow/three-worker runs. Normal capture uses the 16 MiB pending/queue allowances,
+1,024 queue entries and one bounded drain per step. Slow capture admits one
+queue entry and drains only after 1,200 steps. This forces count pressure; it
+does not fill the 16 MiB byte allowance. Development-machine load is uncontrolled.
+
+| Workload | Actual teacher rows | Rows/simulated second | Normal 3-worker p95 | Normal peak RSS | Slow dropped rows |
+|---|---:|---:|---:|---:|---:|
+| P0 | 8,444 | 422.20 | 5.708 ms | 19.29 MiB | 8,404 |
+| P1 | 4,089 | 204.45 | 24.998 ms | 47.83 MiB | 4,084 |
+
+Normal draining preserves every exact sample; the source and decoded per-slot
+witnesses agree. Complete authority continuations, all consumer counters and
+normalized histograms agree across capture off/on, one/three workers and slow
+draining within each workload. Slow runs drop 141/72 complete chunks for P0/P1,
+reconcile every sample/chunk and settle the final released watermark; their
+exact-sample result remains null. All eight JSON streams were losslessly
+compressed and roundtrip-verified before removing their disposable scratch.
+
+Neither measured interval has a ten-due-teacher step: warmup deaths and later
+lifecycle waiting reduce activity. These observations do not qualify sustained
+600-sample/second production. P0 has no incomplete v4 delivery; P1 has 4.103%
+pooled incompleteness and 133/4,089 (3.253%) in the teacher subgroup. P1 therefore
+fails both necessary 1x timing and ordinary-quality gates in this workload.
+These are longer gameplay cohorts, not an isolated comparison to earlier
+five-second reports. No production defaults or 512 MiB worker/checkpoint scratch
+limits change.
+
+All 746 release library tests, 16 rebuilt-addon identity/runtime/capture/shadow
+tests, default/all-target test-hook Clippy and rustfmt pass. CI retains short
+normal/slow capture reports in addition to the native tactical batch. Full
+16 MiB byte pressure, sustained ten-living-teacher capture, Node spool/trainer
+capacity and the integrated six-hour soak remain separate required gates.

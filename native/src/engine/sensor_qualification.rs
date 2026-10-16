@@ -40,6 +40,7 @@ pub struct SensorQualificationOptions {
     pub math: InferenceMathBackend,
     pub ray_limits: Option<RayWorkLimits>,
     pub baseline: Option<super::baseline_v2::BaselineV2Settings>,
+    pub capture: Option<super::capture_qualification::CaptureQualificationOptions>,
     pub warmup_steps: usize,
     pub measured_steps: usize,
     /// Declared operating environment; never includes connection credentials.
@@ -155,7 +156,7 @@ pub struct CostDistribution {
     pub total_ms: f64,
 }
 
-fn distribution(values: &mut [f64]) -> CostDistribution {
+pub(crate) fn distribution(values: &mut [f64]) -> CostDistribution {
     let total_ms = values.iter().sum();
     values.sort_unstable_by(f64::total_cmp);
     let quantile = |numerator: usize, denominator: usize| {
@@ -177,6 +178,8 @@ fn distribution(values: &mut [f64]) -> CostDistribution {
 #[serde(rename_all = "camelCase")]
 pub struct SensorQualificationReport {
     pub version: u32,
+    pub capture: Option<super::capture_qualification::CaptureQualificationReport>,
+    pub capture_options: Option<super::capture_qualification::CaptureQualificationOptions>,
     pub environment: String,
     pub build_identifier: String,
     pub source_sha256: String,
@@ -457,6 +460,12 @@ fn run_with_observer(
     workspace: &Path,
     observer_enabled: bool,
 ) -> Result<SensorQualificationReport, String> {
+    if let Some(capture) = options.capture {
+        capture.validate()?;
+        if options.baseline.is_none() || options.profile == SensorProfile::V3 {
+            return Err("capture qualification requires baseline v2 and v4".into());
+        }
+    }
     if !matches!(options.population, 55 | 300)
         || options.warmup_steps > MAX_QUALIFICATION_STEPS
         || options.measured_steps == 0
@@ -482,7 +491,7 @@ fn run_with_observer(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        version:2,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
+        version:3,capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
@@ -586,10 +595,28 @@ fn run_with_observer(
         .map_err(|error| error.to_string())?;
     report.authoritative_memory_reservation_bytes = Some(running.authoritative_memory_bytes());
     let mut frame = Vec::with_capacity(running.admitted_frame_bytes());
+    let mut capture = None;
+    let run_id = format!(
+        "sensor-qualification-{}-{}",
+        options.population, options.seed
+    );
     let mut steps = Vec::with_capacity(options.measured_steps);
     let mut observer = Vec::with_capacity(options.measured_steps);
     report.admitted = true;
     for ordinal in 0..options.warmup_steps + options.measured_steps {
+        if ordinal == options.warmup_steps {
+            capture = options
+                .capture
+                .map(|settings| {
+                    super::capture_qualification::CaptureQualificationObserver::start(
+                        &mut running,
+                        settings,
+                        &run_id,
+                        options.measured_steps,
+                    )
+                })
+                .transpose()?;
+        }
         let wall_ms = ((ordinal as u64 + 1) * 1000).div_ceil(60);
         let started = Instant::now();
         let progress = running
@@ -616,8 +643,15 @@ fn run_with_observer(
             if observer_enabled {
                 observe_committed(&running, &mut report)?;
             }
+            if let Some(capture) = &mut capture {
+                capture.observe(&mut running, ordinal - options.warmup_steps + 1)?;
+            }
             observer.push(analysis.elapsed().as_secs_f64() * 1000.0);
         }
+    }
+    if let Some(capture) = capture {
+        report.capture =
+            Some(capture.finish(&mut running, options.measured_steps, steps.iter().sum())?);
     }
     report.completed_steps = running.completed_step();
     report.continuation_sha256 = Some(running.qualification_continuation_sha256());
@@ -695,6 +729,12 @@ mod tests {
                     mode,
                     control_interval_seconds: 0.06,
                 }),
+                capture: mode.map(|_| {
+                    super::super::capture_qualification::CaptureQualificationOptions {
+                        drain_every_steps: 1,
+                        queue_chunks: 1024,
+                    }
+                }),
                 warmup_steps: 1,
                 measured_steps: 12,
                 environment: "development".into(),
@@ -719,6 +759,15 @@ mod tests {
             assert!(observed.ray_charged_units <= 12 * 16384);
             assert!(observed.step_cost.is_some() && observed.observer_cost.is_some());
             assert_eq!(observed.consumer_work, parallel.consumer_work);
+            if mode.is_some() {
+                let capture = observed.capture.as_ref().unwrap();
+                assert_eq!(capture.exact_samples_match, Some(true));
+                assert_eq!(
+                    capture.samples_observed.iter().sum::<u64>(),
+                    observed.consumer_work[1].observations
+                );
+            }
+
             assert_eq!(
                 observed.consumer_work[0].observations,
                 observed.observations
@@ -745,6 +794,71 @@ mod tests {
                 assert_eq!(observed.consumer_work[1].v4_observations, 0);
             }
         }
+    }
+
+    #[test]
+    fn actual_capture_bytes_and_authority_match_across_fast_slow_and_parallel_runs() {
+        use super::super::capture_qualification::CaptureQualificationOptions;
+        let mut options = SensorQualificationOptions {
+            population: 55,
+            profile: SensorProfile::Motion,
+            bins: 16,
+            large_graph: false,
+            respawn: true,
+            seed: 42,
+            workers: 1,
+            math: InferenceMathBackend::Sse2,
+            ray_limits: Some(RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+            baseline: Some(super::super::baseline_v2::BaselineV2Settings {
+                mode: super::super::baseline_v2::BaselineV2Mode::Stochastic,
+                control_interval_seconds: 1.0 / 60.0,
+            }),
+            capture: None,
+            warmup_steps: 0,
+            measured_steps: 180,
+            environment: "development".into(),
+        };
+        let reference = run_with_observer(&options, &Scratch::new().0, true).unwrap();
+        options.capture = Some(CaptureQualificationOptions {
+            drain_every_steps: 1,
+            queue_chunks: 1024,
+        });
+        let fast = run_with_observer(&options, &Scratch::new().0, true).unwrap();
+        let captured = fast.capture.as_ref().unwrap();
+        assert_eq!(captured.exact_samples_match, Some(true));
+        assert!(captured.samples_observed.iter().all(|count| *count > 0));
+        assert_eq!(
+            captured.samples_observed.iter().sum::<u64>(),
+            fast.consumer_work[1].observations
+        );
+        assert_eq!(captured.due_teacher_histogram.iter().sum::<u64>(), 180);
+        assert!(captured.chunks_drained > 10 && captured.bytes_drained > 0);
+        assert_eq!(captured.dropped_chunks, 0);
+        assert_eq!(reference.continuation_sha256, fast.continuation_sha256);
+        options.workers = 3.min(std::thread::available_parallelism().unwrap().get());
+        let parallel = run_with_observer(&options, &Scratch::new().0, true).unwrap();
+        assert_eq!(fast.continuation_sha256, parallel.continuation_sha256);
+        assert_eq!(
+            captured.source_sample_sha256,
+            parallel.capture.as_ref().unwrap().source_sample_sha256
+        );
+        assert_eq!(
+            captured.drained_sample_sha256,
+            parallel.capture.as_ref().unwrap().drained_sample_sha256
+        );
+        options.capture = Some(CaptureQualificationOptions {
+            drain_every_steps: 180,
+            queue_chunks: 1,
+        });
+        let slow = run_with_observer(&options, &Scratch::new().0, true).unwrap();
+        assert_eq!(fast.continuation_sha256, slow.continuation_sha256);
+        let dropped = slow.capture.unwrap();
+        assert_eq!(captured.source_sample_sha256, dropped.source_sample_sha256);
+        assert!(dropped.dropped_chunks > 0 && dropped.dropped_samples > 0);
+        assert_eq!(dropped.exact_samples_match, None);
+        assert!(dropped.queue_accounting_matches);
+        assert_eq!(dropped.queue_peak_chunks, 1);
+        assert_eq!(dropped.production_watermark, dropped.released_through);
     }
 
     #[test]
