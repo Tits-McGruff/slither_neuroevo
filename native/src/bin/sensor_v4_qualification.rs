@@ -76,6 +76,7 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
             "--capture-queue-chunks",
             "--baseline",
             "--baseline-cadence",
+            "--teacher-respawn-delay",
             "--scenario",
             "--profile",
             "--bins",
@@ -196,6 +197,11 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
         bins: integer("--bins", "16")?,
         ray_limits,
         baseline,
+        teacher_respawn_delay_seconds: values
+            .get("--teacher-respawn-delay")
+            .map(String::as_str)
+            .unwrap_or("20")
+            .parse()?,
         capture,
         large_graph: match values
             .get("--graph")

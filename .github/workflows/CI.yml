@@ -107,6 +107,24 @@ jobs:
             ${{ runner.temp }}/capture-normal.json
             ${{ runner.temp }}/capture-slow.json
           if-no-files-found: warn
+      - name: Set up native capture qualification driver
+        if: matrix.node-version == '24.x'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Native capture byte-pressure and authority cohort
+        if: matrix.node-version == '24.x'
+        run: >-
+          python scripts/qualification/qualify-capture-pressure.py
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --directory "${{ runner.temp }}/capture-byte-pressure" --workers 3
+      - name: Retain native byte-pressure evidence
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-capture-byte-pressure-${{ matrix.os }}
+          path: ${{ runner.temp }}/capture-byte-pressure/*.json
+          if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
       - name: Build checkpoint handoff test addon

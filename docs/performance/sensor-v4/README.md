@@ -389,3 +389,57 @@ process's `os.sched_setaffinity(0, {1, 4, 6, 7})` before invoking the comparator
 native children inherit that set. The retained `affinity.json` records the
 selection and load context. Disposable comparison copies, source trees and raw
 transfers were removed after permanent evidence verification.
+
+
+## Native byte pressure with frequent teacher replacement
+
+The `capture-byte-pressure-windows-v1/` and `capture-byte-pressure-oxygen-v1/`
+cohorts use the same current native source, fingerprinted in each
+`qualification.json`, with P0, Motion B32 (504 inputs), the modest graph, seed 42,
+SSE2, v2 stochastic teachers at exact 60 Hz, no warmup and 1,200 completed steps.
+The qualification-only teacher respawn option explicitly selects the existing
+0.5-second minimum. Its default remains 20 seconds; production settings and both
+512 MiB scratch ceilings are unchanged. Report version 4 gains additive delay,
+actual payload allowance and disjoint byte/count drop fields. Count pressure
+takes precedence if both limits reject the same chunk; external transport fields
+retain their existing meanings.
+
+Each four-case cohort compares capture off, fast drain with one/three workers,
+and a three-worker slow drain. The driver rejects changed complete authority
+continuations, raw/normalized histograms or consumer work. Fast runs independently
+reconcile every exact source/drained row. Slow runs verify descriptor/codec bytes,
+whole-chunk loss, visible released sequences and observed = drained + dropped rows;
+loss receives no exact-sample pass.
+
+| Target | Actual rows / simulated second | Longest ten-teacher interval | Slow queue peak bytes / payload allowance | Byte-limited chunks / rows dropped | Count-limited drops |
+|---|---:|---:|---:|---:|---:|
+| Windows | 589.5 | 272 steps (4.53 simulated seconds) | 12,388,442 / 12,451,840 | 89 / 5,428 | 0 |
+| Oxygen/Debian | 592.5 | 557 steps (9.28 simulated seconds) | 12,429,262 / 12,451,840 | 90 / 5,490 | 0 |
+
+Both pressure cases peak at 103 queued chunks against the 8,192-chunk limit.
+The payload allowance charges mailbox/metadata, descriptor-ring and encoding
+reserves inside the unchanged 16 MiB queue ceiling; pending capture has its own
+16 MiB ceiling. Final draining releases all 202/203 assigned sequences on
+Windows/Oxygen. Slow-run peak RSS is 37,347,328 / 37,097,472 bytes. The normal
+three-worker native p95 is 5.489 / 18.654 ms; these shared-host observations do not
+qualify real-time scheduling. Each platform is compared internally: neither
+row counts nor trajectories are promised identical across platforms.
+
+The intervals with ten living/due teachers reach 600 rows per simulated second;
+the complete measured cohorts include ordinary death gaps and remain below that
+rate. This qualifies native byte-pressure behavior and isolation, without claiming
+sustained full-stack 600-row throughput, 4 GiB spool rotation, trainer/VRAM
+admission, wall-debt scheduling or the six-hour integrated soak. Those gates remain
+open. All eight compressed reports roundtrip to the fingerprints in their cohort
+manifests; the transferred Oxygen files are independently verified before retention.
+
+After building the qualification binary, reproduce with an exclusive output path:
+
+```text
+python scripts/qualification/qualify-capture-pressure.py --executable NATIVE_QUALIFICATION_EXE --directory NEW_REPORT_DIRECTORY --workers 3
+```
+
+Use `--environment oxygen-debian` on that target. The bounded driver uses only
+the Python standard library and keeps checks active under `python -O`. Node 24 CI
+runs the same cohort on Windows and Ubuntu and retains the complete JSON reports.
+Disposable source/build trees and raw transfers are removed after verified retention.
