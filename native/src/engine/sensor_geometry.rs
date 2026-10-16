@@ -57,7 +57,45 @@ impl SensorRay {
         maximum: WorldPoint,
         inflation: f64,
     ) -> Result<Option<f64>, SensorGeometryError> {
-        Ok(InflatedRayAabb::new(minimum, maximum, inflation)?.clearance(self))
+        if !valid_point(minimum)
+            || !valid_point(maximum)
+            || minimum.x > maximum.x
+            || minimum.y > maximum.y
+            || !valid_nonnegative(inflation)
+        {
+            return Err(SensorGeometryError);
+        }
+        let mut enter: f64 = 0.0;
+        let mut exit = self.maximum;
+        for (origin, delta, low, high) in [
+            (
+                self.origin.x,
+                self.direction.x,
+                minimum.x - inflation,
+                maximum.x + inflation,
+            ),
+            (
+                self.origin.y,
+                self.direction.y,
+                minimum.y - inflation,
+                maximum.y + inflation,
+            ),
+        ] {
+            if delta == 0.0 {
+                if origin < low || origin > high {
+                    return Ok(None);
+                }
+            } else {
+                let first = (low - origin) / delta;
+                let last = (high - origin) / delta;
+                enter = enter.max(first.min(last));
+                exit = exit.min(first.max(last));
+                if enter > exit {
+                    return Ok(None);
+                }
+            }
+        }
+        Ok(Some(enter))
     }
 
     /// Exact first intersection with the closed segment capsule, including
@@ -146,79 +184,6 @@ impl SensorRay {
             (root - projection) / a
         };
         Ok(clearance.min(self.maximum))
-    }
-}
-
-/// Validated inflated box shared by every ray in one packet/candidate test.
-/// Construction preserves public geometry bounds; stored expanded coordinates
-/// remain within twice GEOMETRY_BOUND. A SensorRay is validated at construction.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct InflatedRayAabb {
-    minimum: WorldPoint,
-    maximum: WorldPoint,
-}
-impl InflatedRayAabb {
-    #[inline]
-    pub(crate) fn new(
-        minimum: WorldPoint,
-        maximum: WorldPoint,
-        inflation: f64,
-    ) -> Result<Self, SensorGeometryError> {
-        if !valid_point(minimum)
-            || !valid_point(maximum)
-            || minimum.x > maximum.x
-            || minimum.y > maximum.y
-            || !valid_nonnegative(inflation)
-        {
-            return Err(SensorGeometryError);
-        }
-        Ok(Self {
-            minimum: WorldPoint {
-                x: minimum.x - inflation,
-                y: minimum.y - inflation,
-            },
-            maximum: WorldPoint {
-                x: maximum.x + inflation,
-                y: maximum.y + inflation,
-            },
-        })
-    }
-
-    /// Reuse checked/expanded bounds without repeating validation per packet ray.
-    /// Keep division and slab comparisons identical to the public scalar operation.
-    #[inline]
-    pub(crate) fn clearance(&self, ray: SensorRay) -> Option<f64> {
-        let mut enter: f64 = 0.0;
-        let mut exit = ray.maximum;
-        for (origin, delta, low, high) in [
-            (
-                ray.origin.x,
-                ray.direction.x,
-                self.minimum.x,
-                self.maximum.x,
-            ),
-            (
-                ray.origin.y,
-                ray.direction.y,
-                self.minimum.y,
-                self.maximum.y,
-            ),
-        ] {
-            if delta == 0.0 {
-                if origin < low || origin > high {
-                    return None;
-                }
-            } else {
-                let first = (low - origin) / delta;
-                let last = (high - origin) / delta;
-                enter = enter.max(first.min(last));
-                exit = exit.min(first.max(last));
-                if enter > exit {
-                    return None;
-                }
-            }
-        }
-        Some(enter)
     }
 }
 
@@ -373,37 +338,6 @@ mod tests {
     }
     fn close(actual: f64, expected: f64) {
         assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
-    }
-
-    #[test]
-    fn shared_inflated_box_keeps_closed_parallel_slabs_and_supported_extremes() {
-        let bounds = InflatedRayAabb::new(point(0.0, 0.0), point(10.0, 10.0), 3.0).unwrap();
-        for (origin, heading, expected) in [
-            (point(-20.0, 0.0), 0.0, Some(17.0)),
-            (point(-20.0, 13.0), 0.0, Some(17.0)),
-            (point(-20.0, 13.0001), 0.0, None),
-            (point(20.0, 0.0), PI, Some(7.0)),
-            (point(0.0, 0.0), 0.0, Some(0.0)),
-        ] {
-            let ray = SensorRay::new(origin, heading, 100.0).unwrap();
-            assert_eq!(bounds.clearance(ray), expected);
-        }
-        assert!(InflatedRayAabb::new(point(1.0, 0.0), point(0.0, 1.0), 0.0).is_err());
-        for invalid in [f64::NAN, f64::INFINITY, -1.0, GEOMETRY_BOUND + 1.0] {
-            assert!(InflatedRayAabb::new(point(0.0, 0.0), point(1.0, 1.0), invalid).is_err());
-        }
-        let extreme = InflatedRayAabb::new(
-            point(-GEOMETRY_BOUND, -GEOMETRY_BOUND),
-            point(GEOMETRY_BOUND, GEOMETRY_BOUND),
-            GEOMETRY_BOUND,
-        )
-        .unwrap();
-        assert_eq!(
-            extreme.clearance(
-                SensorRay::new(point(GEOMETRY_BOUND, 0.0), 0.0, GEOMETRY_BOUND).unwrap()
-            ),
-            Some(0.0)
-        );
     }
 
     #[test]
