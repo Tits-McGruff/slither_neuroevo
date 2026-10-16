@@ -256,6 +256,8 @@ impl BaselineV2Policy {
         let mut pursuit = 0u32;
         let mut urgent = 0u32;
         let mut best_food = 0.0f64;
+        let mut imminent_front_contact = false;
+        let mut incoming_lateral_pressure = 0.0f64;
         // One bounded sector pass. Every target quantity below is decoded from
         // the observation; even intercept distance is an approximation from
         // visible clearance, not an undeclared target center/radius.
@@ -264,6 +266,14 @@ impl BaselineV2Policy {
             best_food = best_food.max(s.near_food.max(0.25 * s.far_food));
             if s.urgency > URGENT_URGENCY {
                 urgent |= 1 << bin;
+                // Encounter bearing names relative disc contact, not a safe new
+                // travel direction. A front-half imminent contact was predicted
+                // with our current velocity: holding straight still collides even
+                // when its bearing lies in an adjacent/crossing sector.
+                if angle(bin, self.bins).abs() <= FRAC_PI_2 {
+                    imminent_front_contact = true;
+                    incoming_lateral_pressure += angle(bin, self.bins).sin() * s.urgency;
+                }
             }
             if self.profile == SensorProfile::Motion && s.present {
                 let bearing = angle(bin, self.bins) + s.bearing_residual * PI / self.bins as f64;
@@ -327,7 +337,9 @@ impl BaselineV2Policy {
                 .min(s.wall_ray)
                 .min(s.head_clearance);
             clearances[bin] = clearance;
-            safe[bin] = clearance >= SAFE_CLEARANCE && s.urgency <= URGENT_URGENCY;
+            safe[bin] = clearance >= SAFE_CLEARANCE
+                && s.urgency <= URGENT_URGENCY
+                && !(imminent_front_contact && angle(bin, self.bins).abs() < FRAC_PI_2);
             any_safe |= safe[bin];
             // Food behind a capsule/wall or urgent crossing is discounted. Motion
             // distinguishes closing/head-on and crossing pressure; Basic has no
@@ -348,18 +360,20 @@ impl BaselineV2Policy {
             };
             let food =
                 (s.near_food + 0.25 * s.far_food).min(food_cap) * clearance * (1.0 - s.urgency);
-            scores[bin] =
-                ((food_weight * food + clearance_weight * (2.0 * clearance - 1.0) + biases[bin]
-                    - 2.5 * s.urgency
-                    - 0.5 * head_on
-                    - 0.35 * crossing
-                    - if stage == BaselineLifeStage::Large {
-                        0.2 * s.density
-                    } else {
-                        0.4 * s.density
-                    })
-                    / 4.0)
-                    .clamp(-1.0, 1.0);
+            scores[bin] = ((food_weight * food
+                + clearance_weight * (2.0 * clearance - 1.0)
+                + biases[bin]
+                - 2.5 * s.urgency
+                - 0.5 * head_on
+                - 0.35 * crossing
+                - 0.8 * incoming_lateral_pressure.clamp(-1.0, 1.0) * angle(bin, self.bins).sin()
+                - if stage == BaselineLifeStage::Large {
+                    0.2 * s.density
+                } else {
+                    0.4 * s.density
+                })
+                / 4.0)
+                .clamp(-1.0, 1.0);
             let escape_clearance = clearance - s.urgency;
             if preferred(escape_clearance, bin, fallback_score, fallback, self.bins) {
                 fallback = bin;

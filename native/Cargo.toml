@@ -74,3 +74,8 @@ codegen-units = 1     # Slower compile, but better optimization
 panic = "unwind"      # Required so caught Rust panics fault the engine instead of aborting Node
 debug = true          # KEPT: Needed for samply/flamegraph reports
 strip = false         # KEPT: Ensures symbols aren't deleted so you can read function names
+
+[[bin]]
+name = "baseline-v2-qualification"
+path = "src/bin/baseline_v2_qualification.rs"
+required-features = ["engine-test-hooks"]
