@@ -40,6 +40,8 @@ pub struct SensorQualificationOptions {
     pub math: InferenceMathBackend,
     pub ray_limits: Option<RayWorkLimits>,
     pub baseline: Option<super::baseline_v2::BaselineV2Settings>,
+    /// Qualification-only selection within the existing 0.5..60-second setting.
+    pub teacher_respawn_delay_seconds: f64,
     pub capture: Option<super::capture_qualification::CaptureQualificationOptions>,
     pub warmup_steps: usize,
     pub measured_steps: usize,
@@ -242,6 +244,7 @@ pub struct SensorQualificationReport {
     pub baseline_count: usize,
     pub baseline_mode: String,
     pub baseline_cadence_seconds: Option<f64>,
+    pub teacher_respawn_delay_seconds: f64,
     /// Neural, baseline and external classes; only exact committed samples are included.
     pub consumer_work: [ConsumerSensorWork; 3],
     pub minimum_due_consumers: Option<u64>,
@@ -506,6 +509,11 @@ fn run_with_observer(
     workspace: &Path,
     observer_enabled: bool,
 ) -> Result<SensorQualificationReport, String> {
+    if !options.teacher_respawn_delay_seconds.is_finite()
+        || !(0.5..=60.0).contains(&options.teacher_respawn_delay_seconds)
+    {
+        return Err("qualification teacher respawn delay requires 0.5..60 seconds".into());
+    }
     if let Some(capture) = options.capture {
         capture.validate()?;
         if options.baseline.is_none() || options.profile == SensorProfile::V3 {
@@ -546,6 +554,7 @@ fn run_with_observer(
         seed:options.seed,workers:options.workers,math_backend:options.math.label().into(),
         baseline_mode: match options.baseline.map(|settings| settings.mode) {None=>"v1",Some(super::baseline_v2::BaselineV2Mode::Deterministic)=>"v2-deterministic",Some(super::baseline_v2::BaselineV2Mode::Stochastic)=>"v2-stochastic"}.into(),
         baseline_cadence_seconds:options.baseline.map(|settings|settings.control_interval_seconds),
+        teacher_respawn_delay_seconds:options.teacher_respawn_delay_seconds,
         consumer_work:[ConsumerSensorWork::default();3],minimum_due_consumers:None,maximum_due_consumers:0,
         all_consumer_ray_incomplete_fraction:None,all_consumer_ray_incomplete_below_one_percent:None,shared_batch_budget_held:None,
         graph_size:if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
@@ -567,6 +576,9 @@ fn run_with_observer(
             "observer.earlyEndMode" => entry.value = NormalizedSettingValue::Integer(2),
             "evolvedRespawn.enabled" => entry.value = NormalizedSettingValue::Bool(options.respawn),
             "world.pelletOverflow" => entry.value = NormalizedSettingValue::Integer(1),
+            "baselineBots.respawnDelay" => {
+                entry.value = NormalizedSettingValue::Float(options.teacher_respawn_delay_seconds)
+            }
             "sense.bubbleBins" => {
                 entry.value = NormalizedSettingValue::Integer(options.bins as i64)
             }
@@ -788,6 +800,7 @@ mod tests {
                     mode,
                     control_interval_seconds: 0.06,
                 }),
+                teacher_respawn_delay_seconds: 20.0,
                 capture: mode.map(|_| {
                     super::super::capture_qualification::CaptureQualificationOptions {
                         drain_every_steps: 1,
@@ -879,11 +892,30 @@ mod tests {
                 mode: super::super::baseline_v2::BaselineV2Mode::Stochastic,
                 control_interval_seconds: 1.0 / 60.0,
             }),
+            teacher_respawn_delay_seconds: 0.5,
             capture: None,
             warmup_steps: 0,
             measured_steps: 180,
             environment: "development".into(),
         };
+        // Invalid admission must fail before touching a workspace or allocating a run.
+        for delay in [
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            -1.0,
+            0.0,
+            0.499,
+            60.001,
+        ] {
+            let mut invalid = options.clone();
+            invalid.teacher_respawn_delay_seconds = delay;
+            assert!(
+                run_sensor_qualification(&invalid, Path::new("unused-invalid-delay"))
+                    .unwrap_err()
+                    .contains("teacher respawn delay")
+            );
+        }
         let reference = run_with_observer(&options, &Scratch::new().0, true).unwrap();
         options.capture = Some(CaptureQualificationOptions {
             drain_every_steps: 1,
@@ -900,6 +932,10 @@ mod tests {
         assert_eq!(captured.due_teacher_histogram.iter().sum::<u64>(), 180);
         assert!(captured.chunks_drained > 10 && captured.bytes_drained > 0);
         assert_eq!(captured.dropped_chunks, 0);
+        assert_eq!(captured.count_limited_dropped_chunks, 0);
+        assert_eq!(captured.byte_limited_dropped_chunks, 0);
+        assert!(captured.queue_peak_bytes <= captured.queue_payload_budget_bytes);
+        assert!(captured.queue_payload_budget_bytes < captured.queue_budget_bytes);
         assert_eq!(reference.continuation_sha256, fast.continuation_sha256);
         options.workers = 3.min(std::thread::available_parallelism().unwrap().get());
         let parallel = run_with_observer(&options, &Scratch::new().0, true).unwrap();
@@ -924,6 +960,8 @@ mod tests {
         assert_eq!(dropped.exact_samples_match, None);
         assert!(dropped.queue_accounting_matches);
         assert_eq!(dropped.queue_peak_chunks, 1);
+        assert_eq!(dropped.count_limited_dropped_chunks, dropped.dropped_chunks);
+        assert_eq!(dropped.byte_limited_dropped_chunks, 0);
         assert_eq!(dropped.production_watermark, dropped.released_through);
     }
 

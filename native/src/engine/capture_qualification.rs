@@ -39,6 +39,8 @@ pub struct CaptureQualificationReport {
     pub options: CaptureQualificationOptions,
     pub pending_budget_bytes: usize,
     pub queue_budget_bytes: usize,
+    /// Exact encoded payload allowance after mailbox, metadata, ring and staging reserves.
+    pub queue_payload_budget_bytes: usize,
     pub samples_observed: [u64; TEACHERS],
     pub samples_drained: [u64; TEACHERS],
     pub due_teacher_histogram: [u64; TEACHERS + 1],
@@ -50,6 +52,8 @@ pub struct CaptureQualificationReport {
     pub dropped_chunks: u64,
     pub dropped_samples: u64,
     pub dropped_bytes: u64,
+    pub count_limited_dropped_chunks: u64,
+    pub byte_limited_dropped_chunks: u64,
     pub production_watermark: u64,
     pub released_through: u64,
     pub samples_per_simulated_second: f64,
@@ -132,6 +136,11 @@ impl CaptureQualificationObserver {
                 options,
                 pending_budget_bytes: BUDGET,
                 queue_budget_bytes: BUDGET,
+                queue_payload_budget_bytes: running
+                    .teacher_capture_status()
+                    .ok_or("capture status missing after admission")?
+                    .1
+                    .payload_budget_bytes,
                 samples_observed: [0; TEACHERS],
                 samples_drained: [0; TEACHERS],
                 due_teacher_histogram: [0; TEACHERS + 1],
@@ -143,6 +152,8 @@ impl CaptureQualificationObserver {
                 dropped_chunks: 0,
                 dropped_samples: 0,
                 dropped_bytes: 0,
+                count_limited_dropped_chunks: 0,
+                byte_limited_dropped_chunks: 0,
                 production_watermark: 0,
                 released_through: 0,
                 samples_per_simulated_second: 0.0,
@@ -253,7 +264,8 @@ impl CaptureQualificationObserver {
         self.report.queue_peak_chunks = self.report.queue_peak_chunks.max(snapshot.queued_chunks);
         self.report.queue_peak_bytes = self.report.queue_peak_bytes.max(snapshot.queued_bytes);
         if snapshot.queued_chunks > self.report.options.queue_chunks
-            || snapshot.queued_bytes > BUDGET
+            || snapshot.payload_budget_bytes != self.report.queue_payload_budget_bytes
+            || snapshot.queued_bytes > snapshot.payload_budget_bytes
         {
             return Err("capture exceeded admitted queue".into());
         }
@@ -363,11 +375,17 @@ impl CaptureQualificationObserver {
         self.report.dropped_chunks = final_state.dropped_chunks;
         self.report.dropped_samples = final_state.dropped_samples;
         self.report.dropped_bytes = final_state.dropped_bytes;
+        self.report.count_limited_dropped_chunks = final_state.count_limited_dropped_chunks;
+        self.report.byte_limited_dropped_chunks = final_state.byte_limited_dropped_chunks;
         self.report.production_watermark = final_state.production_watermark;
         self.report.released_through = final_state.released_through;
         let observed: u64 = self.report.samples_observed.iter().sum();
         let drained: u64 = self.report.samples_drained.iter().sum();
-        self.report.queue_accounting_matches = observed == drained + final_state.dropped_samples
+        self.report.queue_accounting_matches = final_state
+            .count_limited_dropped_chunks
+            .checked_add(final_state.byte_limited_dropped_chunks)
+            == Some(final_state.dropped_chunks)
+            && observed == drained + final_state.dropped_samples
             && final_state.production_watermark
                 == self.report.chunks_drained + final_state.dropped_chunks
             && final_state.released_through == final_state.production_watermark;

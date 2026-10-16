@@ -41,6 +41,8 @@ pub struct OwnedTeacherChunk {
 /// Coherent counters independent of spool durability and its resolvedThrough.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TeacherQueueSnapshot {
+    /// Encoded payload allowance after ring and encoding headroom, excluding mailbox.
+    pub payload_budget_bytes: usize,
     pub production_watermark: u64,
     /// All sequences through here have left native ownership or were dropped.
     /// This is not durable storage settlement and is never a trainer ACK.
@@ -50,6 +52,9 @@ pub struct TeacherQueueSnapshot {
     pub dropped_chunks: u64,
     pub dropped_samples: u64,
     pub dropped_bytes: u64,
+    /// Disjoint drop attribution; a full descriptor ring takes precedence.
+    pub count_limited_dropped_chunks: u64,
+    pub byte_limited_dropped_chunks: u64,
 }
 
 /// One bounded drain, including counters even when no chunk fits the byte limit.
@@ -100,7 +105,10 @@ impl TeacherChunkQueue {
             chunks,
             max_chunks,
             payload_budget,
-            counters: TeacherQueueSnapshot::default(),
+            counters: TeacherQueueSnapshot {
+                payload_budget_bytes: payload_budget,
+                ..TeacherQueueSnapshot::default()
+            },
         })
     }
 
@@ -140,9 +148,15 @@ impl TeacherChunkQueue {
             sha256: Sha256::digest(&bytes).into(),
         };
         self.counters.production_watermark = sequence;
-        if self.chunks.len() == self.max_chunks
-            || bytes.len() > self.payload_budget - self.counters.queued_bytes
-        {
+        let count_limited = self.chunks.len() == self.max_chunks;
+        let byte_limited = bytes.len() > self.payload_budget - self.counters.queued_bytes;
+        if count_limited || byte_limited {
+            let reason = if count_limited {
+                &mut self.counters.count_limited_dropped_chunks
+            } else {
+                &mut self.counters.byte_limited_dropped_chunks
+            };
+            *reason = reason.saturating_add(1);
             self.counters.dropped_chunks = self.counters.dropped_chunks.saturating_add(1);
             self.counters.dropped_samples = self
                 .counters
@@ -275,6 +289,8 @@ mod tests {
         assert_eq!(full.released_through, 0);
         assert_eq!(full.queued_chunks, 1);
         assert_eq!(full.dropped_chunks, 1);
+        assert_eq!(full.count_limited_dropped_chunks, 1);
+        assert_eq!(full.byte_limited_dropped_chunks, 0);
         assert_eq!(full.dropped_samples, 1);
         assert_eq!(full.dropped_bytes, full.queued_bytes as u64);
         assert!(queue.drain(1, 0).unwrap().chunks.is_empty());
@@ -308,6 +324,62 @@ mod tests {
     }
 
     #[test]
+    fn full_sized_motion_chunks_reach_sixteen_mib_byte_pressure_before_count_pressure() {
+        // Match the runtime's reserved mailbox/metadata and the qualification's ring.
+        let budget = 16 * 1024 * 1024;
+        let mut queue = TeacherChunkQueue::new(
+            [17; 16],
+            8192,
+            budget
+                - super::super::teacher_mailbox::TEACHER_MAILBOX_BYTES
+                - super::super::teacher_mailbox::TEACHER_METADATA_HEADROOM,
+        )
+        .unwrap();
+        let mut source = chunk();
+        source.contract.input_size = 504; // Motion B32, the largest candidate width.
+        source.samples[0].observation.resize(504, -0.0);
+        source.samples = (0..61)
+            .map(|index| {
+                let mut row = source.samples[0].clone();
+                row.step += index;
+                row.ordinal += index;
+                row
+            })
+            .collect();
+        let encoded_len = source.encode().unwrap().len();
+        for _ in 0..256 {
+            if !queue.seal(source.clone()).unwrap() {
+                break;
+            }
+        }
+        let full = queue.snapshot();
+        assert_eq!(full.dropped_chunks, 1);
+        assert_eq!(full.byte_limited_dropped_chunks, 1);
+        assert_eq!(full.count_limited_dropped_chunks, 0);
+        assert!(full.queued_chunks < 8192);
+        assert!(full.queued_bytes <= full.payload_budget_bytes);
+        assert!(full.payload_budget_bytes - full.queued_bytes < encoded_len);
+        let mut drained_count = 0;
+        let mut drained_bytes = 0;
+        while queue.snapshot().queued_chunks > 0 {
+            let drain = queue.drain(64, 1024 * 1024).unwrap();
+            assert!(!drain.chunks.is_empty());
+            for owned in drain.chunks {
+                assert_eq!(
+                    TeacherChunkV1::decode(&owned.bytes).unwrap().samples,
+                    source.samples
+                );
+                drained_count += 1;
+                drained_bytes += owned.bytes.len();
+            }
+        }
+        assert_eq!(drained_count, full.queued_chunks);
+        assert_eq!(drained_bytes, full.queued_bytes);
+        assert_eq!(queue.snapshot().released_through, full.production_watermark);
+        assert!(queue.seal(source).unwrap());
+    }
+
+    #[test]
     fn invalid_input_does_not_consume_sequence_and_payload_ceiling_drops_whole() {
         let overhead = MAX_TEACHER_CHUNK_BYTES + std::mem::size_of::<OwnedTeacherChunk>();
         assert!(TeacherChunkQueue::new([0; 16], 1, overhead + 1).is_err());
@@ -320,11 +392,18 @@ mod tests {
         let mut bad = chunk();
         bad.samples[0].observation[0] = f32::NAN;
         assert!(queue.seal(bad).is_err());
-        assert_eq!(queue.snapshot(), TeacherQueueSnapshot::default());
+        assert_eq!(
+            queue.snapshot(),
+            TeacherQueueSnapshot {
+                payload_budget_bytes: 1,
+                ..TeacherQueueSnapshot::default()
+            }
+        );
         assert!(!queue.seal(chunk()).unwrap());
         assert_eq!(queue.snapshot().production_watermark, 1);
         assert_eq!(queue.snapshot().released_through, 1);
         assert_eq!(queue.snapshot().dropped_chunks, 1);
+        assert_eq!(queue.snapshot().byte_limited_dropped_chunks, 1);
         assert_eq!(queue.snapshot().queued_bytes, 0);
         queue.counters.production_watermark = u64::MAX;
         let before = queue.snapshot();

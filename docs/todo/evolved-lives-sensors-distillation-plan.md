@@ -722,7 +722,7 @@ Oxygen batches also preserve exact native capture/authority isolation and retain
 verified reports. P1 records 178.75 teacher rows per simulated second, 4.093%
 pooled incompleteness and 150.829 ms three-worker p95 on the loaded target;
 this is no timing pass. Full reports and their scope live under
-`docs/performance/sensor-v4/`; no limits/defaults are raised. Full byte pressure, spool/trainer resources and the integrated soak remain.
+`docs/performance/sensor-v4/`; no limits/defaults are raised. Spool/trainer resources and the integrated soak remain.
 
 Version-4 workload reports now partition existing native timers without adding
 hot-path timing calls. The matching P1 Windows/Oxygen baselines attribute about
@@ -773,6 +773,23 @@ owner-specific help and default PPO routing are covered. All 184 trainer tests
 pass with two existing optional-fixture skips, and full Pylint passes. Canonical
 training equations, optimizer/checkpoint ownership and the standalone runner
 are unchanged.
+
+Native capture now has a measured byte-pressure cohort using ten ordinary v2
+teachers at 60 Hz, the admitted 0.5-second respawn minimum and Motion B32. Windows
+and Oxygen fast drains preserve every source/drained row with one/three workers;
+capture off/on and byte pressure preserve complete authority continuations.
+Their 16 MiB queues reach the encoded byte allowance with only 103 of 8,192
+chunk slots occupied, dropping 89/90 whole chunks with exact row/release
+accounting. The aggregate rates are 589.5/592.5 rows per simulated second;
+ten-teacher intervals reach 600, but ordinary death gaps preclude a sustained
+600-row claim. Eight retained reports and the bounded reproducible cohort driver
+are under `docs/performance/sensor-v4/` and `scripts/qualification/`. Node 24 CI
+runs the cohort on both supported platforms. All 751 Windows release library
+tests and 183 rebuilt-addon required-native checks pass, with six existing skips
+in that overlay; rustfmt and both Clippy configurations pass. Native byte-pressure behavior
+is qualified for this cohort; spool/trainer resources and the integrated soak
+remain open. Both scratch ceilings remain 512 MiB and production teacher delay
+remains 20 seconds.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
