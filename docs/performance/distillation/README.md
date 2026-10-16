@@ -45,12 +45,12 @@ The pinned PyRL CI job runs the same gate on Linux CPU with one and three worker
 local Windows CPU/CUDA reports are retained here.
 
 
-The retained Windows cases are CPU with one/three workers and CUDA with one
+The v1 Windows cases are CPU with one/three workers and CUDA with one
 worker. The CUDA report's host bytes correspond to commit `ac360d2` (Windows
 line endings); CPU reports use `b39b741`, which adds strict host type checking and
 scheduler-debt telemetry. Native/core trainer math is unchanged between these
-hosts. CUDA with three workers and the named larger-workload/soak gates remain
-unqualified. A report's source hashes and explicit workload define its scope;
+hosts. The later v2 CUDA three-worker gate is recorded below; the named
+larger-workload/soak gates remain unqualified. A report's source hashes and explicit workload define its scope;
 none of these small-student runs selects production v4/v2 defaults.
 
 
@@ -65,3 +65,25 @@ snapshot is taken before the compatible-student handoff. The new
 `live-library-cpu-w1-v1.json` and `live-library-cpu-w3-v1.json` reports pass on
 Windows; the pinned Linux job runs the same extended gate. The earlier v1 reports
 retain their original scope and source identities.
+
+
+`live-library-cuda-w3-v1.json` passes the extended v2 gate on Windows with three
+native workers, Torch 2.14.0+cu126/CUDA 12.6 and an RTX 4080. GRU and compatible
+Dense students each reach 250 updates, with independent-process update-126
+restart witnesses, native shadows and the complete library/deletion/retained
+inference handoff. Exact sources are Slither `8c2df37` and PyRL `9aa4eee`; the
+report also binds the executed file and native hashes.
+
+The GRU processes take 46.0 and 41.203 seconds; Dense takes 11.625 and 10.953.
+The reported host peak is 159.0 MiB, GRU Python peak 1,297.2 MiB, Torch allocated
+peak 17.8 MiB and reserved peak 22 MiB. CUDA allocator peaks exclude context and
+driver allocations. Native p95/p99 buckets are 6/8 ms with zero dropped wall debt
+for this explicitly small Dense world, not the required modest/large graph cost
+gate. All four shadow slots deliver actual samples, and forbidden controller
+requests remain zero. Larger resource workloads and sustained held-out quality
+remain separate gates.
+
+The configured 8 GiB device allowance is a ceiling. Admission checks the calculated
+job estimate against both that ceiling and current free CUDA memory; it does not
+require 8 GiB free for this small job. This run uses the unchanged job and sequence
+configuration.
