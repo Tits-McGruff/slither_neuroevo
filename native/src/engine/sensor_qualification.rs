@@ -173,11 +173,57 @@ pub(crate) fn distribution(values: &mut [f64]) -> CostDistribution {
     }
 }
 
+/// Disjoint attribution from existing production timers; no new hot-path timing.
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePhaseCostTotals {
+    pub samples: u64,
+    pub total_micros: u64,
+    pub index_micros: u64,
+    pub sensing_micros: u64,
+    pub inference_micros: u64,
+    pub other_control_micros: u64,
+    pub world_step_micros: u64,
+    pub other_micros: u64,
+}
+impl NativePhaseCostTotals {
+    fn record(&mut self, total: u64, cost: super::running_step::RunningStepCostMicros) {
+        // Match the production health partition: nested timers never become
+        // additive peers, and rounding/inconsistent costs cannot exceed service.
+        let control = cost.control_selection.min(total);
+        let index = cost.control_index.min(control);
+        let neural = cost.control_neural.min(control - index);
+        let sensing = cost.control_sensing.min(neural);
+        let inference = cost.control_inference.min(neural - sensing);
+        let world = cost.world_step.min(total - control);
+        self.samples += 1;
+        self.total_micros += total;
+        self.index_micros += index;
+        self.sensing_micros += sensing;
+        self.inference_micros += inference;
+        self.other_control_micros += control - index - sensing - inference;
+        self.world_step_micros += world;
+        self.other_micros += total - control - world;
+    }
+
+    fn component_total(self) -> u64 {
+        self.index_micros
+            + self.sensing_micros
+            + self.inference_micros
+            + self.other_control_micros
+            + self.world_step_micros
+            + self.other_micros
+    }
+}
+
 /// Admission can fail before a candidate allocates its full packed population.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SensorQualificationReport {
     pub version: u32,
+    pub native_phase_costs: NativePhaseCostTotals,
+    /// Same 16,667-microsecond boundary used by production slow-step health.
+    pub slow_native_phase_costs: NativePhaseCostTotals,
     pub capture: Option<super::capture_qualification::CaptureQualificationReport>,
     pub capture_options: Option<super::capture_qualification::CaptureQualificationOptions>,
     pub environment: String,
@@ -491,7 +537,7 @@ fn run_with_observer(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        version:3,capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
+        version:4,native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
@@ -629,7 +675,8 @@ fn run_with_observer(
                 )),
             )
             .map_err(|error| error.to_string())?;
-        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        let service_duration = started.elapsed();
+        let elapsed = service_duration.as_secs_f64() * 1000.0;
         if !matches!(progress, RunningAuthorityLoopProgress::Published { .. })
             || running.completed_step() != ordinal as u64 + 1
         {
@@ -640,6 +687,12 @@ fn run_with_observer(
         if ordinal >= options.warmup_steps {
             steps.push(elapsed);
             let analysis = Instant::now();
+            let micros = u64::try_from(service_duration.as_micros()).unwrap_or(u64::MAX);
+            let phases = running.last_step_cost();
+            report.native_phase_costs.record(micros, phases);
+            if micros > 16_667 {
+                report.slow_native_phase_costs.record(micros, phases);
+            }
             if observer_enabled {
                 observe_committed(&running, &mut report)?;
             }
@@ -659,6 +712,12 @@ fn run_with_observer(
     let cost = distribution(&mut steps);
     report.native_step_p95_within_60hz = Some(cost.p95_ms <= 1000.0 / 60.0);
     report.step_cost = Some(cost);
+    if report.native_phase_costs.component_total() != report.native_phase_costs.total_micros
+        || report.slow_native_phase_costs.component_total()
+            != report.slow_native_phase_costs.total_micros
+    {
+        return Err("native phase costs do not partition measured service".into());
+    }
     report.observer_cost = Some(distribution(&mut observer));
     if report.observations != 0 && options.profile != SensorProfile::V3 {
         let fraction = report.ray_incomplete_observations as f64 / report.observations as f64;
@@ -758,6 +817,13 @@ mod tests {
             assert!(observed.raw[11].samples > 0);
             assert!(observed.ray_charged_units <= 12 * 16384);
             assert!(observed.step_cost.is_some() && observed.observer_cost.is_some());
+            assert_eq!(observed.native_phase_costs.samples, 12);
+            assert_eq!(
+                observed.native_phase_costs.component_total(),
+                observed.native_phase_costs.total_micros
+            );
+            assert!(observed.native_phase_costs.total_micros > 0);
+
             assert_eq!(observed.consumer_work, parallel.consumer_work);
             if mode.is_some() {
                 let capture = observed.capture.as_ref().unwrap();
@@ -859,6 +925,30 @@ mod tests {
         assert!(dropped.queue_accounting_matches);
         assert_eq!(dropped.queue_peak_chunks, 1);
         assert_eq!(dropped.production_watermark, dropped.released_through);
+    }
+
+    #[test]
+    fn native_phase_attribution_partitions_nested_and_inconsistent_timer_values() {
+        let cost = super::super::running_step::RunningStepCostMicros {
+            control_selection: 200,
+            control_index: 50,
+            control_neural: 120,
+            control_sensing: 70,
+            control_inference: 60,
+            world_step: 90,
+            ..Default::default()
+        };
+        let mut totals = NativePhaseCostTotals::default();
+        totals.record(500, cost);
+        assert_eq!(totals.component_total(), 500);
+        assert_eq!(totals.inference_micros, 50);
+        assert_eq!(totals.other_control_micros, 30);
+        assert_eq!(totals.other_micros, 210);
+        totals.record(100, cost);
+        assert_eq!(totals.samples, 2);
+        assert_eq!(totals.component_total(), 600);
+        assert_eq!(totals.total_micros, 600);
+        assert_eq!(totals.world_step_micros, 90);
     }
 
     #[test]

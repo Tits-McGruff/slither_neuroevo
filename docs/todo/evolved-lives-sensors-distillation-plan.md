@@ -717,9 +717,12 @@ one/three workers; normal capture loses no rows and count-limited slow capture
 drops only complete chunks with reconciled accounting. All 746 release library
 tests and 16 rebuilt-addon tests pass. The actual rates are 422.2/204.45 rows per
 simulated second, not a sustained 600-row pass. P1's 24.998 ms three-worker p95
-and 4.103% pooled incomplete rate still fail necessary sensor gates. Full reports
-and their scope live under `docs/performance/sensor-v4/`; no limits/defaults are
-raised. Full byte pressure, spool/trainer resources and the integrated soak remain.
+and 4.103% pooled incomplete rate still fail necessary sensor gates. Matching
+Oxygen batches also preserve exact native capture/authority isolation and retain
+verified reports. P1 records 178.75 teacher rows per simulated second, 4.093%
+pooled incompleteness and 150.829 ms three-worker p95 on the loaded target;
+this is no timing pass. Full reports and their scope live under
+`docs/performance/sensor-v4/`; no limits/defaults are raised. Full byte pressure, spool/trainer resources and the integrated soak remain.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
