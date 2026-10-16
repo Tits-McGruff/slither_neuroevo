@@ -287,3 +287,50 @@ The slow-step subset shows the same dominant sensing cost. Remaining control
 and service costs complete the partition. This directs optimization toward
 sensing without changing graph dimensions, ray grants, quality thresholds or
 scratch limits. Source and codec checks remain mandatory for any candidate.
+
+## Reverted shared-bounds experiment
+
+The two `bounds-abba-*-v1/` directories retain four version-4 workload reports
+and one comparison manifest per platform. Baseline commit `74dd8dc` and
+candidate commit `10c5383` differ only in sharing validated inflated bounds
+across a ray packet. Commit `c32f6cb` reverts the candidate. Source/build and
+comparison-script fingerprints are retained in the reports/manifests; no
+executable is retained.
+
+Each platform runs baseline/candidate/candidate/baseline with the same P1
+Motion/B16 modest graph, seed 42, three workers, SSE2, stochastic-v2 exact 60 Hz,
+capture, five warmup and 1,200 measured steps. Every case has the same complete
+authority continuation, consumer counters, normalized histograms and exact
+source/decoded teacher-sample witnesses within its platform. Compressed report
+bytes roundtrip to the SHA-256 fingerprints in `comparison.json`.
+
+| Platform | Baseline mean / candidate | Baseline sensing / candidate | Baseline p95 / candidate |
+|---|---:|---:|---:|
+| Windows | 21.138 / 20.868 ms | 14.407 / 14.090 ms | 24.256 / 23.976 ms |
+| Oxygen | 99.113 / 100.919 ms | 64.038 / 64.651 ms | 153.586 / 158.935 ms |
+
+Values are medians of the two runs for each role. Windows mean service improves
+1.28%; Oxygen worsens 1.82%, with no demonstrated cross-platform benefit. Median
+whole-process CPU time is 59.758 / 59.398 seconds on Windows and 227.054 /
+227.196 seconds on Oxygen. These shared-host descriptive observations carry no
+confidence or release-pass claim. Process CPU/wall covers CLI startup, observer
+and drain work; native step timings exclude the external observer. Windows uses
+an eight-core Ryzen 7 5800X; Oxygen uses its existing loaded Ryzen 7 2700 target.
+The experiment does not address the unchanged approximately 4.1% pooled
+incomplete rate. Production defaults and admission limits remain unchanged.
+
+Build the two immutable commits separately using
+`cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin sensor-v4-qualification`,
+preserving each executable before building the other. With those executable
+paths, reproduce the comparison from the repository root:
+
+```text
+python scripts/qualification/compare-sensor-workloads.py --baseline BASELINE_EXE --candidate CANDIDATE_EXE --baseline-source 3ddf0559e779bf30b74da3fe86f0756791f86dd2635184af286244271bfdb4c2 --directory NEW_REPORT_DIRECTORY
+```
+
+Use `--environment oxygen-debian` on Oxygen. The directory must not already
+exist. The utility bounds runtime/report size, fingerprints binaries before and
+after each run, rejects changing/incompatible workloads and keeps its checks
+active under Python optimization. It does not automate statistical qualification.
+The exact task-owned comparison executables, raw transfers and remote build tree
+were removed after permanent report verification.
