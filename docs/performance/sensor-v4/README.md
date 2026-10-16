@@ -69,6 +69,13 @@ construction. Unavailable platform probes remain null. Version 2 adds fixed
 denominators, policy world-read/draw counts and a per-step shared batch-budget
 witness. Legacy histogram/`observations` fields remain neural-only.
 
+Version 4 adds fixed disjoint totals from the existing production phase timers,
+for all measured steps and the same >16,667-microsecond slow-step subset used by
+health. Index, sensing, inference, remaining control, physics and remaining
+service partition integer service time; nested timers are bounded before adding.
+These are aggregate costs, not phase percentiles. Collecting them adds no new
+clock calls inside sensing or geometry and retains no per-step phase history.
+
 These runs use seeded random populations, explicitly recorded baseline mode and
 cadence, an immutable run-start checkpoint with benchmark acknowledgement, and controlled clock input.
 They exclude Node/browser/network, SQLite, startup, checkpoint timing and wall-debt
@@ -240,3 +247,43 @@ tests, default/all-target test-hook Clippy and rustfmt pass. CI retains short
 normal/slow capture reports in addition to the native tactical batch. Full
 16 MiB byte pressure, sustained ten-living-teacher capture, Node spool/trainer
 capacity and the integrated six-hour soak remain separate required gates.
+
+## Version-3 Oxygen native capture batches
+
+The eight matching `oxygen-p[01]-motion-b16-60hz-*-v3.json.gz` reports use the
+same source, arguments and capture pressure on x86_64 Debian. Complete authority
+continuations, consumer counters, normalized histograms and source sample
+witnesses agree across capture modes and one/three workers within each workload.
+Normal draining loses no rows; the slow count-limited queues reconcile all drops.
+Every transfer was SHA-256 verified before lossless compression and byte-for-byte
+roundtrip verification. Cross-platform trajectories remain separate experiments.
+
+| Workload | Actual teacher rows | Rows/simulated second | Normal 3-worker p95 | Normal peak RSS | Slow dropped rows |
+|---|---:|---:|---:|---:|---:|
+| P0 | 8,444 | 422.20 | 55.826 ms | 19.19 MiB | 8,404 |
+| P1 | 3,575 | 178.75 | 150.829 ms | 46.05 MiB | 3,570 |
+
+P0 has no incomplete delivery. P1 has 4.093% pooled incompleteness and 31/3,575
+(0.867%) in the teacher subgroup; the pooled quality gate still fails. Neither
+interval contains a ten-due-teacher step. These are loaded-target observations,
+with no timing qualification: load average changes from 2.33/3.09/3.13 to
+4.31/3.85/3.45. Each CLI case checks its disk reserve; completion free space is
+6.9 GiB. Unrelated processes remain untouched. Existing Windows full-rate,
+byte-pressure and integrated capacity limitations remain open.
+
+## Existing-timer P1 attribution
+
+The retained `*-p1-motion-b16-60hz-normal-w3-v4.json.gz` baselines add attribution
+to the same 1,200-step workload. Each platform's complete continuation and
+normalized histograms match its preceding version-3 cohort. They remain loaded
+observations with recorded source/build identity, rather than a release cost pass.
+
+| Platform | Mean native service | Sensing share | Inference share | Index share | Physics share |
+|---|---:|---:|---:|---:|---:|
+| Windows | 17.847 ms | 65.88% | 6.21% | 1.94% | 19.11% |
+| Oxygen | 109.339 ms | 66.24% | 7.89% | 1.49% | 18.66% |
+
+The slow-step subset shows the same dominant sensing cost. Remaining control
+and service costs complete the partition. This directs optimization toward
+sensing without changing graph dimensions, ray grants, quality thresholds or
+scratch limits. Source and codec checks remain mandatory for any candidate.
