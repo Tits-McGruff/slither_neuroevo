@@ -684,6 +684,19 @@ food-trap/stochastic-crossing limitations are explicit under
 `docs/performance/baseline-v2/`; this is not final teacher qualification. CI runs
 and retains a bounded Windows/Ubuntu tactical matrix.
 
+Avoidance now retains stronger steering until heading alignment, preserves a
+reachable escape side and suppresses exploration during the manoeuvre. Bounded
+actual-delivery decision tails exposed the earlier relaxation/reversal failures;
+odd-bin layouts also check both forward neighbours. All 256 native wall/food-trap
+regressions pass across 16 seeds, both profiles/modes and 60 Hz/0.06-second
+cadences. Windows/Oxygen release matrices agree across one/three workers at
+60 Hz and 0.06 seconds; frozen-v1 cohorts match the previous platform records. All 740 release
+library tests and 16 actual-addon identity/runtime/capture/shadow tests pass.
+Version-2 reports retain compressed complete JSON and diagnostic tails under
+`docs/performance/baseline-v2/`. Basic geometric boost escape is still missing;
+its current eligibility uses Motion-only signals. Crowded/late contacts, scarce
+ray budgets and representative quality evaluation remain open.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

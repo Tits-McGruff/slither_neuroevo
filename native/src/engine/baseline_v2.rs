@@ -16,6 +16,9 @@ pub const BASELINE_V2_VERSION: u32 = 2;
 const COMMITMENT_SECONDS: f64 = 0.2;
 const SWITCH_IMPROVEMENT: f64 = 0.15;
 const URGENT_URGENCY: f64 = 0.75; // TTC < 0.5 s in the declared two-second horizon.
+                                  // Emergency proportional steering remains stable at the admitted 14 rad/s
+                                  // turn-rate and 0.06-second cadence: 14 * 0.06 / (PI / 6) < 2.
+const AVOID_TURN_ANGLE: f64 = PI / 6.0;
 const SAFE_CLEARANCE: f64 = 0.3; // V1's -0.4 bipolar veto, decoded to [0,1].
 
 /// Strategy RNG policy; lifecycle/placement randomness is a separate stream.
@@ -303,6 +306,29 @@ impl BaselineV2Policy {
                 }
             }
         }
+        // Odd layouts have two rays bracketing straight ahead. A hazard in
+        // either neighbouring sector must not disappear from current-route safety.
+        let forward_clearance = [self.bins / 2, self.bins.div_ceil(2)]
+            .into_iter()
+            .map(|bin| {
+                let forward = sample.sector(bin);
+                forward
+                    .body_sector
+                    .min(forward.body_ray)
+                    .min(forward.wall_ray)
+                    .min(forward.head_clearance)
+            })
+            .fold(1.0, f64::min);
+        let avoidance_side = state
+            .committed_heading
+            .filter(|_| {
+                state.strategy == BaselineStrategyState::Avoid && forward_clearance < SAFE_CLEARANCE
+            })
+            .map(|committed| wrap(committed - heading))
+            .filter(|angle| angle.abs() > f64::EPSILON)
+            .map(f64::signum);
+        let exploring =
+            forward_clearance >= SAFE_CLEARANCE && state.strategy != BaselineStrategyState::Avoid;
         let mut draws = 0;
         if self.mode == BaselineV2Mode::Deterministic {
             // A stochastic continuation cannot introduce wandering when mode changes.
@@ -310,7 +336,11 @@ impl BaselineV2Policy {
             if state.wander_remaining_seconds == 0.0 {
                 state.wander_remaining_seconds = 1.3;
             }
-        } else if best_food <= 0.05 && urgent == 0 && state.wander_remaining_seconds == 0.0 {
+        } else if exploring
+            && best_food <= 0.05
+            && urgent == 0
+            && state.wander_remaining_seconds == 0.0
+        {
             state.wander_angle = (rng.next_f64() - 0.5) * 0.6;
             state.wander_remaining_seconds = 0.6 + rng.next_f64() * 1.4;
             draws = 2;
@@ -389,6 +419,28 @@ impl BaselineV2Policy {
         if !any_safe {
             best = fallback;
         }
+        // Reversing the turn toward another superficially clear ray can make
+        // neither escape reachable. Keep the avoidance side while a safe route
+        // exists there; an actually blocked side still permits changing sides.
+        if any_safe {
+            if let Some(side) = avoidance_side {
+                let mut same_side = None;
+                for (bin, is_safe) in safe.iter().copied().enumerate().take(self.bins) {
+                    let bearing = angle(bin, self.bins);
+                    if is_safe
+                        && (bearing.signum() == side || bearing.abs() == PI)
+                        && same_side.is_none_or(|previous| {
+                            preferred(scores[bin], bin, scores[previous], previous, self.bins)
+                        })
+                    {
+                        same_side = Some(bin);
+                    }
+                }
+                if let Some(bin) = same_side {
+                    best = bin;
+                }
+            }
+        }
         let mut held_heading = None;
         if let Some(committed) = state.committed_heading {
             let old = sector(wrap(committed - heading), self.bins);
@@ -401,14 +453,17 @@ impl BaselineV2Policy {
             }
         }
         let selected = sample.sector(best);
-        let roam = best_food <= 0.05 && urgent == 0 && pursuit & (1 << best) == 0;
+        let roam = exploring && best_food <= 0.05 && urgent == 0 && pursuit & (1 << best) == 0;
         let wander = state
             .wander_angle
             .clamp(-0.8 * PI / self.bins as f64, 0.8 * PI / self.bins as f64);
-        let target_angle = held_heading.map_or_else(
+        let mut target_angle = held_heading.map_or_else(
             || wrap(angle(best, self.bins) + if roam { wander } else { 0.0 }),
             |committed| wrap(committed - heading),
         );
+        if target_angle == -PI && avoidance_side == Some(1.0) {
+            target_angle = PI;
+        }
         if held_heading.is_none() {
             state.committed_heading = Some(wrap(heading + target_angle));
             state.commitment_remaining_seconds = if safe[best] { COMMITMENT_SECONDS } else { 0.0 };
@@ -427,7 +482,16 @@ impl BaselineV2Policy {
             && selected.urgency == 0.0
             && clearances[best] * near > self.environment.snake_boost_speed * 0.5
             && target_angle.abs() < PI / 4.0;
-        state.strategy = if urgent != 0 || !safe[best] {
+        // A clear target ray does not make our current turning path clear. Do
+        // not relax to cruise steering while still approaching a wall/body or
+        // finishing the same avoidance commitment. This uses delivered channels
+        // and existing private strategy state, never another world query.
+        let finishing_avoidance = state.strategy == BaselineStrategyState::Avoid
+            && held_heading.is_some()
+            && target_angle.abs() > PI / (2.0 * self.bins as f64);
+        let avoiding =
+            urgent != 0 || !safe[best] || forward_clearance < SAFE_CLEARANCE || finishing_avoidance;
+        state.strategy = if avoiding {
             BaselineStrategyState::Avoid
         } else if boost {
             BaselineStrategyState::Boost
@@ -437,7 +501,13 @@ impl BaselineV2Policy {
             BaselineStrategyState::Roam
         };
         Ok(BaselineV2Action {
-            turn: (target_angle / FRAC_PI_2).clamp(-1.0, 1.0) as f32,
+            turn: (target_angle
+                / if avoiding {
+                    AVOID_TURN_ANGLE
+                } else {
+                    FRAC_PI_2
+                })
+            .clamp(-1.0, 1.0) as f32,
             boost,
             sector: best,
             life_stage: stage,
@@ -763,6 +833,23 @@ mod tests {
             8
         );
     }
+    #[test]
+    fn odd_bin_forward_safety_reads_both_neighbouring_wall_sectors() {
+        for bins in [9, 17, 31] {
+            for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+                let p = policy(profile, bins, BaselineV2Mode::Deterministic);
+                for front in [bins / 2, bins.div_ceil(2)] {
+                    let mut row = sample(profile, bins);
+                    put(&mut row, bins, 4, front, -0.9);
+                    let action = evaluate(&p, &row, BaselineV2State::default());
+                    assert_eq!(action.next_state.strategy, BaselineStrategyState::Avoid);
+                    assert!(action.turn.abs() > 0.1 && action.turn.is_finite());
+                    assert!(!action.boost && action.uniform_draws == 0);
+                }
+            }
+        }
+    }
+
     #[test]
     fn commitment_holds_world_heading_and_unsafe_or_new_life_breaks_it() {
         let p = policy(SensorProfile::Motion, 16, BaselineV2Mode::Deterministic);
