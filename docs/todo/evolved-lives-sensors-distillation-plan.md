@@ -461,8 +461,9 @@ world steps continue through training and activation. PyRL CI pins the Slither
 host and runs this gate on Linux CPU with one/three workers. Unchanged native
 capture/four-shadow continuation tests remain the mathematical isolation
 witnesses; these live runs add committed provenance and cross-process handoff.
-CUDA three-worker qualification, larger-workload resource/VRAM measurements,
-held-out tactical/ablation evaluation and final integrated soak remain open.
+At that checkpoint, CUDA three-worker qualification, larger-workload resource/VRAM
+measurements, held-out tactical/ablation evaluation and final integrated soak
+remained open.
 The extended live gate also trains a compatible Dense student to update 250 with
 the same exact process-restart check. It saves both trained architectures,
 rejects GRU deployment in the Dense world, exports the compatible original
@@ -655,8 +656,10 @@ with an independent-process restart at update 125, validates immutable artifacts
 activates native shadows, saves/exports/deploys compatible Dense weights and
 retains native inference/provenance after catalog deletion. Linux CPU CI passes
 with one/three native workers; Windows CPU reports retain the same path. CUDA
-one-worker training/restart/shadow evidence passes; its three-worker rerun and
-integrated resource qualification remain open. Reports and their exact scope
+one-worker training/restart/shadow evidence passes. The extended three-worker
+CUDA gate now also passes both 250-update students, exact next-update restarts,
+four native shadows and the compatible library/deletion/retained-inference path.
+Integrated larger-workload resource qualification remains open. Reports and their exact scope
 live under `docs/performance/distillation/`.
 
 The sensor workload runner accepts explicit v2 mode/cadence and records committed
