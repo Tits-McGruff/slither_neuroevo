@@ -791,14 +791,30 @@ is qualified for this cohort; spool/trainer resources and the integrated soak
 remain open. Both scratch ceilings remain 512 MiB and production teacher delay
 remains 20 seconds.
 
+PyRL commit `61d0e00` exposes the section-18 new-job controls for seed, CPU
+threads, device/replay budgets, learning rate and sequence windows through the
+canonical runner. Public ranges reject before file/network access; fresh CLI
+seed is 1, while library defaults and exact resumed choices retain their meanings.
+CPU counts respect process affinity, including an actual one-CPU Windows child
+under an overridden Python CPU count. Explicit CUDA admission checks availability
+and physical capacity; the 8 GiB ceiling need not be entirely free if the admitted
+estimate fits. Batch 256 and both 256-delivery window endpoints train on CPU/CUDA
+and checkpoint correctly. Replay quotas span 64..2048 MiB with a 256 MiB default
+and no eager capacity allocation. Streamed checkpoint disk limits derive from the
+recorded replay quota and bounded roles, with unchanged directory/object caps
+and disk reserve; ZIP64 and pre-read raw replay admission have regressions.
+All 230 trainer tests pass with two existing optional-fixture skips; full Pylint
+passes. Loaded maximum-quota RAM/VRAM and integrated-soak qualification remain
+open. Native scratch ceilings stay at 512 MiB.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
 six-hour-equivalent soak. Inspector and library implementation are present; their
-capacity qualification remains open. The final section-18 settings-surface audit
-and trainer-facing job controls also remain; the main entry point now selects
-the independent distillation runner. Existing v3/v1
-runtime defaults remain until their stages qualify.
+capacity qualification and the final section-18 settings-surface audit remain
+open. The main entry point selects the independent distillation runner and its
+bounded job controls. Existing v3/v1 runtime defaults remain until their stages
+qualify.
 
 Repository inspection baseline:
 
