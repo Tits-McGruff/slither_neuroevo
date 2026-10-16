@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "scriptSha256": "cba90bae63f8d2a7f5cb02576424f42257ec149680c15b37d9978f92cd395267",
+  "arguments": [
+    "--scenario",
+    "P1",
+    "--profile",
+    "motion",
+    "--bins",
+    "16",
+    "--graph",
+    "modest",
+    "--respawn",
+    "on",
+    "--seed",
+    "42",
+    "--workers",
+    "3",
+    "--math-backend",
+    "sse2",
+    "--minimum",
+    "1",
+    "--cap",
+    "256",
+    "--batch",
+    "65536",
+    "--baseline",
+    "v2-stochastic",
+    "--baseline-cadence",
+    "0.016666666666666666",
+    "--capture",
+    "on",
+    "--warmup",
+    "5",
+    "--steps",
+    "1200",
+    "--environment",
+    "oxygen-debian"
+  ],
+  "order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline"
+  ],
+  "equivalent": true,
+  "records": [
+    {
+      "role": "baseline",
+      "report": "0-baseline.json",
+      "reportSha256": "84bfd2e36560eb1fea8c1e3ca6be632da2382e39b1ad7754280e3b5a6d3c78d0",
+      "sourceSha256": "3ddf0559e779bf30b74da3fe86f0756791f86dd2635184af286244271bfdb4c2",
+      "binarySha256": "143054db0308b41e8f1666d71f4ea7a15b403bd9c788d46dd3b25543b9276de3",
+      "nativeMeanMs": 65.67672999999999,
+      "sensingMeanMs": 44.29074333333333,
+      "nativeP95Ms": 108.71316999999999,
+      "processCpuSeconds": 159.269131,
+      "processWallSeconds": 81.37119159195572,
+      "effectiveProcessCores": 1.957315947868523
+    },
+    {
+      "role": "candidate",
+      "report": "1-candidate.json",
+      "reportSha256": "8c415f0c39861c11ebe5cd31d33869f1a4acbc88c2ba4674fe8e9c681bf1be43",
+      "sourceSha256": "d6043cd0fe776004923d517df78fac6e7c2d2e4edb7b50f8362fe18e18ddb6ad",
+      "binarySha256": "70795aeb1dc8cb7b326439dc15dc5658291c3f3b414708771c0fee90eb00a416",
+      "nativeMeanMs": 61.90598000000001,
+      "sensingMeanMs": 41.6441725,
+      "nativeP95Ms": 103.741716,
+      "processCpuSeconds": 149.811345,
+      "processWallSeconds": 76.65494298213162,
+      "effectiveProcessCores": 1.9543598778088094
+    },
+    {
+      "role": "candidate",
+      "report": "2-candidate.json",
+      "reportSha256": "59678cd4033f8023fd9725b764d21f2afb2728a72e0623f6f97a663761294b03",
+      "sourceSha256": "d6043cd0fe776004923d517df78fac6e7c2d2e4edb7b50f8362fe18e18ddb6ad",
+      "binarySha256": "70795aeb1dc8cb7b326439dc15dc5658291c3f3b414708771c0fee90eb00a416",
+      "nativeMeanMs": 61.67754583333333,
+      "sensingMeanMs": 41.26621333333333,
+      "nativeP95Ms": 104.448121,
+      "processCpuSeconds": 149.52378900000002,
+      "processWallSeconds": 76.30979912215844,
+      "effectiveProcessCores": 1.9594310392645509
+    },
+    {
+      "role": "baseline",
+      "report": "3-baseline.json",
+      "reportSha256": "3b6f646ee4e20831b1fd61b64e198cc7f19a6ffa13abfa9a370157933f17b3d1",
+      "sourceSha256": "3ddf0559e779bf30b74da3fe86f0756791f86dd2635184af286244271bfdb4c2",
+      "binarySha256": "143054db0308b41e8f1666d71f4ea7a15b403bd9c788d46dd3b25543b9276de3",
+      "nativeMeanMs": 66.18089416666666,
+      "sensingMeanMs": 44.424747499999995,
+      "nativeP95Ms": 111.419113,
+      "processCpuSeconds": 159.768934,
+      "processWallSeconds": 81.82650856394321,
+      "effectiveProcessCores": 1.9525327036916014
+    }
+  ],
+  "medians": {
+    "baseline": {
+      "nativeMeanMs": 65.92881208333333,
+      "sensingMeanMs": 44.35774541666666,
+      "nativeP95Ms": 110.06614149999999
+    },
+    "candidate": {
+      "nativeMeanMs": 61.79176291666667,
+      "sensingMeanMs": 41.45519291666667,
+      "nativeP95Ms": 104.0949185
+    }
+  },
+  "caveat": "Adjacent ABBA process runs on a shared host; descriptive timing evidence, not a release pass or statistical confidence claim. Native reports exclude observer/startup from step cost; child CPU/wall includes the entire CLI process. Exact equality is asserted for these same-target workloads only, not promised across revisions/platforms. Reports and executables are immutable during the comparison; no owner database, controller, or runtime defaults change."
+}

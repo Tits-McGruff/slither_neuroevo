@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-16)
+## Implementation progress (2026-10-17)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -750,13 +750,37 @@ Native runtime validation reuses the unchanged source's 747-test release run.
 Real-browser inspection uses synthetic metadata, separately from native/API
 evidence; it does not qualify sustained capture, training or a new sensor default.
 
+V4 now shares validated head facts across one pre-movement observation boundary.
+The cold buffer is included in staging admission and warm capacity diagnostics;
+both 512 MiB scratch ceilings remain unchanged. Exact cached/reference vectors,
+receipts, traces and work counters match across both profiles, every B8..32 and
+multiple grants. All 750 native release library tests and 183 required-native
+checks pass, with six existing skips in that overlay; rustfmt and both Clippy
+configurations pass. Twenty retained
+Windows/Oxygen ABBA reports preserve complete continuations and sample witnesses,
+including Oxygen P1 across a fixed-affinity follow-up. Windows P1 mean service
+improves about 8%; fixed-affinity Oxygen P1 improves about 6.3%, while the
+unrestricted Oxygen result remains noisy. P1 still fails the necessary timing
+and pooled ray-quality gates. Source commits, full measurements and scope are in
+`docs/performance/sensor-v4/README.md`.
+
+PyRL commit `34f1e33` adds `python -m pyrl_trainer --mode distillation`, delegating
+the remaining arguments to the existing canonical job owner. Default/explicit
+PPO startup remains available. Owner-specific imports are lazy: Distillation
+does not load PPO settings or import its actor/learner modules. A fresh-process
+test rejects malformed PPO environment leakage; exact argument forwarding,
+owner-specific help and default PPO routing are covered. All 184 trainer tests
+pass with two existing optional-fixture skips, and full Pylint passes. Canonical
+training equations, optimizer/checkpoint ownership and the standalone runner
+are unchanged.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
 six-hour-equivalent soak. Inspector and library implementation are present; their
 capacity qualification remains open. The final section-18 settings-surface audit
-and trainer-facing job controls also remain; the trainer currently has a standalone
-distillation CLI. Existing v3/v1
+and trainer-facing job controls also remain; the main entry point now selects
+the independent distillation runner. Existing v3/v1
 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

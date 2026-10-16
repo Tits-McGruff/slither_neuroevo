@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "benchmarkAffinity": [
+    1,
+    4,
+    6,
+    7
+  ],
+  "availableBefore": 8,
+  "sampledUtilization": {
+    "0": 0.28846153846153844,
+    "1": 0.2524271844660194,
+    "2": 0.27450980392156865,
+    "3": 0.30097087378640774,
+    "4": 0.2621359223300971,
+    "5": 0.691588785046729,
+    "6": 0.2710280373831776,
+    "7": 0.2647058823529411
+  },
+  "loadBefore": [
+    1.7333984375,
+    3.32177734375,
+    3.3203125
+  ],
+  "loadAfter": [
+    3.7451171875,
+    3.748046875,
+    3.53759765625
+  ],
+  "method": "One-second /proc/stat deltas; four least-busy initially allowed logical CPUs, fixed for this owned benchmark process and its children. Other processes and system scheduling settings are unchanged."
+}
