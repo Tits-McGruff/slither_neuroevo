@@ -869,6 +869,37 @@ mod tests {
     }
 
     #[test]
+    fn geometric_rear_escape_spends_real_boost_budget_and_survives_at_both_cadences() {
+        for cadence_seconds in [DT, 0.06] {
+            let extended = TacticalOptions {
+                steps: 180,
+                cadence_seconds,
+                ..options()
+            };
+            for seed in 1..=16 {
+                for policy in [
+                    Policy::BasicDet,
+                    Policy::BasicStoch,
+                    Policy::MotionDet,
+                    Policy::MotionStoch,
+                ] {
+                    let result = trial(Scenario::BoostEscape, seed, policy, extended).unwrap();
+                    assert!(
+                        result.first_action.boost,
+                        "cadence={cadence_seconds} {result:?}"
+                    );
+                    assert!(
+                        result.boost_points_spent > 0.0 && result.alive,
+                        "cadence={cadence_seconds} {result:?}"
+                    );
+                    assert_eq!(result.policy_world_reads, 0);
+                    assert!(result.shared_batch_budget_held);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn avoidance_turning_clears_real_walls_and_food_traps_at_both_admitted_cadences() {
         for cadence_seconds in [DT, 0.06] {
             let extended = TacticalOptions {
