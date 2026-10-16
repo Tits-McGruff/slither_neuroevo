@@ -709,12 +709,26 @@ Rebuilt addons pass 16 identity/runtime/capture/shadow tests; rustfmt and both
 Clippy configurations pass. Crowded/late contacts, scarce ray budgets and representative quality evaluation
 remain open.
 
+The version-3 native workload runner now measures ordinary teacher capture,
+exact source/drained sample witnesses, per-slot rates, due-teacher activity,
+queue peaks/drops and settled ownership under slow draining. Windows P0/P1
+20-second batches preserve authority and observations across capture off/on and
+one/three workers; normal capture loses no rows and count-limited slow capture
+drops only complete chunks with reconciled accounting. All 746 release library
+tests and 16 rebuilt-addon tests pass. The actual rates are 422.2/204.45 rows per
+simulated second, not a sustained 600-row pass. P1's 24.998 ms three-worker p95
+and 4.103% pooled incomplete rate still fail necessary sensor gates. Full reports
+and their scope live under `docs/performance/sensor-v4/`; no limits/defaults are
+raised. Full byte pressure, spool/trainer resources and the integrated soak remain.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
 six-hour-equivalent soak. Inspector and library implementation are present; their
-capacity qualification remains open. Existing v3/v1 runtime defaults remain until
-their stages qualify.
+capacity qualification remains open. Browser capture/shadow controls and the final
+section-18 settings-surface audit also remain; the current capture/shadow path is
+API-driven and the trainer has a standalone distillation CLI. Existing v3/v1
+runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:
 

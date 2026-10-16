@@ -82,6 +82,31 @@ jobs:
           name: baseline-v2-tactics-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: ${{ runner.temp }}/baseline-v2-tactics.json
           if-no-files-found: warn
+      - name: Native committed capture batch
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin sensor-v4-qualification -- --scenario P0 --profile motion --bins 16 --graph modest
+          --respawn on --seed 42 --workers 1 --math-backend sse2 --minimum 1 --cap 256 --batch 65536
+          --baseline v2-stochastic --baseline-cadence "0.016666666666666666" --capture on
+          --warmup 0 --steps 180 --workspace "${{ runner.temp }}/capture-normal-workspace"
+          --output "${{ runner.temp }}/capture-normal.json"
+      - name: Native slow-drain capture batch
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin sensor-v4-qualification -- --scenario P0 --profile motion --bins 16 --graph modest
+          --respawn on --seed 42 --workers 1 --math-backend sse2 --minimum 1 --cap 256 --batch 65536
+          --baseline v2-stochastic --baseline-cadence "0.016666666666666666" --capture on
+          --capture-drain-steps 180 --capture-queue-chunks 1 --warmup 0 --steps 180
+          --workspace "${{ runner.temp }}/capture-slow-workspace" --output "${{ runner.temp }}/capture-slow.json"
+      - name: Retain native capture outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-capture-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: |
+            ${{ runner.temp }}/capture-normal.json
+            ${{ runner.temp }}/capture-slow.json
+          if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
       - name: Build checkpoint handoff test addon
