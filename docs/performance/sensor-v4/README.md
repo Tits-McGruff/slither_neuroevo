@@ -334,3 +334,58 @@ after each run, rejects changing/incompatible workloads and keeps its checks
 active under Python optimization. It does not automate statistical qualification.
 The exact task-owned comparison executables, raw transfers and remote build tree
 were removed after permanent report verification.
+
+## Shared head facts
+
+Candidate commit `95b1d64` retains one cold-admitted array of validated head
+velocities, bound to the same immutable pre-movement world. Alive-head validation
+and Motion's separate cosine/sine products run once per boundary. All observers
+still use the original formulas, physical-array indices and ray grants. The
+buffer costs 16 bytes per admitted world slot, within the existing staging
+check; its actual capacity is included in diagnostics. Both 512 MiB scratch
+ceilings remain unchanged. Frozen v3 allocates no head buffer.
+
+The five `heads-abba-*/` directories retain 20 losslessly compressed version-4
+reports, comparison manifests and the two Linux affinity records. Baseline is
+`74dd8dc` (also the native source in `41d6e28`); candidate is `95b1d64`.
+Every case uses the same Motion/B16 modest graph, seed 42, three workers, SSE2,
+stochastic v2 at exact 60 Hz, normal capture, five warmup and 1,200 measured steps.
+Each row below is the median of two runs per role in baseline/candidate/candidate/
+baseline order. Milliseconds describe complete native service or sensing; CPU
+seconds cover the entire CLI process, including startup and observer work.
+
+| Host/workload | Mean service, baseline / candidate | Sensing, baseline / candidate | Native p95, baseline / candidate | Process CPU seconds, baseline / candidate |
+|---|---:|---:|---:|---:|
+| Windows P0 | 4.608 / 4.602 ms | 1.932 / 1.933 ms | 5.527 / 5.482 ms | 10.625 / 10.617 |
+| Windows P1 | 18.786 / 17.288 ms | 12.461 / 11.304 ms | 22.998 / 18.828 ms | 54.305 / 50.258 |
+| Oxygen P1, unrestricted | 75.783 / 78.527 ms | 51.442 / 52.719 ms | 124.459 / 133.304 ms | 180.049 / 183.573 |
+| Oxygen P0, fixed affinity | 15.405 / 14.465 ms | 7.354 / 6.819 ms | 28.310 / 25.765 ms | 28.218 / 26.694 |
+| Oxygen P1, fixed affinity | 65.929 / 61.792 ms | 44.358 / 41.455 ms | 110.066 / 104.095 ms | 159.519 / 149.668 |
+
+Windows P1 mean service and process CPU decrease 7.98%/7.45%; Windows P0 is
+effectively unchanged. The unrestricted Oxygen P1 set is noisy and shows no
+benefit. One follow-up fixes only the benchmark process and its children to
+logical CPUs 1,4,6,7, selected once from the eight initially allowed CPUs using
+one-second utilization deltas. Fixed-affinity P1 service/CPU decrease 6.28%/6.18%.
+P0 still shows host drift. These are descriptive shared-host observations,
+without a statistical-confidence or production-cost qualification claim.
+
+All source/drained teacher witnesses, complete continuations, consumer counters
+and normalized histograms match within each platform/workload. Oxygen P1 also
+matches its unrestricted set after affinity changes, including raw histograms.
+Every transferred file was fingerprint-verified before compression, and every
+compressed stream roundtrips to its raw report fingerprint. Exact equality is
+evidence for these finite same-target cohorts, not a cross-build/platform replay
+promise.
+
+P1 remains over the necessary 16.667 ms p95 bound on both platforms and retains
+4.103%/4.093% pooled incomplete observations on Windows/Oxygen. The sparse teacher
+cohorts still do not qualify sustained 600-row/second capture. No sensor/teacher
+default, normalization revision or ray admission is frozen by this optimization.
+
+Reproduce with the preceding comparison utility and the two source commits,
+adding `--scenario P0` for P0. For the Linux affinity cases, set the parent
+process's `os.sched_setaffinity(0, {1, 4, 6, 7})` before invoking the comparator;
+native children inherit that set. The retained `affinity.json` records the
+selection and load context. Disposable comparison copies, source trees and raw
+transfers were removed after permanent evidence verification.
