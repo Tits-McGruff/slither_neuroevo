@@ -693,9 +693,21 @@ cadences. Windows/Oxygen release matrices agree across one/three workers at
 60 Hz and 0.06 seconds; frozen-v1 cohorts match the previous platform records. All 740 release
 library tests and 16 actual-addon identity/runtime/capture/shadow tests pass.
 Version-2 reports retain compressed complete JSON and diagnostic tails under
-`docs/performance/baseline-v2/`. Basic geometric boost escape is still missing;
-its current eligibility uses Motion-only signals. Crowded/late contacts, scarce
-ray budgets and representative quality evaluation remain open.
+`docs/performance/baseline-v2/`.
+
+Basic v2 now permits economic escape boost away from close declared body/head
+geometry; it does not infer unavailable target size, velocity or urgency. Walls
+alone do not supply an escape reason. Both profiles require half a second of
+clearance along the current forward path as well as the selected route, with
+existing eligibility, wallet and saturation checks. All 744 native release
+library tests pass, including 128 actual boosted-rear-escape trajectories across
+16 seeds, both profiles/modes and 60 Hz/0.06-second cadences. Four retained
+Windows batches contain 4,480 complete trials with one/three-worker agreement,
+unchanged frozen-v1 records and no cohort survival regression. Motion crowd
+opening reaches 16/16 at 0.06 seconds in both modes; it remains 12/16 at 60 Hz.
+Rebuilt addons pass 16 identity/runtime/capture/shadow tests; rustfmt and both
+Clippy configurations pass. Crowded/late contacts, scarce ray budgets and representative quality evaluation
+remain open.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

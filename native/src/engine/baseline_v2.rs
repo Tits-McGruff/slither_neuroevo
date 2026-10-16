@@ -258,6 +258,7 @@ impl BaselineV2Policy {
         let mut biases = [0.0f64; MAX_SENSOR_BINS];
         let mut pursuit = 0u32;
         let mut urgent = 0u32;
+        let mut geometric_threats = 0u32;
         let mut best_food = 0.0f64;
         let mut imminent_front_contact = false;
         let mut incoming_lateral_pressure = 0.0f64;
@@ -267,6 +268,14 @@ impl BaselineV2Policy {
         for bin in 0..self.bins {
             let s = sample.sector(bin);
             best_food = best_food.max(s.near_food.max(0.25 * s.far_food));
+            // Basic cannot infer a pursuer's size or velocity. Close declared
+            // body/head geometry can still justify moving away; walls alone
+            // never manufacture a chase or an economic reason to boost.
+            if self.profile == SensorProfile::Basic
+                && s.body_sector.min(s.body_ray).min(s.head_clearance) < SAFE_CLEARANCE
+            {
+                geometric_threats |= 1 << bin;
+            }
             if s.urgency > URGENT_URGENCY {
                 urgent |= 1 << bin;
                 // Encounter bearing names relative disc contact, not a safe new
@@ -473,14 +482,22 @@ impl BaselineV2Policy {
         // budget sentinel is valid, but actual eligibility is still authoritative.
         // Compare in the transmitted Float32 domain, including the exact half-second boundary.
         let enough_budget = observation[6] >= -0.6f32; // bipolar(0.5/(0.5+2)).
-        let escape_or_pursuit = urgent != 0 || pursuit & (1 << best) != 0;
+        let geometric_escape = geometric_threats != 0
+            && (0..self.bins).any(|bin| {
+                geometric_threats & (1 << bin) != 0
+                    && wrap(angle(bin, self.bins) - target_angle).abs() >= FRAC_PI_2
+            });
+        let escape_or_pursuit = geometric_escape || urgent != 0 || pursuit & (1 << best) != 0;
         let boost = escape_or_pursuit
             && observation[8] == 1.0
             && enough_budget
             && observation[23] == -1.0
             && safe[best]
             && selected.urgency == 0.0
-            && clearances[best] * near > self.environment.snake_boost_speed * 0.5
+            // Turning is gradual: the selected ray and the current forward
+            // route must both have the declared half-second boost runway.
+            && clearances[best].min(forward_clearance) * near
+                > self.environment.snake_boost_speed * 0.5
             && target_angle.abs() < PI / 4.0;
         // A clear target ray does not make our current turning path clear. Do
         // not relax to cruise steering while still approaching a wall/body or
@@ -916,6 +933,103 @@ mod tests {
         put(&mut row, 16, 3, 8, -1.0);
         assert!(!evaluate(&p, &row, BaselineV2State::default()).boost);
     }
+    #[test]
+    fn basic_geometric_escape_uses_declared_body_or_head_channels_and_preserves_economy() {
+        for bins in 8..=32 {
+            for mode in [BaselineV2Mode::Deterministic, BaselineV2Mode::Stochastic] {
+                let p = policy(SensorProfile::Basic, bins, mode);
+                for channel in [2, 3, 5] {
+                    let mut row = sample(SensorProfile::Basic, bins);
+                    row[8] = 1.0;
+                    row[6] = -0.6;
+                    put(&mut row, bins, channel, 0, -0.9);
+                    let escape = evaluate(&p, &row, BaselineV2State::default());
+                    assert!(
+                        escape.boost && escape.escape_or_pursuit,
+                        "{bins} {mode:?} {channel}"
+                    );
+                    assert_eq!(escape.urgent_sectors, 0);
+                    assert!(!escape.unsafe_route);
+                    for (index, value) in [(8, -1.0), (6, -0.600001), (23, 1.0)] {
+                        let mut blocked = row.clone();
+                        blocked[index] = value;
+                        assert!(!evaluate(&p, &blocked, BaselineV2State::default()).boost);
+                    }
+                }
+                let mut wall_only = sample(SensorProfile::Basic, bins);
+                wall_only[8] = 1.0;
+                wall_only[6] = 1.0;
+                put(&mut wall_only, bins, 4, 0, -0.9);
+                let action = evaluate(&p, &wall_only, BaselineV2State::default());
+                assert!(!action.boost && !action.escape_or_pursuit);
+            }
+        }
+    }
+
+    #[test]
+    fn basic_lateral_escape_boosts_only_when_the_selected_heading_moves_away() {
+        let p = policy(SensorProfile::Basic, 16, BaselineV2Mode::Deterministic);
+        for (threat, side) in [(4, -1.0), (12, 1.0)] {
+            let mut row = sample(SensorProfile::Basic, 16);
+            row[8] = 1.0;
+            row[6] = 1.0;
+            put(&mut row, 16, 5, threat, -0.9);
+            for (direction, expected) in [(-side, true), (side, false)] {
+                let action = evaluate(
+                    &p,
+                    &row,
+                    BaselineV2State {
+                        committed_heading: Some(direction * PI / 8.0),
+                        commitment_remaining_seconds: 0.2,
+                        ..BaselineV2State::default()
+                    },
+                );
+                assert_eq!(action.boost, expected);
+                assert_eq!(action.escape_or_pursuit, expected);
+                assert_eq!(action.turn.signum() as f64, direction);
+            }
+        }
+    }
+
+    #[test]
+    fn boost_checks_current_forward_runway_even_when_committed_target_ray_is_clear() {
+        for bins in [8, 9, 16, 17, 31, 32] {
+            for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+                let p = policy(profile, bins, BaselineV2Mode::Deterministic);
+                let mut row = sample(profile, bins);
+                row[8] = 1.0;
+                row[6] = 1.0;
+                if profile == SensorProfile::Basic {
+                    put(&mut row, bins, 5, 0, -0.9);
+                } else {
+                    medium(&mut row);
+                    put(&mut row, bins, 13, 0, 0.9);
+                }
+                // A held safe neighbouring heading can bypass the forward bin
+                // during route selection. Its own ray remains wholly clear.
+                // Keep the held heading below the strict 45-degree boost
+                // limit even for B8's neighbouring ray on that boundary.
+                let state = BaselineV2State {
+                    committed_heading: Some(angle(bins.div_ceil(2) + 1, bins).min(0.7)),
+                    commitment_remaining_seconds: 0.2,
+                    ..BaselineV2State::default()
+                };
+                assert!(evaluate(&p, &row, state).boost, "{bins} {profile:?}");
+                for front in [bins / 2, bins.div_ceil(2)] {
+                    for channel in [2, 3, 4, 5] {
+                        let mut blocked = row.clone();
+                        // 35% near range remains geometrically 'safe' (>=30%)
+                        // but cannot cover half a second at boost speed.
+                        put(&mut blocked, bins, channel, front, -0.3);
+                        let action = evaluate(&p, &blocked, state);
+                        assert!(!action.boost, "{bins} {profile:?} {front} {channel}");
+                        assert!(!action.unsafe_route);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn half_second_budget_boundary_uses_the_actual_float32_encoding() {
         let p = policy(SensorProfile::Motion, 16, BaselineV2Mode::Deterministic);

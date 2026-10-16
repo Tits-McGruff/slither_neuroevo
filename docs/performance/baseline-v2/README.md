@@ -139,8 +139,9 @@ the preceding platform cohort. Both platforms produce the survival counts below.
 | Crowd opening | Both Motion modes | 9/16 | 12/16 | 14/16 |
 
 Close head-on, crowded and intentionally one-unit ray-cap cases still expose
-limits. Basic geometric boost escape and representative student agreement remain
-open; these results do not freeze the teacher or production sensor defaults.
+limits. These reports predate Basic's geometric boost escape correction below;
+representative student agreement remains open. They do not freeze the teacher or
+production sensor defaults.
 
 Version-2 report files are retained as `.json.gz` to keep complete decision tails
 compact. Decompression reproduces the original CLI JSON byte stream; the older
@@ -155,3 +156,47 @@ Oxygen's load average changed from 3.83/3.46/3.15 to 3.45/3.61/3.33 during this
 matrix, and scratch free space stayed above 6.8 GiB. Reports retain target/source
 provenance and make no timing claim. All four JSON transfers were SHA-256 verified
 before lossless compression and removal of the exact task-owned remote workspace.
+
+## Economic escape correction
+
+Basic v2 can request boost away from a close body/head using only its declared
+clearance channels. The chosen heading must point at least 90 degrees away from
+the threatening sector; wall pressure alone supplies no boost reason. It still
+has no target size, velocity or TTC data. Both profiles now require half a second
+of boost-speed runway along the current forward path and the chosen ray, because
+turning toward a clear target does not immediately clear the current route.
+Existing eligibility, point-budget and incomplete-geometry guards remain.
+
+All 744 native release library tests pass. Pure policy cases cover B8..32, both
+modes, each declared body/head channel, the transmitted half-second wallet
+boundary, lateral escape direction, wall-only pressure, saturation and both
+forward neighbours in odd layouts. Actual native regressions cover 128 boosted
+rear-pursuer trajectories across 16 seeds, four v2 variants and two cadences;
+every subject spends positive boost points and survives 180 complete steps.
+The 256 wall/food-trap trajectories and Motion crossing escapes also still pass.
+
+Four Windows `*-boost-escape-v2.json.gz` reports retain 4,480 complete trials:
+1,120 per cadence/worker pair at 60 Hz and 0.06 seconds, one/three workers.
+Complete trial records and continuation witnesses agree across worker counts;
+every frozen-v1 record matches its preceding cohort. Shared budgets hold,
+v2 policy world reads remain zero and deterministic strategy draws remain zero.
+Survival has no regression in any scenario/profile/mode cohort. Motion crowd
+opening improves from 14/16 to 16/16 at 0.06 seconds in both modes; it stays 12/16
+at 60 Hz. All other cohort survival counts are unchanged.
+
+Basic rear escape spends positive points in all 16 seeds per mode/cadence,
+compared with zero previously, while preserving 16/16 survival. Basic also
+survived this fixture before the correction: these results establish the actual
+boost path, not a survival benefit. The full JSON streams are losslessly
+compressed and roundtrip-verified. Existing Windows/Oxygen reports are untouched;
+earlier Oxygen results remain scoped to their recorded source, and CI supplies
+fresh Linux confirmation for this ordinary policy correction. This is not a
+timing, throughput, ablation or representative student-quality gate. Production sensor/baseline defaults and
+512 MiB worker/checkpoint scratch limits remain unchanged.
+
+Rebuilt production and isolated test-hook addons pass 16 actual-addon tests for
+source identity, retired-export boundaries, native startup/runtime and committed
+teacher capture with four shadows across one/three workers. Default Clippy,
+all-target test-hook Clippy and rustfmt pass. The preceding full JavaScript,
+type/lint/client-build evidence is reused because no TypeScript, wire or UI
+code changes in this slice; CI provides the full cross-platform matrix.
