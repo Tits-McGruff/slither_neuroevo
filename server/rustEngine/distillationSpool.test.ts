@@ -1,3 +1,4 @@
+import { DistillationClient as BrowserDistillationClient } from '../../src/net/distillation.ts';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { createServer } from 'node:http';
@@ -269,6 +270,10 @@ describe('durable distillation spool', () => {
       expect(discovered.datasets.map(dataset => dataset.captureEpoch)).toEqual([epoch]);
       const manifest = await (await fetch(`${base}/datasets/${epoch}/manifest`)).json() as { sensorContractJson: string };
       expect(manifest.sensorContractJson).toBe(sensor.canonicalJson);
+      const browser = new BrowserDistillationClient(() => ({base: `http://127.0.0.1:${address.port}`,
+        runId: source.contract!.runId, configRevision: '0000000000000001'}));
+      expect((await browser.datasets()).datasets.map(dataset => dataset.captureEpoch)).toEqual([epoch]);
+      expect((await browser.manifest(epoch)).contract).toEqual(source.contract);
       const first = await (await fetch(`${base}/datasets/${epoch}/chunks?limit=1`)).json() as { nextCursor: string; hasMore: boolean };
       expect(first).toMatchObject({ nextCursor: word(1), hasMore: true });
       const second = await (await fetch(`${base}/datasets/${epoch}/chunks?after=${first.nextCursor}&limit=1`)).json() as { nextCursor: string; hasMore: boolean };

@@ -49,6 +49,8 @@ interface SmokeElement {
   appendChild: (child: SmokeElement) => void;
   /** Append one or more direct-download elements. */
   append: (...children: SmokeElement[]) => void;
+  /** Replace a cold bounded metadata publication. */
+  replaceChildren: (...children: SmokeElement[]) => void;
   /** Remove a temporary direct-download element. */
   remove: () => void;
   /** Set one attribute. */
@@ -140,6 +142,7 @@ function makeElement(id: string): SmokeElement {
     },
     appendChild(child) { this.options.push(child); },
     append() { },
+    replaceChildren(...children) { this.options = [...children]; this.textContent = ''; },
     remove() { },
     setAttribute(name, value) { attributes.set(name, value); },
     setCustomValidity(message) { attributes.set('validationMessage', message); },

@@ -145,3 +145,9 @@ export interface ShadowEventPage {
   /** Another retained event follows this page. */
   hasMore: boolean;
 }
+
+/** Dedicated HTTP publication with the process identity required by explicit shadow commands. */
+export interface ShadowPublication extends ShadowMetrics {
+  /** Diagnostic process identity; independent of authoritative RNG and run identity. */
+  processEpoch: string;
+}

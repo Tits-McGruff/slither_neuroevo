@@ -1,3 +1,5 @@
+import { DistillationClient } from './net/distillation.ts';
+import { DistillationView } from './distillationView.ts';
 import { DecisionInspectorClient } from './net/decisionInspector.ts';
 import { DecisionInspectorView } from './decisionInspectorView.ts';
 /** Entry point for the simulation UI, canvas, and client networking. */
@@ -437,6 +439,15 @@ const brainLibrary = new BrainLibraryView(new BrainLibraryClient(() => wsClient?
   ? resolveServerHttpBase(serverUrl || resolveServerUrl()) : null), () => libraryEnvironment, snakeId => {
   spectatorFollowSnakeId = snakeId; resetManualCamera(); proxyWorld.viewMode = 'follow';
 });
+/** Last advertised diagnostic controls, independent of editable settings drafts. */
+let distillationAvailable = false;
+/** Applied native v4/v2 capture admission advertised at welcome or run replacement. */
+let teacherCaptureReady = false;
+/** Explicit metadata and diagnostic commands use only the currently connected applied scope. */
+const distillation = new DistillationView(new DistillationClient(() => {
+  const base = wsClient?.isConnected() && distillationAvailable ? resolveServerHttpBase(serverUrl || resolveServerUrl()) : null;
+  return base ? { base, runId: serverRunId, configRevision: BigInt(serverConfigRevision).toString(16).padStart(16, '0') } : null;
+}));
 /** Currently selected stats view key. */
 let statsView = 'fitness';
 tabBtns.forEach(btn => {
@@ -450,6 +461,7 @@ tabBtns.forEach(btn => {
     if (tabEl) tabEl.classList.add('active');
     activeTab = tabId;
     if (tabId === 'tab-library') brainLibrary.refresh();
+    if (tabId === 'tab-distillation') distillation.refresh();
     if (wsClient && wsClient.isConnected()) {
       wsClient.sendViz(activeTab === 'tab-viz');
     }
@@ -3707,6 +3719,9 @@ wsClient = createWsClient({
     libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
     libraryEnvironment.configHash = info.configHash;
     brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
+    distillationAvailable = info.capabilities?.distillation === true;
+    teacherCaptureReady = info.capabilities?.teacherCapture === true;
+    distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3743,6 +3758,8 @@ wsClient = createWsClient({
     decisionInspector.dispose();
     decisionInspectorView.supported(false);
     brainLibrary.contextChanged(false);
+    distillationAvailable = teacherCaptureReady = false;
+    distillation.contextChanged(false, false, '');
     entitySelection.reset();
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
     serverArchiveExport = false;
@@ -3897,6 +3914,7 @@ wsClient = createWsClient({
       applyAuthoritativeLivePatch(msg.updates);
       libraryEnvironment.configHash = msg.configHash;
       brainLibrary.environmentChanged();
+      distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
       return;
     }
     applyValuesToSlidersFromCFG(resolveSettingsRoot());
@@ -3994,6 +4012,9 @@ wsClient = createWsClient({
     libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
     libraryEnvironment.configHash = info.configHash;
     brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
+    distillationAvailable = info.capabilities?.distillation === true;
+    teacherCaptureReady = info.capabilities?.teacherCapture === true;
+    distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     refreshServerHallOfFame();

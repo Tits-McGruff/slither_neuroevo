@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { ShadowActivationRequest, ShadowMetrics, ShadowReceipt, ShadowStopRequest } from '../../src/protocol/shadows.ts';
+import type { ShadowActivationRequest, ShadowPublication, ShadowReceipt, ShadowStopRequest } from '../../src/protocol/shadows.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 import type { BackgroundCommandAdmission } from './commandAdmission.ts';
@@ -47,7 +47,7 @@ export class DistillationShadows {
   ) {}
 
   /** Read only a bounded published native summary, carrying its diagnostic process identity. */
-  metrics(): ShadowMetrics & { processEpoch: string } {
+  metrics(): ShadowPublication {
     if (this.closed) throw new Error('shadow coordinator closing');
     return { ...parseShadowMetrics(this.native().getShadowMetrics()), processEpoch: this.processEpoch };
   }

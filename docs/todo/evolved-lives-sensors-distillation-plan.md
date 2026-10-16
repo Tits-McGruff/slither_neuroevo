@@ -734,13 +734,29 @@ reports remain under `scripts/qualification/` and
 `docs/performance/sensor-v4/` for reproducibility. The final runtime retains
 only the bounded qualification attribution, with no admission/default changes.
 
+The browser now has an explicit Distillation tab for teacher capture start/stop,
+bounded dataset discovery and watermarks/drop diagnostics, four candidate
+activations/stops and native action-error strata. Applied welcome capabilities
+control admission; connection/run/settings changes invalidate old presentation.
+Uncertain shadow replies retain an immutable retry body; server-assigned capture
+starts are never automatically replayed. Wire dataset types and pure shadow
+metadata validators now live under `src/protocol/`, shared with Node. The
+browser routes only small metadata/commands and executes no graph. Tests cover
+strict metadata bounds, exact identities, stale responses, retry ownership,
+text-safe rendering and real HTTP manifest compatibility. The broad JavaScript
+run plus its corrected startup-DOM fixture rerun passes 898 tests with 18 existing
+skips; 16 rebuilt-addon tests, type/lint/client build, rustfmt and Clippy pass.
+Native runtime validation reuses the unchanged source's 747-test release run.
+Real-browser inspection uses synthetic metadata, separately from native/API
+evidence; it does not qualify sustained capture, training or a new sensor default.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
 six-hour-equivalent soak. Inspector and library implementation are present; their
-capacity qualification remains open. Browser capture/shadow controls and the final
-section-18 settings-surface audit also remain; the current capture/shadow path is
-API-driven and the trainer has a standalone distillation CLI. Existing v3/v1
+capacity qualification remains open. The final section-18 settings-surface audit
+and trainer-facing job controls also remain; the trainer currently has a standalone
+distillation CLI. Existing v3/v1
 runtime defaults remain until their stages qualify.
 
 Repository inspection baseline:

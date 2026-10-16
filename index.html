@@ -40,6 +40,7 @@
       <button class="tab-btn" data-tab="tab-stats">Stats</button>
       <button class="tab-btn" data-tab="tab-hof">Hall of Fame</button>
       <button class="tab-btn" data-tab="tab-library" hidden>Brain Library</button>
+      <button class="tab-btn" data-tab="tab-distillation" hidden>Distillation</button>
     </div>
 
     <!-- Tab: Settings -->
@@ -301,6 +302,25 @@
       <p id="brainLibraryPending" class="meta" hidden>The last spawn may already have happened. Retry to check it before spawning another. Dismissing this request does not cancel an admitted spawn.</p>
       <div class="brain-library-actions"><button id="brainLibraryRetry" class="btn" hidden>Retry spawn</button><button id="brainLibraryDismiss" class="btn" hidden>Dismiss pending request</button></div>
       <div id="brainLibraryList"></div><div id="brainLibraryDetails"></div>
+    </div>
+
+    <!-- Tab: Distillation diagnostics -->
+    <div id="tab-distillation" class="tab-content distillation-panel">
+      <h3>Teacher capture and shadows</h3>
+      <p class="meta">Record delivered baseline observations and compare up to four candidates. Rust runs the shadows; they never control a snake. Train candidates separately in PyRL-trainer.</p>
+      <div class="brain-library-actions"><button id="distillationRefresh" class="btn">Refresh status</button><button id="distillationPrevious" class="btn">Previous captures</button><button id="distillationNext" class="btn">Next captures</button></div>
+      <label for="distillationTeachers">Teacher slots (0-based, increasing, comma-separated)</label>
+      <input id="distillationTeachers" type="text" maxlength="479" value="0,1,2,3,4,5,6,7,8,9">
+      <p class="meta">Starting capture requires an admitted v4 profile and v2 baseline. Select slots that exist in the current run. Capture starts off and never starts automatically.</p>
+      <div class="brain-library-actions"><button id="distillationStart" class="btn">Start teacher capture</button><button id="distillationStop" class="btn">Stop selected capture</button></div>
+      <p id="distillationStatus" class="meta" role="status" aria-live="polite"></p>
+      <p id="distillationPending" class="meta" hidden>The last shadow command may already have completed. Retry checks the original request. Dismissing does not cancel an admitted command.</p>
+      <div class="brain-library-actions"><button id="distillationRetry" class="btn" hidden>Retry shadow command</button><button id="distillationDismiss" class="btn" hidden>Dismiss pending request</button></div>
+      <div id="distillationDatasets"></div>
+      <p id="distillationDataset" class="meta"></p>
+      <h3>Shadow candidates</h3>
+      <p class="meta">Select an active capture, then enter a candidate digest uploaded by your trainer and its teacher slot. Activation starts a new metric segment and resets shadow memory. Refresh shows native status and action-error strata.</p>
+      <div id="distillationShadows"></div>
     </div>
 
     <!-- Tab: Hall of Fame -->
