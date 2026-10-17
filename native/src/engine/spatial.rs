@@ -142,11 +142,33 @@ struct BodyCellEntry {
     segment: usize,
 }
 
+/// Reversible IEEE total-order key, computed once rather than per comparison.
+///
+/// This is the sign fold used by `f64::total_cmp`, including signed zero,
+/// infinities and every NaN payload. Applying the fold twice restores the
+/// original bits. The key occupies exactly the original distance's eight bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DistanceOrderKey(i64);
+
+impl DistanceOrderKey {
+    /// Cache the exact legacy comparison transform for one computed distance.
+    fn new(value: f64) -> Self {
+        let bits = value.to_bits() as i64;
+        Self(bits ^ (((bits >> 63) as u64) >> 1) as i64)
+    }
+
+    /// Restore the original distance bits for numeric ring-stop comparisons.
+    fn value(self) -> f64 {
+        let bits = self.0 ^ (((self.0 >> 63) as u64) >> 1) as i64;
+        f64::from_bits(bits as u64)
+    }
+}
+
 /// A body candidate ordered by spatial lower bound and stable identity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct BodyCandidate {
     segment: usize,
-    lower_bound_squared: f64,
+    lower_bound_squared: DistanceOrderKey,
     owner_id: u64,
     segment_end: usize,
 }
@@ -494,7 +516,7 @@ impl BodySpatialIndex {
             }
             scratch.candidates.push(BodyCandidate {
                 segment: entry.segment,
-                lower_bound_squared,
+                lower_bound_squared: DistanceOrderKey::new(lower_bound_squared),
                 owner_id: record.owner_id,
                 segment_end: record.segment_end,
             });
@@ -553,7 +575,7 @@ impl BodySpatialIndex {
                         &mut scratch.candidates,
                         BodyCandidate {
                             segment: entry.segment,
-                            lower_bound_squared,
+                            lower_bound_squared: DistanceOrderKey::new(lower_bound_squared),
                             owner_id: record.owner_id,
                             segment_end: record.segment_end,
                         },
@@ -671,7 +693,7 @@ struct PelletCellEntry {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct PelletCandidate {
     pellet: usize,
-    distance_squared: f64,
+    distance_squared: DistanceOrderKey,
 }
 
 /// Reusable per-worker pellet-query storage.
@@ -871,7 +893,7 @@ impl PelletSpatialIndex {
             if distance_squared <= radius * radius {
                 scratch.candidates.push(PelletCandidate {
                     pellet: entry.pellet,
-                    distance_squared,
+                    distance_squared: DistanceOrderKey::new(distance_squared),
                 });
             }
         })?;
@@ -922,13 +944,14 @@ impl PelletSpatialIndex {
                         &mut scratch.candidates,
                         PelletCandidate {
                             pellet: entry.pellet,
-                            distance_squared,
+                            distance_squared: DistanceOrderKey::new(distance_squared),
                         },
                         maximum_candidates,
                         compare_pellet_candidates,
                     );
                     if scratch.candidates.len() == maximum_candidates && maximum_candidates != 0 {
-                        worst_retained_distance_squared.set(scratch.candidates[0].distance_squared);
+                        worst_retained_distance_squared
+                            .set(scratch.candidates[0].distance_squared.value());
                     }
                 }
                 true
@@ -1196,14 +1219,14 @@ impl Error for SpatialIndexError {}
 
 fn compare_body_candidates(left: &BodyCandidate, right: &BodyCandidate) -> Ordering {
     left.lower_bound_squared
-        .total_cmp(&right.lower_bound_squared)
+        .cmp(&right.lower_bound_squared)
         .then_with(|| left.owner_id.cmp(&right.owner_id))
         .then_with(|| left.segment_end.cmp(&right.segment_end))
 }
 
 fn compare_pellet_candidates(left: &PelletCandidate, right: &PelletCandidate) -> Ordering {
     left.distance_squared
-        .total_cmp(&right.distance_squared)
+        .cmp(&right.distance_squared)
         .then_with(|| left.pellet.cmp(&right.pellet))
 }
 
@@ -1538,6 +1561,53 @@ fn checked_owned_bytes(parts: &[(usize, usize)]) -> Result<usize, SpatialIndexEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_distance_order_preserves_ieee_bits_and_legacy_sort_without_growing_candidates() {
+        assert_eq!(size_of::<DistanceOrderKey>(), size_of::<f64>());
+        assert_eq!(size_of::<PelletCandidate>(), 2 * size_of::<u64>());
+        assert_eq!(size_of::<BodyCandidate>(), 4 * size_of::<u64>());
+        let mut bits = vec![
+            0,
+            1,
+            2,
+            0x000f_ffff_ffff_ffff,
+            0x0010_0000_0000_0000,
+            0x3ff0_0000_0000_0000,
+            0x7fef_ffff_ffff_ffff,
+            0x7ff0_0000_0000_0000,
+            0x7ff0_0000_0000_0001,
+            0x7ff8_0000_0000_0000,
+            0x7fff_ffff_ffff_ffff,
+        ];
+        bits.extend(bits.clone().into_iter().map(|bits| bits | (1 << 63)));
+        let mut state = 0x6f3b_2a19_85c4_07e1_u64;
+        for _ in 0..16_384 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            bits.push(state);
+        }
+        for &bits in &bits {
+            let value = f64::from_bits(bits);
+            assert_eq!(DistanceOrderKey::new(value).value().to_bits(), bits);
+        }
+        let mut expected = bits.iter().copied().map(f64::from_bits).collect::<Vec<_>>();
+        expected.sort_unstable_by(f64::total_cmp);
+        let mut actual = bits
+            .into_iter()
+            .map(f64::from_bits)
+            .map(DistanceOrderKey::new)
+            .collect::<Vec<_>>();
+        actual.sort_unstable();
+        assert_eq!(
+            actual
+                .into_iter()
+                .map(|key| key.value().to_bits())
+                .collect::<Vec<_>>(),
+            expected.into_iter().map(f64::to_bits).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn bounded_dense_cell_lookup_matches_sorted_fallback() {

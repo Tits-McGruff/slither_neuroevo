@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "baselineSourceSha256": "bc056c98b235fb39eb039ac39e73de53bda51f5aa77c6d1138c5eb84d704e8c6",
+  "candidateSourceSha256": "d1cf40a04d83d430f32b0d678d765c4921aaa82451c4d5b1c062e82bb4e8d4c8",
+  "exactWithinEachPopulationAcrossBuildsAndWorkers": true,
+  "records": [
+    {
+      "case": "comparison-p0-w3",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 4.062047083333333,
+          "sensingMeanMs": 1.4020954166666666,
+          "nativeP95Ms": 5.270099999999999
+        },
+        "candidate": {
+          "nativeMeanMs": 4.020165416666666,
+          "sensingMeanMs": 1.3767345833333335,
+          "nativeP95Ms": 5.171849999999999
+        }
+      },
+      "medianProcessCpuSeconds": {
+        "baseline": 8.375,
+        "candidate": 8.171875
+      }
+    },
+    {
+      "case": "comparison-p1-w1",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 41.18694,
+          "sensingMeanMs": 30.51706875,
+          "nativeP95Ms": 56.88185
+        },
+        "candidate": {
+          "nativeMeanMs": 40.562232916666666,
+          "sensingMeanMs": 29.873837083333335,
+          "nativeP95Ms": 55.3745
+        }
+      },
+      "medianProcessCpuSeconds": {
+        "baseline": 45.2578125,
+        "candidate": 44.6328125
+      }
+    },
+    {
+      "case": "comparison-p1-w3",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 18.035299166666668,
+          "sensingMeanMs": 10.462685416666666,
+          "nativeP95Ms": 22.6448
+        },
+        "candidate": {
+          "nativeMeanMs": 18.39542625,
+          "sensingMeanMs": 10.670480416666667,
+          "nativeP95Ms": 24.124850000000002
+        }
+      },
+      "medianProcessCpuSeconds": {
+        "baseline": 46.640625,
+        "candidate": 44.6015625
+      }
+    },
+    {
+      "case": "comparison-p1-w5",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 13.432334999999998,
+          "sensingMeanMs": 6.426337916666667,
+          "nativeP95Ms": 16.16415
+        },
+        "candidate": {
+          "nativeMeanMs": 13.299884583333334,
+          "sensingMeanMs": 6.298337500000001,
+          "nativeP95Ms": 16.17935
+        }
+      },
+      "medianProcessCpuSeconds": {
+        "baseline": 46.5703125,
+        "candidate": 46.0703125
+      }
+    }
+  ],
+  "caveat": "Adjacent ABBA runs on a shared Windows host. Descriptive medians, not statistical confidence or actual 1x scheduler/debt qualification. Preserve the P1 three-worker wall-time regression. Five native workers match this host's CPU-normalized production default.",
+  "exactComparisonScope": [
+    {
+      "population": 55,
+      "workers": [
+        3
+      ]
+    },
+    {
+      "population": 300,
+      "workers": [
+        1,
+        3,
+        5
+      ]
+    }
+  ]
+}

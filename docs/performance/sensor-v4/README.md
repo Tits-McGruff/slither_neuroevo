@@ -82,7 +82,7 @@ They exclude Node/browser/network, SQLite, startup, checkpoint timing and wall-d
 behavior under load. Short random runs do not qualify trained-policy distributions,
 external-controller workloads, tactical correctness, ablation or production
 limits. Native p95 <= 16.667 ms and ordinary incomplete observations < 1% are
-necessary gates. No observations produces no quality pass. The fixture uses
+probe checks. No observations produces no quality pass. The fixture uses
 a 604,800-second duration with duration-only completion, so bounded runs do not
 enter generation persistence. It does not qualify generation-age distributions.
 
@@ -97,7 +97,7 @@ five warmup steps and 300 measured steps. Both sustain the full due population.
 | P0 | 16,500 | 0% | 4.8436 ms |
 | P1 | 90,000 | 3.02% | 16.8993 ms |
 
-P1 fails both necessary gates on this development machine. This actual workload
+P1 fails both probe checks on this development machine. This actual workload
 supersedes the earlier synthetic zero-incomplete result for this configuration.
 The JSON files retain all histograms and source/build identity. They do not freeze
 normalization revisions or ray limits.
@@ -115,7 +115,7 @@ settings; all use the modest graph unless shown otherwise:
 | P0 Motion/B32 | 16,500 | 0% | 4.3390 ms |
 | P1 Motion/B32 | 90,000 | 18.312% | 18.7079 ms |
 
-Basic/B16 meets these two necessary gates in this short development run; it
+Basic/B16 meets these two probe checks in this short development run; it
 still requires target-platform, tactical, representative and all-consumer
 qualification. Its two missing deliveries are visible in the report's due counts.
 Motion/B16 passes only the quality gate. Motion/B32 fails both. The P1 large
@@ -237,7 +237,7 @@ Neither measured interval has a ten-due-teacher step: warmup deaths and later
 lifecycle waiting reduce activity. These observations do not qualify sustained
 600-sample/second production. P0 has no incomplete v4 delivery; P1 has 4.103%
 pooled incompleteness and 133/4,089 (3.253%) in the teacher subgroup. P1 therefore
-fails both necessary 1x timing and ordinary-quality gates in this workload.
+exceeds the native-step timing reference and fails the ordinary-quality gate in this workload.
 These are longer gameplay cohorts, not an isolated comparison to earlier
 five-second reports. No production defaults or 512 MiB worker/checkpoint scratch
 limits change.
@@ -378,7 +378,7 @@ compressed stream roundtrips to its raw report fingerprint. Exact equality is
 evidence for these finite same-target cohorts, not a cross-build/platform replay
 promise.
 
-P1 remains over the necessary 16.667 ms p95 bound on both platforms and retains
+P1 remains over the 16.667 ms p95 reference on both platforms and retains
 4.103%/4.093% pooled incomplete observations on Windows/Oxygen. The sparse teacher
 cohorts still do not qualify sustained 600-row/second capture. No sensor/teacher
 default, normalization revision or ray admission is frozen by this optimization.
@@ -496,7 +496,7 @@ histograms and exact source/drained teacher row witnesses within its platform an
 workload. All eleven Oxygen transfers were independently fingerprint-verified,
 and each compressed raw report roundtrips to its manifest fingerprint. These
 finite same-target equalities do not promise cross-build/platform long-horizon
-replay. The necessary P1 p95 gate still fails on both platforms; pooled ray
+replay. The P1 p95 reference remains exceeded on both platforms; pooled ray
 incompleteness remains 4.103% / 4.093% on Windows/Oxygen. No v4/v2 production
 default, ray admission, normalization freeze or full-stack throughput is selected.
 The unchanged capture owner reuses the preceding byte-pressure qualification;
@@ -580,7 +580,7 @@ incompleteness to 0.202% / 0.048% on Windows / Debian at the same 256/65,536
 admission. Both B16 profiles and B8 pass this seeded
 quality probe, while both B32 profiles fail. The 128-unit cap and smaller batch
 probes fail as well. These results do not qualify every admitted consumer or
-select a production default. The native 60 Hz p95 requirement still fails for
+select a production default. The native 60 Hz p95 reference remains exceeded for
 P1 Motion; even a native p95 pass would not establish supported 1x wall-debt
 scheduling. The one-worker repeat preserves full continuation, consumer work,
 raw/normalized histograms and exact source/drained teacher rows for P1 Motion
@@ -622,3 +622,35 @@ Run-to-run variation is substantial, and no useful whole-workload gain is
 established. The patch is reverted; production and qualification source remain
 `bc056c98`. The profile prioritizes pellet collection/sorting for further work;
 none of the outstanding performance, quality or default-selection gates closes.
+
+
+Spatial candidate distances now cache the reversible `f64::total_cmp` order key
+once, replacing repeated sign folding inside sort/heap comparisons. Restoring
+the key recovers every original distance bit for numeric ring-stop checks.
+Body/pellet candidates remain 32/16 bytes with unchanged capacity admission.
+A regression compares the cached order with the standard library across signed
+zeros, subnormals, infinities, both NaN signs/payloads and 16,384 generated bit
+patterns, and checks exact roundtrip and candidate sizes.
+
+`spatial-order-keys-windows-v1/` retains sixteen adjacent ABBA reports for native
+sources `bc056c98` and `d1cf40a0`. Each uses Motion B16, modest graph, seed 42,
+unlimited evolved respawn, ten stochastic v2 teachers at exact 60 Hz, capture,
+cap 256/batch 65,536, five warmup and 1,200 measured steps. Full continuation,
+raw/normalized samples, per-consumer work and committed teacher hashes agree
+within each population across both builds; P1 also agrees across 1/3/5 workers.
+Five workers match this host's CPU-normalized production default.
+
+| Case | Mean step, before / after | Native p95, before / after | Child CPU, before / after |
+|---|---:|---:|---:|
+| P0, 3 workers | 4.062 / 4.020 ms | 5.270 / 5.172 ms | 8.375 / 8.172 s |
+| P1, 1 worker | 41.187 / 40.562 ms | 56.882 / 55.375 ms | 45.258 / 44.633 s |
+| P1, 3 workers | 18.035 / 18.395 ms | 22.645 / 24.125 ms | 46.641 / 44.602 s |
+| P1, 5 workers | 13.432 / 13.300 ms | 16.164 / 16.179 ms | 46.570 / 46.070 s |
+
+These shared-host medians show modest CPU reductions and mixed wall timings;
+the three-worker P1 wall-time regression remains explicit. This is descriptive
+evidence with two runs per role, without a statistical confidence claim. Native
+p95 relative to one fixed-step interval is a diagnostic; the plan's P0/P1 1x
+gate requires actual wall-clock throughput/debt qualification. Node/browser,
+loaded spool/replay/training, representative policies, tactical/ablation and
+integrated-soak gates remain open. No production defaults or quotas change.

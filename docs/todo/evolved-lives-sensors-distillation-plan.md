@@ -716,9 +716,10 @@ queue peaks/drops and settled ownership under slow draining. Windows P0/P1
 one/three workers; normal capture loses no rows and count-limited slow capture
 drops only complete chunks with reconciled accounting. All 746 release library
 tests and 16 rebuilt-addon tests pass. The actual rates are 422.2/204.45 rows per
-simulated second, not a sustained 600-row pass. P1's 24.998 ms three-worker p95
-and 4.103% pooled incomplete rate still fail necessary sensor gates. Matching
-Oxygen batches also preserve exact native capture/authority isolation and retain
+simulated second; full-stack throughput remains unqualified. P1's 24.998 ms
+three-worker p95 exceeds one fixed-step interval, and the 4.103% pooled
+incomplete rate fails the quality gate. Actual 1x scheduling remains unqualified.
+Matching Oxygen batches also preserve exact native capture/authority isolation and retain
 verified reports. P1 records 178.75 teacher rows per simulated second, 4.093%
 pooled incompleteness and 150.829 ms three-worker p95 on the loaded target;
 this is no timing pass. Full reports and their scope live under
@@ -760,8 +761,9 @@ configurations pass. Twenty retained
 Windows/Oxygen ABBA reports preserve complete continuations and sample witnesses,
 including Oxygen P1 across a fixed-affinity follow-up. Windows P1 mean service
 improves about 8%; fixed-affinity Oxygen P1 improves about 6.3%, while the
-unrestricted Oxygen result remains noisy. P1 still fails the necessary timing
-and pooled ray-quality gates. Source commits, full measurements and scope are in
+unrestricted Oxygen result remains noisy. P1 remains above the fixed-step timing
+reference and fails the pooled ray-quality gate; actual 1x scheduling is open.
+Source commits, full measurements and scope are in
 `docs/performance/sensor-v4/README.md`.
 
 PyRL commit `34f1e33` adds `python -m pyrl_trainer --mode distillation`, delegating
@@ -818,8 +820,8 @@ pass, with six existing skips in that overlay; rustfmt and both Clippy configura
 pass. Sixteen retained Windows/Oxygen ABBA reports preserve exact continuation,
 consumer work, raw/normalized histograms and captured row witnesses. Windows P1
 mean/CPU fall about 17.5%/21.4%; loaded Oxygen P1 mean/CPU fall 13.1%/17.1%.
-These descriptive gains still leave P1 above the necessary p95 bound and around
-4.1% pooled ray incompleteness. Measurements and reproduction scope are in
+These descriptive gains still leave P1 above the fixed-step p95 reference and
+around 4.1% pooled ray incompleteness. Measurements and reproduction scope are in
 `docs/performance/sensor-v4/README.md`. No production defaults or resource ceilings
 change; unchanged capture transport reuses the preceding byte-pressure evidence.
 
@@ -869,6 +871,16 @@ and angular lookup as the largest measured targets. A prepartitioned angular
 lookup passes exact comparison but shows no whole-workload speed gain and is
 reverted; its compact ABBA evidence and patch remain in the existing sensor-v4
 performance directory. The comparison driver now checks raw histograms explicitly.
+
+Spatial body/pellet candidates now cache the reversible IEEE total-order key
+once per distance, preserving original distance bits, ties, candidate sizes and
+admission. Sixteen retained Windows P0/P1 ABBA reports preserve complete
+continuations, raw/normalized samples, consumer work and capture across builds
+and P1 worker counts 1/3/5. CPU medians fall about 1..4%; wall timing is mixed,
+including a three-worker P1 regression. These descriptive probes do not close
+the actual P0/P1 1x throughput/debt gate. All 702 release library tests and 184
+rebuilt-addon required-native checks pass (six existing skips), plus rustfmt and
+both Clippy configurations. Production defaults remain unchanged.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
