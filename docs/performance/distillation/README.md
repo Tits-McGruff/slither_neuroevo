@@ -37,6 +37,8 @@ node node_modules/tsx/dist/cli.mjs scripts/qualification/live-distillation.ts --
 ```
 
 `--device` accepts `cpu` or explicit `cuda:0`; `--workers` accepts 1 or 3.
+`--spool-gib` selects an admitted 1..64 GiB producer disk ceiling, default 4.
+The trainer requires matching reported policy before consuming samples.
 Reports use exclusive creation. The host creates and verifies a private temporary
 root, respects the normal disk-admission reserve, services native generation
 persistence through the existing router, and stops/cleans its processes and files
@@ -87,3 +89,19 @@ The configured 8 GiB device allowance is a ceiling. Admission checks the calcula
 job estimate against both that ceiling and current free CUDA memory; it does not
 require 8 GiB free for this small job. This run uses the unchanged job and sequence
 configuration.
+
+
+`live-storage-cpu-w1-q4-v1.json` and `live-storage-cuda-w3-q64-v1.json`
+qualify admitted producer storage-policy provenance at 4/64 GiB on Windows with
+one/three native workers. Slither sources are `c328d4d` / `1988993`, paired with
+PyRL `da21983`; native source is unchanged from the preceding sensor qualification.
+Both GRU and compatible Dense students reach 250 updates, reproduce update 126
+after a fresh-process checkpoint restore, and pass native shadows plus the
+retained-library deployment/deletion handoff. Reported producer policy matches
+the saved trainer policy; the later host explicitly passes the selected quota to
+both students and retains the Dense policy in its deployment witness.
+
+The 64 GiB ceiling does not allocate or fill 64 GiB. These checks establish
+admission and checkpoint provenance, leaving loaded spool rotation, sustained
+throughput, maximum-quota memory and integrated-soak gates open. Native worker
+and checkpoint scratch remain 512 MiB.
