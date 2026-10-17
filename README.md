@@ -512,6 +512,16 @@ and downloaded exports are outside this cap. A budget too small for the
 protected current and prior-run anchors stops the next durable transition
 instead of deleting them.
 
+
+`distillationSpoolGiB` sets the encoded teacher-dataset disk quota across retained
+captures. It defaults to 4 GiB and accepts integers from 1 to 64 through
+`server/config.toml`, `DISTILLATION_SPOOL_GIB`, or `--distillation-spool-gib N`.
+The spool also retains its 65,536-object ceiling and one-GiB operating disk
+reserve. On restart, a smaller quota rotates the oldest unpinned objects;
+active download leases protect their objects. This setting applies to the
+separate diagnostic store and leaves native scratch and trainer replay RAM
+unchanged. Existing configuration files are read without migration writes.
+
 ## Home-LAN access
 
 On the Windows computer running Slither Neuroevolution:

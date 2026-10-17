@@ -839,6 +839,20 @@ representative/tactical/ablation and full-stack gates remain open. Measurements
 are in the existing sensor-v4 performance report. Both scratch ceilings remain
 512 MiB; ordinary v3/v1 defaults remain unchanged.
 
+The Node dataset-disk ceiling is now configurable through
+`--distillation-spool-gib`, `DISTILLATION_SPOOL_GIB` or TOML
+`distillationSpoolGiB`, with exact integer admission 1..64 and unchanged 4 GiB
+default. Startup validates before owner-database access; existing configuration
+files are preserved. Smaller restart quotas rotate oldest unpinned objects,
+count overlapping leases once and refuse impossible pin sets before eviction.
+Object/lease/download/reserve bounds remain unchanged, with an additive lease
+lookup index for bounded catalog work. All 918 JavaScript tests and 184
+required-native checks pass (18/six existing skips), plus type/lint/client build;
+unchanged native source reuses the preceding Rust evidence. This exposes the
+producer's global disk ceiling; loaded spool/resource qualification, durable
+trainer-job quota provenance and the final settings-surface audit remain open.
+Native scratch ceilings remain 512 MiB.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

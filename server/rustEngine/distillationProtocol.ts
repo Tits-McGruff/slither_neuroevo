@@ -1,3 +1,4 @@
+import { DEFAULT_DISTILLATION_SPOOL_GIB, GIB_BYTES, MAX_DISTILLATION_SPOOL_GIB, validateDistillationSpoolGiB } from './distillationSpoolLimits.ts';
 import { distillationHex, distillationInteger } from '../../src/protocol/distillation.ts';
 /** Shared diagnostic wire contracts remain browser-safe and contain no sample codec. */
 export { distillationHex, distillationInteger } from '../../src/protocol/distillation.ts';
@@ -35,10 +36,16 @@ export interface DistillationSpoolLimits {
 
 /** Initial spool defaults requiring workload qualification, as specified by the plan. */
 export const DISTILLATION_SPOOL_DEFAULTS: Readonly<DistillationSpoolLimits> = {
-  maxBytes: 4 * 1024 ** 3, maxChunks: 65_536, maxDatasets: 256,
+  maxBytes: DEFAULT_DISTILLATION_SPOOL_GIB * GIB_BYTES, maxChunks: 65_536, maxDatasets: 256,
   maxLeases: 64, maxPinnedChunks: 1024, maxPinnedBytes: 512 * 1024 ** 2,
   maxLeaseMs: 300_000, diskReserveBytes: 1024 ** 3
 };
+
+/** Convert the operator's disk quota while retaining all object, lease and reserve ceilings. */
+export function distillationSpoolLimitsForGiB(value: unknown): DistillationSpoolLimits {
+  return parseSpoolLimits({ ...DISTILLATION_SPOOL_DEFAULTS,
+    maxBytes: validateDistillationSpoolGiB(value) * GIB_BYTES });
+}
 
 /** Reject arrays, inherited fields, unknown fields and incomplete metadata records. */
 function record(value: unknown, keys: readonly string[], field: string): Record<string, unknown> {
@@ -53,7 +60,7 @@ function record(value: unknown, keys: readonly string[], field: string): Record<
 /** Validate all configurable storage ceilings before a worker/database is created. */
 export function parseSpoolLimits(value: DistillationSpoolLimits): DistillationSpoolLimits {
   const limits = { ...value };
-  distillationInteger(limits.maxBytes, 1, 4 * 1024 ** 3, 'maxBytes');
+  distillationInteger(limits.maxBytes, 1, MAX_DISTILLATION_SPOOL_GIB * GIB_BYTES, 'maxBytes');
   distillationInteger(limits.maxChunks, 1, 65_536, 'maxChunks');
   distillationInteger(limits.maxDatasets, 1, 256, 'maxDatasets');
   distillationInteger(limits.maxLeases, 1, 64, 'maxLeases');

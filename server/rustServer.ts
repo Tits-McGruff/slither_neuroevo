@@ -1,3 +1,4 @@
+import { distillationSpoolLimitsForGiB } from './rustEngine/distillationProtocol.ts';
 import { DecisionInspectorRouting } from './rustEngine/decisionInspector.ts';
 import type {
   RustBackgroundVisualization,
@@ -323,6 +324,8 @@ function applyMetadataSettings(
 
 /** Start native authority from fresh or retained managed state. */
 export async function startRustServer(config: ServerConfig): Promise<RustServer> {
+  /** Validate diagnostic resource admission before opening the owner database. */
+  const distillationLimits = distillationSpoolLimitsForGiB(config.distillationSpoolGiB);
   if (config.controllerInputHoldMs !== 500 || config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
     throw new Error('Rust startup requires default controller timing and every-generation checkpoints');
   }
@@ -580,7 +583,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     if (pathname.startsWith('/api/distillation/v1/')) {
       if (!distillationHttp) {
         if (!distillationAdmission || stopping) { response.writeHead(503); response.end(); return; }
-        const spool = new DistillationSpoolClient(`${config.dbPath}.distillation`);
+        const spool = new DistillationSpoolClient(`${config.dbPath}.distillation`, distillationLimits);
         distillation = new DistillationCapture(() => owner.runtime, distillationAdmission, spool,
           () => ({ runId: activeMetadata.runId, seed: activeMetadata.seed }));
         savedBrains = new SavedBrainLibrary(owner.persistence, spool, owner.managedDirectory,

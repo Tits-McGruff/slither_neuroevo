@@ -334,6 +334,34 @@ async function cleanupInspectorFixture(root: string): Promise<void> {
   await rm(root, {recursive: true, force: true});
 }
 
+/** Remove only the exact quota test's independently created temporary root. */
+async function cleanupQuotaFixture(root: string): Promise<void> {
+  if (dirname(resolve(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), 'slither-spool-startup-'))) {
+    throw new Error('unsafe quota-test cleanup');
+  }
+  await rm(root, { recursive: true, force: true });
+}
+
+it('rejects diagnostic disk quota before opening owner database or starting native authority', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'slither-spool-startup-'));
+  const database = join(root, 'owner.db');
+  try {
+    await writeFile(database, 'preserved owner bytes');
+    for (const quota of [0, 65, Number.NaN]) {
+      let unexpected: Awaited<ReturnType<typeof startRustServer>> | undefined;
+      try {
+        await expect((async () => {
+          unexpected = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath: database, distillationSpoolGiB: quota });
+        })()).rejects.toThrow(/distillationSpoolGiB/u);
+      } finally { await unexpected?.close(); }
+      expect(await readdir(root)).toEqual(['owner.db']);
+      expect(await readFile(database, 'utf8')).toBe('preserved owner bytes');
+    }
+  } finally {
+    await cleanupQuotaFixture(root);
+  }
+});
+
 describeNetworkSuite('Rust server real sockets', () => {
   it('routes one native decision inspector through real sockets and releases disconnected ownership', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-inspector-'));
