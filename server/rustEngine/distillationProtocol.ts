@@ -5,7 +5,7 @@ export { distillationHex, distillationInteger } from '../../src/protocol/distill
 export type { DistillationDataset, DistillationChunkPage, DistillationLease, DistillationDatasetSummary, DistillationDatasetPage } from '../../src/protocol/distillation.ts';
 import { createHash } from 'node:crypto';
 import { sensorLayoutFromContract } from '../../src/protocol/sensors.ts';
-import type { TeacherCaptureContract, TeacherCaptureDrain, TeacherChunkDescriptor, TeacherChunkTransfer } from '../../src/protocol/distillation.ts';
+import type { TeacherCaptureContract, TeacherCaptureDrain, TeacherChunkDescriptor, TeacherChunkTransfer, DistillationStoragePolicy } from '../../src/protocol/distillation.ts';
 
 /** Largest native immutable teacher object and bounded worker ingestion batch. */
 export const TEACHER_OBJECT_BYTES = 1024 * 1024;
@@ -69,6 +69,37 @@ export function parseSpoolLimits(value: DistillationSpoolLimits): DistillationSp
   distillationInteger(limits.maxLeaseMs, 1, 300_000, 'maxLeaseMs');
   distillationInteger(limits.diskReserveBytes, 1024 ** 3, Number.MAX_SAFE_INTEGER, 'diskReserveBytes');
   return limits;
+}
+
+/** Snapshot the worker's admitted policy without exposing paths, bytes or game ownership. */
+export function storagePolicyFromLimits(limits: DistillationSpoolLimits): DistillationStoragePolicy {
+  const value = parseSpoolLimits(limits);
+  return { schemaVersion: 1, scope: 'producer-global',
+    maxBytes: BigInt(value.maxBytes).toString(16).padStart(16, '0'),
+    maxChunks: value.maxChunks, maxDatasets: value.maxDatasets, maxLeases: value.maxLeases,
+    maxPinnedChunks: value.maxPinnedChunks,
+    maxPinnedBytes: BigInt(value.maxPinnedBytes).toString(16).padStart(16, '0'),
+    maxLeaseMs: value.maxLeaseMs,
+    diskReserveBytes: BigInt(value.diskReserveBytes).toString(16).padStart(16, '0') };
+}
+
+/** Independently validate bounded metadata returned by the isolated storage worker. */
+export function parseStoragePolicy(value: unknown): DistillationStoragePolicy {
+  const raw = record(value, ['schemaVersion', 'scope', 'maxBytes', 'maxChunks', 'maxDatasets',
+    'maxLeases', 'maxPinnedChunks', 'maxPinnedBytes', 'maxLeaseMs', 'diskReserveBytes'], 'storage policy');
+  if (raw['schemaVersion'] !== 1 || raw['scope'] !== 'producer-global') throw new TypeError('unsupported storage policy');
+  for (const field of ['maxBytes', 'maxPinnedBytes', 'diskReserveBytes']) distillationHex(raw[field], 16, field, true);
+  const parsed = storagePolicyFromLimits({
+    maxBytes: Number(BigInt('0x' + String(raw['maxBytes']))),
+    maxChunks: distillationInteger(raw['maxChunks'], 1, 65_536, 'maxChunks'),
+    maxDatasets: distillationInteger(raw['maxDatasets'], 1, 256, 'maxDatasets'),
+    maxLeases: distillationInteger(raw['maxLeases'], 1, 64, 'maxLeases'),
+    maxPinnedChunks: distillationInteger(raw['maxPinnedChunks'], 1, 1024, 'maxPinnedChunks'),
+    maxPinnedBytes: Number(BigInt('0x' + String(raw['maxPinnedBytes']))),
+    maxLeaseMs: distillationInteger(raw['maxLeaseMs'], 1, 300_000, 'maxLeaseMs'),
+    diskReserveBytes: Number(BigInt('0x' + String(raw['diskReserveBytes'])))
+  });
+  return parsed;
 }
 
 /** Validate native identity and the exact sensor metadata bytes, without sampling anything. */

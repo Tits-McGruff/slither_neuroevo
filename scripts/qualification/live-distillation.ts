@@ -1,3 +1,4 @@
+import { distillationSpoolLimitsForGiB } from '../../server/rustEngine/distillationProtocol.ts';
 /** Qualify live committed Rust samples, HTTP, PyTorch restart and four Rust shadows. */
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
@@ -110,12 +111,14 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
   const checkout = resolve(args.get('--pyrl-root')!); const pythonPath = resolve(args.get('--python')!);
   const device = args.get('--device')!; const workers = Number(args.get('--workers'));
+  const spoolGiB = Number(args.get('--spool-gib') ?? '4');
+  const spoolLimits = distillationSpoolLimitsForGiB(spoolGiB);
   assert(['cpu', 'cuda:0'].includes(device)); assert([1, 3].includes(workers));
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
@@ -163,7 +166,7 @@ async function run(): Promise<void> {
         assert(sequence); receipts.set(sequence, event => {clearTimeout(timeout); done(event);});
       } catch (error) {clearTimeout(timeout); reject(error);}
     });
-    spool = new DistillationSpoolClient(join(root, 'diagnostics')); const storage = spool;
+    spool = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits); const storage = spool;
     capture = new DistillationCapture(() => native, admission, storage, () => ({runId, seed: 42}));
     const generation = new BackgroundGenerationRouter({native, admission, persistence, managedDirectory: managed, maxAssignments: 1,
       send: () => {throw new Error('qualification must not assign controllers');},
@@ -202,9 +205,11 @@ async function run(): Promise<void> {
     const dataset = await capture.start({expectedRunId: runId, expectedConfigRevision: '0000000000000001',
       baselineSlots: Array.from({length: 10}, (_, slot) => slot), pendingBytes: 1024 ** 2, queueChunks: 32, queueBytes: 4 * 1024 ** 2});
     const origin = 'http://127.0.0.1:' + address.port;
+    const producerStoragePolicy = JSON.parse((await exchange(address.port, '/api/distillation/v1/storage', 'GET')).toString('utf8')) as {maxBytes: string};
+    assert.equal(BigInt('0x' + producerStoragePolicy.maxBytes), BigInt(spoolGiB) * 1024n ** 3n);
     const jobDirectory = join(root, 'job');
     const common = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
-      '--artifact', resolve('native/fixtures/portable-brain-v1.slither-brain'), '--directory', jobDirectory, '--device', device];
+      '--artifact', resolve('native/fixtures/portable-brain-v1.slither-brain'), '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB)];
     const before = native.health();
     console.info('[live-distillation] training', device, 'workers=' + workers);
     await python(pythonPath, checkout, ['--phase', 'train', ...common]);
@@ -297,6 +302,8 @@ async function run(): Promise<void> {
       deliveredSampleStep: observed!.sample!.sampleStep, rawOutputs: observed!.sample!.neuralOutputs};
     const after = native.health(); assert.equal(after.faultCode, undefined); assert(BigInt('0x' + after.completedStep) > BigInt('0x' + before.completedStep));
     assert.equal(forbiddenRequests, 0); if (pumpError) throw pumpError;
+    assert.deepEqual(train['producerStoragePolicy'], producerStoragePolicy);
+    assert.deepEqual(resume['producerStoragePolicy'], producerStoragePolicy);
     delete resume['candidatePath'];
     const report = {schemaVersion: 1, gate: 'live-canonical-distillation-v2', device, workers, seed: 42,
       source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
@@ -305,7 +312,7 @@ async function run(): Promise<void> {
         nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
       workload: {population: 55, baselines: 10, profile: 'basic', bins: 8, populationGraph: 'Dense 72 to 2',
         studentGraph: 'GRU8 and Dense2', studentParameters: 1962, studentState: 8, cadenceSeconds: 0.06},
-      hostPeakRssBytes, train, resume, deployment, authority: {completedStepBefore: before.completedStep, completedStepAfter: after.completedStep,
+      spoolGiB, producerStoragePolicy, hostPeakRssBytes, train, resume, deployment, authority: {completedStepBefore: before.completedStep, completedStepAfter: after.completedStep,
         generationAfter: after.generation, stepTimingP95Micros: after.stepTimingP95Micros, stepTimingP99Micros: after.stepTimingP99Micros,
         schedulerDroppedWallMicros: after.schedulerDroppedWallMicros}, shadows: metrics.slots,
       http: {forbiddenRequests, routes: Object.fromEntries(routes)}};

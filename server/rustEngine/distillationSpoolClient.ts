@@ -2,9 +2,9 @@ import type { ShadowReceipt, ShadowEventPage } from '../../src/protocol/shadows.
 import { parseShadowReceipt } from './shadowProtocol.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES, type BrainCandidateRecord } from '../../src/protocol/brainArtifacts.ts';
 import { Worker } from 'node:worker_threads';
-import type { TeacherCaptureDrain, TeacherChunkDescriptor } from '../../src/protocol/distillation.ts';
+import type { TeacherCaptureDrain, TeacherChunkDescriptor, DistillationStoragePolicy } from '../../src/protocol/distillation.ts';
 import { DISTILLATION_SPOOL_DEFAULTS, distillationHex, distillationInteger, parseSpoolLimits,
-  parseTeacherDrain, type DistillationChunkPage, type DistillationDataset, type DistillationLease,
+  parseTeacherDrain, parseStoragePolicy, type DistillationChunkPage, type DistillationDataset, type DistillationLease,
   type DistillationSpoolLimits, type DistillationDatasetPage } from './distillationProtocol.ts';
 
 /** Bounded request ownership while an isolated worker performs disk/SQLite work. */
@@ -69,6 +69,11 @@ export class DistillationSpoolClient {
       this.resolveExited();
       if (!this.closing || code !== 0) this.fail(new Error(`distillation spool worker exited (${code})`));
     });
+  }
+
+  /** Read the policy only after the worker has opened and re-admitted its actual store. */
+  async storagePolicy(): Promise<DistillationStoragePolicy> {
+    return parseStoragePolicy(await this.request('storage', []));
   }
 
   /** Transfer an exclusive bounded copy; caller/native bytes retain their ownership. */

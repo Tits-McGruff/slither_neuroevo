@@ -951,11 +951,11 @@ valid objects. Quota validation precedes owner-database startup and existing
 configuration files are never rewritten for this setting. Spool limits are
 supplied to `DistillationSpoolClient`; native pending/queue budgets remain
 independent per-arm admission. The selected ceiling is global to the producer's
-diagnostic store. Trainer-job quota provenance and capacity qualification remain
-open.
+diagnostic store. Capacity qualification remains open.
 
 | Method and path | Request/result |
 |---|---|
+| `GET /storage` | Worker-admitted global storage policy; schema 1, `scope: "producer-global"`, byte ceilings as exact u64 hex words, bounded object/lease counts |
 | `POST /capture/start` | Exact six-field request below; server generates a new capture epoch and returns its dataset manifest after native admission |
 | `POST /capture/<epoch>/stop` | Ordered stop for that epoch; no trainer-consumption acknowledgement |
 | `GET /datasets?after=<epoch>&limit=N` | Bounded dataset summaries and discovery cursor; default limit 100, maximum 256 |
@@ -965,6 +965,22 @@ open.
 | `POST /leases/<id>/renew` | `{ "durationMs": N }`; renews a still-live storage pin |
 | `DELETE /leases/<id>` | Idempotent storage-pin release |
 | `GET /datasets/<epoch>/chunks/<sequence>?lease=<id>` | Complete immutable binary object protected by that live storage lease |
+
+`GET /storage` completes only after the diagnostic worker has admitted its store.
+The response contains `schemaVersion`, `scope`, `maxBytes`, `maxChunks`,
+`maxDatasets`, `maxLeases`, `maxPinnedChunks`, `maxPinnedBytes`, `maxLeaseMs` and
+`diskReserveBytes`. The three byte fields are sixteen-digit lowercase hexadecimal
+u64 words; the remaining limits are bounded integers. These are configured
+ceilings, not reserved disk allocations. The endpoint is read-only and grants no
+capture or controller ownership.
+
+The canonical trainer binds this policy before fetching rows and saves it with
+its version-2 source cursor checkpoint. `--spool-gib N` requires the producer's
+admitted quota to match the selected 1..64 GiB; configure the producer quota using
+Slither's startup control first. A changed policy requires a new job. A legacy
+provider returning 404 for this endpoint is explicitly recorded as unreported;
+an explicit quota cannot be inferred for it. Other transport or metadata errors
+remain failures. Offline exact resume uses the saved policy without HTTP.
 
 Paths in the table are relative to `/api/distillation/v1/`. Epoch/lease IDs are
 32 lowercase hex digits; long sequences/revisions are exact 16-digit unsigned

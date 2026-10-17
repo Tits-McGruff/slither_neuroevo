@@ -113,6 +113,9 @@ export class DistillationHttpRouter {
       return;
     }
     if (candidate && method === 'GET') { this.json(response, 200, await this.spool.candidate(candidate[1]!)); return; }
+    if (method === 'GET' && path === 'storage') {
+      this.json(response, 200, await this.spool.storagePolicy()); return;
+    }
     if (method === 'GET' && path === 'datasets') {
       const after = url.searchParams.get('after') ?? '0'.repeat(32);
       this.json(response, 200, await this.spool.datasets(after, this.limit(url)));

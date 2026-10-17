@@ -225,3 +225,27 @@ export interface DistillationDatasetPage {
   /** Another retained dataset follows this page. */
   hasMore: boolean;
 }
+
+/** Admitted global producer storage policy; byte ceilings use exact hexadecimal u64 words. */
+export interface DistillationStoragePolicy {
+  /** Additive diagnostic storage-policy schema. */
+  schemaVersion: 1;
+  /** Quota covers complete objects across all retained datasets. */
+  scope: 'producer-global';
+  /** Maximum retained encoded object bytes. */
+  maxBytes: DistillationWord;
+  /** Maximum retained complete objects. */
+  maxChunks: number;
+  /** Maximum retained dataset manifests. */
+  maxDatasets: number;
+  /** Maximum simultaneous storage leases. */
+  maxLeases: number;
+  /** Maximum distinct pinned complete objects. */
+  maxPinnedChunks: number;
+  /** Maximum distinct pinned encoded bytes. */
+  maxPinnedBytes: DistillationWord;
+  /** Maximum lease duration or renewal interval. */
+  maxLeaseMs: number;
+  /** Operating filesystem reserve, outside the encoded-object ceiling. */
+  diskReserveBytes: DistillationWord;
+}

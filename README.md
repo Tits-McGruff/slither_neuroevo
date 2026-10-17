@@ -521,6 +521,10 @@ reserve. On restart, a smaller quota rotates the oldest unpinned objects;
 active download leases protect their objects. This setting applies to the
 separate diagnostic store and leaves native scratch and trainer replay RAM
 unchanged. Existing configuration files are read without migration writes.
+Canonical trainer jobs record the admitted global policy from the diagnostic
+`GET /api/distillation/v1/storage` endpoint. The trainer's `--spool-gib N` option
+binds a job to the producer's selected quota; later changes require a new job.
+
 
 ## Home-LAN access
 
