@@ -161,7 +161,10 @@ Origin admission/CORS are not authentication. This project has no authentication
 TLS or hardened public mode; never advertise router forwarding/untrusted exposure.
 
 Important flags: `--rust-workers`, `--seed`, `--fresh`,
-`--resume latest|sha256:ID`, `--db-path`, and LAN host/UI/socket overrides.
+`--resume latest|sha256:ID`, `--db-path`, and LAN host/UI/socket overrides. Diagnostic teacher storage uses
+`--distillation-spool-gib` / `DISTILLATION_SPOOL_GIB` / `distillationSpoolGiB`:
+integer 1..64, default 4 GiB of encoded objects across retained captures. It is
+outside world checkpoints and does not change native scratch or replay RAM.
 A configured seed with an existing resume requires `--fresh`. Removed backend,
 Node-MT and tick flags reject with guidance. Neutral old TOML/environment values
 warn and are ignored; active/malformed ones reject. UI rate remains at most 60 Hz.

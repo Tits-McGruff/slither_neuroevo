@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { RUST_CALCULATION_WORKER_MAX, validateRustCalculationWorkers } from './rustWorkers.ts';
+import { DEFAULT_DISTILLATION_SPOOL_GIB, validateDistillationSpoolGiB } from './rustEngine/distillationSpoolLimits.ts';
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -29,6 +30,8 @@ export interface ServerConfig {
   checkpointEveryGenerations: number;
   /** Managed-store physical budget in MiB, excluding owner-pinned checkpoints. */
   checkpointBudgetMiB: number;
+  /** Encoded dataset disk quota in GiB, outside world checkpoints and native scratch. */
+  distillationSpoolGiB: number;
   logLevel: LogLevel;
   /** Rust calculation threads within the process-available logical CPU count. */
   rustCalculationWorkers: number;
@@ -52,6 +55,7 @@ export const DEFAULT_CONFIG: ServerConfig = {
   dbPath: './data/slither.db',
   checkpointEveryGenerations: 1,
   checkpointBudgetMiB: 4096,
+  distillationSpoolGiB: DEFAULT_DISTILLATION_SPOOL_GIB,
   logLevel: 'info',
   rustCalculationWorkers: 5,
   resume: 'auto'
@@ -344,6 +348,7 @@ export function normalizeConfig(
     dbPath,
     checkpointEveryGenerations,
     checkpointBudgetMiB: selectedCheckpointBudgetMiB,
+    distillationSpoolGiB: validateDistillationSpoolGiB(input.distillationSpoolGiB),
     logLevel,
     rustCalculationWorkers,
     resume
@@ -416,6 +421,7 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     dbPath: data['dbPath'],
     checkpointEveryGenerations: data['checkpointEveryGenerations'],
     checkpointBudgetMiB: data['checkpointBudgetMiB'],
+    distillationSpoolGiB: data['distillationSpoolGiB'],
     logLevel: data['logLevel'],
     seed: data['seed'],
     rustCalculationWorkers: data['rustCalculationWorkers'],
@@ -458,6 +464,12 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   }
   const warn = (msg: string) => console.warn(`[config] ${msg}`);
   validateLegacyKeys({ inferenceBackend: env['INFERENCE_BACKEND'], mtEnabled: env['MT_ENABLED'], mtWorkers: env['MT_WORKERS'], tickRateHz: env['TICK_RATE'] }, warn);
+  const cliSpoolGiB = getArgValue(argv, '--distillation-spool-gib');
+  if (argv.some(arg => arg === '--distillation-spool-gib' || arg.startsWith('--distillation-spool-gib=')) &&
+      cliSpoolGiB === undefined) throw new Error('--distillation-spool-gib requires a value');
+  const selectedSpoolGiB = cliSpoolGiB ?? env['DISTILLATION_SPOOL_GIB'];
+  // Resource overrides reject before a missing owner config file could be created.
+  if (selectedSpoolGiB !== undefined) validateDistillationSpoolGiB(selectedSpoolGiB);
   const configPath = resolveConfigPath(argv, env);
   const input: RawConfigInput = {
     ...parseConfigFile(loadConfigFile(configPath, warn), warn)
@@ -533,5 +545,6 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   } else if (resumeRaw !== undefined) {
     input.resume = resumeRaw;
   }
+  if (selectedSpoolGiB !== undefined) input.distillationSpoolGiB = selectedSpoolGiB;
   return normalizeConfig(input, warn, rustWorkerMaximum);
 }

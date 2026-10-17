@@ -940,10 +940,19 @@ idempotency key, destination and complete command body.
 The server lazily opens a separate `<db-path>.distillation/` diagnostic store.
 Its worker stores opaque Rust-encoded objects and SQLite metadata. It does not
 parse/reconstruct observation rows or populations. The initial configurable
-storage envelope is 4 GiB/65,536 complete objects, with bounded storage leases,
-four download buffers and a one-MiB native-to-worker handoff. The operating disk
-reserve remains one GiB. Spool limits are supplied to `DistillationSpoolClient`;
-native pending/queue budgets are supplied per arm request.
+storage envelope defaults to 4 GiB/65,536 complete objects, with bounded storage
+leases, four download buffers and a one-MiB native-to-worker handoff. Configure
+the global encoded-byte quota with `distillationSpoolGiB` in TOML,
+`DISTILLATION_SPOOL_GIB`, or `--distillation-spool-gib N` (integer 1..64 GiB).
+The operating disk reserve remains one GiB. Restarting with a smaller quota
+rotates oldest unpinned objects; active leases are counted once and protected.
+An impossible pinned quota refuses diagnostic initialization before evicting
+valid objects. Quota validation precedes owner-database startup and existing
+configuration files are never rewritten for this setting. Spool limits are
+supplied to `DistillationSpoolClient`; native pending/queue budgets remain
+independent per-arm admission. The selected ceiling is global to the producer's
+diagnostic store. Trainer-job quota provenance and capacity qualification remain
+open.
 
 | Method and path | Request/result |
 |---|---|

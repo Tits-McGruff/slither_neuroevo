@@ -1,5 +1,6 @@
 import { parseConfig, type ServerConfig } from './config.ts';
 import { RUST_CALCULATION_WORKER_MAX } from './rustWorkers.ts';
+import { validateDistillationSpoolGiB } from './rustEngine/distillationSpoolLimits.ts';
 
 /** One production CLI option accepted before any configuration-file or game startup work. */
 interface ProductionOption {
@@ -31,6 +32,7 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--db-path': { value: 'PATH', description: 'Exact SQLite database path (DB_PATH).' },
   '--checkpoint-every': { value: 'N', integer: true, fixed: 1, description: 'Production checkpoints every generation; fixed at 1.' },
   '--checkpoint-budget-mib': { value: 'N', integer: true, description: 'Managed storage budget, 1280..65536 MiB (CHECKPOINT_BUDGET_MIB).' },
+  '--distillation-spool-gib': { value: 'N', integer: true, description: 'Encoded dataset disk quota, 1..64 GiB, default 4 (DISTILLATION_SPOOL_GIB).' },
   '--log': { value: 'LEVEL', choices: ['debug', 'info', 'warn', 'error'], description: 'Logging level (LOG_LEVEL).' },
   '--seed': { value: 'N', integer: true, description: 'Run seed; requires --fresh when a database already exists (WORLD_SEED).' },
   '--rust-workers': { value: 'N', integer: true, description: 'Rust calculation workers (RUST_WORKERS).' },
@@ -101,6 +103,7 @@ export function parseProductionCli(argv: string[], env: NodeJS.ProcessEnv, rustW
     if (option.choices && !option.choices.includes(value)) {
       throw new Error(`${flag} requires one of: ${option.choices.join(', ')}`);
     }
+    if (flag === '--distillation-spool-gib') validateDistillationSpoolGiB(value);
     if (flag === '--resume' && value !== 'latest' && !/^sha256:[0-9a-f]{64}$/u.test(value)) {
       throw new Error('--resume requires latest or sha256:ID with a lowercase SHA-256 digest');
     }

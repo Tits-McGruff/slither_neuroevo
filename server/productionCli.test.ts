@@ -168,3 +168,36 @@ it('bounds real-server fixture defaults and comparison counts on a two-CPU proce
     vi.resetModules();
   }
 });
+
+it('configures encoded dataset disk quota across defaults, TOML, environment and CLI without rewriting owner files', () => {
+  const { config, database } = fixture();
+  const original = 'distillationSpoolGiB = 8\n';
+  writeFileSync(config, original);
+  expect(DEFAULT_CONFIG.distillationSpoolGiB).toBe(4);
+  expect(normalizeConfig({}).distillationSpoolGiB).toBe(4);
+  expect(parseProductionCli([], { SERVER_CONFIG: config })?.distillationSpoolGiB).toBe(8);
+  expect(parseProductionCli([], { SERVER_CONFIG: config, DISTILLATION_SPOOL_GIB: '16' })?.distillationSpoolGiB).toBe(16);
+  expect(parseProductionCli(['--distillation-spool-gib=64'], { SERVER_CONFIG: config, DISTILLATION_SPOOL_GIB: '16' })?.distillationSpoolGiB).toBe(64);
+  expect(parseProductionCli(['--distillation-spool-gib', '1'], { SERVER_CONFIG: config })?.distillationSpoolGiB).toBe(1);
+  expect(PRODUCTION_CLI_HELP).toContain('--distillation-spool-gib N');
+  expect(readFileSync(config, 'utf8')).toBe(original);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+});
+
+it.each(['0', '65', '-1', '1.5', 'NaN', 'Infinity', '1e1', '01', '64junk', '9007199254740992', ''])('rejects malformed disk quota %s before creating configuration or touching owner data', value => {
+    const { root, config, database } = fixture();
+    expect(() => parseProductionCli([`--distillation-spool-gib=${value}`], { SERVER_CONFIG: config })).toThrow();
+    expect(() => parseConfig([], { SERVER_CONFIG: config, DISTILLATION_SPOOL_GIB: value })).toThrow(/distillationSpoolGiB/u);
+    expect(readdirSync(root)).toEqual(['owner.db']);
+    expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+  });
+
+it('rejects missing quota values and invalid TOML without migration writes', () => {
+  const { root, config } = fixture();
+  expect(() => parseProductionCli(['--distillation-spool-gib'], { SERVER_CONFIG: config })).toThrow(/requires/u);
+  expect(readdirSync(root)).toEqual(['owner.db']);
+  const original = 'distillationSpoolGiB = 65\n';
+  writeFileSync(config, original);
+  expect(() => parseProductionCli([], { SERVER_CONFIG: config })).toThrow(/distillationSpoolGiB/u);
+  expect(readFileSync(config, 'utf8')).toBe(original);
+});

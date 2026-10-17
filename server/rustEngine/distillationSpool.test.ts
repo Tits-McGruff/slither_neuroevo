@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TeacherCaptureDrain, TeacherChunkTransfer } from '../../src/protocol/distillation.ts';
-import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, parseTeacherDrain, type DistillationSpoolLimits } from './distillationProtocol.ts';
+import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationSpoolLimitsForGiB, parseTeacherDrain, type DistillationSpoolLimits } from './distillationProtocol.ts';
 import { DistillationSpoolStore, type DistillationSpoolFailpoint } from './distillationSpoolStore.ts';
 import { DistillationSpoolClient } from './distillationSpoolClient.ts';
 import { DistillationHttpRouter } from './distillationHttp.ts';
@@ -73,6 +73,64 @@ afterEach(async () => {
 });
 
 describe('durable distillation spool', () => {
+  it.each([1, 4, 64])('admits a %i-GiB disk ceiling while writing only actual opaque objects', quota => {
+    const limits = distillationSpoolLimitsForGiB(quota);
+    const store = fixture(limits);
+    const source = drain([1]);
+    expect(store.ingest(source, 42).retainedBytes).toBe(word(32));
+    expect(store.limits).toEqual({ ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: quota * 1024 ** 3 });
+    const lease = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
+    expect([...store.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
+    expect(readdirSync(store.root).filter(file => file.endsWith('.teacher'))).toHaveLength(1);
+  });
+
+  it('applies a smaller restart quota by rotating oldest unpinned objects while preserving leases and watermarks', () => {
+    const store = fixture({ maxBytes: 96, maxChunks: 3 });
+    const source = drain([1, 2, 3]); store.ingest(source, 42);
+    const lease = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
+    store.close();
+    const restored = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64, maxChunks: 3 });
+    stores.push(restored);
+    expect(restored.list(lease.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(1), word(3)]);
+    expect(restored.dataset(lease.captureEpoch)).toMatchObject({ retainedBytes: word(64), retainedChunks: 2,
+      productionWatermark: word(3), storageWatermark: word(3), resolvedThrough: word(3), retentionFloor: word(1) });
+    expect([...restored.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
+    restored.close();
+    const exact = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64, maxChunks: 2 });
+    stores.push(exact);
+    expect(exact.dataset(lease.captureEpoch).retainedChunks).toBe(2);
+  });
+
+  it('charges overlapping leases once during restart quota admission', () => {
+    const store = fixture({ maxBytes: 96 });
+    const source = drain([1, 2, 3]); store.ingest(source, 42);
+    const first = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
+    const second = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
+    store.close();
+    const restored = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 32 });
+    stores.push(restored);
+    expect(restored.dataset(first.captureEpoch)).toMatchObject({ retainedBytes: word(32), retainedChunks: 1 });
+    expect([...restored.download(first.captureEpoch, word(1), first.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
+    restored.releaseLease(first.id);
+    expect([...restored.download(second.captureEpoch, word(1), second.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
+  });
+
+  it('refuses a restart quota smaller than active pins before evicting any complete object', () => {
+    const store = fixture({ maxBytes: 96 });
+    const source = drain([1, 2, 3]); store.ingest(source, 42);
+    const lease = store.lease(source.contract!.captureEpoch, [word(1), word(2)], 60_000);
+    const files = readdirSync(store.root).filter(file => file.endsWith('.teacher')).sort();
+    store.close();
+    expect(() => new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 32 }))
+      .toThrow(/active leased objects/u);
+    expect(readdirSync(store.root).filter(file => file.endsWith('.teacher')).sort()).toEqual(files);
+    const restored = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 96 });
+    stores.push(restored);
+    expect(restored.dataset(lease.captureEpoch).retainedChunks).toBe(3);
+    for (const sequence of [1, 2]) expect([...restored.download(lease.captureEpoch, word(sequence), lease.id).bytes])
+      .toEqual([...source.chunks[sequence - 1]!.bytes]);
+  });
+
   it('binds the recorded run seed and rejects mismatched immutable provenance', () => {
     const store = fixture();
     const source = drain([1]);

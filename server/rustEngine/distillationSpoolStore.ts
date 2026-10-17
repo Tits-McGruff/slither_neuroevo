@@ -113,6 +113,7 @@ export class DistillationSpoolStore {
         CREATE TABLE IF NOT EXISTS leases (id TEXT PRIMARY KEY, epoch TEXT NOT NULL REFERENCES datasets(epoch), expires INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS lease_chunks (lease_id TEXT NOT NULL REFERENCES leases(id) ON DELETE CASCADE,
           ordinal INTEGER NOT NULL REFERENCES chunks(ordinal), PRIMARY KEY(lease_id, ordinal));
+        CREATE INDEX IF NOT EXISTS lease_chunks_ordinal ON lease_chunks(ordinal);
       `);
       this.db.transaction(() => {
         if (version === 1) this.db.exec('ALTER TABLE datasets ADD COLUMN run_seed INTEGER');
@@ -122,6 +123,15 @@ export class DistillationSpoolStore {
       this.db.prepare('DELETE FROM unavailable WHERE sequence <= (SELECT resolved FROM datasets WHERE epoch = unavailable.epoch)').run();
       this.expireLeases();
       this.reconcile();
+      // Re-admit retained bytes on restart without reserving a phantom new chunk.
+      // Refuse impossible active pins before rotating any otherwise valid object.
+      const pinned = this.db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes
+        FROM chunks WHERE EXISTS (SELECT 1 FROM lease_chunks WHERE lease_chunks.ordinal = chunks.ordinal)`)
+        .get() as { count: number; bytes: number };
+      if (pinned.count > this.limits.maxChunks || pinned.bytes > this.limits.maxBytes) {
+        throw new Error('selected spool quota cannot contain the active leased objects');
+      }
+      if (!this.makeRoom(0, false)) throw new Error('selected spool quota cannot contain retained objects');
     } catch (error) { this.db.close(); throw error; }
   }
 
@@ -302,11 +312,11 @@ export class DistillationSpoolStore {
   }
 
   /** Rotate oldest complete unpinned objects; pinned saturation refuses new data. */
-  private makeRoom(bytes: number): boolean {
+  private makeRoom(bytes: number, reserveNewChunk = true): boolean {
     if (bytes > this.limits.maxBytes) return false;
     for (;;) {
       const total = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM chunks').get() as { count: number; bytes: number };
-      if (total.count < this.limits.maxChunks && total.bytes + bytes <= this.limits.maxBytes) return true;
+      if (total.count + Number(reserveNewChunk) <= this.limits.maxChunks && total.bytes + bytes <= this.limits.maxBytes) return true;
       const victim = this.db.prepare('SELECT * FROM chunks WHERE NOT EXISTS (SELECT 1 FROM lease_chunks WHERE lease_chunks.ordinal = chunks.ordinal) ORDER BY ordinal LIMIT 1')
         .get() as ChunkRow | undefined;
       if (!victim) return false;
