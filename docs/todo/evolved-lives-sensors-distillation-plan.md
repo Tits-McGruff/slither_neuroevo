@@ -849,9 +849,20 @@ Object/lease/download/reserve bounds remain unchanged, with an additive lease
 lookup index for bounded catalog work. All 918 JavaScript tests and 184
 required-native checks pass (18/six existing skips), plus type/lint/client build;
 unchanged native source reuses the preceding Rust evidence. This exposes the
-producer's global disk ceiling; loaded spool/resource qualification, durable
-trainer-job quota provenance and the final settings-surface audit remain open.
+producer's global disk ceiling; loaded spool/resource qualification and the
+final settings-surface audit remain open.
 Native scratch ceilings remain 512 MiB.
+
+Read-only `GET /api/distillation/v1/storage` now exposes the actual admitted
+producer policy. Canonical trainer checkpoints bind its exact byte/count/lease
+ceilings before consuming rows; policy changes require a new job, offline resume
+preserves saved admission, and legacy 404 providers remain explicitly unreported.
+The paired trainer passes 251 tests (two existing skips) and full Pylint; 34
+focused spool/HTTP tests and host type/lint checks pass. Retained Windows CPU
+one-worker/4-GiB and CUDA three-worker/64-GiB live reports prove both students'
+250 updates, fresh-process exact restart, four shadows and saved-library handoff.
+Reports reside under `docs/performance/distillation/`. This closes trainer quota
+provenance; maximum-capacity storage and integrated resource gates remain open.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
