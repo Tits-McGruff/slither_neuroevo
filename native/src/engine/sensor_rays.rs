@@ -471,24 +471,33 @@ fn build_node(
         right: 0,
     });
     if order.len() > LEAF_SEGMENTS {
-        let x_axis = maximum.x - minimum.x >= maximum.y - minimum.y;
-        let middle = order.len() / 2;
-        order.select_nth_unstable_by(middle, |a, b| {
-            // The generated permutation is in-range and the source stays borrowed.
-            let a = body.segment(*a as usize).expect("validated ray record");
-            let b = body.segment(*b as usize).expect("validated ray record");
-            let center = |r: &BodySegmentRecord| {
-                if x_axis {
-                    r.start.x * 0.5 + r.end.x * 0.5
-                } else {
-                    r.start.y * 0.5 + r.end.y * 0.5
+        let split = choose_spatial_split(body, order, minimum, maximum);
+        let middle = if let Some((x_axis, boundary)) = split {
+            let mut middle = 0;
+            for next in 0..order.len() {
+                let record = body
+                    .segment(order[next] as usize)
+                    .expect("validated ray record");
+                if segment_center(record, x_axis) < boundary {
+                    order.swap(middle, next);
+                    middle += 1;
                 }
-            };
-            center(a)
-                .total_cmp(&center(b))
-                .then_with(|| a.owner_id.cmp(&b.owner_id))
-                .then_with(|| a.segment_end.cmp(&b.segment_end))
-        });
+            }
+            middle
+        } else {
+            let x_axis = maximum.x - minimum.x >= maximum.y - minimum.y;
+            let middle = order.len() / 2;
+            order.select_nth_unstable_by(middle, |a, b| {
+                // The generated permutation is in-range and the source stays borrowed.
+                let a = body.segment(*a as usize).expect("validated ray record");
+                let b = body.segment(*b as usize).expect("validated ray record");
+                segment_center(a, x_axis)
+                    .total_cmp(&segment_center(b, x_axis))
+                    .then_with(|| a.owner_id.cmp(&b.owner_id))
+                    .then_with(|| a.segment_end.cmp(&b.segment_end))
+            });
+            middle
+        };
         let (left, right) = order.split_at_mut(middle);
         let left = build_node(body, left, first, nodes)?;
         let right = build_node(body, right, first + middle, nodes)?;
@@ -497,6 +506,114 @@ fn build_node(
         nodes[index as usize].right = right;
     }
     Ok(index)
+}
+
+/// Fixed-bin perimeter heuristic keeps body clusters together. Every chosen
+/// child owns at least max(2, floor(N/4)) records, preserving
+/// logarithmic depth and the existing node-capacity bound. Degenerate centroids
+/// retain the canonical median split. Bounds and charged query work are unchanged.
+fn choose_spatial_split(
+    body: &BodySpatialIndex,
+    order: &[u32],
+    minimum: WorldPoint,
+    maximum: WorldPoint,
+) -> Option<(bool, f64)> {
+    const BINS: usize = 8;
+    #[derive(Clone, Copy)]
+    struct Bin {
+        count: usize,
+        minimum: WorldPoint,
+        maximum: WorldPoint,
+        radius: f64,
+    }
+    impl Bin {
+        const EMPTY: Self = Self {
+            count: 0,
+            minimum: WorldPoint {
+                x: f64::INFINITY,
+                y: f64::INFINITY,
+            },
+            maximum: WorldPoint {
+                x: f64::NEG_INFINITY,
+                y: f64::NEG_INFINITY,
+            },
+            radius: 0.0,
+        };
+        fn merge(self, other: Self) -> Self {
+            Self {
+                count: self.count + other.count,
+                minimum: WorldPoint {
+                    x: self.minimum.x.min(other.minimum.x),
+                    y: self.minimum.y.min(other.minimum.y),
+                },
+                maximum: WorldPoint {
+                    x: self.maximum.x.max(other.maximum.x),
+                    y: self.maximum.y.max(other.maximum.y),
+                },
+                radius: self.radius.max(other.radius),
+            }
+        }
+        fn cost(self) -> f64 {
+            if self.count == 0 {
+                return 0.0;
+            }
+            (self.maximum.x - self.minimum.x + self.maximum.y - self.minimum.y + 4.0 * self.radius)
+                * self.count as f64
+        }
+    }
+    let mut selected = None;
+    let mut best = f64::INFINITY;
+    let minimum_child = 2.max(order.len() / 4);
+    for x_axis in [true, false] {
+        let low = if x_axis { minimum.x } else { minimum.y };
+        let high = if x_axis { maximum.x } else { maximum.y };
+        let width = (high - low) / BINS as f64;
+        if !width.is_finite() || width <= 0.0 {
+            continue;
+        }
+        let boundaries: [f64; BINS - 1] =
+            std::array::from_fn(|index| low + width * (index + 1) as f64);
+        let mut bins = [Bin::EMPTY; BINS];
+        for &index in order {
+            let record = body.segment(index as usize).expect("validated ray record");
+            let center = segment_center(record, x_axis);
+            let bin = boundaries.partition_point(|boundary| center >= *boundary);
+            let (minimum, maximum) = record_bounds(record);
+            bins[bin] = bins[bin].merge(Bin {
+                count: 1,
+                minimum,
+                maximum,
+                radius: record.owner_radius,
+            });
+        }
+        let mut suffix = [Bin::EMPTY; BINS];
+        suffix[BINS - 1] = bins[BINS - 1];
+        for bin in (0..BINS - 1).rev() {
+            suffix[bin] = bins[bin].merge(suffix[bin + 1]);
+        }
+        let mut left = Bin::EMPTY;
+        for bin in 0..BINS - 1 {
+            left = left.merge(bins[bin]);
+            let right = suffix[bin + 1];
+            if left.count < minimum_child || right.count < minimum_child {
+                continue;
+            }
+            let cost = left.cost() + right.cost();
+            if cost < best {
+                best = cost;
+                selected = Some((x_axis, boundaries[bin]));
+            }
+        }
+    }
+    selected
+}
+
+fn segment_center(record: &BodySegmentRecord, x_axis: bool) -> f64 {
+    if x_axis {
+        record.start.x * 0.5 + record.end.x * 0.5
+    } else {
+        record.start.y * 0.5 + record.end.y * 0.5
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -603,6 +720,110 @@ mod tests {
                 assert!((a - b).abs() < 1e-9, "{a} != {b}")
             }
             (a, b) => assert_eq!(a, b),
+        }
+    }
+
+    #[test]
+    fn separated_long_body_clusters_reject_a_gap_with_only_three_cell_visits() {
+        // Equal X centroids and a longer X extent make a median-only hierarchy
+        // mix these interleaved owners. A spatial split proves the gap without
+        // spending any candidate or capsule work, even with a three-unit grant.
+        let bodies: Vec<_> = (1..=8)
+            .map(|id| {
+                let y = if id % 2 == 0 { 100.0 } else { 0.0 };
+                (id, vec![point(-100.0, y), point(100.0, y)], 1.0)
+            })
+            .collect();
+        for reverse in [false, true] {
+            let body = index(&bodies, reverse);
+            let mut workspace = BodyRayIndexWorkspace::default();
+            let view = workspace.prepare(&body).unwrap();
+            let ray = SensorRay::new(point(-150.0, 50.0), 0.0, 300.0).unwrap();
+            let mut meter = RayWorkMeter::new(3);
+            same(
+                view.trace(
+                    ray,
+                    99,
+                    1.0,
+                    1.0,
+                    &mut meter,
+                    &mut RayQueryScratch::default(),
+                )
+                .unwrap(),
+                oracle(&body, ray, 99, 1.0, 1.0),
+            );
+            assert_eq!(meter.diagnostics().cells, 3);
+            assert_eq!(meter.diagnostics().candidates, 0);
+            assert_eq!(meter.diagnostics().intersections, 0);
+            assert!(!meter.diagnostics().saturated);
+        }
+    }
+
+    #[test]
+    fn spatial_partitions_preserve_unique_records_depth_and_existing_capacity_bounds() {
+        fn inspect(view: &BodyRayIndex<'_, '_>, index: u32, depth: usize) -> usize {
+            assert!(
+                depth < 32,
+                "quarter-bounded splits retain logarithmic depth"
+            );
+            let node = view.nodes[index as usize];
+            if node.count != 0 {
+                assert!(node.count as usize <= LEAF_SEGMENTS);
+                for &record in &view.order[node.first as usize..(node.first + node.count) as usize]
+                {
+                    let record = view.body.segment(record as usize).unwrap();
+                    let (minimum, maximum) = record_bounds(record);
+                    assert!(node.minimum.x <= minimum.x && node.minimum.y <= minimum.y);
+                    assert!(node.maximum.x >= maximum.x && node.maximum.y >= maximum.y);
+                    assert!(node.maximum_radius >= record.owner_radius);
+                }
+                return node.count as usize;
+            }
+            let left = inspect(view, node.left, depth + 1);
+            let right = inspect(view, node.right, depth + 1);
+            let count = left + right;
+            assert!(left >= 2.max(count / 4) && right >= 2.max(count / 4));
+            for child in [node.left, node.right] {
+                let child = view.nodes[child as usize];
+                assert!(node.minimum.x <= child.minimum.x && node.minimum.y <= child.minimum.y);
+                assert!(node.maximum.x >= child.maximum.x && node.maximum.y >= child.maximum.y);
+                assert!(node.maximum_radius >= child.maximum_radius);
+            }
+            count
+        }
+        for shape in 0..3 {
+            for count in 1..=257 {
+                let bodies: Vec<_> = (0..count)
+                    .map(|i| {
+                        let (x, y) = match shape {
+                            0 => (0.0, 0.0), // Degenerate centroids use the median fallback.
+                            1 => (((i * 73) % 233) as f64, ((i * 97) % 211) as f64),
+                            _ => (
+                                if i == 0 { -500.0 } else { (i % 3) as f64 },
+                                (i % 11) as f64,
+                            ),
+                        };
+                        (
+                            i as u64 + 1,
+                            vec![point(x - 25.0, y), point(x + 25.0, y)],
+                            1.0 + (i % 5) as f64,
+                        )
+                    })
+                    .collect();
+                let body = index(&bodies, false);
+                let mut workspace = BodyRayIndexWorkspace::default();
+                let view = workspace.prepare(&body).unwrap();
+                assert_eq!(inspect(&view, 0, 0), count);
+                let mut records = view.order.to_vec();
+                records.sort_unstable();
+                assert_eq!(records, (0..count as u32).collect::<Vec<_>>());
+                let bound = if count <= LEAF_SEGMENTS {
+                    1
+                } else {
+                    count / (LEAF_SEGMENTS / 2) * 2 - 1
+                };
+                assert!(view.nodes.len() <= bound);
+            }
         }
     }
 

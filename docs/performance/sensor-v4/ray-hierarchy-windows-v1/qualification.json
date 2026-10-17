@@ -1,0 +1,252 @@
+{
+  "version": 1,
+  "scriptSha256": "1224f129a0f7db07f2d95e34b7187946d77acc34c36056cb704ff5281b3a2c00",
+  "binarySha256": "4d66dc70e1b9e77da55e7f7354b4798cea7586046de84192b09ea9e661730d0f",
+  "sourceSha256": "bc056c98b235fb39eb039ac39e73de53bda51f5aa77c6d1138c5eb84d704e8c6",
+  "steps": 1200,
+  "seed": 42,
+  "workerContinuationMatches": true,
+  "records": [
+    {
+      "name": "P1-basic-b8-c256-q65536-w3",
+      "report": "P1-basic-b8-c256-q65536-w3.json",
+      "reportSha256": "e12400bfae00933685e974d3db9cc0421e37793c093910a252b830ffcaa94d8e",
+      "reused": true,
+      "incompleteFraction": 2.750592752738215e-06,
+      "consumerFractions": [
+        2.777777777777778e-06,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        3558,
+        0
+      ],
+      "nativeMeanMs": 13.789185833333333,
+      "nativeP95Ms": 16.438399999999998,
+      "peakRssBytes": 34279424
+    },
+    {
+      "name": "P1-basic-b16-c256-q65536-w3",
+      "report": "P1-basic-b16-c256-q65536-w3.json",
+      "reportSha256": "e1f448387ff7ab4936d6fde678b4e4c3f87edcbd544ad5bdf8f634a72845abb9",
+      "reused": true,
+      "incompleteFraction": 0.0012479967453124527,
+      "consumerFractions": [
+        0.001261111111111111,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        3783,
+        0
+      ],
+      "nativeMeanMs": 14.765918333333333,
+      "nativeP95Ms": 17.5287,
+      "peakRssBytes": 37998592
+    },
+    {
+      "name": "P1-basic-b32-c256-q65536-w3",
+      "report": "P1-basic-b32-c256-q65536-w3.json",
+      "reportSha256": "79123cb1047cea6db7b2d72318c47c5437b33f474695f5db263351a819ddc6fe",
+      "reused": true,
+      "incompleteFraction": 0.16343710423719696,
+      "consumerFractions": [
+        0.1636388888888889,
+        0.13357994245787094,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        2433,
+        0
+      ],
+      "nativeMeanMs": 16.6417025,
+      "nativeP95Ms": 19.5893,
+      "peakRssBytes": 46321664
+    },
+    {
+      "name": "P1-motion-b8-c256-q65536-w3",
+      "report": "P1-motion-b8-c256-q65536-w3.json",
+      "reportSha256": "95a465045af2efa50edaf85f5e45e75fc1938a64837daed76f7f867d7709c6bb",
+      "reused": true,
+      "incompleteFraction": 0.0,
+      "consumerFractions": [
+        0.0,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        3154,
+        0
+      ],
+      "nativeMeanMs": 14.458009166666667,
+      "nativeP95Ms": 17.3005,
+      "peakRssBytes": 39481344
+    },
+    {
+      "name": "P1-motion-b16-c256-q65536-w3",
+      "report": "P1-motion-b16-c256-q65536-w3.json",
+      "reportSha256": "09d0f6aaecec39cb64cfd58e5d9c3a1c96bd827b1ae8acaac094fc252ad8f78c",
+      "reused": true,
+      "incompleteFraction": 0.002016301424650733,
+      "consumerFractions": [
+        0.0020305555555555554,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        2545,
+        0
+      ],
+      "nativeMeanMs": 16.0442475,
+      "nativeP95Ms": 18.9606,
+      "peakRssBytes": 50061312
+    },
+    {
+      "name": "P1-motion-b32-c256-q65536-w3",
+      "report": "P1-motion-b32-c256-q65536-w3.json",
+      "reportSha256": "23b971cb082ea2cb8fad506225835ea5ca882e6d92121c7855c0eec6d500372d",
+      "reused": true,
+      "incompleteFraction": 0.14476863291437786,
+      "consumerFractions": [
+        0.14481666666666668,
+        0.14103946517144705,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        4637,
+        0
+      ],
+      "nativeMeanMs": 18.39740916666667,
+      "nativeP95Ms": 21.335,
+      "peakRssBytes": 71114752
+    },
+    {
+      "name": "P0-basic-b16-c256-q65536-w3",
+      "report": "P0-basic-b16-c256-q65536-w3.json",
+      "reportSha256": "576b979ce61d60d7ff391405e97a0f9c64004d524ddf765e797cfca2facd7803",
+      "reused": true,
+      "incompleteFraction": 0.0,
+      "consumerFractions": [
+        0.0,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        66000,
+        7505,
+        0
+      ],
+      "nativeMeanMs": 3.5336374999999998,
+      "nativeP95Ms": 4.4745,
+      "peakRssBytes": 17129472
+    },
+    {
+      "name": "P0-motion-b16-c256-q65536-w3",
+      "report": "P0-motion-b16-c256-q65536-w3.json",
+      "reportSha256": "da4f9816a946347206969a807a76bcb3016d803ff9fedaf980c4ed6339994050",
+      "reused": true,
+      "incompleteFraction": 0.0,
+      "consumerFractions": [
+        0.0,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        66000,
+        8444,
+        0
+      ],
+      "nativeMeanMs": 3.7403299999999997,
+      "nativeP95Ms": 4.7351,
+      "peakRssBytes": 19935232
+    },
+    {
+      "name": "P1-motion-b16-c128-q65536-w3",
+      "report": "P1-motion-b16-c128-q65536-w3.json",
+      "reportSha256": "7282b570e729542f3464d7386d587f02f5b2ff5a0b43c6d6f9e2c79536573f62",
+      "reused": true,
+      "incompleteFraction": 0.34691112543367664,
+      "consumerFractions": [
+        0.35018055555555555,
+        0.09187432286023835,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        4615,
+        0
+      ],
+      "nativeMeanMs": 15.904071666666667,
+      "nativeP95Ms": 18.6875,
+      "peakRssBytes": 49786880
+    },
+    {
+      "name": "P1-motion-b16-c256-q32768-w3",
+      "report": "P1-motion-b16-c256-q32768-w3.json",
+      "reportSha256": "d127a54acde0d306dc5b65de02f0a058f70bc93e1f30a9f9fb5bc0d57264b833",
+      "reused": true,
+      "incompleteFraction": 0.5914862350985723,
+      "consumerFractions": [
+        0.594962763785455,
+        0.22218943641192093,
+        null
+      ],
+      "consumerObservations": [
+        359999,
+        3389,
+        0
+      ],
+      "nativeMeanMs": 15.831015833333334,
+      "nativeP95Ms": 18.7891,
+      "peakRssBytes": 49983488
+    },
+    {
+      "name": "P1-motion-b16-c256-q16384-w3",
+      "report": "P1-motion-b16-c256-q16384-w3.json",
+      "reportSha256": "86f185a5fca817754562ce3e4e738dd7527737540b63f759454827330111cba0",
+      "reused": false,
+      "incompleteFraction": 0.9055780179882829,
+      "consumerFractions": [
+        0.9095444444444445,
+        0.5056022408963585,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        3570,
+        0
+      ],
+      "nativeMeanMs": 15.223424166666666,
+      "nativeP95Ms": 17.8926,
+      "peakRssBytes": 49278976
+    },
+    {
+      "name": "P1-motion-b16-c256-q65536-w1",
+      "report": "P1-motion-b16-c256-q65536-w1.json",
+      "reportSha256": "04aaa2e698197cc63fd80c321adc987caa774ed49896ef62bd981a9e641340be",
+      "reused": false,
+      "incompleteFraction": 0.002016301424650733,
+      "consumerFractions": [
+        0.0020305555555555554,
+        0.0,
+        null
+      ],
+      "consumerObservations": [
+        360000,
+        2545,
+        0
+      ],
+      "nativeMeanMs": 31.801976666666665,
+      "nativeP95Ms": 38.1668,
+      "peakRssBytes": 49827840
+    }
+  ],
+  "caveat": "Seeded random-population native gameplay on a shared host; these are width and budget probes, not a complete cap matrix, trained-policy distribution, external-controller qualification, tactical/ablation result, 1x wall-debt test, statistical timing claim or production default selection. Different ray completion can change subsequent gameplay. Actual due counts may temporarily fall below population under bounded respawn. Reused reports retain exact original bytes and are independently revalidated against the requested native source, workload and target. Worker equality is asserted only for matching source/build/target/environment and workload. Ordinary teacher replacement can reduce live teacher counts; capture does not claim 600 rows/second."
+}

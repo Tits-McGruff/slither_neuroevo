@@ -507,3 +507,83 @@ using `--scenario P0` for P0 and `--environment oxygen-debian` on that target.
 For the Linux measurements, set the parent process's affinity to `{0,3,4,5}`
 before launching the utility; children inherit it. The reusable source/build
 copies and raw transfers are removed after permanent evidence verification.
+
+## Bounded spatial splits for body rays
+
+The v4 body-ray hierarchy uses an eight-bin perimeter heuristic on both axes to
+keep nearby body segments together. Each split retains at least
+`max(2, floor(N/4))` records on each side; degenerate centroids use the previous
+median rule. This bounds depth and preserves the existing node-capacity bound.
+Fixed stack arrays add no heap buffer or capacity setting. Ray bounds, capsule
+math, individual cell/candidate/intersection charges, fair grants and conservative
+incomplete markers are unchanged. Both native scratch ceilings remain 512 MiB.
+V3 does not construct this hierarchy.
+
+A regression uses two separated clusters of long segments with interleaved
+physical IDs. Three cell visits prove the intervening gap clear without candidate
+or capsule work, including reversed world storage. Another regression checks
+unique records, conservative node bounds, balanced depth and the existing capacity
+bound across 771 degenerate, scattered and skewed layouts. Existing complete
+capsule oracles, every-budget exhaustion checks and warm-capacity tests also pass.
+
+The portable driver checks Basic/Motion B8/B16/B32 in P1, Basic/Motion B16 in P0,
+three smaller-budget probes and exact one/three-worker continuation for P1 Motion
+B16. Every case uses the modest graph, seed 42, unlimited evolved respawn, ten
+stochastic v2 teachers at exact 60 Hz, ordinary 20-second teacher replacement,
+capture with fast drain, SSE2, five warmup and 1,200 measured steps. Admission,
+actual evolved deliveries and due envelopes, finite normalized samples,
+charged-work partitions, shared/per-observation bounds and exact committed capture
+must reconcile before reporting any fraction. Failed quality gates remain data.
+Checks remain active under optimized Python.
+
+```powershell
+python scripts/qualification/qualify-ray-hierarchy.py --executable NATIVE_QUALIFICATION_EXE --source-sha256 SOURCE_SHA256 --directory NEW_REPORT_DIRECTORY --workers 3
+```
+
+Use `--environment oxygen-debian` on Debian. The twelve probes are not a complete
+cap matrix. Better clearance can change later actions, deaths, pellets and teacher
+availability, so reports from the two hierarchy revisions describe different
+resulting gameplay. They are not an identical-workload speed comparison, a trained
+policy or tactical/ablation result, a 1x wall-debt test, external-controller
+qualification or production-default selection. Same-target worker equality is
+checked separately; cross-build/platform exact long-horizon replay is not promised.
+
+The Windows checkpoint passes 701 default-feature release library tests and 183
+required-native checks across 17 files, with six existing skips. Rustfmt and
+all-target/test-hook Clippy pass. Production and isolated test-hook addons are
+rebuilt and independently source-identified. This source begins `bc056c98`.
+
+`ray-hierarchy-windows-v1/` retains all twelve native reports (gzip), exact raw-byte
+fingerprints and the qualification manifest. Completed reports can be supplied
+with `--reuse-directory`; they must pass the complete source/workload/target and
+accounting checks and are copied byte-for-byte into a new exclusive directory.
+The manifest identifies reused cases. Actual delivery counts remain explicit:
+the 32,768-unit probe records 359,999 neural deliveries and a 299..300 due range,
+rather than inventing a full population delivery at the missing boundary.
+
+| Windows workload, three workers | Pooled incomplete observations | Native p95 |
+|---|---:|---:|
+| P1 Basic B8 | 0.000275% | 16.438 ms |
+| P1 Basic B16 | 0.124800% | 17.529 ms |
+| P1 Basic B32 | 16.343710% | 19.589 ms |
+| P1 Motion B8 | 0.000000% | 17.300 ms |
+| P1 Motion B16 | 0.201630% | 18.961 ms |
+| P1 Motion B32 | 14.476863% | 21.335 ms |
+| P0 Basic B16 | 0.000000% | 4.474 ms |
+| P0 Motion B16 | 0.000000% | 4.735 ms |
+| P1 Motion B16, cap 128, batch 65,536 | 34.691113% | 18.688 ms |
+| P1 Motion B16, cap 256, batch 32,768 | 59.148624% | 18.789 ms |
+| P1 Motion B16, cap 256, batch 16,384 | 90.557802% | 17.893 ms |
+
+P1 Motion B16 falls from the previous hierarchy's 4.103% pooled incompleteness to
+0.202% at the same 256/65,536 admission. Both B16 profiles and B8 pass this seeded
+quality probe, while both B32 profiles fail. The 128-unit cap and smaller batch
+probes fail as well. These results do not qualify every admitted consumer or
+select a production default. The native 60 Hz p95 requirement still fails for
+P1 Motion; even a native p95 pass would not establish supported 1x wall-debt
+scheduling. The one-worker repeat preserves full continuation, consumer work,
+raw/normalized histograms and exact source/drained teacher rows for P1 Motion
+B16. Timing comparisons across hierarchy revisions remain descriptive because
+ray completion changes gameplay. Trained-policy distributions, tactical quality,
+ablations, loaded checkpoint/resource admission and integrated soak gates remain
+open. Frozen v3 and ordinary v1 production defaults are unchanged.
