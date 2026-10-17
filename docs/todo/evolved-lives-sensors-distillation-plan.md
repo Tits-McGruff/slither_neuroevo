@@ -828,8 +828,9 @@ fallback, retaining unique segment ownership, the existing node-capacity bound,
 all charged work units and fair quotas. Complete geometry/exhaustion regressions
 and 771 layout-bound checks pass; Windows passes 701 default-feature Rust tests
 and 183 rebuilt-addon required-native checks (six existing skips), rustfmt and
-both Clippy configurations. Twelve retained Windows probes reduce P1 Motion B16
-pooled incompleteness from 4.103% to 0.202% at unchanged cap 256/batch 65,536.
+both Clippy configurations. Twelve retained probes on each supported platform reduce P1 Motion B16
+pooled incompleteness from 4.103% / 4.093% to 0.202% / 0.048% on Windows /
+Debian at unchanged cap 256/batch 65,536.
 Basic/Motion B8 and B16 pass this seeded quality probe; both B32 profiles and
 smaller-budget probes fail. One/three-worker continuation, consumer work,
 raw/normalized samples and captured rows agree exactly. Actual delivered counts

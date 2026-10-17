@@ -553,30 +553,31 @@ required-native checks across 17 files, with six existing skips. Rustfmt and
 all-target/test-hook Clippy pass. Production and isolated test-hook addons are
 rebuilt and independently source-identified. This source begins `bc056c98`.
 
-`ray-hierarchy-windows-v1/` retains all twelve native reports (gzip), exact raw-byte
-fingerprints and the qualification manifest. Completed reports can be supplied
+`ray-hierarchy-windows-v1/` and `ray-hierarchy-oxygen-v1/` each retain twelve
+native reports (gzip), exact raw-byte fingerprints and a qualification manifest. Completed reports can be supplied
 with `--reuse-directory`; they must pass the complete source/workload/target and
 accounting checks and are copied byte-for-byte into a new exclusive directory.
 The manifest identifies reused cases. Actual delivery counts remain explicit:
-the 32,768-unit probe records 359,999 neural deliveries and a 299..300 due range,
-rather than inventing a full population delivery at the missing boundary.
+the Windows 32,768-unit probe records 359,999 neural deliveries and a 299..300
+due range. Debian Motion B8 likewise records 359,999 actual deliveries.
 
-| Windows workload, three workers | Pooled incomplete observations | Native p95 |
+| Workload, three workers | Incomplete observations, Windows / Debian | Native p95, Windows / Debian |
 |---|---:|---:|
-| P1 Basic B8 | 0.000275% | 16.438 ms |
-| P1 Basic B16 | 0.124800% | 17.529 ms |
-| P1 Basic B32 | 16.343710% | 19.589 ms |
-| P1 Motion B8 | 0.000000% | 17.300 ms |
-| P1 Motion B16 | 0.201630% | 18.961 ms |
-| P1 Motion B32 | 14.476863% | 21.335 ms |
-| P0 Basic B16 | 0.000000% | 4.474 ms |
-| P0 Motion B16 | 0.000000% | 4.735 ms |
-| P1 Motion B16, cap 128, batch 65,536 | 34.691113% | 18.688 ms |
-| P1 Motion B16, cap 256, batch 32,768 | 59.148624% | 18.789 ms |
-| P1 Motion B16, cap 256, batch 16,384 | 90.557802% | 17.893 ms |
+| P1 Basic B8 | 0.000275% / 0.000000% | 16.438 / 148.583 ms |
+| P1 Basic B16 | 0.124800% / 0.064553% | 17.529 / 149.655 ms |
+| P1 Basic B32 | 16.343710% / 13.383582% | 19.589 / 167.340 ms |
+| P1 Motion B8 | 0.000000% / 0.000000% | 17.300 / 150.070 ms |
+| P1 Motion B16 | 0.201630% / 0.048156% | 18.961 / 188.301 ms |
+| P1 Motion B32 | 14.476863% / 11.688614% | 21.335 / 210.371 ms |
+| P0 Basic B16 | 0.000000% / 0.000000% | 4.474 / 39.317 ms |
+| P0 Motion B16 | 0.000000% / 0.000000% | 4.735 / 66.351 ms |
+| P1 Motion B16, cap 128, batch 65,536 | 34.691113% / 36.940588% | 18.688 / 146.382 ms |
+| P1 Motion B16, cap 256, batch 32,768 | 59.148624% / 60.061437% | 18.789 / 163.496 ms |
+| P1 Motion B16, cap 256, batch 16,384 | 90.557802% / 91.407433% | 17.893 / 148.231 ms |
 
-P1 Motion B16 falls from the previous hierarchy's 4.103% pooled incompleteness to
-0.202% at the same 256/65,536 admission. Both B16 profiles and B8 pass this seeded
+P1 Motion B16 falls from the previous hierarchy's 4.103% / 4.093% pooled
+incompleteness to 0.202% / 0.048% on Windows / Debian at the same 256/65,536
+admission. Both B16 profiles and B8 pass this seeded
 quality probe, while both B32 profiles fail. The 128-unit cap and smaller batch
 probes fail as well. These results do not qualify every admitted consumer or
 select a production default. The native 60 Hz p95 requirement still fails for
@@ -587,3 +588,13 @@ B16. Timing comparisons across hierarchy revisions remain descriptive because
 ray completion changes gameplay. Trained-policy distributions, tactical quality,
 ablations, loaded checkpoint/resource admission and integrated soak gates remain
 open. Frozen v3 and ordinary v1 production defaults are unchanged.
+
+Debian ran on a loaded shared host. A single one-second utilization sample chose
+CPUs 0,1,2,5 from eight allowed CPUs; only the owned benchmark parent and children
+used that affinity, including the worker-count repeat. Its selection record is
+retained. Load drift prevents a statistical timing claim, and its native p95 fails
+the 60 Hz requirement. Every transferred file and decompressed native report was
+fingerprint-verified before permanent retention. The twelve probes reconcile
+actual delivered observations, shared work and exact committed capture, including
+finite samples and per-class fractions; no unavailable external-controller class
+is counted as a quality pass.
