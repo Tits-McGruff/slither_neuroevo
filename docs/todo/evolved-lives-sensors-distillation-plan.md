@@ -823,6 +823,21 @@ These descriptive gains still leave P1 above the necessary p95 bound and around
 `docs/performance/sensor-v4/README.md`. No production defaults or resource ceilings
 change; unchanged capture transport reuses the preceding byte-pressure evidence.
 
+The v4 body-ray index now uses bounded eight-bin spatial splits with a median
+fallback, retaining unique segment ownership, the existing node-capacity bound,
+all charged work units and fair quotas. Complete geometry/exhaustion regressions
+and 771 layout-bound checks pass; Windows passes 701 default-feature Rust tests
+and 183 rebuilt-addon required-native checks (six existing skips), rustfmt and
+both Clippy configurations. Twelve retained Windows probes reduce P1 Motion B16
+pooled incompleteness from 4.103% to 0.202% at unchanged cap 256/batch 65,536.
+Basic/Motion B8 and B16 pass this seeded quality probe; both B32 profiles and
+smaller-budget probes fail. One/three-worker continuation, consumer work,
+raw/normalized samples and captured rows agree exactly. Actual delivered counts
+remain explicit when a boundary temporarily has fewer due snakes. P1 Motion p95,
+representative/tactical/ablation and full-stack gates remain open. Measurements
+are in the existing sensor-v4 performance report. Both scratch ceilings remain
+512 MiB; ordinary v3/v1 defaults remain unchanged.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
