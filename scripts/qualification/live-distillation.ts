@@ -238,12 +238,13 @@ async function run(): Promise<void> {
     // be retained, while the single-graph runtime must reject their deployment.
     const denseDirectory = join(root, 'dense-job');
     const denseCommon = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
-      '--artifact', resolve('native/fixtures/portable-dense-basic8-v1.slither-brain'), '--directory', denseDirectory, '--device', device];
+      '--artifact', resolve('native/fixtures/portable-dense-basic8-v1.slither-brain'), '--directory', denseDirectory, '--device', device, '--spool-gib', String(spoolGiB)];
     await python(pythonPath, checkout, ['--phase', 'train', ...denseCommon]);
     await python(pythonPath, checkout, ['--phase', 'resume', ...denseCommon]);
     if (pumpError) throw pumpError;
     const denseResume = JSON.parse(await readFile(join(denseDirectory, 'resume-report.json'), 'utf8')) as Record<string, unknown>;
     assert.equal(denseResume['updates'], 250); assert.equal(denseResume['restartExact'], true);
+    assert.deepEqual(denseResume['producerStoragePolicy'], producerStoragePolicy);
     const denseId = denseResume['candidateSha256'] as string; assert(/^[0-9a-f]{64}$/u.test(denseId));
     const save = async (id: string, name: string): Promise<SavedBrainRecordV1> =>
       await post(address.port, '/api/distillation/v1/library/' + id + '/save', {name}, 201) as unknown as SavedBrainRecordV1;
@@ -296,6 +297,7 @@ async function run(): Promise<void> {
     assert(observed!.sample!.neuralOutputs!.every(Number.isFinite));
     assert.equal((await command(sequence => native.submitInspector(sequence, runId))).kind, 'inspectorChanged');
     const deployment = {trainedUpdates: denseResume['updates'], restartExact: denseResume['restartExact'],
+      producerStoragePolicy: denseResume['producerStoragePolicy'],
       brainId: denseId, weightsSha256: denseRecord.artifact.weightsSha256, parameterCount: denseRecord.artifact.parameterCount,
       mismatchedGraphRejected: true, exportExact: true, retryReceiptExact: true, catalogDeleted: true, coldFilesReclaimed: true,
       retainedOriginAfterDeletion: (await select()).retainedOrigin, receipt: spawned,
