@@ -121,7 +121,7 @@ def main():
             require(sources[role] != sources["baseline"], "candidate is the baseline build")
         if reference is None:
             reference = report
-        for key in ["target", "rustc", "mathBackend", "sensorSha256", "parameterCount", "continuationSha256", "consumerWork", "normalized"]:
+        for key in ["target", "rustc", "mathBackend", "sensorSha256", "parameterCount", "continuationSha256", "consumerWork", "raw", "normalized"]:
             require(reference[key] == report[key], f"comparison changed {key}")
         for key in ["sourceSampleSha256", "drainedSampleSha256"]:
             require(reference["capture"][key] == report["capture"][key], f"comparison changed {key}")
