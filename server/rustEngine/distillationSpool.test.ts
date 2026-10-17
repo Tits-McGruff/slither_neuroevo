@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TeacherCaptureDrain, TeacherChunkTransfer } from '../../src/protocol/distillation.ts';
-import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationSpoolLimitsForGiB, parseTeacherDrain, type DistillationSpoolLimits } from './distillationProtocol.ts';
+import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationSpoolLimitsForGiB, parseStoragePolicy, parseTeacherDrain, type DistillationSpoolLimits } from './distillationProtocol.ts';
 import { DistillationSpoolStore, type DistillationSpoolFailpoint } from './distillationSpoolStore.ts';
 import { DistillationSpoolClient } from './distillationSpoolClient.ts';
 import { DistillationHttpRouter } from './distillationHttp.ts';
@@ -82,6 +82,40 @@ describe('durable distillation spool', () => {
     const lease = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
     expect([...store.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
     expect(readdirSync(store.root).filter(file => file.endsWith('.teacher'))).toHaveLength(1);
+  });
+
+  it('reports worker-admitted global disk policy without allocating the selected ceiling', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
+    const client = new DistillationSpoolClient(root, distillationSpoolLimitsForGiB(64)); clients.push(client);
+    const policy = await client.storagePolicy();
+    expect(policy).toEqual({ schemaVersion: 1, scope: 'producer-global', maxBytes: '0000001000000000',
+      maxChunks: 65_536, maxDatasets: 256, maxLeases: 64, maxPinnedChunks: 1024,
+      maxPinnedBytes: '0000000020000000', maxLeaseMs: 300_000, diskReserveBytes: '0000000040000000' });
+    policy.maxBytes = word(1);
+    expect((await client.storagePolicy()).maxBytes).toBe('0000001000000000');
+    expect(readdirSync(root).filter(file => file.endsWith('.teacher'))).toEqual([]);
+  });
+
+  it.each([
+    { schemaVersion: true }, { scope: 'job-local' }, { maxBytes: word(0) },
+    { maxBytes: '0000001000000001' }, { maxChunks: true }, { maxLeaseMs: 300_001 },
+    { maxPinnedBytes: '0000000020000001' }, { diskReserveBytes: '0020000000000000' },
+    { unexpected: 1 }
+  ])('rejects malformed storage policy metadata: %j', change => {
+    const policy = { schemaVersion: 1, scope: 'producer-global', maxBytes: '0000000100000000',
+      maxChunks: 65_536, maxDatasets: 256, maxLeases: 64, maxPinnedChunks: 1024,
+      maxPinnedBytes: '0000000020000000', maxLeaseMs: 300_000, diskReserveBytes: '0000000040000000' };
+    expect(() => parseStoragePolicy({ ...policy, ...change })).toThrow();
+  });
+
+  it('refuses to report an admitted policy when retained storage cannot pass startup admission', async () => {
+    const store = fixture({ maxBytes: 96 });
+    const source = drain([1, 2]); store.ingest(source, 42);
+    store.lease(source.contract!.captureEpoch, [word(1), word(2)], 60_000);
+    store.close();
+    const client = new DistillationSpoolClient(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 32 });
+    clients.push(client);
+    await expect(client.storagePolicy()).rejects.toThrow(/active leased objects/u);
   });
 
   it('applies a smaller restart quota by rotating oldest unpinned objects while preserving leases and watermarks', () => {
@@ -324,6 +358,10 @@ describe('durable distillation spool', () => {
     const base = `http://127.0.0.1:${address.port}/api/distillation/v1`;
     const epoch = source.contract!.captureEpoch;
     try {
+      const policy = await (await fetch(`${base}/storage`)).json() as { schemaVersion: number; scope: string; maxBytes: string };
+      expect(policy).toMatchObject({ schemaVersion: 1, scope: 'producer-global', maxBytes: '0000000100000000' });
+      expect((await fetch(`${base}/storage`, { method: 'POST' })).status).toBe(404);
+      expect(await (await fetch(`${base}/storage`)).json()).toEqual(policy);
       const discovered = await (await fetch(`${base}/datasets`)).json() as { datasets: Array<{ captureEpoch: string }> };
       expect(discovered.datasets.map(dataset => dataset.captureEpoch)).toEqual([epoch]);
       const manifest = await (await fetch(`${base}/datasets/${epoch}/manifest`)).json() as { sensorContractJson: string };
