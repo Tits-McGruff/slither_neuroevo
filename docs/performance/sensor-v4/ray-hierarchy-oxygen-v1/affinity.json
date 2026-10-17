@@ -1,0 +1,29 @@
+{
+  "allowed": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "selected": [
+    0,
+    1,
+    2,
+    5
+  ],
+  "sampleBusyFractions": {
+    "0": 0.18627450980392157,
+    "1": 0.18999999999999995,
+    "2": 0.16831683168316836,
+    "3": 0.5,
+    "4": 0.4509803921568627,
+    "5": 0.12380952380952381,
+    "6": 0.24271844660194175,
+    "7": 0.196078431372549
+  },
+  "method": "One one-second /proc/stat sample, least-busy four allowed CPUs, affinity applies only to this owned parent and its children. Shared-host load may change."
+}
