@@ -864,6 +864,12 @@ one-worker/4-GiB and CUDA three-worker/64-GiB live reports prove both students'
 Reports reside under `docs/performance/distillation/`. This closes trainer quota
 provenance; maximum-capacity storage and integrated resource gates remain open.
 
+A retained Windows P1 sensing CPU profile identifies pellet collection/sorting
+and angular lookup as the largest measured targets. A prepartitioned angular
+lookup passes exact comparison but shows no whole-workload speed gain and is
+reverted; its compact ABBA evidence and patch remain in the existing sensor-v4
+performance directory. The comparison driver now checks raw histograms explicitly.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

@@ -1,0 +1,456 @@
+{
+  "version": 1,
+  "sourceSha256": "bc056c98b235fb39eb039ac39e73de53bda51f5aa77c6d1138c5eb84d704e8c6",
+  "binarySha256": "08161cb72b8503a001633e477702c88ff581919ebd73b8af419464d027478a0e",
+  "pdbSha256": "b77566e3dced251fcee7e740fac1b745cc43bc21c8ecfec496dece8fa9a4c9b2",
+  "profileSha256": "1eaf34dadc890dabe022dfa5bec8e828a825fb9620329ac5bee849ee47d46d06",
+  "target": "x86_64-pc-windows-msvc",
+  "cpuModel": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+  "method": "Samply record at 1000 Hz. Native symbols and leaf source lines resolved with matching PDB through Windows DbgHelp SymFromAddrW and SymGetLineFromAddrW64. Attribute positive threadCPUDelta microseconds only; zero/absent CPU deltas and off-CPU synthetic weights do not count. Sensor rows require SensorV4Evaluator::sample_with_trace in their stack. Inclusive rows overlap. Whole-process capture includes startup and observer work; source-line attribution and sample estimates are descriptive, not exact timers or statistical confidence. Private paths and thread/process identities are omitted.",
+  "workload": {
+    "population": 300,
+    "profile": "motion",
+    "bins": 16,
+    "workers": 3,
+    "steps": 1200,
+    "seed": 42,
+    "rayCap": 256,
+    "rayBatch": 65536,
+    "graph": "modest",
+    "baselineMode": "v2-stochastic",
+    "baselineCadenceSeconds": 0.0166666666666667,
+    "teacherRespawnDelaySeconds": 20.0,
+    "capture": true
+  },
+  "threads": [
+    {
+      "role": "sensor-v4-qualification.exe",
+      "cpuMicros": 6597934,
+      "positiveCpuSamples": 9622,
+      "sensorCpuMicros": 151566,
+      "sensorSamples": 161
+    },
+    {
+      "role": "auxiliary",
+      "cpuMicros": 0,
+      "positiveCpuSamples": 0,
+      "sensorCpuMicros": 0,
+      "sensorSamples": 0
+    },
+    {
+      "role": "auxiliary",
+      "cpuMicros": 429,
+      "positiveCpuSamples": 2,
+      "sensorCpuMicros": 0,
+      "sensorSamples": 0
+    },
+    {
+      "role": "auxiliary",
+      "cpuMicros": 0,
+      "positiveCpuSamples": 0,
+      "sensorCpuMicros": 0,
+      "sensorSamples": 0
+    },
+    {
+      "role": "slither-calc-0",
+      "cpuMicros": 9237125,
+      "positiveCpuSamples": 11817,
+      "sensorCpuMicros": 8090385,
+      "sensorSamples": 9026
+    },
+    {
+      "role": "slither-calc-1",
+      "cpuMicros": 9284522,
+      "positiveCpuSamples": 11947,
+      "sensorCpuMicros": 8062111,
+      "sensorSamples": 9006
+    },
+    {
+      "role": "slither-calc-2",
+      "cpuMicros": 9149244,
+      "positiveCpuSamples": 11766,
+      "sensorCpuMicros": 8034237,
+      "sensorSamples": 8986
+    }
+  ],
+  "sensorCpuMicros": 24338299,
+  "sensorInclusive": [
+    {
+      "symbol": "RtlUserThreadStart",
+      "cpuMicros": 24338299,
+      "sensorFraction": 1.0
+    },
+    {
+      "symbol": "slither_native::engine::sensors_v4::SensorV4Evaluator::sample_with_trace",
+      "cpuMicros": 24338299,
+      "sensorFraction": 1.0
+    },
+    {
+      "symbol": "BaseThreadInitThunk",
+      "cpuMicros": 24338299,
+      "sensorFraction": 1.0
+    },
+    {
+      "symbol": "slither_native::engine::sensors::SensorEvaluator::sample_prepared_with_trace",
+      "cpuMicros": 24338299,
+      "sensorFraction": 1.0
+    },
+    {
+      "symbol": "core::ops::function::FnOnce::call_once<std::thread::impl$0::spawn_unchecked_::closure_env$1<rayon_core::registry::impl$2::spawn::closure_env$0,tuple$<> >,tuple$<> >",
+      "cpuMicros": 24186733,
+      "sensorFraction": 0.9937725311041663
+    },
+    {
+      "symbol": "std::sys::backtrace::__rust_begin_short_backtrace<rayon_core::registry::impl$2::spawn::closure_env$0,tuple$<> >",
+      "cpuMicros": 24186733,
+      "sensorFraction": 0.9937725311041663
+    },
+    {
+      "symbol": "rayon_core::job::impl$6::execute<rayon_core::scope::impl$0::spawn::closure_env$0<slither_native::engine::control::impl$1::prepare_and_evaluate_traced::closure$2::closure_env$1> >",
+      "cpuMicros": 24186733,
+      "sensorFraction": 0.9937725311041663
+    },
+    {
+      "symbol": "rayon_core::registry::WorkerThread::wait_until_cold",
+      "cpuMicros": 24186733,
+      "sensorFraction": 0.9937725311041663
+    },
+    {
+      "symbol": "std::sys::thread::windows::impl$0::new::thread_start",
+      "cpuMicros": 24186733,
+      "sensorFraction": 0.9937725311041663
+    },
+    {
+      "symbol": "rayon_core::scope::scope::closure$0<slither_native::engine::control::impl$1::prepare_and_evaluate_traced::closure_env$2,tuple$<> >",
+      "cpuMicros": 8090385,
+      "sensorFraction": 0.3324137401714064
+    },
+    {
+      "symbol": "rayon_core::job::impl$4::execute<rayon_core::latch::LatchRef<rayon_core::latch::LockLatch>,rayon_core::registry::impl$6::in_worker_cold::closure$0::closure_env$0<rayon_core::thread_pool::impl$0::install::closure_env$0<rayon_core::thread_pool::impl$0::scope::closure_env$0<slither_native::engine::control::impl$1::prepare_and_evaluate_traced::closure_env$2,tuple$<> >,tuple$<> >,tuple$<> >,tuple$<> >",
+      "cpuMicros": 8090385,
+      "sensorFraction": 0.3324137401714064
+    },
+    {
+      "symbol": "slither_native::engine::spatial::PelletSpatialIndex::collect_sensor_candidates",
+      "cpuMicros": 7583747,
+      "sensorFraction": 0.3115972484354802
+    },
+    {
+      "symbol": "slither_native::engine::sensors_v4::sector_bin",
+      "cpuMicros": 4211620,
+      "sensorFraction": 0.17304496094817473
+    },
+    {
+      "symbol": "slither_native::engine::sensors::CenteredAngularBins::classify_interior",
+      "cpuMicros": 3879110,
+      "sensorFraction": 0.15938295441271388
+    },
+    {
+      "symbol": "slither_native::engine::spatial::visit_query_cells_nearest_first::closure$0<slither_native::engine::spatial::impl$6::collect_sensor_candidates::closure_env$0,slither_native::engine::spatial::impl$6::collect_sensor_candidates::closure_env$1>",
+      "cpuMicros": 3822411,
+      "sensorFraction": 0.1570533339244456
+    },
+    {
+      "symbol": "slither_native::engine::sensor_rays::BodyRayIndex::trace_packet",
+      "cpuMicros": 3795119,
+      "sensorFraction": 0.15593197371763737
+    },
+    {
+      "symbol": "core::slice::sort::unstable::quicksort::quicksort<slither_native::engine::spatial::PelletCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::PelletCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::PelletCandidate>,ref$<slither_native::engine::spatial::PelletCandidate>)> >",
+      "cpuMicros": 3665134,
+      "sensorFraction": 0.15059121428329894
+    },
+    {
+      "symbol": "slither_native::engine::spatial::BodySpatialIndex::collect_sensor_candidates",
+      "cpuMicros": 2233464,
+      "sensorFraction": 0.09176746493253288
+    },
+    {
+      "symbol": "slither_native::engine::sensor_rays::BodyRayIndex::enqueue_packet",
+      "cpuMicros": 2126573,
+      "sensorFraction": 0.08737558035588272
+    },
+    {
+      "symbol": "fun_4e817",
+      "cpuMicros": 1930747,
+      "sensorFraction": 0.07932957845574992
+    },
+    {
+      "symbol": "slither_native::engine::sensor_geometry::SensorRay::aabb_clearance",
+      "cpuMicros": 1602463,
+      "sensorFraction": 0.06584120771956989
+    },
+    {
+      "symbol": "slither_native::engine::spatial::visit_query_cells_nearest_first::closure$0<slither_native::engine::spatial::impl$3::collect_sensor_candidates::closure_env$0,slither_native::engine::spatial::impl$3::collect_sensor_candidates::closure_env$1>",
+      "cpuMicros": 1495237,
+      "sensorFraction": 0.061435558828494954
+    },
+    {
+      "symbol": "slither_native::engine::spatial::CellLookup::find",
+      "cpuMicros": 1314562,
+      "sensorFraction": 0.05401207372791336
+    },
+    {
+      "symbol": "slither_native::engine::sensor_geometry::projected_head_encounter",
+      "cpuMicros": 847850,
+      "sensorFraction": 0.03483604174638499
+    }
+  ],
+  "sensorLeaf": [
+    {
+      "symbol": "slither_native::engine::sensors::CenteredAngularBins::classify_interior",
+      "cpuMicros": 3870022,
+      "sensorFraction": 0.1590095511604981
+    },
+    {
+      "symbol": "core::slice::sort::unstable::quicksort::quicksort<slither_native::engine::spatial::PelletCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::PelletCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::PelletCandidate>,ref$<slither_native::engine::spatial::PelletCandidate>)> >",
+      "cpuMicros": 3020176,
+      "sensorFraction": 0.12409149875264495
+    },
+    {
+      "symbol": "slither_native::engine::spatial::visit_query_cells_nearest_first::closure$0<slither_native::engine::spatial::impl$6::collect_sensor_candidates::closure_env$0,slither_native::engine::spatial::impl$6::collect_sensor_candidates::closure_env$1>",
+      "cpuMicros": 2945442,
+      "sensorFraction": 0.12102086509825523
+    },
+    {
+      "symbol": "slither_native::engine::sensors_v4::SensorV4Evaluator::sample_with_trace",
+      "cpuMicros": 1946133,
+      "sensorFraction": 0.07996175081915133
+    },
+    {
+      "symbol": "fun_4e817",
+      "cpuMicros": 1927253,
+      "sensorFraction": 0.07918601871067489
+    },
+    {
+      "symbol": "slither_native::engine::sensor_geometry::SensorRay::aabb_clearance",
+      "cpuMicros": 1599450,
+      "sensorFraction": 0.06571741106475847
+    },
+    {
+      "symbol": "slither_native::engine::spatial::CellLookup::find",
+      "cpuMicros": 1311509,
+      "sensorFraction": 0.05388663357287212
+    },
+    {
+      "symbol": "slither_native::engine::spatial::visit_query_cells_nearest_first::closure$0<slither_native::engine::spatial::impl$3::collect_sensor_candidates::closure_env$0,slither_native::engine::spatial::impl$3::collect_sensor_candidates::closure_env$1>",
+      "cpuMicros": 1016331,
+      "sensorFraction": 0.04175850580190506
+    },
+    {
+      "symbol": "slither_native::engine::sensor_rays::BodyRayIndex::trace_packet",
+      "cpuMicros": 778215,
+      "sensorFraction": 0.031974913283791935
+    },
+    {
+      "symbol": "fun_1c010",
+      "cpuMicros": 617763,
+      "sensorFraction": 0.025382340811903083
+    },
+    {
+      "symbol": "slither_native::engine::sensor_geometry::projected_head_encounter",
+      "cpuMicros": 502951,
+      "sensorFraction": 0.02066500210224223
+    },
+    {
+      "symbol": "slither_native::engine::sensors::closest_point_on_segment",
+      "cpuMicros": 497232,
+      "sensorFraction": 0.020430022656883293
+    },
+    {
+      "symbol": "slither_native::engine::sensor_rays::BodyRayIndex::enqueue_packet",
+      "cpuMicros": 493807,
+      "sensorFraction": 0.0202892979497047
+    },
+    {
+      "symbol": "hypot",
+      "cpuMicros": 455935,
+      "sensorFraction": 0.01873323193210832
+    },
+    {
+      "symbol": "core::slice::sort::shared::smallsort::small_sort_general<slither_native::engine::spatial::BodyCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::BodyCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::BodyCandidate>,ref$<slither_native::engine::spatial::BodyCandidate>)> >",
+      "cpuMicros": 452929,
+      "sensorFraction": 0.018609722889837126
+    },
+    {
+      "symbol": "fun_4e874",
+      "cpuMicros": 361870,
+      "sensorFraction": 0.014868335704150894
+    },
+    {
+      "symbol": "slither_native::engine::sensors_v4::sector_bin",
+      "cpuMicros": 332510,
+      "sensorFraction": 0.01366200653546084
+    },
+    {
+      "symbol": "core::slice::sort::shared::smallsort::sort4_stable<slither_native::engine::spatial::PelletCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::PelletCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::PelletCandidate>,ref$<slither_native::engine::spatial::PelletCandidate>)> >",
+      "cpuMicros": 297839,
+      "sensorFraction": 0.01223746162375604
+    },
+    {
+      "symbol": "core::slice::sort::shared::smallsort::sort8_stable<slither_native::engine::spatial::PelletCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::PelletCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::PelletCandidate>,ref$<slither_native::engine::spatial::PelletCandidate>)> >",
+      "cpuMicros": 213345,
+      "sensorFraction": 0.008765813913289504
+    },
+    {
+      "symbol": "slither_native::engine::sensor_geometry::SensorRay::capsule_clearance",
+      "cpuMicros": 200531,
+      "sensorFraction": 0.008239318614665717
+    },
+    {
+      "symbol": "fun_4d51b",
+      "cpuMicros": 187339,
+      "sensorFraction": 0.007697292238870103
+    },
+    {
+      "symbol": "core::slice::sort::unstable::quicksort::quicksort<slither_native::engine::spatial::BodyCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::BodyCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::BodyCandidate>,ref$<slither_native::engine::spatial::BodyCandidate>)> >",
+      "cpuMicros": 158886,
+      "sensorFraction": 0.006528229437891284
+    },
+    {
+      "symbol": "cos",
+      "cpuMicros": 127077,
+      "sensorFraction": 0.005221276967630318
+    },
+    {
+      "symbol": "core::slice::sort::shared::pivot::median3_rec<slither_native::engine::spatial::PelletCandidate,core::slice::impl$0::sort_unstable_by::closure_env$0<slither_native::engine::spatial::PelletCandidate,core::cmp::Ordering (*)(ref$<slither_native::engine::spatial::PelletCandidate>,ref$<slither_native::engine::spatial::PelletCandidate>)> >",
+      "cpuMicros": 121607,
+      "sensorFraction": 0.004996528311202028
+    }
+  ],
+  "sensorLeafLines": [
+    {
+      "symbol": "native/src/engine/spatial.rs:1362",
+      "cpuMicros": 3434707,
+      "sensorFraction": 0.14112354359686352
+    },
+    {
+      "symbol": "quicksort.rs:31",
+      "cpuMicros": 1896365,
+      "sensorFraction": 0.0779169078332056
+    },
+    {
+      "symbol": "quicksort.rs:63",
+      "cpuMicros": 1175298,
+      "sensorFraction": 0.04829006332776173
+    },
+    {
+      "symbol": "native/src/engine/spatial.rs:104",
+      "cpuMicros": 664099,
+      "sensorFraction": 0.027286171478130006
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1349",
+      "cpuMicros": 625198,
+      "sensorFraction": 0.025687826417121428
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1340",
+      "cpuMicros": 585058,
+      "sensorFraction": 0.024038573936494084
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1358",
+      "cpuMicros": 559828,
+      "sensorFraction": 0.02300193616653325
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1343",
+      "cpuMicros": 523900,
+      "sensorFraction": 0.021525744260106262
+    },
+    {
+      "symbol": "smallsort.rs:217",
+      "cpuMicros": 449955,
+      "sensorFraction": 0.018487528647749787
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1342",
+      "cpuMicros": 421009,
+      "sensorFraction": 0.0172982097064384
+    },
+    {
+      "symbol": "native/src/engine/sensors_v4.rs:395",
+      "cpuMicros": 419484,
+      "sensorFraction": 0.0172355512601764
+    },
+    {
+      "symbol": "native/src/engine/sensor_rays.rs:252",
+      "cpuMicros": 395569,
+      "sensorFraction": 0.016252943560270995
+    },
+    {
+      "symbol": "native/src/engine/sensor_geometry.rs:93",
+      "cpuMicros": 379976,
+      "sensorFraction": 0.01561226608318026
+    },
+    {
+      "symbol": "native/src/engine/spatial.rs:102",
+      "cpuMicros": 332796,
+      "sensorFraction": 0.013673757562104073
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1357",
+      "cpuMicros": 308830,
+      "sensorFraction": 0.012689054399405644
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1356",
+      "cpuMicros": 256343,
+      "sensorFraction": 0.010532494485337697
+    },
+    {
+      "symbol": "native/src/engine/sensors_v4.rs:394",
+      "cpuMicros": 254717,
+      "sensorFraction": 0.010465686200995394
+    },
+    {
+      "symbol": "native/src/engine/sensor_geometry.rs:91",
+      "cpuMicros": 246032,
+      "sensorFraction": 0.010108841213595083
+    },
+    {
+      "symbol": "native/src/engine/sensors_v4.rs:724",
+      "cpuMicros": 223166,
+      "sensorFraction": 0.009169334307216786
+    },
+    {
+      "symbol": "native/src/engine/spatial.rs:1363",
+      "cpuMicros": 197071,
+      "sensorFraction": 0.008097155844786031
+    },
+    {
+      "symbol": "smallsort.rs:678",
+      "cpuMicros": 196520,
+      "sensorFraction": 0.00807451662912022
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1347",
+      "cpuMicros": 193513,
+      "sensorFraction": 0.007950966499343277
+    },
+    {
+      "symbol": "native/src/engine/sensors.rs:1362",
+      "cpuMicros": 191586,
+      "sensorFraction": 0.007871790875771556
+    },
+    {
+      "symbol": "native/src/engine/sensor_geometry.rs:60",
+      "cpuMicros": 176630,
+      "sensorFraction": 0.007257286139840751
+    }
+  ],
+  "qualificationPhases": {
+    "samples": 1200,
+    "totalMicros": 16990751,
+    "indexMicros": 422192,
+    "sensingMicros": 9417882,
+    "inferenceMicros": 1324308,
+    "otherControlMicros": 1015194,
+    "worldStepMicros": 4196526,
+    "otherMicros": 614649
+  },
+  "buildIdentifier": "slither_native/0.1.0+96adc8dfa061.2d424ea1584be49b",
+  "sensorCpuSamples": 27179,
+  "totalCpuMicros": 34269254
+}

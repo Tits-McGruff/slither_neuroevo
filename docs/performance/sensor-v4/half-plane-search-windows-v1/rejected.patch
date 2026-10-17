@@ -1,0 +1,97 @@
+diff --git a/native/src/engine/sensors.rs b/native/src/engine/sensors.rs
+index 2954da0..1205579 100644
+--- a/native/src/engine/sensors.rs
++++ b/native/src/engine/sensors.rs
+@@ -1284,6 +1284,8 @@ struct PelletBinBoundary {
+ pub(crate) struct CenteredAngularBins {
+     boundaries: [PelletBinBoundary; MAX_SENSOR_BINS],
+     count: usize,
++    /// Sorted boundaries before the lower half-plane begins.
++    upper_count: usize,
+     direction: f64,
+ }
+ 
+@@ -1297,6 +1299,7 @@ impl CenteredAngularBins {
+             return Self {
+                 boundaries,
+                 count,
++                upper_count: 0,
+                 direction,
+             };
+         }
+@@ -1313,9 +1316,13 @@ impl CenteredAngularBins {
+         }
+         boundaries[..count]
+             .sort_unstable_by(|left, right| left.positive_angle.total_cmp(&right.positive_angle));
++        let upper_count = boundaries[..count].partition_point(|boundary| {
++            boundary.y > 0.0 || (boundary.y == 0.0 && boundary.x >= 0.0)
++        });
+         Self {
+             boundaries,
+             count,
++            upper_count,
+             direction,
+         }
+     }
+@@ -1335,17 +1342,19 @@ impl CenteredAngularBins {
+             return None;
+         }
+         let upper = y > 0.0 || (y == 0.0 && x >= 0.0);
+-        let mut low = 0;
+-        let mut high = self.count;
++        // Positive-angle sorting makes each half-plane contiguous. The old
++        // cross-half comparisons therefore establish this range without any
++        // vector arithmetic. Search only the matching half, preserving the
++        // same preceding/following boundaries and ambiguity fallback.
++        let (mut low, mut high) = if upper {
++            (0, self.upper_count)
++        } else {
++            (self.upper_count, self.count)
++        };
+         while low < high {
+             let middle = (low + high) / 2;
+             let boundary = self.boundaries[middle];
+-            let boundary_upper = boundary.y > 0.0 || (boundary.y == 0.0 && boundary.x >= 0.0);
+-            let before = if upper != boundary_upper {
+-                upper
+-            } else {
+-                x * boundary.y - y * boundary.x > 0.0
+-            };
++            let before = x * boundary.y - y * boundary.x > 0.0;
+             if before {
+                 high = middle;
+             } else {
+@@ -1353,7 +1362,7 @@ impl CenteredAngularBins {
+             }
+         }
+         let preceding = if low == 0 { self.count - 1 } else { low - 1 };
+-        let following = low % self.count;
++        let following = if low == self.count { 0 } else { low };
+         for boundary in [self.boundaries[preceding], self.boundaries[following]] {
+             if (x * boundary.y - y * boundary.x).abs() <= 1.0e-10 * distance {
+                 return None;
+@@ -1506,6 +1515,24 @@ mod tests {
+     use crate::engine::state::{BodyRange, PelletState, SnakeKind};
+     use serde::Deserialize;
+ 
++    #[test]
++    fn angular_boundaries_keep_contiguous_half_planes_for_every_supported_bin_count() {
++        for bins in 8..=MAX_SENSOR_BINS {
++            for step in 0..=8192 {
++                let direction = -TAU + step as f64 * TAU / 4096.0;
++                let classifier = CenteredAngularBins::new(direction, bins);
++                let boundaries = &classifier.boundaries[..bins];
++                let upper = |boundary: &PelletBinBoundary| {
++                    boundary.y > 0.0 || (boundary.y == 0.0 && boundary.x >= 0.0)
++                };
++                assert!(boundaries[..classifier.upper_count].iter().all(upper));
++                assert!(boundaries[classifier.upper_count..]
++                    .iter()
++                    .all(|boundary| !upper(boundary)));
++            }
++        }
++    }
++
+     #[test]
+     fn pellet_direction_classifier_matches_original_bins_across_supported_layouts() {
+         for bins in 8..=MAX_SENSOR_BINS {

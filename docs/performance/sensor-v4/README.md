@@ -598,3 +598,27 @@ fingerprint-verified before permanent retention. The twelve probes reconcile
 actual delivered observations, shared work and exact committed capture, including
 finite samples and per-class fractions; no unavailable external-controller class
 is counted as a quality pass.
+
+
+The Windows P1 Motion B16 CPU sample profile in
+`sensing-cpu-windows-v1.json` attributes 31.2% of sensing CPU time to pellet
+collection (including sorting), 15.9% to angular classification, 15.6% to ray
+traversal and 9.2% to body-candidate collection. Inclusive categories overlap.
+Samply captured the qualification process and its three calculation workers at
+1,000 Hz; matching-PDB DbgHelp symbols and positive `threadCPUDelta` values
+exclude synthetic off-CPU weights. The compact report records the actual
+workload/cadence, source/binary/profile fingerprints, CPU accounting and source
+lines. Startup/observer work is present in whole-process samples, while sensing
+rows require the v4 sampling function in their stack. These are descriptive
+attributions, separate from release throughput/debt qualification.
+
+`half-plane-search-windows-v1/` retains an exact rejected patch and four adjacent
+ABBA reports for a prepartitioned angular lookup. Raw/normalized samples, full
+continuation, per-consumer work and committed teacher hashes agree exactly,
+using the comparison driver's added explicit raw-histogram check. With 1,200
+measured P1 steps per run, median native mean/p95 rise from 14.748/17.784 ms to
+15.518/17.935 ms; median child CPU rises from 39.922 to 42.766 seconds.
+Run-to-run variation is substantial, and no useful whole-workload gain is
+established. The patch is reverted; production and qualification source remain
+`bc056c98`. The profile prioritizes pellet collection/sorting for further work;
+none of the outstanding performance, quality or default-selection gates closes.
