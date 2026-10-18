@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "graphSpec": {
+    "type": "graph",
+    "nodes": [
+      {
+        "id": "input",
+        "type": "Input",
+        "outputSize": 504
+      },
+      {
+        "id": "mlp",
+        "type": "MLP",
+        "inputSize": 504,
+        "hiddenSizes": [
+          256,
+          256,
+          256,
+          256
+        ],
+        "outputSize": 256
+      },
+      {
+        "id": "gru",
+        "type": "GRU",
+        "inputSize": 256,
+        "hiddenSize": 96
+      },
+      {
+        "id": "head",
+        "type": "Dense",
+        "inputSize": 96,
+        "outputSize": 2
+      }
+    ],
+    "edges": [
+      {
+        "from": "input",
+        "to": "mlp"
+      },
+      {
+        "from": "mlp",
+        "to": "gru"
+      },
+      {
+        "from": "gru",
+        "to": "head"
+      }
+    ],
+    "outputs": [
+      {
+        "nodeId": "head"
+      }
+    ],
+    "outputSize": 2
+  },
+  "sensorProfile": "motion",
+  "bins": 32,
+  "controlIntervalSeconds": 0.016666666666666666,
+  "lifeStateRule": "reset",
+  "mathBackend": "rust-sse2-v1",
+  "initializationSeed": 1,
+  "observationsPath": "observations.f32"
+}

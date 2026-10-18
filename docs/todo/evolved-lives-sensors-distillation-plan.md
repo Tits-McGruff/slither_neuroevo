@@ -969,6 +969,19 @@ resource/soak qualification. CI retains a small, explicitly partial smoke on bot
 platforms. Reports and exact host source are in the existing distillation
 performance directory.
 
+The corrected Windows opaque-storage continuation now passes the global
+65,536-object ceiling across the interrupted capture and a new capture. Exact
+pins survive full and 1-GiB restarts within unchanged deadlines; the task fixture
+is removed. This closes the Windows count follow-up, not the full 64-GiB byte
+load. The training capacity host shares the production job estimate and passes
+three actual canonical updates for the large Motion/B32 graph on CPU and CUDA,
+including maximum burn-in and the longest-BPTT admitted batch boundary. The next
+batch rejects before device/model allocation. Exact Rust inputs, source receipts
+and reports remain in the existing distillation performance directory. These
+synthetic windows do not close loaded replay, live contention or integrated-soak
+qualification. PyRL's 73 focused job/control and two new capacity tests pass,
+as does changed-file Python lint. No runtime defaults or ceilings change.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

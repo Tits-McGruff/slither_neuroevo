@@ -11,6 +11,14 @@
     "spool-capacity-host-v2.ts.gz": {
       "gzipSha256": "102799fc4c2f0814f050db959f0a77b54e624c031fac6585e08e349197b48f5c",
       "canonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb"
+    },
+    "spool-capacity-continue-v1.ts.gz": {
+      "gzipSha256": "e1dfb5e69a94fb99085add6b9406fa30e898b888da200b946ff1f1c6c1f7e724",
+      "canonicalLfSha256": "d830776ee5dfb892e2da1786c5e317bff253b76187fea0267fe1e77e18dd2f29"
+    },
+    "spool-fixture-v1.ts.gz": {
+      "gzipSha256": "fa3e4d34b9cea767dbf5cc178be39fd9e44f934f2fcbadc89fd22c59d682102f",
+      "canonicalLfSha256": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285"
     }
   },
   "reports": [
@@ -55,9 +63,20 @@
       "status": "passed",
       "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
       "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
+    },
+    {
+      "path": "spool-capacity-windows-v1/max-count-corrected-continuation.json",
+      "canonicalLfSha256": "64bfaa4efc2a7096a81d3198c0b8616f8bb0f0e30d4403999e313a7c5d6418f0",
+      "status": "passed",
+      "hostSourcePath": "scripts/qualification/spool-capacity-continue.ts",
+      "hostCanonicalLfSha256": "d830776ee5dfb892e2da1786c5e317bff253b76187fea0267fe1e77e18dd2f29",
+      "storeCanonicalLfSha256": "4a4e5d48a2c8504cc1dc0d27c577f128ae8327519d9a4a7b06dad4f546b3e0f9",
+      "auxiliaryCanonicalLfSha256": {
+        "scripts/qualification/spoolFixture.ts": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285"
+      }
     }
   ],
-  "scope": "Completed baseline and candidate opaque-storage reports only. Windows corrected maximum-object and full 64-GiB byte cases remain open. Historical host source is retained exactly after canonical LF conversion; gzip is lossless.",
+  "scope": "Completed opaque-storage reports and exact host sources. Corrected Windows global object ceiling passes across separate captures; full 64-GiB byte gate remains open.",
   "retentionCandidateStoreCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69",
   "publicationCandidateStoreCanonicalLfSha256": "4a4e5d48a2c8504cc1dc0d27c577f128ae8327519d9a4a7b06dad4f546b3e0f9",
   "publicationPatch": "spool-publication-retry.patch",

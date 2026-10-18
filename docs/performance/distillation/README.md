@@ -154,18 +154,17 @@ seconds, with about 256 MiB sampled peak RSS. Its 65,536-object case also passes
 sampled peak RSS. That case reaches the object ceiling and the 1,024-object pin
 ceiling, while retaining only 4 GiB; it does not qualify 64 GiB of retained bytes.
 Thirty-five spool tests pass on each platform, including committed retry, multiple
-retention batches, active pins and replacement across datasets. The corrected Windows maximum-object and full 64-GiB byte gates remain open.
+retention batches, active pins and replacement across datasets. The full 64-GiB byte gate remains open; the corrected Windows count result is recorded below.
 
 A subsequent Windows candidate run stops during publication at about 16,000
 objects with `EPERM` while renaming a complete temporary file over its exclusive
-final reservation. Its failed fixture remains task-owned for follow-up. Windows
+final reservation. Its failed fixture was retained for the corrected continuation below, then removed after successful worker shutdown. Windows
 publication now retries only `EPERM`/`EACCES`/`EBUSY`, at most six attempts with
 310 ms total requested worker backoff; other I/O failures propagate immediately.
 Metadata publication still follows complete durable file publication. All 39
 Windows spool tests pass, including transient/persistent locks, permanent I/O
 errors and preservation of an existing final file; eight real capture/shadow
-checks also pass. These focused checks do not substitute for the remaining
-maximum-capacity Windows run.
+checks also pass. The focused error-path checks precede the corrected maximum-object run below.
 
 Measured hosts are retained losslessly as `spool-capacity-host-v1.ts.gz` and
 `spool-capacity-host-v2.ts.gz`; their decompressed canonical-LF digests match the
@@ -188,3 +187,45 @@ This count test retains 4 GiB, so it cannot qualify 64 GiB of stored bytes.
 Shared opaque fixture helpers keep the fresh-load and retained-load hosts aligned.
 An automated integrity check verifies historical host archives, patches, unique
 report paths, outcome labels and recorded host/store identities on both platforms.
+
+The corrected Windows continuation passes the global 65,536-object ceiling with
+64-KiB objects (4 GiB retained under the selected 64-GiB quota). Read-only ownership
+checks find 16,040 complete prior objects; production recovery closes that capture
+as interrupted, and a new capture adds 49,496. Exact pinned objects from both
+captures survive loaded and 1-GiB restarts, taking 37.888 and 56.717 seconds within
+the unchanged 60-second startup deadline. Sampled peak RSS is about 358 MiB;
+the full continuation takes 854.615 seconds, including fill and cleanup. Both
+captures' zero-drop watermarks remain recorded. The task-owned fixture is removed.
+The narrow remaining deadline margin is visible; this is shared-host evidence,
+not a guaranteed restart time. It does not qualify 64 GiB of retained bytes.
+
+## Canonical training-window capacity
+
+PyRL checkpoint `040f543` exposes the unchanged job device estimate to a dedicated
+capacity host. Rust's identified offline compiler emits the large Motion/B32
+MLP/GRU96/Dense2 graph with 494,306 parameters and 504 inputs, using isolated
+initialization seed one. The request, one zero input, canonical manifest, compiler
+receipt, exact host and five reports are retained in `canonical-capacity-windows-v1/`.
+The native compiler source is identified in its receipt; this is independent of
+current live-game execution qualification.
+
+All admitted cases complete three actual canonical Adam/TBPTT updates with full
+active synthetic Float32 windows and event weight four. GPU measurements use the
+qualified Torch 2.14/CUDA 12.6 RTX 4080 environment, two CPU threads, FP32 and an
+8-GiB admission budget.
+
+| Device/case | Batch | BPTT/burn-in | Estimate MiB | Peak CUDA allocated/reserved MiB | Result |
+|---|---:|---:|---:|---:|---|
+| CPU default window | 32 | 64/32 | 647.55 | — | Three updates |
+| CUDA default window | 32 | 64/32 | 647.55 | 49.24 / 58 | Three updates |
+| CUDA longest BPTT, admitted boundary | 129 | 256/0 | 8,162.93 | 339.86 / 358 | Three updates |
+| CUDA maximum batch and burn-in | 256 | 128/128 | 8,101.00 | 400.06 / 414 | Three updates |
+| Next BPTT batch | 130 | 256/0 | 8,225.04 | No device/model allocation | Rejected before allocation |
+
+The conservative ceiling is not allocated. These cases qualify these synthetic
+training windows under the current estimate, not loaded replay RAM, teacher codec,
+HTTP, trainer checkpoint peaks, live game contention, four shadows or the integrated
+soak. The host reports process RSS separately from device memory. Automated
+integrity checks bind every result to exact inputs and completed optimizer work;
+two PyRL tests also verify real training and rejection before device allocation.
+The existing 73 focused job/control tests pass and changed Python files pass lint.

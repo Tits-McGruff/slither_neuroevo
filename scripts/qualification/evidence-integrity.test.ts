@@ -1,3 +1,4 @@
+import type { DistillationDataset } from '../../src/protocol/distillation.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -78,7 +79,8 @@ interface SpoolEvidence {
   publicationPatchSha256: string;
   /** Completed reports, including failed capacity probes. */
   reports: Array<{path: string; canonicalLfSha256: string; status: string;
-    hostCanonicalLfSha256: string; storeCanonicalLfSha256: string; hostSourcePath?: string}>;
+    hostCanonicalLfSha256: string; storeCanonicalLfSha256: string; hostSourcePath?: string;
+    auxiliaryCanonicalLfSha256?: Record<string, string>}>;
 }
 
 it('preserves opaque-spool report bytes, outcomes and exact historical host sources', () => {
@@ -105,8 +107,97 @@ it('preserves opaque-spool report bytes, outcomes and exact historical host sour
     expect(report.status).toBe(receipt.status);
     expect(report.source.canonicalLfSha256[receipt.hostSourcePath ?? 'scripts/qualification/spool-capacity.ts']).toBe(receipt.hostCanonicalLfSha256);
     expect(hosts.has(receipt.hostCanonicalLfSha256)).toBe(true);
+    for (const [path, expected] of Object.entries(receipt.auxiliaryCanonicalLfSha256 ?? {})) {
+      expect(report.source.canonicalLfSha256[path]).toBe(expected); expect(hosts.has(expected)).toBe(true);
+    }
     expect(report.source.canonicalLfSha256['server/rustEngine/distillationSpoolStore.ts']).toBe(receipt.storeCanonicalLfSha256);
     if (receipt.status === 'passed') continue;
     expect(receipt.status).toBe('failed'); expect(report.qualificationComplete).toBe(false);
+  }
+});
+
+/** Compact source and report receipts for synthetic canonical training capacity. */
+interface TrainingCapacityEvidence {
+  /** Exact retained host archive. */
+  hostGzipSha256: string;
+  /** Original Windows host bytes, including its original line endings. */
+  hostSha256: string;
+  /** Canonical-LF JSON and exact binary input receipts. */
+  inputs: Record<string, string>;
+  /** Completed admitted/rejected cases. */
+  reports: Array<{path: string; canonicalLfSha256: string; status: string}>;
+}
+
+it('binds training capacity to Rust inputs and completed work under the admitted device budget', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/distillation/canonical-capacity-windows-v1');
+  const evidence = JSON.parse(readFileSync(resolve(root, 'summary.json'), 'utf8')) as TrainingCapacityEvidence;
+  const host = readFileSync(resolve(root, 'host.py.gz')); expect(sha256(host)).toBe(evidence.hostGzipSha256);
+  expect(sha256(gunzipSync(host, {maxOutputLength: 1024 ** 2}))).toBe(evidence.hostSha256);
+  for (const [filename, expected] of Object.entries(evidence.inputs)) {
+    expect(filename).toMatch(/^[a-zA-Z0-9_.-]+$/u);
+    const bytes = readFileSync(resolve(root, filename));
+    expect(sha256(filename.endsWith('.json') ? Buffer.from(bytes.toString('utf8').replace(/\r\n/gu, '\n')) : bytes)).toBe(expected);
+  }
+  for (const entry of evidence.reports) {
+    expect(entry.path).toMatch(/^[a-zA-Z0-9_.-]+\.json$/u);
+    const bytes = readFileSync(resolve(root, entry.path), 'utf8');
+    expect(sha256(Buffer.from(bytes.replace(/\r\n/gu, '\n')))).toBe(entry.canonicalLfSha256);
+    const report = JSON.parse(bytes) as {status: string; admitted: boolean; qualificationComplete: boolean;
+      hostSha256: string; manifestSha256: string; initialWeightsSha256: string; parameters: number; inputSize: number;
+      deviceEstimateBytes: number; peakAllocatedDeviceBytes?: number; peakReservedDeviceBytes?: number;
+      options: {device: string; deviceMemoryMiB: number; updates: number; batch_size: number; bptt_steps: number; burn_in_steps: number};
+      updates: Array<{optimizer_updated: boolean; training_samples: number; burn_in_samples: number}>};
+    expect(report.status).toBe(entry.status); expect(report.hostSha256).toBe(evidence.hostSha256);
+    expect(report.manifestSha256).toBe(evidence.inputs['manifest.json']);
+    const native = JSON.parse(readFileSync(resolve(root, 'receipt.json'), 'utf8')) as {weightsSha256: string};
+    expect(report.initialWeightsSha256).toBe(native.weightsSha256);
+    expect(report.parameters).toBe(494306); expect(report.inputSize).toBe(504);
+    const budget = report.options.deviceMemoryMiB * 1024 ** 2;
+    if (report.status === 'rejected') {
+      expect(report.admitted).toBe(false); expect(report.qualificationComplete).toBe(false);
+      expect(report.deviceEstimateBytes).toBeGreaterThan(budget); expect(report.updates).toHaveLength(0); continue;
+    }
+    expect(report.status).toBe('passed'); expect(report.admitted).toBe(true); expect(report.qualificationComplete).toBe(true);
+    expect(report.deviceEstimateBytes).toBeLessThanOrEqual(budget); expect(report.updates).toHaveLength(report.options.updates);
+    for (const update of report.updates) {
+      expect(update.optimizer_updated).toBe(true);
+      expect(update.training_samples).toBe(report.options.batch_size * report.options.bptt_steps);
+      expect(update.burn_in_samples).toBe(report.options.batch_size * report.options.burn_in_steps);
+    }
+    if (report.options.device === 'cuda:0') {
+      expect(report.peakAllocatedDeviceBytes).toBeGreaterThan(0); expect(report.peakReservedDeviceBytes).toBeGreaterThan(0);
+      expect(report.peakAllocatedDeviceBytes).toBeLessThanOrEqual(budget); expect(report.peakReservedDeviceBytes).toBeLessThanOrEqual(budget);
+    }
+  }
+});
+
+it('preserves settled interrupted/new capture identities through loaded quota reduction', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/distillation/spool-capacity-windows-v1');
+  const report = JSON.parse(readFileSync(resolve(root, 'max-count-corrected-continuation.json'), 'utf8')) as {
+    status: string; qualificationComplete: boolean; acknowledged: number; workspaceRemoved: boolean;
+    predecessorCanonicalLfSha256: string; phases: {fullInventory: DistillationDataset[];
+      restart64: {milliseconds: number; exactPinnedDownloads: boolean; datasets: DistillationDataset[]};
+      restart1: {milliseconds: number; exactPinnedDownloads: boolean; datasets: DistillationDataset[]}}};
+  const previous = JSON.parse(readFileSync(resolve(root, 'max-count-candidate.json'), 'utf8')) as {originalCanonicalLfSha256: string};
+  expect(report.predecessorCanonicalLfSha256).toBe(previous.originalCanonicalLfSha256);
+  expect(report.status).toBe('passed'); expect(report.qualificationComplete).toBe(true); expect(report.workspaceRemoved).toBe(true);
+  expect(report.acknowledged).toBe(65536);
+  const initial = report.phases.fullInventory; expect(initial).toHaveLength(2);
+  expect(initial.map(value => value.state).sort()).toEqual(['interrupted', 'stopped']);
+  expect(initial.reduce((sum, value) => sum + value.retainedChunks, 0)).toBe(65536);
+  for (const [phase, count] of [[report.phases.restart64, 65536], [report.phases.restart1, 16384]] as const) {
+    expect(phase.milliseconds).toBeLessThan(60000); expect(phase.exactPinnedDownloads).toBe(true);
+    expect(phase.datasets).toHaveLength(initial.length);
+    expect(phase.datasets.reduce((sum, value) => sum + value.retainedChunks, 0)).toBe(count);
+    expect(phase.datasets.reduce((sum, value) => sum + BigInt('0x' + value.retainedBytes), 0n)).toBe(BigInt(count) * 65536n);
+    for (const restored of phase.datasets) {
+      const before = initial.find(value => value.contract.captureEpoch === restored.contract.captureEpoch); expect(before).toBeDefined();
+      for (const field of ['contract', 'state', 'productionWatermark', 'storageWatermark', 'resolvedThrough', 'error'] as const) {
+        expect(restored[field]).toEqual(before![field]);
+      }
+      for (const field of ['nativeDroppedChunks', 'nativeDroppedSamples', 'nativeDroppedBytes', 'spoolDroppedChunks'] as const) {
+        expect(restored[field]).toBe('0000000000000000');
+      }
+    }
   }
 });

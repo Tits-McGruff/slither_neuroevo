@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "040f5438002471a60febce3e1149f9bb7214cae0",
+  "nativeCompilerSourceSha256": "02ce953315ac4261e8ebdd69897c36cc51d41ecfecd8b00aacefa9b9fdbcf1c7",
+  "hostGzipSha256": "a6baf72752122e29005e17cdc02ca9fd3da11f05cddd84d69b75280f635be3e5",
+  "hostSha256": "2f2be14637ac71805044801066fd82f00fc5439036990a0d20988ec413fe9554",
+  "inputs": {
+    "request.json": "c2279dbc63f3e33dab844cfedebf25b505fb14db8da842b7a962fe0b95ad3036",
+    "observations.f32": "d263c7c60b6f980623510b23a02228fd669b558f1957db7883b706b247133c92",
+    "manifest.json": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+    "receipt.json": "b6b1806a5cdd9c2c429df5795a7f98ade5bf9861b75dcf6d589ef49b8f9749ee"
+  },
+  "reports": [
+    {
+      "path": "cpu-default.json",
+      "canonicalLfSha256": "19797e754d4432b1270091b2cc0635fed5ce1f95fb9611bee19e3004dd43cab1",
+      "status": "passed"
+    },
+    {
+      "path": "cuda-default.json",
+      "canonicalLfSha256": "e64589367faa04447d0d77fde0ac5922e4e127a3bab3b0fd07a89325bf5ccacb",
+      "status": "passed"
+    },
+    {
+      "path": "cuda-bptt-boundary.json",
+      "canonicalLfSha256": "ce6308ac283ae847a71fa67bf84605e4abc14f5caab757027c8154e4ec2e13f3",
+      "status": "passed"
+    },
+    {
+      "path": "cuda-burnin-boundary.json",
+      "canonicalLfSha256": "8efd30c387b58c59e5b252e9b955de49baee8ed515808a0d2de49d89a5bc5aa4",
+      "status": "passed"
+    },
+    {
+      "path": "cuda-rejected-neighbor.json",
+      "canonicalLfSha256": "21c106547641d9a19f255ea8c14fc03e17c1eb82e592c83b90bf57af1d4f71a5",
+      "status": "rejected"
+    }
+  ],
+  "scope": "Synthetic full active canonical training windows for the named large Motion/B32 graph. Boundary batches follow unchanged 8-GiB estimate. The budget is not allocated; replay, transport, game contention and integrated soak remain unqualified.",
+  "inputHashConvention": "Canonical LF for JSON; exact bytes for the Float32 observation fixture."
+}
