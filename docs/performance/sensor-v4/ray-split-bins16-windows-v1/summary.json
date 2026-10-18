@@ -85,5 +85,6 @@
   },
   "selection": "Unselected: longer P1 quality still fails and child CPU is essentially unchanged. Timing is descriptive across changed gameplay trajectories.",
   "comparisonScriptCanonicalSha256": "8864a9d5c4ac459b43ad1960a931b31b441136c6375e2d5ace329778eb53e3e9",
-  "retention": "Native JSON is retained losslessly as gzip. originalReportSha256 hashes the decompressed original; reportSha256 hashes the retained compressed file."
+  "retention": "Native JSON is retained losslessly as gzip. originalReportSha256 hashes the decompressed original; reportSha256 hashes the retained compressed file.",
+  "candidatePatchSha256": "fb43f9c90e4dfa4fd5a74d0c22aadc85fe4a36e96b49f6b81acc48c5fccc1c29"
 }

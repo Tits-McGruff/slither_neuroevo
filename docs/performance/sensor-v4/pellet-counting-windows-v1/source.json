@@ -1,0 +1,8 @@
+{
+  "baseCommit": "30f4fd1a09cf620e4d462c22c36979b528a5786c",
+  "candidateSourceSha256": "f78228ede1f0d916472add86ca940b207900aa2f7ebac54ec35f8024e6ed65a4",
+  "patchSha256": "a444340991dd63d9ca445988b4a5f8514eee81ef0c0d878dc8a64adbf3cc1aa8",
+  "scope": "Exact measured source patch; runtime uses existing lookup capacity with the comparison-sort fallback. No unsafe code or new storage reservation.",
+  "postMeasurementSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "postMeasurementDifference": "Two equivalent divisibility predicates in cfg(test) only; the measured runtime implementation is unchanged."
+}

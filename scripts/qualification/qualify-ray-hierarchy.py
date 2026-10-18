@@ -31,11 +31,14 @@ def parse_args():
     parser.add_argument("--reuse-directory", type=Path)
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--steps", type=int, default=1200)
+    parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--environment", choices=["development", "oxygen-debian"], default="development")
     parser.add_argument("--deadline-seconds", type=int, default=900)
     args = parser.parse_args()
-    if not 2 <= args.workers <= 512 or not 1200 <= args.steps <= 59995 or not 1 <= args.deadline_seconds <= 3600:
-        parser.error("require workers 2..512, steps 1200..59995 and deadline 1..3600")
+    if (not 2 <= args.workers <= 512 or not 1200 <= args.steps <= 60000 or
+            not 0 <= args.warmup <= 60000 or args.steps + args.warmup > 60000 or
+            not 1 <= args.deadline_seconds <= 3600):
+        parser.error("require workers 2..512, steps at least 1200, nonnegative warmup, combined steps at most 60000 and deadline 1..3600")
     if len(args.source_sha256) != 64 or any(value not in "0123456789abcdef" for value in args.source_sha256):
         parser.error("exact lowercase native source SHA-256 required")
     if args.reuse_directory is not None:
@@ -50,7 +53,7 @@ def parse_args():
     return args
 
 
-def validate_report(report, scenario, profile, bins, cap, batch, workers, steps):
+def validate_report(report, scenario, profile, bins, cap, batch, workers, steps, warmup):
     """Reconcile actual committed observations and work without awarding a release pass."""
     population = 55 if scenario == "P0" else 300
     require(report["version"] in (4, 5) and report["admitted"], "admitted version-4/5 workload required")
@@ -62,7 +65,7 @@ def validate_report(report, scenario, profile, bins, cap, batch, workers, steps)
     require(report["baselineMode"] == "v2-stochastic" and report["baselineCadenceSeconds"] == 1 / 60, "exact 60 Hz v2 required")
     require(report["teacherRespawnDelaySeconds"] == 20, "ordinary teacher replacement delay required")
     require(report["rayMinimum"] == 1 and report["rayCap"] == cap and report["rayBatch"] == batch, "wrong ray admission")
-    require(report["measuredSteps"] == steps and report["warmupSteps"] == 5 and report["completedSteps"] == steps + 5, "complete measured steps required")
+    require(report["measuredSteps"] == steps and report["warmupSteps"] == warmup and report["completedSteps"] == steps + warmup, "complete measured steps required")
     work = report["consumerWork"]
     minimum = report["minimumDueObservations"]
     maximum = report["maximumDueObservations"]
@@ -115,7 +118,7 @@ def main():
                    "--graph", "modest", "--respawn", "on", "--seed", "42", "--workers", str(workers),
                    "--math-backend", "sse2", "--minimum", "1", "--cap", str(cap), "--batch", str(batch),
                    "--baseline", "v2-stochastic", "--baseline-cadence", "0.016666666666666666", "--capture", "on",
-                   "--warmup", "5", "--steps", str(args.steps), "--environment", args.environment,
+                   "--warmup", str(args.warmup), "--steps", str(args.steps), "--environment", args.environment,
                    "--workspace", str(args.directory / (name + "-workspace")), "--output", str(output)]
         reused = args.reuse_directory / output.name if args.reuse_directory is not None else None
         reused = reused if reused is not None and reused.exists() else None
@@ -137,7 +140,7 @@ def main():
         raw = report_path.read_bytes()
         report_sha = hashlib.sha256(raw).hexdigest()
         report = json.loads(raw)
-        validate_report(report, scenario, profile, bins, cap, batch, workers, args.steps)
+        validate_report(report, scenario, profile, bins, cap, batch, workers, args.steps, args.warmup)
         require(report["sourceSha256"] == source and report["environment"] == args.environment, "source/environment mismatch")
         target = target or (report["target"], report["rustc"], report["cpuModel"])
         require(target == (report["target"], report["rustc"], report["cpuModel"]), "target/compiler/CPU changed across cases")
@@ -166,7 +169,7 @@ def main():
         print(json.dumps(record, sort_keys=True), flush=True)
     require(digest(Path(__file__)) == script_sha, "qualification script changed during cohort")
     result = {"version": 1, "scriptSha256": script_sha, "binarySha256": binary_sha, "sourceSha256": source,
-              "steps": args.steps, "seed": 42, "workerContinuationMatches": True, "records": records,
+              "steps": args.steps, "warmup": args.warmup, "seed": 42, "workerContinuationMatches": True, "records": records,
               "caveat": "Seeded random-population native gameplay on a shared host; these are width and budget probes, not a complete cap matrix, trained-policy distribution, external-controller qualification, tactical/ablation result, 1x wall-debt test, statistical timing claim or production default selection. Different ray completion can change subsequent gameplay. Actual due counts may temporarily fall below population under bounded respawn. Reused reports retain exact original bytes and are independently revalidated against the requested native source, workload and target. Worker equality is asserted only for matching source/build/target/environment and workload. Ordinary teacher replacement can reduce live teacher counts; capture does not claim 600 rows/second."}
     with (args.directory / "qualification.json").open("x", encoding="utf-8") as stream:
         json.dump(result, stream, indent=2, allow_nan=False)
