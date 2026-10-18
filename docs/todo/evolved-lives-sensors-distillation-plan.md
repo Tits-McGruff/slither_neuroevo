@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-18)
+## Implementation progress (2026-10-19)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -1010,8 +1010,33 @@ fail. Every file is still verified before readiness. Request deadlines remain
 again before quota readmission. All 55 focused client/store/category tests pass.
 Windows full-byte recovery passes in 142.707 seconds, then reduction to 1 GiB
 passes in 173.445 seconds, with exact live pins, contracts and settled watermarks.
-The owned fixture is removed after its report is durably saved. Debian's retained
-full-byte recovery remains pending. Prior 4-GiB and maximum-object results keep their stated scope.
+Debian full-byte recovery also passes in 408.298 seconds, followed by 1-GiB
+reduction in 457.589 seconds. Its old five-minute lease expires honestly during
+recovery; a fresh pin returns exact bytes. Contracts, watermarks, zero drops and
+256 manifests remain intact. Both owned fixtures are removed after complete
+reports are durably saved. Prior 4-GiB and maximum-object results keep their stated scope.
+
+PyRL checkpoint `b0793dc` adds an offline loaded durable-checkpoint capacity gate.
+Windows CPU replay budgets 64/256/2,048 MiB and CUDA 2,048 MiB all pass real
+Adam training, fsynced production job save and exact independently restored next
+update. Peak RSS includes both replay/model/optimizer owners; the largest observed
+peaks are 4,817/5,389 MiB on CPU/CUDA. Reports, native input identities and exact
+host are retained in the existing distillation performance directory. All 269
+trainer tests pass with two existing optional-fixture skips. Debian also passes
+one durable checkpoint at all three replay budgets. The follow-up `f75032a`
+passes maximum-replay four-save/three-file rotation on Windows CPU/CUDA, with
+exact latest-checkpoint next-update continuation. Four focused tests pass.
+Debian maximum replay rotation also passes four saves/three retained files and
+exact latest next-update restore, with 4,429 MiB peak process RSS. Candidate
+backlog and integrated coexistence remain open.
+
+Client request slots are now reserved before awaiting spool readiness, and the
+HTTP router admits at most 32 complete in-flight routes. One empty shutdown
+request has reserved admission at saturation. Sixty-six focused client/store,
+category and real shadow checks pass, including pre-ready cancellation, saturated
+HTTP admission, response failure cleanup and graceful close at the data ceiling.
+The unchanged serial verification/retention/deadline path reuses full-byte recovery
+evidence above.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

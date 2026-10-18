@@ -436,6 +436,36 @@ describe('durable distillation spool', () => {
     await Promise.all([client.close(), client.close()]);
   });
 
+  networkTest('bounds HTTP readiness waits and releases route admission after completion or failure', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
+    const client = new DistillationSpoolClient(root); clients.push(client);
+    const policy = await client.storagePolicy();
+    let release!: (value: typeof policy) => void;
+    const waiting = new Promise<typeof policy>(resolve => { release = resolve; });
+    const held = vi.spyOn(client, 'storagePolicy').mockImplementation(() => waiting);
+    const router = new DistillationHttpRouter(client);
+    const server = createServer((request, response) => { router.handle(request, response, new URL(request.url!, 'http://localhost')); });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing test HTTP address');
+    const url = `http://127.0.0.1:${address.port}/api/distillation/v1/storage`;
+    const requests: Promise<Response>[] = [];
+    try {
+      requests.push(...Array.from({length: 32}, () => fetch(url)));
+      await vi.waitFor(() => expect(held).toHaveBeenCalledTimes(32));
+      const excess = await fetch(url); expect(excess.status).toBe(429);
+      expect(await excess.json()).toMatchObject({error: 'distillation HTTP request admission exhausted'});
+      release(policy);
+      for (const response of await Promise.all(requests)) { expect(response.status).toBe(200); expect(await response.json()).toEqual(policy); }
+      held.mockRejectedValueOnce(new Error('recovery fixture failure'));
+      const failed = await fetch(url); expect(failed.status).toBe(400); await failed.json();
+      held.mockResolvedValue(policy);
+      const next = await fetch(url); expect(next.status).toBe(200); expect(await next.json()).toEqual(policy);
+    } finally {
+      release(policy); await Promise.allSettled(requests); held.mockRestore();
+      server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
   networkTest('serves independent metadata/pagination, leased immutable bytes and expiry over real HTTP', async () => {
     const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
     const client = new DistillationSpoolClient(root); clients.push(client); await client.ready;
