@@ -791,3 +791,38 @@ shared host does not justify the added geometry code, so it is reverted. The
 lossless reports, exact patch and comparison script remain reproducible. The
 comparison driver now accepts an explicit bounded warmup and verifies the
 reported warmup/measurement counts; its existing default remains five steps.
+
+`pellet-cell-rank-windows-v1/` retains an unselected change replacing indirect
+cell-sort tie comparisons with canonical pellet ranks. All four 600-warmup/3,600-
+measured-step P1 runs preserve exact continuation, work, histograms and teacher
+hashes. The nested pellet-index time falls, but median whole-step mean/p95 rises
+from 18.213/23.020 ms to 19.283/25.400 ms and child CPU from 207.563 to 215.234
+seconds. Sensing also slows although its code is unchanged. This shared-host
+comparison does not isolate the cause; the measured whole-workload regression
+is enough to leave this change unselected. Reports, patch and script are retained.
+
+Both comparison and ray-quality cohort drivers now accept bounded `--warmup`
+(default five steps), require warmup plus measurement at most 60,000 steps, and
+validate both counts in each report. Cohort reuse rejects a mismatched warmup.
+For later-trajectory quality probes, use `--warmup 600 --steps 3600`; these remain
+seeded random-population probes rather than trained-policy qualification.
+
+`pellet-counting-windows-v1/` retains the selected warmed counting path. It
+reuses existing dense-lookup capacity for cell counts and placement cursors;
+grids outside the existing capacity/density bounds keep the comparison sort. Canonical
+pellet iteration preserves exact ID/source-index ties and x-before-y cell order.
+No additional storage is reserved. Tests compare retained versus freshly sorted
+indexes through dense/sparse/expanded/shrinking/empty grids and full-width ID ties.
+
+Eight adjacent ABBA runs use 600 warmup/3,600 measured steps. Every continuation,
+consumer-work record, raw/normalized histogram and captured-row witness agrees
+across builds. All comparisons retain the same native memory admission. Nested pellet-
+index time falls about 64% in both workloads. P0 (three workers) median mean/p95
+improves from 4.331/5.226 ms to 3.917/4.823 ms; child CPU falls 29.750 to 28.344
+seconds. P1 (five workers) remains mixed: mean/p95 rises 16.082/19.533 ms to
+16.353/19.720 ms and child CPU rises 185.695 to 196.922 seconds, despite the lower
+index cost. These shared-host descriptive measurements support the P0 benefit,
+not a P1 speedup or release pass. The long P1 trajectory's 4.405% incompleteness
+is unchanged. Compressed reports, exact measured patch/base and comparison
+script remain reproducible; real-clock, representative-policy and soak gates
+remain open.

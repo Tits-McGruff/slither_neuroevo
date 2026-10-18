@@ -917,9 +917,32 @@ flat child CPU. Prepared bounds/common-origin packet rejection preserves exact
 continuation, charged work, histograms and teacher hashes but changes whole-step
 mean by only 0.35%; the added geometry code is reverted. Compact lossless reports,
 patches and comparison scripts remain in the existing sensor-v4 evidence directory.
-The comparison driver now admits bounded explicit warmup and verifies exact
-reported step counts. The preceding checkpoint passes all five CI jobs; unchanged
-native runtime reuses that evidence. No production defaults or limits change.
+The comparison and ray-quality cohort drivers now admit bounded explicit
+warmup, verify exact reported step counts and reject mismatched reused reports.
+A third, canonical-pellet-rank sort experiment also preserves exact results but
+regresses whole-workload mean/p95 and is reverted; its compact comparison remains
+in the same evidence directory. Checkpoint `ef268c5` passes all five CI jobs;
+unchanged native runtime reuses that evidence. No production defaults or limits
+change.
+
+The warmed pellet index now reuses already admitted dense-lookup capacity as
+counting/placement scratch, preserving canonical cell and ID/source-index order.
+Grids outside the existing capacity/density bounds retain the sort fallback; no new
+storage is reserved. Two regressions compare fresh and retained indexes across
+negative coordinates, full-width ID ties and dense/sparse/shrinking/empty grids.
+Eight long Windows ABBA runs preserve exact continuation, consumer work,
+histograms and teacher hashes. P0 mean/child CPU improves 9.5%/4.7%; P1 mean/CPU
+regresses 1.7%/6.0% despite roughly 64% lower nested pellet-index cost. The P0
+benefit is retained with that P1 limitation explicit; its 4.405% incompleteness
+and real-clock gate remain open. All 759 release library tests, the final 16
+focused spatial tests, rustfmt and required/hooks all-target Clippy pass.
+Rebuilt production/test-hook addons agree on current source identity and pass
+their workload, bridge and source-identity checks; the complete required-native
+overlay passes 186 tests with six existing skips. A cross-platform integrity
+regression verifies retained report/script/patch receipts; exact staged Git
+bytes are also verified. Compact reports and the exact
+measured source patch remain in the existing sensor-v4 evidence directory. No
+production defaults or resource ceilings change.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

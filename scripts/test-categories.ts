@@ -11,6 +11,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage7/storage-soak-summary.test.ts',
     'scripts/stage7/step-window-summary.test.ts',
     'scripts/qualification/sensor-wall-summary.test.ts',
+    'scripts/qualification/evidence-integrity.test.ts',
     'scripts/stage7/archive-overlap-summary.test.ts',
     'scripts/stage7/generation-window-summary.test.ts',
     'scripts/stage7/dense-world-capacity.test.ts',
