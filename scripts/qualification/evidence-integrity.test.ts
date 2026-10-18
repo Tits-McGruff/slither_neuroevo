@@ -63,3 +63,50 @@ it.each(COMPARISONS)('%s/%s preserves reports and their measured source bytes', 
     expect(sha256(original)).toBe(record.originalReportSha256);
   }
 });
+
+/** Receipts for independently measured historical opaque-spool hosts and reports. */
+interface SpoolEvidence {
+  /** Lossless host sources keyed by their safe compressed filename. */
+  hosts: Record<string, {gzipSha256: string; canonicalLfSha256: string}>;
+  /** Exact retained source patches. */
+  candidatePatch: string;
+  /** Byte receipt for the retention patch. */
+  candidatePatchSha256: string;
+  /** Exact publication patch. */
+  publicationPatch: string;
+  /** Byte receipt for the publication patch. */
+  publicationPatchSha256: string;
+  /** Completed reports, including failed capacity probes. */
+  reports: Array<{path: string; canonicalLfSha256: string; status: string;
+    hostCanonicalLfSha256: string; storeCanonicalLfSha256: string; hostSourcePath?: string}>;
+}
+
+it('preserves opaque-spool report bytes, outcomes and exact historical host sources', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/distillation');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'spool-capacity-evidence.json'), 'utf8')) as SpoolEvidence;
+  const hosts = new Set<string>();
+  for (const [filename, receipt] of Object.entries(manifest.hosts)) {
+    expect(filename).toMatch(/^[a-zA-Z0-9_.-]+\.ts\.gz$/u);
+    const bytes = readFileSync(resolve(root, filename)); expect(sha256(bytes)).toBe(receipt.gzipSha256);
+    const source = gunzipSync(bytes, {maxOutputLength: 1024 ** 2});
+    expect(sha256(Buffer.from(source.toString('utf8').replace(/\r\n/gu, '\n')))).toBe(receipt.canonicalLfSha256);
+    hosts.add(receipt.canonicalLfSha256);
+  }
+  for (const [filename, receipt] of [[manifest.candidatePatch, manifest.candidatePatchSha256],
+    [manifest.publicationPatch, manifest.publicationPatchSha256]]) {
+    expect(filename).toMatch(/^[a-zA-Z0-9_.-]+\.patch$/u); expect(sha256(readFileSync(resolve(root, filename!)))).toBe(receipt);
+  }
+  const paths = new Set<string>(); for (const receipt of manifest.reports) {
+    expect(receipt.path).toMatch(/^spool-capacity-(windows|debian)-v1\/[a-zA-Z0-9_.-]+\.json$/u);
+    expect(paths.has(receipt.path)).toBe(false); paths.add(receipt.path);
+    const bytes = readFileSync(resolve(root, receipt.path), 'utf8');
+    expect(sha256(Buffer.from(bytes.replace(/\r\n/gu, '\n')))).toBe(receipt.canonicalLfSha256);
+    const report = JSON.parse(bytes) as {status: string; qualificationComplete: boolean; source: {canonicalLfSha256: Record<string, string>}};
+    expect(report.status).toBe(receipt.status);
+    expect(report.source.canonicalLfSha256[receipt.hostSourcePath ?? 'scripts/qualification/spool-capacity.ts']).toBe(receipt.hostCanonicalLfSha256);
+    expect(hosts.has(receipt.hostCanonicalLfSha256)).toBe(true);
+    expect(report.source.canonicalLfSha256['server/rustEngine/distillationSpoolStore.ts']).toBe(receipt.storeCanonicalLfSha256);
+    if (receipt.status === 'passed') continue;
+    expect(receipt.status).toBe('failed'); expect(report.qualificationComplete).toBe(false);
+  }
+});
