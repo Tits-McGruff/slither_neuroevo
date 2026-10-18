@@ -19,6 +19,14 @@
     "spool-fixture-v1.ts.gz": {
       "gzipSha256": "fa3e4d34b9cea767dbf5cc178be39fd9e44f934f2fcbadc89fd22c59d682102f",
       "canonicalLfSha256": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285"
+    },
+    "spool-capacity-host-v3.ts.gz": {
+      "gzipSha256": "161f2fa2e919492d639ccdccc409c67ab24da2a54b59084d1106540b38e09fcf",
+      "canonicalLfSha256": "9caeb455048840236708f4c3c01c9c9a1c4d20d8c4b5ac2053cc14e15cf20509"
+    },
+    "spool-capacity-recover-v1.ts.gz": {
+      "gzipSha256": "037cde11c4f83e74d861999e7b344841a5ea15a96ef5f2769acddc17c18e3245",
+      "canonicalLfSha256": "fa7ff83fa40581c501a956b03d499b985278f622d455470999b105738ad5a10d"
     }
   },
   "reports": [
@@ -74,11 +82,48 @@
       "auxiliaryCanonicalLfSha256": {
         "scripts/qualification/spoolFixture.ts": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285"
       }
+    },
+    {
+      "path": "spool-capacity-debian-v1/full64g-candidate.json",
+      "canonicalLfSha256": "ce419bcd9af0931b5546349634396d377496be2cf0e4c2fc207a66d5a3ddb455",
+      "status": "failed",
+      "hostCanonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb",
+      "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
+    },
+    {
+      "path": "spool-capacity-windows-v1/full64g-candidate.json",
+      "canonicalLfSha256": "21b3d9121317a553a7517c2fc450407eb5026fb070f87e655995bfa72666a920",
+      "status": "failed",
+      "hostCanonicalLfSha256": "9caeb455048840236708f4c3c01c9c9a1c4d20d8c4b5ac2053cc14e15cf20509",
+      "storeCanonicalLfSha256": "4a4e5d48a2c8504cc1dc0d27c577f128ae8327519d9a4a7b06dad4f546b3e0f9",
+      "auxiliaryCanonicalLfSha256": {
+        "scripts/qualification/spoolFixture.ts": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285"
+      }
+    },
+    {
+      "path": "spool-capacity-windows-v1/full64g-recovery.json",
+      "canonicalLfSha256": "4da1222add92efdec3218e2cc7aef519fa1cdcdfa29bf577ea2e6da0d21192df",
+      "status": "passed",
+      "hostSourcePath": "scripts/qualification/spool-capacity-recover.ts",
+      "hostCanonicalLfSha256": "fa7ff83fa40581c501a956b03d499b985278f622d455470999b105738ad5a10d",
+      "storeCanonicalLfSha256": "2030ed3b2884526ea9cdaf7394f089a01f01b35f81dbd508e987858e5652a7e7",
+      "auxiliaryCanonicalLfSha256": {
+        "scripts/qualification/spoolFixture.ts": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285"
+      }
     }
   ],
-  "scope": "Completed opaque-storage reports and exact host sources. Corrected Windows global object ceiling passes across separate captures; full 64-GiB byte gate remains open.",
+  "scope": "Completed opaque-storage reports and exact historical sources. Both platforms filled 64 GiB and failed the former 60-second startup bound. Windows passes retained full-byte recovery and smaller-quota recovery under actual-inventory startup admission. Debian recovery remains pending; partial-range I/O diagnostics are not capacity passes.",
   "retentionCandidateStoreCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69",
   "publicationCandidateStoreCanonicalLfSha256": "4a4e5d48a2c8504cc1dc0d27c577f128ae8327519d9a4a7b06dad4f546b3e0f9",
   "publicationPatch": "spool-publication-retry.patch",
-  "publicationPatchSha256": "afa3e00ac17eb3513acc677c3f31ddd0175a7660eaf6dcdde99dc55e0adb5552"
+  "publicationPatchSha256": "afa3e00ac17eb3513acc677c3f31ddd0175a7660eaf6dcdde99dc55e0adb5552",
+  "diagnostics": [
+    {
+      "reportPath": "spool-startup-io-profile-debian-v1.json",
+      "reportCanonicalLfSha256": "6575eb90d67c7465da828688e8e73c2f7c06d1c73524df12e3c45d8cb28d7b67",
+      "sourceArchive": "spool-startup-io-profile-v1.mjs.gz",
+      "sourceArchiveSha256": "518f30b62274c7b2760d473929e8bffe4cd362c51efeacb6b96f9461fb59331e",
+      "sourceCanonicalLfSha256": "122ea41afa66d6c1142a4e68b7cd32d052961d4d00745d907390bb8d05a8d555"
+    }
+  ]
 }

@@ -1,0 +1,45 @@
+{
+  "scope": "Read-only disjoint-range startup verification diagnostics; shared host/cache states differ; not capacity qualification.",
+  "records": [
+    {
+      "role": "serial",
+      "offset": 32768,
+      "objects": 4096,
+      "verifiedBytes": 4294967296,
+      "milliseconds": 16831.592242,
+      "processCpuMs": 10934.858,
+      "physicalReadBytes": "4291842048",
+      "peakRssBytes": 161845248
+    },
+    {
+      "role": "parallel4",
+      "offset": 49152,
+      "objects": 4096,
+      "verifiedBytes": 4294967296,
+      "milliseconds": 13933.006067999999,
+      "processCpuMs": 17732.156,
+      "physicalReadBytes": "4295036928",
+      "peakRssBytes": 167931904
+    },
+    {
+      "role": "parallel4",
+      "offset": 40960,
+      "objects": 4096,
+      "verifiedBytes": 4294967296,
+      "milliseconds": 12910.106441,
+      "processCpuMs": 16105.202,
+      "physicalReadBytes": "4294856704",
+      "peakRssBytes": 170999808
+    },
+    {
+      "role": "serial",
+      "offset": 57344,
+      "objects": 4096,
+      "verifiedBytes": 4294967296,
+      "milliseconds": 20658.224844999997,
+      "processCpuMs": 12883.706,
+      "physicalReadBytes": "4291162112",
+      "peakRssBytes": 171270144
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "gate": "canonical-replay-capacity-v1",
+  "scope": "Rust-encoded synthetic teacher chunks, real Python decoder/replay and independent-decode in-process restore. The two replay owners coexist during restore; process peak includes both. No HTTP, optimizer, durable trainer checkpoint, live game contention or integrated soak is qualified.",
+  "hostSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68",
+  "trainerSourceSha256": "ca492226599f8c34c2bf2e928cdfb608a6359823d4707da830e388a367d18b83",
+  "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+  "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+  "options": {
+    "ramMiB": 2048
+  },
+  "baselinePeakRssBytes": 233426944,
+  "environment": {
+    "python": "3.13.5",
+    "platform": "Linux-6.12.111+deb13-amd64-x86_64-with-glibc2.41",
+    "machine": "x86_64",
+    "numpy": "2.5.3",
+    "torch": "2.14.0+cpu",
+    "pointerBytes": 8,
+    "pythonOptimized": false,
+    "torchCpuThreads": 4
+  },
+  "status": "passed",
+  "qualificationComplete": true,
+  "decodedChunks": 10000,
+  "retainedChunks": 8616,
+  "ownedReplayBytes": 2147481352,
+  "perChunkChargedBytes": 249213,
+  "evictedChunks": 1384,
+  "evictedSamples": 83040,
+  "fillMs": 25784.949926892295,
+  "filledPeakRssBytes": 2364407808,
+  "retainedSha256": "8bf90a5886deb8815eea217a0612d554cd8e947bc93fab6438ec75a9a67ce487",
+  "restoreMs": 18051.57439992763,
+  "independentlyDecodedRestoreExact": true,
+  "elapsedMs": 43836.58394799568,
+  "processCpuMs": 43258.003689,
+  "peakRssBytes": 4493672448
+}

@@ -77,6 +77,9 @@ interface SpoolEvidence {
   publicationPatch: string;
   /** Byte receipt for the publication patch. */
   publicationPatchSha256: string;
+  /** Read-only investigation receipts, never treated as qualification reports. */
+  diagnostics?: Array<{reportPath: string; reportCanonicalLfSha256: string; sourceArchive: string;
+    sourceArchiveSha256: string; sourceCanonicalLfSha256: string}>;
   /** Completed reports, including failed capacity probes. */
   reports: Array<{path: string; canonicalLfSha256: string; status: string;
     hostCanonicalLfSha256: string; storeCanonicalLfSha256: string; hostSourcePath?: string;
@@ -93,6 +96,15 @@ it('preserves opaque-spool report bytes, outcomes and exact historical host sour
     const source = gunzipSync(bytes, {maxOutputLength: 1024 ** 2});
     expect(sha256(Buffer.from(source.toString('utf8').replace(/\r\n/gu, '\n')))).toBe(receipt.canonicalLfSha256);
     hosts.add(receipt.canonicalLfSha256);
+  }
+  for (const receipt of manifest.diagnostics ?? []) {
+    expect(receipt.reportPath).toMatch(/^[a-zA-Z0-9_.-]+\.json$/u);
+    expect(receipt.sourceArchive).toMatch(/^[a-zA-Z0-9_.-]+\.mjs\.gz$/u);
+    const bytes = readFileSync(resolve(root, receipt.reportPath), 'utf8').replace(/\r\n/gu, '\n');
+    expect(sha256(Buffer.from(bytes))).toBe(receipt.reportCanonicalLfSha256);
+    const compressed = readFileSync(resolve(root, receipt.sourceArchive));
+    expect(sha256(compressed)).toBe(receipt.sourceArchiveSha256);
+    expect(sha256(gunzipSync(compressed, {maxOutputLength: 1024 ** 2}))).toBe(receipt.sourceCanonicalLfSha256);
   }
   for (const [filename, receipt] of [[manifest.candidatePatch, manifest.candidatePatchSha256],
     [manifest.publicationPatch, manifest.publicationPatchSha256]]) {
@@ -216,8 +228,8 @@ interface ReplayCapacityEvidence {
   reports: Array<{path: string; canonicalLfSha256: string; ramMiB: number}>;
 }
 
-it('binds loaded replay RAM to genuine Rust codec bytes and exact independent restore', () => {
-  const root = resolve(import.meta.dirname, '../../docs/performance/distillation/replay-capacity-windows-v1');
+it.each(['windows', 'debian'] as const)('binds %s loaded replay RAM to genuine Rust codec bytes and exact independent restore', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/distillation/replay-capacity-${platform}-v1`);
   const summary = JSON.parse(readFileSync(resolve(root, 'summary.json'), 'utf8')) as ReplayCapacityEvidence;
   const host = readFileSync(resolve(root, 'host.py.gz')); expect(sha256(host)).toBe(summary.hostGzipSha256);
   expect(sha256(gunzipSync(host, {maxOutputLength: 1024 ** 2}))).toBe(summary.hostSha256);
@@ -249,7 +261,7 @@ it('binds loaded replay RAM to genuine Rust codec bytes and exact independent re
     expect(report.fixtureHostCanonicalLfSha256).toBe(reference.hostCanonicalLfSha256);
     expect(report.bundleSha256).toBe(reference.bundleSha256); expect(report.options.ramMiB).toBe(entry.ramMiB);
     expect(report.environment.pythonOptimized).toBe(false); expect(report.environment.pointerBytes).toBe(8);
-    expect(report.environment.platform).toMatch(/^Windows-/u);
+    expect(report.environment.platform).toMatch(platform === 'windows' ? /^Windows-/u : /^Linux-/u);
     const budget = entry.ramMiB * 1024 ** 2; const fixed = 256 * 1024;
     expect(report.decodedChunks).toBe(reference.chunks); expect(report.evictedChunks).toBeGreaterThan(0);
     expect(report.retainedChunks + report.evictedChunks).toBe(reference.chunks);
@@ -261,4 +273,39 @@ it('binds loaded replay RAM to genuine Rust codec bytes and exact independent re
     expect(report.independentlyDecodedRestoreExact).toBe(true);
     expect(report.filledPeakRssBytes).toBeGreaterThan(0); expect(report.peakRssBytes).toBeGreaterThanOrEqual(report.filledPeakRssBytes);
   }
+});
+
+
+it.each(['windows'] as const)('binds %s full-byte recovery to its failed predecessor and exact retained identities', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/distillation/spool-capacity-${platform}-v1`);
+  const previousBytes = readFileSync(resolve(root, 'full64g-candidate.json'), 'utf8').replace(/\r\n/gu, '\n');
+  const previous = JSON.parse(previousBytes) as {status: string; selectedByteQuotaLoaded: boolean;
+    phases: {rotation: {dataset: DistillationDataset}}};
+  const recovered = JSON.parse(readFileSync(resolve(root, 'full64g-recovery.json'), 'utf8')) as {
+    status: string; qualificationComplete: boolean; workspaceRemoved: boolean; predecessorCanonicalLfSha256: string;
+    phases: {fullRestart: {milliseconds: number; recoveryBudgetMs: number};
+      smallerRestart: {milliseconds: number; recoveryBudgetMs: number};
+      fullDataset: DistillationDataset; finalDataset: DistillationDataset;
+      leaseChecks: {freshRecentPinExact: boolean; checks: Array<{result: string}>}}};
+  expect(previous.status).toBe('failed'); expect(previous.selectedByteQuotaLoaded).toBe(true);
+  expect(recovered.predecessorCanonicalLfSha256).toBe(sha256(Buffer.from(previousBytes)));
+  expect(recovered.status).toBe('passed'); expect(recovered.qualificationComplete).toBe(true);
+  expect(recovered.workspaceRemoved).toBe(true);
+  for (const phase of [recovered.phases.fullRestart, recovered.phases.smallerRestart]) {
+    expect(phase.recoveryBudgetMs).toBe(660000); expect(phase.milliseconds).toBeLessThan(phase.recoveryBudgetMs);
+  }
+  const before = previous.phases.rotation.dataset;
+  for (const [dataset, chunks] of [[recovered.phases.fullDataset, 65536], [recovered.phases.finalDataset, 1024]] as const) {
+    expect(dataset.retainedChunks).toBe(chunks);
+    expect(BigInt('0x' + dataset.retainedBytes)).toBe(BigInt(chunks) * 1024n ** 2n);
+    for (const field of ['contract', 'state', 'productionWatermark', 'storageWatermark', 'resolvedThrough', 'error'] as const) {
+      expect(dataset[field]).toEqual(before[field]);
+    }
+    for (const field of ['nativeDroppedChunks', 'nativeDroppedSamples', 'nativeDroppedBytes', 'spoolDroppedChunks'] as const) {
+      expect(dataset[field]).toBe('0000000000000000');
+    }
+  }
+  expect(recovered.phases.leaseChecks.freshRecentPinExact).toBe(true);
+  expect(recovered.phases.leaseChecks.checks).toHaveLength(2);
+  for (const check of recovered.phases.leaseChecks.checks) expect(['exact', 'expired-as-declared']).toContain(check.result);
 });

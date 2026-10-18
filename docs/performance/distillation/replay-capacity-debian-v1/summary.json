@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "45930119415268cb7d298a0ecd70d905f6ed9da6",
+  "hostGzipSha256": "c55465085ccb56dcf3c53242ed42808bb8938814e48229cfa37434111bbe0de9",
+  "hostSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68",
+  "generatorInputsCanonicalLfSha256": {
+    "Cargo.toml": "1c86b61cb83512c492079c54f57d8288c9cfba10f0dcf0a360fbe1c789f30e4f",
+    "Cargo.lock": "1bee1832aabbf7e333aaea577c71c80eb3d4c0cd49342936f25ccc7e2b553db4",
+    "main.rs": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2"
+  },
+  "referenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+  "reports": [
+    {
+      "path": "ram-64.json",
+      "canonicalLfSha256": "a4a08d7cfd749f0060cf88ae639498c04cd9c0ca414af3782c93693b4ca73baa",
+      "ramMiB": 64
+    },
+    {
+      "path": "ram-256.json",
+      "canonicalLfSha256": "2ccedabb1445ef4bae6e2c144ddcf480c2bded1f8c3e560a52a394f7cdb77bb9",
+      "ramMiB": 256
+    },
+    {
+      "path": "ram-2048.json",
+      "canonicalLfSha256": "d73520dad71aa95860f5e2a9282ec98e0752412eb9109a9e88e71f94b462ddc4",
+      "ramMiB": 2048
+    }
+  ],
+  "scope": "Debian real decoder/replay RAM and independent-decode in-process restore of portable synthetic teacher chunks encoded by Rust on Windows. Two owners coexist during restore. HTTP, optimizer, durable trainer checkpoint peaks, live contention and integrated soak remain open.",
+  "hostCanonicalLfSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68"
+}
