@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "gate": "canonical-replay-capacity-v1",
+  "scope": "Rust-encoded synthetic teacher chunks, real Python decoder/replay and independent-decode in-process restore. The two replay owners coexist during restore; process peak includes both. No HTTP, optimizer, durable trainer checkpoint, live game contention or integrated soak is qualified.",
+  "hostSha256": "8870c73a4c3635c5cb98d3291aef2e698efd84bebca416665597a8a77ed64956",
+  "trainerSourceSha256": "844bbabfefeb42b2082291d714d4bf1777d2586adf2feeb577547eefeb13280b",
+  "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+  "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+  "options": {
+    "ramMiB": 64
+  },
+  "baselinePeakRssBytes": 520179712,
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "machine": "AMD64",
+    "numpy": "2.5.3",
+    "torch": "2.14.0+cu126",
+    "pointerBytes": 8,
+    "pythonOptimized": false,
+    "torchCpuThreads": 8
+  },
+  "status": "passed",
+  "qualificationComplete": true,
+  "decodedChunks": 10000,
+  "retainedChunks": 268,
+  "ownedReplayBytes": 67051228,
+  "perChunkChargedBytes": 249213,
+  "evictedChunks": 9732,
+  "evictedSamples": 583920,
+  "fillMs": 6823.567199986428,
+  "filledPeakRssBytes": 590925824,
+  "retainedSha256": "aff230d4fc2b781c78876e22ea40107b78c545ea139a1ad7779625ce40e9c5e3",
+  "restoreMs": 394.93269997183233,
+  "independentlyDecodedRestoreExact": true,
+  "elapsedMs": 7218.608700088225,
+  "processCpuMs": 7171.875,
+  "peakRssBytes": 653168640
+}

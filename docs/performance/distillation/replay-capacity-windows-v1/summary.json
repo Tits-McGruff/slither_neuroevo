@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "45930119415268cb7d298a0ecd70d905f6ed9da6",
+  "hostGzipSha256": "3779bf73d8d7e462a7d67f531be0114b2d4a29a738c29be57afa670a8ee4d684",
+  "hostSha256": "8870c73a4c3635c5cb98d3291aef2e698efd84bebca416665597a8a77ed64956",
+  "generatorInputsCanonicalLfSha256": {
+    "Cargo.toml": "1c86b61cb83512c492079c54f57d8288c9cfba10f0dcf0a360fbe1c789f30e4f",
+    "Cargo.lock": "1bee1832aabbf7e333aaea577c71c80eb3d4c0cd49342936f25ccc7e2b553db4",
+    "main.rs": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2"
+  },
+  "referenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+  "reports": [
+    {
+      "path": "ram-64.json",
+      "canonicalLfSha256": "d97acb541a5c8027b00bb6ecb77fa9e87e9e40b8b323d3b4b08a228e48b0a220",
+      "ramMiB": 64
+    },
+    {
+      "path": "ram-256.json",
+      "canonicalLfSha256": "b7547d60c42b0499e75e714055bc01f4f55c848e59c29fa39461eb3d0f3ea77d",
+      "ramMiB": 256
+    },
+    {
+      "path": "ram-2048.json",
+      "canonicalLfSha256": "43b1d6e87de1b73ff563f1686090e8668a7d15d01cfad1e393c1bd9f1994dc4e",
+      "ramMiB": 2048
+    }
+  ],
+  "scope": "Windows actual Rust codec/decoder/replay RAM and independent-decode in-process restore. Two replay owners coexist during restore. Linux, HTTP, optimizer, durable trainer checkpoint peaks, live contention and integrated soak remain open.",
+  "hostCanonicalLfSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68"
+}

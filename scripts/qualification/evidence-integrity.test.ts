@@ -201,3 +201,64 @@ it('preserves settled interrupted/new capture identities through loaded quota re
     }
   }
 });
+
+/** Loaded replay reports retain exact fixture-generator and measured Python sources. */
+interface ReplayCapacityEvidence {
+  /** Original compressed measured host bytes. */
+  hostGzipSha256: string;
+  /** Exact measured host identity. */
+  hostSha256: string;
+  /** Generator source and separately locked dependency graph. */
+  generatorInputsCanonicalLfSha256: Record<string, string>;
+  /** Immutable native fixture receipt. */
+  referenceCanonicalLfSha256: string;
+  /** Distinct loaded RAM envelopes. */
+  reports: Array<{path: string; canonicalLfSha256: string; ramMiB: number}>;
+}
+
+it('binds loaded replay RAM to genuine Rust codec bytes and exact independent restore', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/distillation/replay-capacity-windows-v1');
+  const summary = JSON.parse(readFileSync(resolve(root, 'summary.json'), 'utf8')) as ReplayCapacityEvidence;
+  const host = readFileSync(resolve(root, 'host.py.gz')); expect(sha256(host)).toBe(summary.hostGzipSha256);
+  expect(sha256(gunzipSync(host, {maxOutputLength: 1024 ** 2}))).toBe(summary.hostSha256);
+  for (const [filename, expected] of Object.entries(summary.generatorInputsCanonicalLfSha256)) {
+    expect(filename).toMatch(/^(Cargo\.toml|Cargo\.lock|main\.rs)$/u);
+    const bytes = readFileSync(resolve(import.meta.dirname, 'teacher-replay-fixture', filename), 'utf8');
+    expect(sha256(Buffer.from(bytes.replace(/\r\n/gu, '\n')))).toBe(expected);
+  }
+  const referenceBytes = readFileSync(resolve(root, 'reference.json'), 'utf8').replace(/\r\n/gu, '\n');
+  expect(sha256(Buffer.from(referenceBytes))).toBe(summary.referenceCanonicalLfSha256);
+  const reference = JSON.parse(referenceBytes) as {sourceSha256: string; hostCanonicalLfSha256: string;
+    bundleSha256: string; chunks: number; samplesPerChunk: number; encodedBytes: number; bundleBytes: number};
+  expect(reference.hostCanonicalLfSha256).toBe(summary.generatorInputsCanonicalLfSha256['main.rs']);
+  expect(reference.bundleBytes).toBe(reference.encodedBytes + reference.chunks * 4);
+  expect(summary.reports.map(value => value.ramMiB)).toEqual([64, 256, 2048]);
+  for (const entry of summary.reports) {
+    expect(entry.path).toMatch(/^ram-[0-9]+\.json$/u);
+    const bytes = readFileSync(resolve(root, entry.path), 'utf8').replace(/\r\n/gu, '\n');
+    expect(sha256(Buffer.from(bytes))).toBe(entry.canonicalLfSha256);
+    const report = JSON.parse(bytes) as {status: string; qualificationComplete: boolean; hostSha256: string;
+      referenceSha256: string; nativeSourceSha256: string; fixtureHostCanonicalLfSha256: string; bundleSha256: string;
+      environment: {pythonOptimized: boolean; pointerBytes: number; platform: string};
+      options: {ramMiB: number}; decodedChunks: number; retainedChunks: number; ownedReplayBytes: number;
+      perChunkChargedBytes: number; evictedChunks: number; evictedSamples: number;
+      independentlyDecodedRestoreExact: boolean; filledPeakRssBytes: number; peakRssBytes: number};
+    expect(report.status).toBe('passed'); expect(report.qualificationComplete).toBe(true);
+    expect(report.hostSha256).toBe(summary.hostSha256); expect(report.referenceSha256).toBe(summary.referenceCanonicalLfSha256);
+    expect(report.nativeSourceSha256).toBe(reference.sourceSha256);
+    expect(report.fixtureHostCanonicalLfSha256).toBe(reference.hostCanonicalLfSha256);
+    expect(report.bundleSha256).toBe(reference.bundleSha256); expect(report.options.ramMiB).toBe(entry.ramMiB);
+    expect(report.environment.pythonOptimized).toBe(false); expect(report.environment.pointerBytes).toBe(8);
+    expect(report.environment.platform).toMatch(/^Windows-/u);
+    const budget = entry.ramMiB * 1024 ** 2; const fixed = 256 * 1024;
+    expect(report.decodedChunks).toBe(reference.chunks); expect(report.evictedChunks).toBeGreaterThan(0);
+    expect(report.retainedChunks + report.evictedChunks).toBe(reference.chunks);
+    expect(report.evictedSamples).toBe(report.evictedChunks * reference.samplesPerChunk);
+    expect(report.retainedChunks).toBe(Math.floor((budget - fixed) / report.perChunkChargedBytes));
+    expect(report.ownedReplayBytes).toBe(fixed + report.retainedChunks * report.perChunkChargedBytes);
+    expect(report.ownedReplayBytes).toBeLessThanOrEqual(budget);
+    expect(budget - report.ownedReplayBytes).toBeLessThan(report.perChunkChargedBytes);
+    expect(report.independentlyDecodedRestoreExact).toBe(true);
+    expect(report.filledPeakRssBytes).toBeGreaterThan(0); expect(report.peakRssBytes).toBeGreaterThanOrEqual(report.filledPeakRssBytes);
+  }
+});

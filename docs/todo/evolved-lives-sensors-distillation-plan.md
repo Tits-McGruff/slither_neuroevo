@@ -982,6 +982,18 @@ synthetic windows do not close loaded replay, live contention or integrated-soak
 qualification. PyRL's 73 focused job/control and two new capacity tests pass,
 as does changed-file Python lint. No runtime defaults or ceilings change.
 
+The loaded-replay Windows probe now fills and rotates the 64/256/2,048-MiB
+public budgets using 10,000 genuine Rust-encoded synthetic Motion/B32 chunks.
+Exact retry and independently decoded replay restoration pass; measured process
+peaks explicitly include both owners during restore. The standalone fixture
+harness preserves disk reserve and leaves native production source unchanged.
+Its own locked sources and the three reports are retained in the existing
+performance directory. Seventeen focused replay/capacity tests and harness rustfmt/Clippy
+pass. A separate PyRL intake fix removes the obsolete 4-GiB metadata limit while
+enforcing each reported producer byte/object quota on intake and restore; 114
+focused tests pass with one existing Rust-runner-dependent skip. Linux replay,
+durable trainer checkpoint peaks and integrated coexistence remain open.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
