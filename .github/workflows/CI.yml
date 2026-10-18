@@ -127,6 +127,25 @@ jobs:
           if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
+      - name: Real-clock P0 sensor workload (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P0 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-P0.json"
+      - name: Real-clock P1 sensor workload (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-P1.json"
+      - name: Retain real-clock sensor outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensor-wall-${{ matrix.os }}
+          path: ${{ runner.temp }}/sensor-wall-*.json
+          if-no-files-found: warn
       - name: Build checkpoint handoff test addon
         run: cargo build --manifest-path native/Cargo.toml --features engine-test-hooks
       - name: Expose isolated checkpoint handoff test addon

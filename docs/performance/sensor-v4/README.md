@@ -654,3 +654,63 @@ p95 relative to one fixed-step interval is a diagnostic; the plan's P0/P1 1x
 gate requires actual wall-clock throughput/debt qualification. Node/browser,
 loaded spool/replay/training, representative policies, tactical/ablation and
 integrated-soak gates remain open. No production defaults or quotas change.
+
+
+The real-clock host `scripts/qualification/sensor-wall.ts` uses the same native
+P0/P1 modest graph/settings builder as the controlled-step benchmark. It starts
+the autonomous Rust coordinator only after a real run-start checkpoint is
+committed to an isolated SQLite store. Ten stochastic v2 teachers use exact
+60-Hz cadence, Motion B16, explicit ray cap 256/batch 65,536, a 16-MiB pending
+buffer, a 16-MiB native queue and the default 4-GiB spool. Teacher death gaps
+remain part of the workload. Latest packed frames copy into one reused buffer
+at at most 30 Hz. This test constructor exists only in the source-identified
+release hooks addon; ordinary startup remains v3/v1.
+
+```powershell
+node node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
+node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts --scenario P0 --seconds 60 --warmup-seconds 10 --report wall-P0.json
+node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts --scenario P1 --seconds 60 --warmup-seconds 10 --report wall-P1.json
+```
+
+Build the source-identified production addon first; the spool worker uses it.
+`--workers` defaults to the normal server's five-worker choice normalized to
+available CPUs. The bounded window is 60..600 seconds after 5..60 seconds of
+warmup. Reports retain monotonic clock brackets, exact counters, native timing
+endpoint histograms, dataset watermarks/drop counters, frame work, queue diagnostics and
+source/build/environment identities. The existing real-time criterion is at
+least 98% simulated/wall progress with no newly dropped wall debt or observed
+overload; the separate existing P0/P1 step criterion is p99 bucket ceiling at
+most 16.667 ms. Their conjunction is explicit. Measured failures are saved as
+false results; authority faults, invalid evidence or incomplete diagnostic
+settlement reject the run. The report is written only after orderly shutdown
+and removal of its temporary checkpoint/spool tree.
+
+Ubuntu and Windows Node-24 CI jobs run both scenarios and upload `sensor-wall`
+artifacts. Performance results are diagnostic on shared runners; operational
+failures still fail the job. This scope excludes browser/WebSocket transport,
+trainer/shadows, full-capacity rotation, representative trained policies and the
+integrated soak, so it cannot by itself select production defaults.
+
+
+`real-clock-windows-v1/` retains the two first real-clock windows for native
+source `60845bd3`, five workers on the Ryzen 7 5800X, after ten seconds of
+warmup. Each stores recomputable counter/clock evidence and exact endpoint
+histograms; the saved summaries and host source fingerprints were independently
+rechecked. Both runs shut down cleanly and removed their isolated data trees.
+
+| Scenario | Fixed steps / wall seconds | Minimum sim/wall ratio | p95 / p99 bucket ceiling | New dropped wall debt | Measured gates |
+|---|---:|---:|---:|---:|---|
+| P0, 55 evolved | 3,601 / 60.019 | 0.99996 | 8 / 8 ms | 0 | Pass |
+| P1, 300 evolved | 3,255 / 60.069 | 0.90312 | 24 / 32 ms | 5.571334 s | Fail; overload observed |
+
+P0/P1 copy 1,094/1,061 frames during the measured window and retain
+32,558/14,589 actual teacher rows across capture startup, warmup, measurement
+and final seal, with nonzero rows from all ten selected slots. Capture has no
+native or spool drops and final watermarks settle. These row totals are not
+exact window throughput or a claim of ten continuously alive teachers. Process
+peak RSS is 157.6/174.5 MiB and measured process CPU is 41.532/166.048 seconds.
+Whole-machine CPU counters show about 42.0%/55.6% busy time; this is a shared
+owner machine, not an isolated performance lab. P0 passes this bounded Windows
+workload window. P1 fails both existing measured gates in this configuration;
+short controlled-step timings cannot substitute for that result. Other
+platforms, longer runs and the excluded consumers/capacity gates remain open.
