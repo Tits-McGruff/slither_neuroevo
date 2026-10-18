@@ -250,7 +250,9 @@ minimum, default and maximum public RAM budgets. Every eight-object proposal
 checks exact retry idempotence, constant per-chunk accounting and complete FIFO
 rotation. A second decode constructs independent retained objects and restores
 the replay snapshot with identical cursor, counters, retry state and raw witnesses.
-Reports and measured source are retained in `replay-capacity-windows-v1/`.
+Reports and measured sources are retained in `replay-capacity-windows-v1/` and
+`replay-capacity-debian-v1/`. Debian decodes the same portable Rust-produced bytes;
+the fixture was encoded on Windows.
 
 | Replay budget MiB | Retained chunks | Evicted chunks | Fill / restore seconds | Peak RSS after fill / dual-owner restore MiB |
 |---|---:|---:|---:|---:|
@@ -263,6 +265,45 @@ includes the Python/Torch environment; restore intentionally retains the origina
 and independently decoded replay at once. These are descriptive Windows memory
 measurements, not a claim that whole-process memory equals the selected replay
 budget. Seventeen focused replay/framing/capacity tests pass; the standalone Rust harness passes
-rustfmt and Clippy. Linux replay, HTTP/optimizer coexistence, durable trainer
-checkpoint peaks, live-game contention and integrated soak remain open. The large
-fixture stays task-owned only until its required Linux follow-up completes.
+rustfmt and Clippy. The same 17 focused tests also pass on Debian with Python
+3.13.5 and Torch 2.14 CPU. Debian fill/restore times are 20.569/0.797,
+21.073/2.619 and 25.785/18.052 seconds respectively. Peak RSS during independent
+restore is 347.22, 728.36 and 4,285.50 MiB. These shared-host measurements do not
+qualify HTTP/optimizer coexistence, durable trainer checkpoint peaks, live-game
+contention or integrated soak.
+
+The Debian full-byte case writes all 65,536 one-MiB objects (64 GiB), passes
+pressure rotation, exact downloads, lease/manifest admission and pagination, then
+fails the first loaded reopen at the unchanged 60-second startup deadline.
+Its report remains failed with `qualificationComplete: false`; the full fixture
+is retained for recovery work. Sampled host RSS is about 352 MiB. This does not
+close the full-byte gate or select a larger production default.
+
+A subsequent read-only diagnostic verifies four disjoint 4-GiB ranges. Sequential
+read/stat/SHA checks take 16.832 and 20.658 seconds; bounded groups of four async
+read/stat/WebCrypto checks take 13.933 and 12.910 seconds. Kernel physical-read
+counters record approximately 4 GiB per case. Shared-host/cache states differ, and
+these partial ranges are not full-startup qualification. Their source and compact
+measurements are retained alongside the capacity reports; the historical RSS
+field records end-of-case snapshots. Windows also fills the actual 64 GiB and
+fails the former 60-second loaded startup; that failed report remains retained.
+
+Recovery now prices one absolute startup deadline from the actual retained
+inventory, independently of the newly selected quota. Initial metadata opening
+gets 60 seconds. One validated receipt permits 10 additional seconds per GiB
+beyond 4 GiB, up to 660 seconds for 64 GiB. Receipt delivery never resets the
+clock; malformed, repeated or late receipts fail. Readiness still requires every
+retained file's integrity check and complete quota readmission. Ordinary requests
+retain 60 seconds. Initialization cancellation stops the worker immediately, and
+leases keep their declared expiry, checked again after potentially long recovery.
+
+`scripts/qualification/spool-capacity-recover.ts --workspace PATH --failed-report PATH --output PATH`
+reuses only a read-only-verified, owned synthetic full-byte fixture. It verifies
+full recovery, smaller-quota recovery, exact watermarks and pinned downloads or
+honest lease expiry. It fsyncs an exclusive report outside the fixture before
+verified cleanup. Windows passes full recovery in 142.707 seconds and reduction
+to 1 GiB in 173.445 seconds, both within the inventory-priced bound. The two old
+lease downloads remain exact; a fresh recent-object pin is exact too. Watermarks,
+contracts and zero drops match the failed predecessor. Sampled peak RSS is
+372.38 MiB, and successful cleanup releases the fixture. Debian recovery remains
+pending. These complete the Windows opaque full-byte gate only.

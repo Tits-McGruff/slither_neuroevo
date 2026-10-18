@@ -991,8 +991,27 @@ Its own locked sources and the three reports are retained in the existing
 performance directory. Seventeen focused replay/capacity tests and harness rustfmt/Clippy
 pass. A separate PyRL intake fix removes the obsolete 4-GiB metadata limit while
 enforcing each reported producer byte/object quota on intake and restore; 114
-focused tests pass with one existing Rust-runner-dependent skip. Linux replay,
-durable trainer checkpoint peaks and integrated coexistence remain open.
+focused tests pass with one existing Rust-runner-dependent skip. Debian now passes
+the same three loaded RAM envelopes and 17 focused tests against the portable
+Rust-produced fixture, with exact independent-decode restore. Reports retain
+measured source, environment and both replay owners' RSS. Durable trainer
+checkpoint peaks and integrated coexistence remain open.
+
+The Debian opaque-spool case reaches the actual 64-GiB byte and 65,536-object
+ceilings, then fails full-quota reopen at the unchanged production startup
+deadline. The failed report, retained fixture and bounded read-only verification
+cost probes identify the remaining recovery gate. Windows also fills 64 GiB and
+fails the same startup bound. Both failed reports remain unchanged. Recovery now
+prices one absolute deadline from actual retained inventory: metadata opening
+gets 60 seconds, with 10 seconds per GiB beyond 4 up to 660 seconds at 64 GiB.
+One validated receipt cannot reset the clock; malformed/repeated/late receipts
+fail. Every file is still verified before readiness. Request deadlines remain
+60 seconds, initialization cancellation is immediate, and lease expiry is checked
+again before quota readmission. All 55 focused client/store/category tests pass.
+Windows full-byte recovery passes in 142.707 seconds, then reduction to 1 GiB
+passes in 173.445 seconds, with exact live pins, contracts and settled watermarks.
+The owned fixture is removed after its report is durably saved. Debian's retained
+full-byte recovery remains pending. Prior 4-GiB and maximum-object results keep their stated scope.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

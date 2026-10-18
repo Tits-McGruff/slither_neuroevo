@@ -180,7 +180,7 @@ async function run(): Promise<void> {
     for (const id of leases) { deadline(); await client.renewLease(id, policy.maxLeaseMs); }
     await client.close(); client = undefined; deadline();
     phase = performance.now(); client = new DistillationSpoolClient(ownedRoot, policy); await client.ready;
-    phases['loadedRestartMs'] = performance.now() - phase;
+    phases['loadedRestartMs'] = performance.now() - phase; phases['loadedRecoveryBudgetMs'] = client.recoveryBudgetMs;
     const loadedDatasets = await client.datasets('0'.repeat(32), 256);
     assert.equal(loadedDatasets.datasets.length, policy.maxDatasets); assert.equal(loadedDatasets.hasMore, false);
     phases['loadedDatasetCount'] = loadedDatasets.datasets.length;
@@ -191,7 +191,7 @@ async function run(): Promise<void> {
     await client.close(); client = undefined; deadline();
     const smaller = distillationSpoolLimitsForGiB(args.restartQuotaGiB);
     phase = performance.now(); client = new DistillationSpoolClient(ownedRoot, smaller); await client.ready;
-    phases['smallerQuotaRestartMs'] = performance.now() - phase;
+    phases['smallerQuotaRestartMs'] = performance.now() - phase; phases['smallerRecoveryBudgetMs'] = client.recoveryBudgetMs;
     const smallerRetained = Math.min(retained, Math.floor(smaller.maxBytes / args.objectBytes));
     const result = await client.dataset(contract.captureEpoch); settled(result, last, smallerRetained, args.objectBytes);
     assert.equal(result.state, 'stopped');
@@ -216,7 +216,7 @@ async function run(): Promise<void> {
     initialObjectCountMeaning: 'Last acknowledged durable inventory before pressure writes; unacknowledged partial work is not counted.',
     retentionCeilingLoaded: initiallyStored === capacity,
     selectedByteQuotaLoaded: initiallyStored * args.objectBytes === policy.maxBytes, retainedObjectCeilingLoaded: initiallyStored === policy.maxChunks,
-    scope: 'Synthetic opaque storage objects through the production isolated spool worker. No native sample codec, game, HTTP transport, trainer, shadows or integrated soak is qualified. Partial object counts are smoke runs. Operation and startup deadlines remain the production 60 seconds. Shared-host RSS and physical-filesystem measurements are descriptive.',
+    scope: 'Synthetic opaque storage objects through the production isolated spool worker. No native sample codec, game, HTTP transport, trainer, shadows or integrated soak is qualified. Partial object counts are smoke runs. Requests retain the production 60-second deadline; startup uses the bounded actual-inventory recovery allowance. Shared-host RSS and physical-filesystem measurements are descriptive.',
     source: {revision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(), canonicalLfSha256: sources},
     environment: {node: process.version, platform: platform(), release: release(), cpu: cpus()[0]?.model,
       availableParallelism: availableParallelism(), totalMemoryBytes: totalmem()},
