@@ -8,6 +8,9 @@ import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationHex, distil
   parseSpoolLimits, parseTeacherDrain, type DistillationChunkPage, type DistillationDataset,
   type DistillationLease, type DistillationSpoolLimits, type DistillationDatasetPage } from './distillationProtocol.ts';
 
+/** Bounded Windows sharing-error backoff stays inside the isolated storage worker. */
+const RENAME_RETRY_WAIT = process.platform === 'win32' ? new Int32Array(new SharedArrayBuffer(4)) : undefined;
+
 /** SQLite metadata retained separately from the owner's game database. */
 interface DatasetRow {
   /** Native run seed; old diagnostic stores retain an explicit unknown value. */
@@ -65,6 +68,10 @@ export class DistillationSpoolStore {
   readonly limits: Readonly<DistillationSpoolLimits>;
   /** Single worker-owned synchronous connection. */
   private readonly db: Database.Database;
+  /** Worker-exclusive durable object count, initialized after recovery. */
+  private retainedChunks = 0;
+  /** Worker-exclusive durable encoded bytes, updated only after metadata commits. */
+  private retainedBytes = 0;
   /** Inject one real failure without changing production behavior. */
   private failpoint: DistillationSpoolFailpoint | undefined;
 
@@ -123,6 +130,9 @@ export class DistillationSpoolStore {
       this.db.prepare('DELETE FROM unavailable WHERE sequence <= (SELECT resolved FROM datasets WHERE epoch = unavailable.epoch)').run();
       this.expireLeases();
       this.reconcile();
+      const retained = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM chunks')
+        .get() as {count: number; bytes: number};
+      this.retainedChunks = retained.count; this.retainedBytes = retained.bytes;
       // Re-admit retained bytes on restart without reserving a phantom new chunk.
       // Refuse impossible active pins before rotating any otherwise valid object.
       const pinned = this.db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes
@@ -311,18 +321,33 @@ export class DistillationSpoolStore {
     return this.db.prepare('SELECT * FROM chunks WHERE epoch = ? AND sequence = ?').get(epoch, sequence) as ChunkRow | undefined;
   }
 
-  /** Rotate oldest complete unpinned objects; pinned saturation refuses new data. */
+  /** Rotate the minimal oldest unpinned prefix, committing at most 64 deletions at once.
+   * Cached totals avoid repeated full-catalog scans. Metadata commits precede file
+   * removal, so an interruption can leave only unadvertised recoverable orphans.
+   */
   private makeRoom(bytes: number, reserveNewChunk = true): boolean {
     if (bytes > this.limits.maxBytes) return false;
-    for (;;) {
-      const total = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM chunks').get() as { count: number; bytes: number };
-      if (total.count + Number(reserveNewChunk) <= this.limits.maxChunks && total.bytes + bytes <= this.limits.maxBytes) return true;
-      const victim = this.db.prepare('SELECT * FROM chunks WHERE NOT EXISTS (SELECT 1 FROM lease_chunks WHERE lease_chunks.ordinal = chunks.ordinal) ORDER BY ordinal LIMIT 1')
-        .get() as ChunkRow | undefined;
-      if (!victim) return false;
-      this.db.prepare('DELETE FROM chunks WHERE ordinal = ?').run(victim.ordinal);
-      this.unlinkKnown(victim.filename);
+    const extra = Number(reserveNewChunk);
+    if (this.retainedChunks + extra <= this.limits.maxChunks && this.retainedBytes + bytes <= this.limits.maxBytes) return true;
+    const oldest = this.db.prepare(`SELECT ordinal, bytes, filename FROM chunks
+      WHERE NOT EXISTS (SELECT 1 FROM lease_chunks WHERE lease_chunks.ordinal = chunks.ordinal)
+      ORDER BY ordinal LIMIT 64`);
+    const remove = this.db.prepare('DELETE FROM chunks WHERE ordinal = ?');
+    while (this.retainedChunks + extra > this.limits.maxChunks || this.retainedBytes + bytes > this.limits.maxBytes) {
+      const candidates = oldest.all() as Array<Pick<ChunkRow, 'ordinal' | 'bytes' | 'filename'>>;
+      if (!candidates.length) return false;
+      let count = this.retainedChunks; let totalBytes = this.retainedBytes; let selected = 0;
+      for (const victim of candidates) {
+        count--; totalBytes -= victim.bytes; selected++;
+        if (count + extra <= this.limits.maxChunks && totalBytes + bytes <= this.limits.maxBytes) break;
+      }
+      this.db.transaction(() => {
+        for (let i = 0; i < selected; i++) remove.run(candidates[i]!.ordinal);
+      })();
+      this.retainedChunks = count; this.retainedBytes = totalBytes;
+      for (let i = 0; i < selected; i++) this.unlinkKnown(candidates[i]!.filename);
     }
+    return true;
   }
 
   /** Preserve physical reserve plus the existing bounded SQLite/WAL allowance. */
@@ -351,7 +376,7 @@ export class DistillationSpoolStore {
       fsyncSync(file); closeSync(file); file = undefined;
       this.inject('after-write');
       file = openSync(finalPath, 'wx'); ownsFinal = true; closeSync(file); file = undefined;
-      renameSync(partialPath, finalPath);
+      this.renameCompleteObject(partialPath, finalPath);
       file = openSync(finalPath, 'r+'); fsyncSync(file); closeSync(file); file = undefined;
       this.syncDirectory();
       this.inject('after-rename');
@@ -362,11 +387,27 @@ export class DistillationSpoolStore {
           .run(descriptor.sequence, descriptor.sequence, descriptor.captureEpoch);
       })();
       committed = true;
+      this.retainedChunks++; this.retainedBytes += bytes.byteLength;
       this.inject('after-metadata');
     } finally {
       if (file !== undefined) closeSync(file);
       if (existsSync(partialPath)) this.unlinkKnown(temporary);
       if (ownsFinal && !committed) this.unlinkKnown(filename);
+    }
+  }
+
+  /** Retry only Windows access/sharing failures, with six attempts and 310 ms total requested backoff.
+   * The complete temporary object and exclusive final reservation remain owned by
+   * this publication until it succeeds; no descriptor is visible during retries.
+   */
+  private renameCompleteObject(source: string, destination: string): void {
+    for (let attempt = 0; ; attempt++) {
+      try { renameSync(source, destination); return; }
+      catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+        if (!RENAME_RETRY_WAIT || attempt >= 5 || !['EPERM', 'EACCES', 'EBUSY'].includes(code)) throw error;
+        Atomics.wait(RENAME_RETRY_WAIT, 0, 0, 10 * 2 ** attempt);
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 import { DistillationClient as BrowserDistillationClient } from '../../src/net/distillation.ts';
 import { createHash } from 'node:crypto';
+import * as fileSystem from 'node:fs';
 import Database from 'better-sqlite3';
 import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,6 +18,9 @@ import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
 import type { TeacherCaptureRequest } from '../../src/protocol/distillation.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
+
+/** Mutable filesystem wrappers permit publication fault injection without replacing worker I/O. */
+vi.mock('node:fs', async original => ({...await original<typeof import('node:fs')>()}));
 
 /** Frozen Rust canonical fixture; this suite verifies opaque storage rather than encoding. */
 const sensor = (JSON.parse(readFileSync(resolve(import.meta.dirname, '../../native/fixtures/sensor-contract-shapes.json'), 'utf8')) as
@@ -82,6 +86,31 @@ describe('durable distillation spool', () => {
     const lease = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
     expect([...store.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
     expect(readdirSync(store.root).filter(file => file.endsWith('.teacher'))).toHaveLength(1);
+  });
+
+  it('keeps retention totals exact through committed retry, batched shrink, pins and cross-dataset replacement', () => {
+    const store = fixture({maxBytes: 130 * 32, maxChunks: 130}, 'after-metadata');
+    const source = drain(Array.from({length: 130}, (_, i) => i + 1));
+    expect(() => store.ingest(source, 42)).toThrow(/after-metadata/u);
+    expect(store.ingest(source, 42)).toMatchObject({retainedChunks: 130, retainedBytes: word(130 * 32)});
+    const pins = store.lease(source.contract!.captureEpoch, [word(1), word(3)], 300_000);
+    for (let last = 131; last <= 140; last++) {
+      expect(store.ingest({...drain([last]), droppedChunks: DISTILLATION_ZERO}, 42))
+        .toMatchObject({retainedChunks: 130, retainedBytes: word(130 * 32)});
+    }
+    store.close();
+    const restored = new DistillationSpoolStore(store.root, {...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64, maxChunks: 130});
+    stores.push(restored);
+    expect(restored.list(pins.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(1), word(3)]);
+    expect(restored.dataset(pins.captureEpoch)).toMatchObject({retainedChunks: 2, retainedBytes: word(64)});
+    const nextEpoch = '34'.repeat(16);
+    expect(restored.ingest(drain([1], {epoch: nextEpoch}), 42))
+      .toMatchObject({retainedChunks: 0, spoolDroppedChunks: word(1), resolvedThrough: word(1)});
+    restored.releaseLease(pins.id);
+    expect(restored.ingest(drain([2, 3], {epoch: nextEpoch}), 42))
+      .toMatchObject({retainedChunks: 2, retainedBytes: word(64), spoolDroppedChunks: word(1)});
+    expect(restored.dataset(pins.captureEpoch).retainedChunks).toBe(0);
+    expect(restored.list(nextEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(2), word(3)]);
   });
 
   it('reports worker-admitted global disk policy without allocating the selected ceiling', async () => {
@@ -260,6 +289,55 @@ describe('durable distillation spool', () => {
     expect(store.list(source.contract!.captureEpoch).chunks).toEqual([]);
     expect(readdirSync(store.root).filter(name => name.includes('.teacher'))).toEqual([]);
     expect(store.ingest(source, 42).retainedChunks).toBe(1);
+  });
+
+  it.runIf(process.platform === 'win32')('retries transient Windows publication locks before advertising complete bytes', () => {
+    const store = fixture(); const source = drain([1]); const original = fileSystem.renameSync;
+    const rename = vi.spyOn(fileSystem, 'renameSync')
+      .mockImplementationOnce(() => {throw Object.assign(new Error('transient sharing failure'), {code: 'EPERM'});})
+      .mockImplementationOnce(() => {throw Object.assign(new Error('transient access failure'), {code: 'EACCES'});})
+      .mockImplementationOnce(() => {throw Object.assign(new Error('transient busy failure'), {code: 'EBUSY'});})
+      .mockImplementation(original);
+    expect(store.ingest(source, 42)).toMatchObject({retainedChunks: 1, retainedBytes: word(32)});
+    expect(rename).toHaveBeenCalledTimes(4);
+    const lease = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
+    expect([...store.download(lease.captureEpoch, word(1), lease.id).bytes]).toEqual([...source.chunks[0]!.bytes]);
+    expect(readdirSync(store.root).some(name => name.endsWith('.pending'))).toBe(false);
+  });
+
+  it.runIf(process.platform === 'win32')('bounds persistent Windows publication locks and leaves no advertised partial object', () => {
+    const store = fixture(); const source = drain([1]);
+    const rename = vi.spyOn(fileSystem, 'renameSync').mockImplementation(() => {
+      throw Object.assign(new Error('persistent sharing failure'), {code: 'EPERM'});
+    });
+    expect(() => store.ingest(source, 42)).toThrow(/persistent sharing failure/u);
+    expect(rename).toHaveBeenCalledTimes(6);
+    expect(store.list(source.contract!.captureEpoch).chunks).toEqual([]);
+    expect(readdirSync(store.root).filter(name => name.includes('.teacher'))).toEqual([]);
+    rename.mockRestore();
+    expect(store.ingest(source, 42).retainedChunks).toBe(1);
+  });
+
+  it('propagates permanent publication I/O failures without advertising or retaining partial bytes', () => {
+    const store = fixture(); const source = drain([1]);
+    const rename = vi.spyOn(fileSystem, 'renameSync').mockImplementation(() => {
+      throw Object.assign(new Error('permanent publication failure'), {code: 'EIO'});
+    });
+    expect(() => store.ingest(source, 42)).toThrow(/permanent publication failure/u);
+    expect(rename).toHaveBeenCalledTimes(1);
+    expect(store.list(source.contract!.captureEpoch).chunks).toEqual([]);
+    expect(readdirSync(store.root).filter(name => name.includes('.teacher'))).toEqual([]);
+  });
+
+  it('preserves an existing final object when exclusive publication reservation fails', () => {
+    const store = fixture(); const source = drain([1]); const descriptor = source.chunks[0]!.descriptor;
+    const filename = `${descriptor.captureEpoch}-${descriptor.sequence}-${descriptor.sha256}.teacher`;
+    const previous = Buffer.from('existing complete owner bytes'); writeFileSync(join(store.root, filename), previous);
+    const rename = vi.spyOn(fileSystem, 'renameSync');
+    expect(() => store.ingest(source, 42)).toThrow(/EEXIST/u);
+    expect(rename).not.toHaveBeenCalled(); expect(readFileSync(join(store.root, filename))).toEqual(previous);
+    expect(store.list(source.contract!.captureEpoch).chunks).toEqual([]);
+    expect(readdirSync(store.root).filter(name => name.endsWith('.pending'))).toEqual([]);
   });
 
   it('keeps a committed object after a lost reply and deduplicates exact retry', () => {

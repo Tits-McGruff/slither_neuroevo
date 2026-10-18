@@ -105,3 +105,71 @@ The 64 GiB ceiling does not allocate or fill 64 GiB. These checks establish
 admission and checkpoint provenance, leaving loaded spool rotation, sustained
 throughput, maximum-quota memory and integrated-soak gates open. Native worker
 and checkpoint scratch remain 512 MiB.
+
+## Loaded opaque-spool qualification
+
+The dedicated host exercises the actual isolated storage worker without creating a
+game or decoding samples. It writes real synthetic opaque objects through ordinary
+ingestion, preserves the physical disk reserve, tests retention and leased byte
+identity, and restarts under both the original and a smaller admitted quota.
+
+```powershell
+node node_modules/tsx/dist/cli.mjs scripts/qualification/spool-capacity.ts --quota-gib 4 --restart-quota-gib 1 --object-kib 1024 --workspace native/target/spool-default4g --output spool-default4g.json
+```
+
+Workspace and report must be new, with the report outside the disposable workspace.
+The workspace parent must exist. Default object count fills the selected byte or
+65,536-object ceiling; `--objects 64 --object-kib 64 --quota-gib 1` is an explicitly
+partial smoke run. Reports distinguish byte capacity, object capacity and partial
+loads using the actual completed initial-object count. All runs keep the production
+startup/request deadlines and lease/reserve bounds. Cleanup follows worker shutdown.
+`--retain-on-failure true` keeps only a failed task-owned fixture for diagnosis; it
+must be removed after its follow-up checks. The outer qualification deadline can
+be selected up to 10,800 seconds to accommodate 65,536 durable file publications.
+This does not change the worker's 60-second operation/startup deadlines.
+
+Windows and Debian baseline reports in `spool-capacity-*-v1/` fill the actual 4 GiB
+default with 4,096 one-MiB objects, then rotate new objects and reopen at 1 GiB.
+Both pass with zero native/spool drops and settled watermarks. They exercise 32
+pending metadata requests, four concurrent downloads, 64 leases, 512 MiB of unique
+pins with overlapping leases, expiry/renewal, 256 manifests and complete pagination.
+All manifests, stopped state and exact pinned bytes survive both restarts.
+
+Windows records about 207 MiB sampled peak RSS, 5.579-second loaded restart and
+21.172-second smaller-quota restart. Debian records about 288 MiB, 8.655 seconds
+and 57.350 seconds respectively. These are shared-host storage measurements; they
+exclude native sample encoding, HTTP, training, shadows and the integrated soak.
+The original Windows 65,536-object case (64-KiB objects, 4 GiB retained under a
+64-GiB quota) fills successfully and reopens in 37.132 seconds, but reduction to
+1 GiB exceeds the 60-second startup deadline. Its failed report is retained.
+Retention formerly rescanned all object totals and committed one deletion per
+victim. It now keeps worker-exclusive totals, updates them after durable metadata
+commits, and deletes the minimal oldest unpinned prefix in batches of at most 64.
+Metadata removal commits before file unlink; interrupted cleanup leaves only
+unadvertised orphan files for the existing recovery pass.
+
+The revised Debian 4-GiB case reduces smaller-quota restart from 57.350 to 9.292
+seconds, with about 256 MiB sampled peak RSS. Its 65,536-object case also passes:
+12.168-second loaded restart, 32.348-second smaller-quota restart and about 398 MiB
+sampled peak RSS. That case reaches the object ceiling and the 1,024-object pin
+ceiling, while retaining only 4 GiB; it does not qualify 64 GiB of retained bytes.
+Thirty-five spool tests pass on each platform, including committed retry, multiple
+retention batches, active pins and replacement across datasets. The corrected Windows maximum-object and full 64-GiB byte gates remain open.
+
+A subsequent Windows candidate run stops during publication at about 16,000
+objects with `EPERM` while renaming a complete temporary file over its exclusive
+final reservation. Its failed fixture remains task-owned for follow-up. Windows
+publication now retries only `EPERM`/`EACCES`/`EBUSY`, at most six attempts with
+310 ms total requested worker backoff; other I/O failures propagate immediately.
+Metadata publication still follows complete durable file publication. All 39
+Windows spool tests pass, including transient/persistent locks, permanent I/O
+errors and preservation of an existing final file; eight real capture/shadow
+checks also pass. These focused checks do not substitute for the remaining
+maximum-capacity Windows run.
+
+Measured hosts are retained losslessly as `spool-capacity-host-v1.ts.gz` and
+`spool-capacity-host-v2.ts.gz`; their decompressed canonical-LF digests match the
+corresponding source receipts. Current reports bind their host/store sources
+independently. Fill progress uses acknowledged durable inventory and verifies
+watermarks and drop counters after every batch. CI runs the small smoke on
+Ubuntu/Windows Node 24 and retains its honest partial-load report.
