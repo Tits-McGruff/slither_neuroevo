@@ -52,7 +52,8 @@ const port = parentPort;
 /** Bootstrap uses only controlled storage paths and immutable admission. */
 const bootstrap = workerData as Bootstrap;
 /** Single synchronous store confined to this worker. */
-const store = new DistillationSpoolStore(bootstrap.root, parseSpoolLimits(bootstrap.limits));
+const store = new DistillationSpoolStore(bootstrap.root, parseSpoolLimits(bootstrap.limits), undefined,
+  inventory => port.postMessage({kind: 'recoveryWork', inventory}));
 port.postMessage({ kind: 'ready' });
 
 /** Serialize one bounded request and return only metadata or an opaque complete object. */
