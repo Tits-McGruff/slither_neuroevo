@@ -351,6 +351,63 @@ fn graph(width: usize, large: bool) -> GraphSpec {
     }
 }
 
+/// Build the same complete native workload for controlled-step and real-clock hosts.
+/// This admits only P0/P1; callers supply explicit v4 ray budgets and arithmetic.
+pub(crate) fn prepare_sensor_workload(
+    options: &SensorQualificationOptions,
+    request: Stage6aP0FreshRunRequest,
+) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
+    if !matches!(options.population, 55 | 300) {
+        return Err(super::fresh_run::FreshRunError::Settings(
+            "qualification workload must be P0/P1".into(),
+        ));
+    }
+    let contract = SensorContractIdentity::new(options.profile, options.bins)
+        .map_err(|error| super::fresh_run::FreshRunError::Settings(error.to_string()))?;
+    let mut settings = production_default_settings(options.population, 10);
+    for entry in &mut settings {
+        match entry.path.as_str() {
+            "generationSeconds" => entry.value = NormalizedSettingValue::Float(604_800.0),
+            "observer.earlyEndMode" => entry.value = NormalizedSettingValue::Integer(2),
+            "evolvedRespawn.enabled" => entry.value = NormalizedSettingValue::Bool(options.respawn),
+            "world.pelletOverflow" => entry.value = NormalizedSettingValue::Integer(1),
+            "baselineBots.respawnDelay" => {
+                entry.value = NormalizedSettingValue::Float(options.teacher_respawn_delay_seconds)
+            }
+            "sense.bubbleBins" => {
+                entry.value = NormalizedSettingValue::Integer(options.bins as i64)
+            }
+            _ => {}
+        }
+    }
+    let updates: Vec<_> = settings
+        .into_iter()
+        .map(|entry| FreshRunSettingUpdate {
+            path: entry.path,
+            value: match entry.value {
+                NormalizedSettingValue::Bool(value) => f64::from(value),
+                NormalizedSettingValue::Integer(value) => value as f64,
+                NormalizedSettingValue::Float(value) => value,
+                NormalizedSettingValue::Text(_) => unreachable!("numeric fresh schema"),
+            },
+        })
+        .collect();
+    prepare_sensor_qualification_run(
+        request,
+        &updates,
+        graph(contract.input_size(), options.large_graph),
+        options.profile,
+        options.bins,
+        RunningStepWorkLimits {
+            calculation_workers: options.workers,
+            ray_work: options.ray_limits,
+            ..RunningStepWorkLimits::provisional_defaults()
+        },
+        options.math,
+        options.baseline,
+    )
+}
+
 fn raw_histograms() -> Vec<BoundedHistogram> {
     [
         ("body_length", 0.0, 10_000.0),
@@ -569,35 +626,8 @@ fn run_with_observer(
         step_cost:None,observer_cost:None,native_step_p95_within_60hz:None,ordinary_ray_incomplete_below_one_percent:None,
         caveat:"Actual seeded native random-population gameplay with ten explicitly recorded v1/v2 baselines, duration-only completion, optional unlimited evolved respawn, and discard-new overflow. Includes authoritative complete steps and frame packing; excludes startup/checkpoint publication, Node/browser/network and observer analysis. Run-start uses a real immutable checkpoint plus matching benchmark acknowledgement, without SQLite. Simulated wall times are controlled; this does not measure wall-debt scheduling under load. This is not a trained-policy distribution, external-controller workload qualification, tactical agreement, ablation or final production-default selection. Clearance metres invert encoded Float32 channel minima and are censored at the sensing radius; incomplete body values are conservative, not ground truth. Pellet values use a systematic maximum-64 subset per committed boundary. Decaying due counts remain explicit; no zero-sample quality pass.",
     };
-    let mut settings = production_default_settings(options.population, 10);
-    for entry in &mut settings {
-        match entry.path.as_str() {
-            "generationSeconds" => entry.value = NormalizedSettingValue::Float(604_800.0),
-            "observer.earlyEndMode" => entry.value = NormalizedSettingValue::Integer(2),
-            "evolvedRespawn.enabled" => entry.value = NormalizedSettingValue::Bool(options.respawn),
-            "world.pelletOverflow" => entry.value = NormalizedSettingValue::Integer(1),
-            "baselineBots.respawnDelay" => {
-                entry.value = NormalizedSettingValue::Float(options.teacher_respawn_delay_seconds)
-            }
-            "sense.bubbleBins" => {
-                entry.value = NormalizedSettingValue::Integer(options.bins as i64)
-            }
-            _ => {}
-        }
-    }
-    let updates: Vec<_> = settings
-        .into_iter()
-        .map(|entry| FreshRunSettingUpdate {
-            path: entry.path,
-            value: match entry.value {
-                NormalizedSettingValue::Bool(value) => f64::from(value),
-                NormalizedSettingValue::Integer(value) => value as f64,
-                NormalizedSettingValue::Float(value) => value,
-                NormalizedSettingValue::Text(_) => unreachable!("numeric fresh schema"),
-            },
-        })
-        .collect();
-    let pending = prepare_sensor_qualification_run(
+    let pending = prepare_sensor_workload(
+        options,
         Stage6aP0FreshRunRequest {
             run_id: format!(
                 "sensor-qualification-{}-{}",
@@ -606,17 +636,6 @@ fn run_with_observer(
             seed: options.seed,
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024usize,
         },
-        &updates,
-        graph(report.sensor_contract.input_size(), options.large_graph),
-        options.profile,
-        options.bins,
-        RunningStepWorkLimits {
-            calculation_workers: options.workers,
-            ray_work: options.ray_limits,
-            ..RunningStepWorkLimits::provisional_defaults()
-        },
-        options.math,
-        options.baseline,
     );
     let mut pending = match pending {
         Ok(pending) => pending,

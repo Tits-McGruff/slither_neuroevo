@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-17)
+## Implementation progress (2026-10-18)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -881,6 +881,21 @@ including a three-worker P1 regression. These descriptive probes do not close
 the actual P0/P1 1x throughput/debt gate. All 702 release library tests and 184
 rebuilt-addon required-native checks pass (six existing skips), plus rustfmt and
 both Clippy configurations. Production defaults remain unchanged.
+
+A real-clock qualification host now shares the controlled-step native P0/P1
+modest graph/settings builder and runs the actual background coordinator after
+durable SQLite run-start commitment. It includes ten v2 teachers, bounded capture
+and spool work, reusable frame copying and exact clock/counter/histogram evidence.
+Ubuntu/Windows Node-24 CI jobs retain both outcomes. Windows five-worker windows
+pass P0 (0.99996 sim/wall, p99 bucket 8 ms, no new dropped debt) and fail P1
+(0.90312 sim/wall, p99 bucket 32 ms, 5.571334 seconds dropped debt and observed
+overload). Both captures have zero native/spool drops and settled watermarks;
+shared-host scope and raw reports are in the existing sensor-v4 performance
+report. These bounded windows exclude browser/network, trainer/shadows, full
+capacity and soak, and do not select production defaults. All 757 hooks-enabled
+release library tests and 186 required-native checks pass (six existing overlay
+skips), plus focused metadata/measurement/CI tests, type checking, lint, rustfmt,
+required Clippy and hooks all-target Clippy. P1 throughput/debt remains open.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

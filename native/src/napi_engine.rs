@@ -1176,9 +1176,10 @@ impl ExperimentalStage6aFreshRunSession {
             "rayMinimum",
             "rayCap",
             "rayBatch",
+            "workload",
         ];
         let names = request.get_property_names()?;
-        if names.get_array_length()? != keys.len() as u32 {
+        if !matches!(names.get_array_length()?, 7 | 8) {
             return Err(Error::new(
                 Status::InvalidArg,
                 "qualification requires exact fields",
@@ -1243,6 +1244,22 @@ impl ExperimentalStage6aFreshRunSession {
             512,
         )
         .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let workload_population = if request.has_own_property("workload")? {
+            Some(
+                match bounded_object_string(&request, "workload", 2)?.as_str() {
+                    "P0" => 55,
+                    "P1" => 300,
+                    _ => {
+                        return Err(Error::new(
+                            Status::InvalidArg,
+                            "qualification workload must be P0/P1",
+                        ))
+                    }
+                },
+            )
+        } else {
+            None
+        };
         self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
         if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
             self.active_operation
@@ -1252,7 +1269,13 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
-            source: FreshRunInitialization::Qualification(profile, bins, baseline, ray_work),
+            source: FreshRunInitialization::Qualification(
+                profile,
+                bins,
+                baseline,
+                ray_work,
+                workload_population,
+            ),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
         }))
@@ -1449,6 +1472,7 @@ enum FreshRunInitialization {
         usize,
         crate::engine::baseline_v2::BaselineV2Settings,
         crate::engine::ray_work::RayWorkLimits,
+        Option<usize>,
     ),
     Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
@@ -1507,55 +1531,88 @@ impl Task for InitializeExperimentalFreshRunTask {
                     .map_err(|error| error.to_string())?
                 }
                 #[cfg(feature = "engine-test-hooks")]
-                FreshRunInitialization::Qualification(profile, bins, baseline, ray_work) => {
-                    use crate::engine::graph::{
-                        GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,
-                    };
-                    let width =
-                        crate::engine::sensor_layout::SensorLayout::for_profile(*profile, *bins)
-                            .map_err(|error| error.to_string())?
-                            .input_size;
-                    let graph = GraphSpec {
-                        nodes: vec![
-                            GraphNodeSpec {
-                                id: "input".into(),
-                                kind: GraphNodeKind::Input { output_size: width },
-                            },
-                            GraphNodeSpec {
-                                id: "motor".into(),
-                                kind: GraphNodeKind::Dense {
-                                    input_size: width,
-                                    output_size: 2,
+                FreshRunInitialization::Qualification(
+                    profile,
+                    bins,
+                    baseline,
+                    ray_work,
+                    workload_population,
+                ) => {
+                    if let Some(population) = workload_population {
+                        let options =
+                            crate::engine::sensor_qualification::SensorQualificationOptions {
+                                population: *population,
+                                profile: *profile,
+                                bins: *bins,
+                                large_graph: false,
+                                respawn: true,
+                                seed: self.request.seed,
+                                workers: self.calculation_workers,
+                                math: crate::engine::inference::InferenceMathBackend::Sse2,
+                                ray_limits: Some(*ray_work),
+                                baseline: Some(*baseline),
+                                teacher_respawn_delay_seconds: 20.0,
+                                capture: None,
+                                warmup_steps: 0,
+                                measured_steps: 1,
+                                environment: "development".into(),
+                            };
+                        crate::engine::sensor_qualification::prepare_sensor_workload(
+                            &options,
+                            self.request.clone(),
+                        )
+                        .map_err(|error| error.to_string())?
+                    } else {
+                        use crate::engine::graph::{
+                            GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,
+                        };
+                        let width = crate::engine::sensor_layout::SensorLayout::for_profile(
+                            *profile, *bins,
+                        )
+                        .map_err(|error| error.to_string())?
+                        .input_size;
+                        let graph = GraphSpec {
+                            nodes: vec![
+                                GraphNodeSpec {
+                                    id: "input".into(),
+                                    kind: GraphNodeKind::Input { output_size: width },
                                 },
-                            },
-                        ],
-                        edges: vec![GraphEdge {
-                            from: "input".into(),
-                            to: "motor".into(),
-                            from_port: Some(0),
-                            to_port: Some(0),
-                        }],
-                        outputs: vec![GraphOutputRef {
-                            node_id: "motor".into(),
-                            port: Some(0),
-                        }],
-                        output_size: 2,
-                    };
-                    let limits = crate::engine::step_config::RunningStepWorkLimits {
+                                GraphNodeSpec {
+                                    id: "motor".into(),
+                                    kind: GraphNodeKind::Dense {
+                                        input_size: width,
+                                        output_size: 2,
+                                    },
+                                },
+                            ],
+                            edges: vec![GraphEdge {
+                                from: "input".into(),
+                                to: "motor".into(),
+                                from_port: Some(0),
+                                to_port: Some(0),
+                            }],
+                            outputs: vec![GraphOutputRef {
+                                node_id: "motor".into(),
+                                port: Some(0),
+                            }],
+                            output_size: 2,
+                        };
+                        let limits = crate::engine::step_config::RunningStepWorkLimits {
                         ray_work: Some(*ray_work),
                         calculation_workers: self.calculation_workers,
                         ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
                     };
-                    crate::engine::fresh_run::prepare_baseline_v2_qualification_run(
-                        self.request.clone(),
-                        &[],
-                        graph,
-                        *profile,
-                        *bins,
-                        *baseline,
-                        limits,
-                    )
-                    .map_err(|error| error.to_string())?
+                        crate::engine::fresh_run::prepare_baseline_v2_qualification_run(
+                            self.request.clone(),
+                            &[],
+                            graph,
+                            *profile,
+                            *bins,
+                            *baseline,
+                            limits,
+                        )
+                        .map_err(|error| error.to_string())?
+                    }
                 }
                 FreshRunInitialization::Fresh => {
                     prepare_configured_fresh_run_with_settings_and_graph(
