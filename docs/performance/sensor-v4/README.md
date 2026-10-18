@@ -766,3 +766,28 @@ a new product regression or isolate a cause. They remain negative qualification
 evidence. Compressed raw bytes, source/environment metadata and digest provenance
 are retained; the clearly named remote checkout/build cache remains available
 for the next target-platform comparison, with no live qualification process.
+
+
+`ray-split-bins16-windows-v1/` retains an unselected sixteen-bin split patch and
+four adjacent long P1 runs (600 warmup/3,600 measured steps, five workers,
+unchanged leaf size, balance bound and ray quotas). Each build repeats its own
+continuation, consumer work, raw/normalized histograms and teacher hashes
+exactly. Pooled incompleteness falls from 4.405% to 3.714% in this seeded
+workload, but still fails the 1% gate. Median native mean/p95 are
+16.717/20.399 ms before and 16.480/20.121 ms after; child CPU is essentially
+unchanged at 192.531/192.313 seconds. Changed truncation changes subsequent
+gameplay, so these timings do not isolate a kernel speed gain. The ordinary
+eight-bin index remains selected while other approaches are tested. Raw reports
+are retained losslessly as gzip, with original/compressed digests and the exact
+comparison script; no production defaults or resource ceilings change.
+
+`packet-bounds-windows-v1/` retains an unselected prepared-AABB/common-origin
+packet rejection experiment. Four adjacent five-worker P1 runs use 600 warmup
+and 3,600 measured steps. Continuation, charged work, raw/normalized histograms
+and teacher hashes agree exactly across both builds. Median mean/p95 changes
+from 17.257/21.162 ms to 17.196/21.035 ms; child CPU medians change from
+200.789 to 199.242 seconds. The roughly 0.35% whole-step mean difference on this
+shared host does not justify the added geometry code, so it is reverted. The
+lossless reports, exact patch and comparison script remain reproducible. The
+comparison driver now accepts an explicit bounded warmup and verifies the
+reported warmup/measurement counts; its existing default remains five steps.
