@@ -897,6 +897,20 @@ release library tests and 186 required-native checks pass (six existing overlay
 skips), plus focused metadata/measurement/CI tests, type checking, lint, rustfmt,
 required Clippy and hooks all-target Clippy. P1 throughput/debt remains open.
 
+The real-clock checkpoint passes the complete Ubuntu/Windows Node-24/26 CI
+matrix. Retained Ubuntu CI and Oxygen Debian windows still show failed P1
+throughput/debt; the shared Oxygen target also fails P0. A Windows repeat's
+existing coarse counters identify sensing and world work as the largest slow-step
+costs. The controlled-step report now exposes existing hook-only physics timers
+without new hot-path probes. Its 600-warmup/3,600-measured-step P1 trajectory has
+18.014-ms mean and 23.420-ms p95, with **4.405% pooled ray incompleteness** at
+unchanged limits. The earlier shorter B16 probe does not qualify this longer
+trajectory. Source-identified addons, focused continuation/capture and bridge
+checks, type/lint, rustfmt and required/hooks Clippy pass; unchanged runtime
+semantics reuse the preceding full suites and CI. Raw measurements and scope
+remain in the existing sensor-v4 performance report. Production defaults and
+scratch/quota ceilings remain unchanged.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

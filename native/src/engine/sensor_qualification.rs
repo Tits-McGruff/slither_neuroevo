@@ -218,6 +218,34 @@ impl NativePhaseCostTotals {
     }
 }
 
+/// Existing hook-only physics timers aggregated outside measured step computation.
+/// Collision detail is nested inside collision, so these rows are not additive peers.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativePhysicsPhaseTotals {
+    pub samples: u64,
+    pub milliseconds: std::collections::BTreeMap<&'static str, f64>,
+}
+impl NativePhysicsPhaseTotals {
+    fn record(&mut self, timing: super::physics::PhysicsPhaseTimings) {
+        self.samples += 1;
+        for (name, value) in [
+            ("pelletIndex", timing.pellet_index_ms),
+            ("movement", timing.movement_ms),
+            ("food", timing.food_ms),
+            ("collision", timing.collision_ms),
+            ("collisionIndex", timing.collision_index_ms),
+            ("collisionHeadHead", timing.collision_head_head_ms),
+            ("collisionHeadBody", timing.collision_head_body_ms),
+            ("effects", timing.effects_ms),
+            ("resultApplication", timing.result_application_ms),
+            ("accept", timing.accept_ms),
+        ] {
+            *self.milliseconds.entry(name).or_default() += value;
+        }
+    }
+}
+
 /// Admission can fail before a candidate allocates its full packed population.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -226,6 +254,9 @@ pub struct SensorQualificationReport {
     pub native_phase_costs: NativePhaseCostTotals,
     /// Same 16,667-microsecond boundary used by production slow-step health.
     pub slow_native_phase_costs: NativePhaseCostTotals,
+    /// Hook timings already recorded inside physics; collision detail is nested.
+    pub physics_phase_costs: NativePhysicsPhaseTotals,
+    pub slow_physics_phase_costs: NativePhysicsPhaseTotals,
     pub capture: Option<super::capture_qualification::CaptureQualificationReport>,
     pub capture_options: Option<super::capture_qualification::CaptureQualificationOptions>,
     pub environment: String,
@@ -602,7 +633,7 @@ fn run_with_observer(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        version:4,native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
+        version:5,native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
@@ -721,8 +752,11 @@ fn run_with_observer(
             let micros = u64::try_from(service_duration.as_micros()).unwrap_or(u64::MAX);
             let phases = running.last_step_cost();
             report.native_phase_costs.record(micros, phases);
+            let physics = running.last_physics_phase_timings();
+            report.physics_phase_costs.record(physics);
             if micros > 16_667 {
                 report.slow_native_phase_costs.record(micros, phases);
+                report.slow_physics_phase_costs.record(physics);
             }
             if observer_enabled {
                 observe_committed(&running, &mut report)?;
@@ -850,6 +884,13 @@ mod tests {
             assert!(observed.ray_charged_units <= 12 * 16384);
             assert!(observed.step_cost.is_some() && observed.observer_cost.is_some());
             assert_eq!(observed.native_phase_costs.samples, 12);
+            assert_eq!(observed.physics_phase_costs.samples, 12);
+            assert_eq!(observed.physics_phase_costs.milliseconds.len(), 10);
+            assert!(observed
+                .physics_phase_costs
+                .milliseconds
+                .values()
+                .all(|value| value.is_finite() && *value >= 0.0));
             assert_eq!(
                 observed.native_phase_costs.component_total(),
                 observed.native_phase_costs.total_micros

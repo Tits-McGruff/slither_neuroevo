@@ -1123,6 +1123,12 @@ impl RunningAuthorityLoop {
         self.coordinator.last_step_cost()
     }
 
+    /// Existing hook-only physics timers for the last complete step; no new probes.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn last_physics_phase_timings(&self) -> super::physics::PhysicsPhaseTimings {
+        self.coordinator.last_physics_phase_timings()
+    }
+
     /// Current authoritative pellet count as bounded runtime metadata.
     #[must_use]
     pub fn pellet_count(&self) -> usize {
