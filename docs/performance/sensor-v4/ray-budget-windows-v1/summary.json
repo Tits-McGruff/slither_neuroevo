@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "releaseQualified": false,
+  "sources": {
+    "sensor-wall.ts": {
+      "archive": "sensor-wall.ts.gz",
+      "gzipSha256": "04adb46370bdb248ad3be78edb33c0874db676ca4ef62338a048944fbdf1184d",
+      "rawSha256": "70a447b7c469912fbe682c569db62c4aac833342c09a7a068147df7f3fc83a50",
+      "canonicalLfSha256": "0ff3f0d9b9bb16ddb505d53c4be297006bd22319d0ba311aa7e99182fe70822e"
+    },
+    "sensorWallSummary.ts": {
+      "archive": "sensorWallSummary.ts.gz",
+      "gzipSha256": "8c270c93235a9ea2f7db478f40bf14d04bfded33932cc8bc57c0ed6b3e525ea0",
+      "rawSha256": "4b9a810fe1d5234bac9c8793fe1d1890bafcb6112b10e81314c7e157f2e55416",
+      "canonicalLfSha256": "4253a9c03213719f7f79a23c3bbf55f70ed56bdf07317912d2585bb4644f60a0"
+    }
+  },
+  "native": [
+    {
+      "workers": 7,
+      "report": "native-w7.json.gz",
+      "reportSha256": "be12a8d3a0d4ff3447e631e0996ce270032705340487c1a7f6e405d7715f5b65",
+      "originalReportSha256": "1ac90b032325ae319a4a7e596ab2c8deb487caa9f1ddcb6a710a146be47db260"
+    },
+    {
+      "workers": 8,
+      "report": "native-w8.json.gz",
+      "reportSha256": "feff94de047cf30eb193f62aed0c35e744522ca2c388cd540171b0f7cfcff8d7",
+      "originalReportSha256": "132efdcac5ada61b13492d28f8ccddee92eb91e460fe4190289479874286bbca"
+    }
+  ],
+  "wall": [
+    {
+      "workers": 7,
+      "report": "wall-w7.json.gz",
+      "reportSha256": "60661724b0d1695b3b9ec71c3fec6b47bd5ab2cf72529f4a99a95fdcef4ca383",
+      "originalReportSha256": "8074f1651ce0442c7214ca1ec5a7acb93deef2d89d3da96fd8f20d66133e65fd"
+    },
+    {
+      "workers": 8,
+      "report": "wall-w8.json.gz",
+      "reportSha256": "e21b056dafba4443c531ae6402344a99e9dd7adf134a745247c9e23feb7d4d6e",
+      "originalReportSha256": "c3d4ba46af70dbd81024902949a1fc291fea8f59648b4e345b4370b0f7344e10"
+    }
+  ],
+  "scope": "Windows P1 Motion/B16 random-population candidate at cap 512/batch 131072. Exact controlled-step seven/eight-worker continuation and real background clock/spool measurements. Both wall windows sustain 1x but fail the unchanged p99 timing gate. No production defaults, staging/checkpoint ceilings, representative policies, ablation or integrated soak are qualified.",
+  "stagingAdmission": {
+    "report": "staging-w10.json",
+    "canonicalLfSha256": "3d6141556f8df49a41f5fd2ca844ef2d33f19903710142a515c36311820c026a"
+  }
+}

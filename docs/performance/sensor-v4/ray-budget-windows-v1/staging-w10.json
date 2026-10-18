@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "status": "rejected",
+  "qualificationComplete": false,
+  "scope": "Actual standalone native CLI loop-handoff rejection. No completed-step, sensing, capture or wall-clock qualification is claimed. The existing 512-MiB staging ceiling is preserved.",
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "nativeExecutableSha256": "282f1baba3b8c6edeb758112a61c464c9181358304efce8e9a5f768c0eabd50a",
+  "requested": {
+    "scenario": "P1",
+    "profile": "motion",
+    "bins": 16,
+    "graph": "modest",
+    "workers": 10,
+    "rayMinimum": 1,
+    "rayCap": 512,
+    "rayBatch": 131072
+  },
+  "exitCode": 1,
+  "stderr": "Error: Custom { kind: Other, error: \"run-start loop handoff failed: run-start retained running loop failed: running authority step failed: neural-control staging requires 604613230 bytes, exceeding budget 536870912\" }",
+  "requiredStagingBytes": 604613230,
+  "stagingBudgetBytes": 536870912,
+  "workspaceRemoved": true,
+  "nativeReportProduced": false
+}

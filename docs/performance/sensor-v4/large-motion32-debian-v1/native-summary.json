@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "gate": "large-motion32-native-workload-v1",
+  "checksPassed": true,
+  "releaseQualified": false,
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "sourceCanonicalLfSha256": {
+    "qualify-large-workload.py": "e98c28d8434dd198be93f2b96512052795e522b2df8a3f599bc72ecd35279317",
+    "qualify-ray-hierarchy.py": "08fba2327152ec6c73b51aa51169518be6857882445ae682906b04772849178d"
+  },
+  "environment": "oxygen-debian",
+  "warmupSteps": 600,
+  "measuredSteps": 3600,
+  "workers": [
+    1,
+    3
+  ],
+  "checkpointEnvelopeBytes": 536870912,
+  "records": [
+    {
+      "name": "large300-admission",
+      "report": "large300-admission.json",
+      "reportSha256": "3b06219f76412f019ab04a15c8b6938c897d0277c7a991cb83a1e6b85022e360",
+      "admitted": false,
+      "peakRssBytes": 5492736,
+      "p95Within60hz": null,
+      "rayQualityBelowOnePercent": null
+    },
+    {
+      "name": "large55-w1",
+      "report": "large55-w1.json",
+      "reportSha256": "53582039f3ae11ad4968cfcdaf8c6b936efb83a786d5d6bc0b41b6d24632d4d2",
+      "admitted": true,
+      "peakRssBytes": 124993536,
+      "p95Within60hz": false,
+      "rayQualityBelowOnePercent": true
+    },
+    {
+      "name": "large55-w3",
+      "report": "large55-w3.json",
+      "reportSha256": "24aa6885c7226edd3ad5066f09250a979ae584061d5db532786c0adda9a11473",
+      "admitted": true,
+      "peakRssBytes": 126152704,
+      "p95Within60hz": false,
+      "rayQualityBelowOnePercent": true
+    }
+  ],
+  "workerContinuationExact": true,
+  "scope": "Seeded 55-snake large Motion/B32 graph and ten ordinary-delay v2 teachers; actual controlled steps, capture and exact one/multiple-worker continuation. The 300-snake case qualifies existing early rejection only. No larger native checkpoint envelope, trained-policy distribution, 1x wall scheduler, Node/HTTP, trainer/shadow coexistence or integrated soak is qualified."
+}

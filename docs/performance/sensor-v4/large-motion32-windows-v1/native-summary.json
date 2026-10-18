@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "gate": "large-motion32-native-workload-v1",
+  "checksPassed": true,
+  "releaseQualified": false,
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "sourceCanonicalLfSha256": {
+    "qualify-large-workload.py": "e98c28d8434dd198be93f2b96512052795e522b2df8a3f599bc72ecd35279317",
+    "qualify-ray-hierarchy.py": "08fba2327152ec6c73b51aa51169518be6857882445ae682906b04772849178d"
+  },
+  "environment": "development",
+  "warmupSteps": 600,
+  "measuredSteps": 3600,
+  "workers": [
+    1,
+    3
+  ],
+  "checkpointEnvelopeBytes": 536870912,
+  "records": [
+    {
+      "name": "large300-admission",
+      "report": "large300-admission.json",
+      "reportSha256": "75e761c4a08e85e841e4412d41a2b073761f77560146015a3fe71105c5e7a5a4",
+      "admitted": false,
+      "peakRssBytes": 6639616,
+      "p95Within60hz": null,
+      "rayQualityBelowOnePercent": null
+    },
+    {
+      "name": "large55-w1",
+      "report": "large55-w1.json",
+      "reportSha256": "7549e758dde15f24036c57c5cedda7b4a69f55819f017218c15776c1da43d155",
+      "admitted": true,
+      "peakRssBytes": 125784064,
+      "p95Within60hz": false,
+      "rayQualityBelowOnePercent": true
+    },
+    {
+      "name": "large55-w3",
+      "report": "large55-w3.json",
+      "reportSha256": "80cbb8504e4240697cb891f0ad84b9b4a23ea21d99e77ee81d9110fc39bb4d4c",
+      "admitted": true,
+      "peakRssBytes": 126091264,
+      "p95Within60hz": true,
+      "rayQualityBelowOnePercent": true
+    }
+  ],
+  "workerContinuationExact": true,
+  "scope": "Seeded 55-snake large Motion/B32 graph and ten ordinary-delay v2 teachers; actual controlled steps, capture and exact one/multiple-worker continuation. The 300-snake case qualifies existing early rejection only. No larger native checkpoint envelope, trained-policy distribution, 1x wall scheduler, Node/HTTP, trainer/shadow coexistence or integrated soak is qualified."
+}

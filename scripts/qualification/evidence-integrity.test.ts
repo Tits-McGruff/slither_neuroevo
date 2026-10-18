@@ -1,3 +1,4 @@
+import { summarizeSensorWall, type SensorWallRead } from './sensorWallSummary.ts';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -385,4 +386,154 @@ it.each([['windows', 'capacity'], ['debian', 'capacity'], ['windows', 'rotation'
       expect(report.peakAllocatedDeviceBytes).toBeLessThanOrEqual(8 * 1024 ** 3);
     }
   }
+});
+
+
+/** Large-graph cohort receipts keep rejected admission distinct from completed gameplay. */
+interface LargeWorkloadEvidence {
+  /** Optional current-source P1 attribution; its performance gates retain measured outcomes. */
+  phaseBaseline?: EvidenceRecord;
+  /** Existing native qualifier construction ceiling, independent of the checkpoint envelope. */
+  qualificationConstructionCeilingBytes: number;
+  /** Canonical-LF native summary and its source identities. */
+  nativeSummaryCanonicalLfSha256: string;
+  /** All measured host/helper bytes are retained losslessly. */
+  sources: Record<string, {archive: string; gzipSha256: string; canonicalLfSha256: string}>;
+  /** Exact original and compressed bytes for each current-envelope case. */
+  records: Array<{name: string; report: string; reportSha256: string; originalReportSha256: string; admitted: boolean}>;
+}
+
+it.each(['windows', 'debian'] as const)('preserves %s large-graph admission and worker-continuation evidence', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/sensor-v4/large-motion32-${platform}-v1`);
+  const manifest = JSON.parse(readFileSync(resolve(root, 'summary.json'), 'utf8')) as LargeWorkloadEvidence;
+  const nativeSummary = Buffer.from(readFileSync(resolve(root, 'native-summary.json'), 'utf8').replace(/\r\n/gu, '\n'));
+  expect(sha256(nativeSummary)).toBe(manifest.nativeSummaryCanonicalLfSha256);
+  const native = JSON.parse(nativeSummary.toString('utf8')) as {checksPassed: boolean; releaseQualified: boolean;
+    nativeSourceSha256: string; sourceCanonicalLfSha256: Record<string, string>; checkpointEnvelopeBytes: number;
+    workerContinuationExact: boolean; warmupSteps: number; measuredSteps: number};
+  expect(native.checksPassed).toBe(true); expect(native.releaseQualified).toBe(false);
+  expect(native.workerContinuationExact).toBe(true); expect(native.checkpointEnvelopeBytes).toBe(512 * 1024 ** 2);
+  expect(manifest.qualificationConstructionCeilingBytes).toBe(4 * 1024 ** 3);
+  expect(native.warmupSteps).toBe(600); expect(native.measuredSteps).toBe(3600);
+  for (const [filename, source] of Object.entries(manifest.sources)) {
+    expect(filename).toMatch(/^qualify-[a-z-]+\.py$/u); expect(source.archive).toBe(filename + '.gz');
+    const compressed = readFileSync(resolve(root, source.archive)); expect(sha256(compressed)).toBe(source.gzipSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 1024 ** 2});
+    expect(sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/gu, '\n')))).toBe(source.canonicalLfSha256);
+    expect(native.sourceCanonicalLfSha256[filename]).toBe(source.canonicalLfSha256);
+  }
+  if (manifest.phaseBaseline) {
+    const baseline = manifest.phaseBaseline; expect(baseline.report).toBe('current-p1-phase.json.gz');
+    const compressed = readFileSync(resolve(root, baseline.report)); expect(sha256(compressed)).toBe(baseline.reportSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 4 * 1024 ** 2}); expect(sha256(bytes)).toBe(baseline.originalReportSha256);
+    const report = JSON.parse(bytes.toString('utf8')) as {sourceSha256: string; admitted: boolean; population: number;
+      graphSize: string; parameterCount: number; completedSteps: number;
+      nativePhaseCosts: Record<string, number>; capture: {exactSamplesMatch: boolean; queueAccountingMatches: boolean}};
+    expect(report.sourceSha256).toBe(native.nativeSourceSha256); expect(report.admitted).toBe(true);
+    expect(report.population).toBe(300); expect(report.graphSize).toBe('modest'); expect(report.parameterCount).toBe(25042);
+    expect(report.completedSteps).toBe(4200); expect(report.capture.exactSamplesMatch).toBe(true);
+    expect(report.capture.queueAccountingMatches).toBe(true); expect(report.nativePhaseCosts['samples']).toBe(3600);
+    const costs = report.nativePhaseCosts;
+    expect(['indexMicros', 'inferenceMicros', 'sensingMicros', 'otherControlMicros', 'worldStepMicros', 'otherMicros']
+      .reduce((sum, field) => sum + costs[field]!, 0)).toBe(costs['totalMicros']);
+  }
+  expect(manifest.records.map(value => value.name)).toEqual(['large300-admission', 'large55-w1', 'large55-w3']);
+  const admitted: Record<string, unknown>[] = [];
+  for (const receipt of manifest.records) {
+    expect(receipt.report).toMatch(/^[a-z0-9-]+\.json\.gz$/u);
+    const compressed = readFileSync(resolve(root, receipt.report)); expect(sha256(compressed)).toBe(receipt.reportSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 4 * 1024 ** 2}); expect(sha256(bytes)).toBe(receipt.originalReportSha256);
+    const report = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    expect(report['sourceSha256']).toBe(native.nativeSourceSha256); expect(report['graphSize']).toBe('large');
+    expect(report['admitted']).toBe(receipt.admitted);
+    if (receipt.name === 'large300-admission') {
+      expect(report['admitted']).toBe(false); expect(report['completedSteps']).toBe(0); expect(report['observations']).toBe(0);
+      expect(report['capture']).toBeNull(); expect(report['rejection']).toMatch(/494306 parameters.*512\.00 MiB/u); continue;
+    }
+    expect(report['admitted']).toBe(true); expect(report['population']).toBe(55); expect(report['parameterCount']).toBe(494306);
+    expect(report['completedSteps']).toBe(4200); expect(report['measuredSteps']).toBe(3600);
+    expect(report['sharedBatchBudgetHeld']).toBe(true); expect(report['peakRssBytes']).toBeGreaterThan(0);
+    const capture = report['capture'] as {exactSamplesMatch: boolean; queueAccountingMatches: boolean; droppedChunks: number;
+      sourceSampleSha256: string[]; drainedSampleSha256: string[]; samplesObserved: number[]; samplesDrained: number[]};
+    expect(capture.exactSamplesMatch).toBe(true); expect(capture.queueAccountingMatches).toBe(true); expect(capture.droppedChunks).toBe(0);
+    expect(capture.samplesObserved).toEqual(capture.samplesDrained); expect(capture.sourceSampleSha256).toEqual(capture.drainedSampleSha256);
+    admitted.push(report);
+  }
+  expect(admitted).toHaveLength(2);
+  for (const field of ['sourceSha256', 'target', 'rustc', 'mathBackend', 'sensorSha256', 'parameterCount',
+    'continuationSha256', 'consumerWork', 'raw', 'normalized']) expect(admitted[0]![field]).toEqual(admitted[1]![field]);
+  for (const field of ['sourceSampleSha256', 'drainedSampleSha256', 'samplesObserved', 'dueTeacherHistogram']) {
+    expect((admitted[0]!['capture'] as Record<string, unknown>)[field]).toEqual((admitted[1]!['capture'] as Record<string, unknown>)[field]);
+  }
+});
+
+
+/** Ray-budget candidates preserve successful service separately from failed tail latency. */
+interface RayBudgetEvidence {
+  /** Current measured native implementation. */
+  nativeSourceSha256: string;
+  /** These partial workload probes never select production defaults. */
+  releaseQualified: boolean;
+  /** Exact measured TypeScript sources. */
+  sources: Record<string, {archive: string; gzipSha256: string; rawSha256: string; canonicalLfSha256: string}>;
+  /** Controlled-step and real-clock cases for each worker count. */
+  native: Array<EvidenceRecord & {workers: number}>;
+  /** Separate real background-clock measurements. */
+  wall: Array<EvidenceRecord & {workers: number}>;
+  /** Actual finite staging rejection, with no executed-world claim. */
+  stagingAdmission: {report: string; canonicalLfSha256: string};
+}
+
+it('preserves zero-incomplete ray candidates, real-clock timing failures and unchanged staging admission', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/ray-budget-windows-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'summary.json'), 'utf8')) as RayBudgetEvidence;
+  expect(manifest.releaseQualified).toBe(false);
+  for (const [filename, receipt] of Object.entries(manifest.sources)) {
+    expect(filename).toMatch(/^(sensor-wall|sensorWallSummary)\.ts$/u); expect(receipt.archive).toBe(filename + '.gz');
+    const compressed = readFileSync(resolve(root, receipt.archive)); expect(sha256(compressed)).toBe(receipt.gzipSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 1024 ** 2}); expect(sha256(bytes)).toBe(receipt.rawSha256);
+    expect(sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/gu, '\n')))).toBe(receipt.canonicalLfSha256);
+  }
+  /** Decode only retained reports; sample payloads remain opaque to JavaScript. */
+  const read = (receipt: EvidenceRecord): Record<string, unknown> => {
+    expect(receipt.report).toMatch(/^(native|wall)-w[78]\.json\.gz$/u);
+    const compressed = readFileSync(resolve(root, receipt.report)); expect(sha256(compressed)).toBe(receipt.reportSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 4 * 1024 ** 2}); expect(sha256(bytes)).toBe(receipt.originalReportSha256);
+    return JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+  };
+  expect(manifest.native.map(value => value.workers)).toEqual([7, 8]);
+  const controlled = manifest.native.map(receipt => {
+    const report = read(receipt); expect(report['sourceSha256']).toBe(manifest.nativeSourceSha256);
+    expect(report['workers']).toBe(receipt.workers); expect(report['admitted']).toBe(true);
+    expect(report['rayCap']).toBe(512); expect(report['rayBatch']).toBe(131072);
+    expect(report['completedSteps']).toBe(4200); expect(report['allConsumerRayIncompleteFraction']).toBe(0);
+    expect(report['nativeStepP95Within60hz']).toBe(true); return report;
+  });
+  for (const field of ['sourceSha256', 'target', 'rustc', 'mathBackend', 'sensorSha256', 'parameterCount',
+    'continuationSha256', 'consumerWork', 'raw', 'normalized']) expect(controlled[0]![field]).toEqual(controlled[1]![field]);
+  expect(manifest.wall.map(value => value.workers)).toEqual([7, 8]);
+  for (const receipt of manifest.wall) {
+    const report = read(receipt); expect(report['workers']).toBe(receipt.workers);
+    const source = report['source'] as {nativeSourceSha256: string; hostSha256: string; summarySha256: string};
+    expect(source.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
+    expect(source.hostSha256).toBe(manifest.sources['sensor-wall.ts']!.rawSha256);
+    expect(source.summarySha256).toBe(manifest.sources['sensorWallSummary.ts']!.rawSha256);
+    const requested = (report['workload'] as {request: {rayCap: number; rayBatch: number}}).request;
+    expect(requested.rayCap).toBe(512); expect(requested.rayBatch).toBe(131072);
+    const summary = summarizeSensorWall(report['reads'] as SensorWallRead[], report['requestedSeconds'] as number);
+    expect(summary).toEqual(report['summary']); expect(summary.meetsRealtimeGate).toBe(true);
+    expect(summary.droppedWallMicros).toBe('0'); expect(summary.meetsExistingStepTimingGate).toBe(false);
+    expect(summary.meetsMeasuredGates).toBe(false);
+    expect((report['diagnosticDelivery'] as {captureHasNoDrops: boolean}).captureHasNoDrops).toBe(true);
+    expect((report['frames'] as {copies: number}).copies).toBeGreaterThan(0);
+  }
+  expect(manifest.stagingAdmission.report).toBe('staging-w10.json');
+  const bytes = readFileSync(resolve(root, manifest.stagingAdmission.report), 'utf8').replace(/\r\n/gu, '\n');
+  expect(sha256(Buffer.from(bytes))).toBe(manifest.stagingAdmission.canonicalLfSha256);
+  const rejection = JSON.parse(bytes) as {status: string; qualificationComplete: boolean; nativeSourceSha256: string;
+    stagingBudgetBytes: number; requiredStagingBytes: number; workspaceRemoved: boolean; nativeReportProduced: boolean};
+  expect(rejection.status).toBe('rejected'); expect(rejection.qualificationComplete).toBe(false);
+  expect(rejection.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
+  expect(rejection.stagingBudgetBytes).toBe(512 * 1024 ** 2); expect(rejection.requiredStagingBytes).toBeGreaterThan(rejection.stagingBudgetBytes);
+  expect(rejection.workspaceRemoved).toBe(true); expect(rejection.nativeReportProduced).toBe(false);
 });

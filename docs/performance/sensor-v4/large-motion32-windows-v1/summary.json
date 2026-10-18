@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "nativeSummaryCanonicalLfSha256": "28b60ad1278d3199dbd3dceccc74b9758a8e8e5a2af1555695b2bf5321806d43",
+  "sources": {
+    "qualify-large-workload.py": {
+      "archive": "qualify-large-workload.py.gz",
+      "gzipSha256": "daaeec38b303eea6411010c7cc7400be428c4b3c8336198e733086a1528e9900",
+      "canonicalLfSha256": "e98c28d8434dd198be93f2b96512052795e522b2df8a3f599bc72ecd35279317"
+    },
+    "qualify-ray-hierarchy.py": {
+      "archive": "qualify-ray-hierarchy.py.gz",
+      "gzipSha256": "1189ac6a02e4ce28b45aacb2972170e29f5b21b4c70d89656aa81f2776f431a5",
+      "canonicalLfSha256": "08fba2327152ec6c73b51aa51169518be6857882445ae682906b04772849178d"
+    }
+  },
+  "records": [
+    {
+      "name": "large300-admission",
+      "report": "large300-admission.json.gz",
+      "reportSha256": "ceee17f7d197bcda8e8e32fef2567b89075a57432dc6327e221f7e646e4c958b",
+      "originalReportSha256": "75e761c4a08e85e841e4412d41a2b073761f77560146015a3fe71105c5e7a5a4",
+      "admitted": false
+    },
+    {
+      "name": "large55-w1",
+      "report": "large55-w1.json.gz",
+      "reportSha256": "cd97057162bb0292fef428719bf3a3724dc5e33d3288dba71a5fef8418e4e240",
+      "originalReportSha256": "7549e758dde15f24036c57c5cedda7b4a69f55819f017218c15776c1da43d155",
+      "admitted": true
+    },
+    {
+      "name": "large55-w3",
+      "report": "large55-w3.json.gz",
+      "reportSha256": "bde60da854c39ee0d6dad7c75c5483331a37781e08b62fac69e017eb547c8edc",
+      "originalReportSha256": "80cbb8504e4240697cb891f0ad84b9b4a23ea21d99e77ee81d9110fc39bb4d4c",
+      "admitted": true
+    }
+  ],
+  "qualificationConstructionCeilingBytes": 4294967296,
+  "phaseBaseline": {
+    "report": "current-p1-phase.json.gz",
+    "reportSha256": "2496157206da44720708d0b1ae53c48aaea5b050e781a55f6f6cff4376bb694d",
+    "originalReportSha256": "87d66ee31b8785c2d4e706ef39896f3a3b828cbb1af04e8ab458591974cc21e1"
+  }
+}
