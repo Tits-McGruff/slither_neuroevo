@@ -219,3 +219,7 @@ jobs:
 
       - run: cargo fmt -- --check
       - run: cargo clippy -- -D warnings
+      - name: Replay fixture harness format
+        run: cargo fmt --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml -- --check
+      - name: Replay fixture harness Clippy
+        run: cargo clippy --locked --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml --target-dir target -- -D warnings

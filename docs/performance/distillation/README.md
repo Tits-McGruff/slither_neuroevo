@@ -229,3 +229,40 @@ soak. The host reports process RSS separately from device memory. Automated
 integrity checks bind every result to exact inputs and completed optimizer work;
 two PyRL tests also verify real training and rejection before device allocation.
 The existing 73 focused job/control tests pass and changed Python files pass lint.
+
+## Loaded replay RAM
+
+From `native/`, the standalone fixture harness writes a new disposable directory:
+
+```powershell
+cargo run --release --locked --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml --target-dir target -- target/replay-fixture 10000
+```
+
+It calls the production Rust encoder and decoder for every synthetic Motion/B32
+chunk, checks each exact roundtrip, and preserves one GiB of physical free-space
+reserve. Its separate source and locked dependency receipts identify the offline
+harness; the production native source/lockfile remain unchanged. The 10,000-chunk
+fixture contains 600,000 synthetic rows in a 1,226,610,000-byte length-framed bundle.
+Python never encodes a teacher sample.
+
+PyRL checkpoint `4593011` loads this bundle through the real decoder/replay at the
+minimum, default and maximum public RAM budgets. Every eight-object proposal
+checks exact retry idempotence, constant per-chunk accounting and complete FIFO
+rotation. A second decode constructs independent retained objects and restores
+the replay snapshot with identical cursor, counters, retry state and raw witnesses.
+Reports and measured source are retained in `replay-capacity-windows-v1/`.
+
+| Replay budget MiB | Retained chunks | Evicted chunks | Fill / restore seconds | Peak RSS after fill / dual-owner restore MiB |
+|---|---:|---:|---:|---:|
+| 64 | 268 | 9,732 | 6.824 / 0.395 | 563.55 / 622.91 |
+| 256 | 1,076 | 8,924 | 6.939 / 0.849 | 762.56 / 1,010.37 |
+| 2,048 | 8,616 | 1,384 | 7.886 / 5.497 | 2,544.69 / 4,574.64 |
+
+Each retained budget has less than one chunk of unused capacity. Process RSS also
+includes the Python/Torch environment; restore intentionally retains the original
+and independently decoded replay at once. These are descriptive Windows memory
+measurements, not a claim that whole-process memory equals the selected replay
+budget. Seventeen focused replay/framing/capacity tests pass; the standalone Rust harness passes
+rustfmt and Clippy. Linux replay, HTTP/optimizer coexistence, durable trainer
+checkpoint peaks, live-game contention and integrated soak remain open. The large
+fixture stays task-owned only until its required Linux follow-up completes.
