@@ -23,10 +23,12 @@ export class DistillationSpoolClient {
   readonly ready: Promise<void>;
   /** Isolated synchronous filesystem/database owner. */
   private readonly worker: Worker;
-  /** At most 32 bounded pending metadata/download requests. */
+  /** At most 32 bounded data requests plus one empty reserved shutdown request. */
   private readonly pending = new Map<number, Pending>();
   /** Exact monotonically increasing request correlation. */
   private sequence = 0;
+  /** Reserve request ownership before awaiting potentially long inventory recovery. */
+  private admitting = 0;
   /** One ingestion handoff may own bytes at a time. */
   private ingestActive = false;
   /** One complete candidate upload owns bytes at a time. */
@@ -231,10 +233,14 @@ export class DistillationSpoolClient {
 
   /** Admit a bounded request and its exact correlation before transferring bytes. */
   private async request(operation: string, args: unknown[], transfer: ArrayBuffer[] = []): Promise<unknown> {
-    await this.ready;
     if (this.failure) throw this.failure;
     if (this.closing && operation !== 'close') throw new Error('distillation spool closing');
-    if (this.pending.size >= 32 || this.sequence >= Number.MAX_SAFE_INTEGER) throw new Error('distillation spool request admission exhausted');
+    if (operation !== 'close' && this.admitting + this.pending.size >= 32) throw new Error('distillation spool request admission exhausted');
+    this.admitting += 1;
+    try { await this.ready; } finally { this.admitting -= 1; }
+    if (this.failure) throw this.failure;
+    if (this.closing && operation !== 'close') throw new Error('distillation spool closing');
+    if ((operation !== 'close' && this.pending.size >= 32) || this.sequence >= Number.MAX_SAFE_INTEGER) throw new Error('distillation spool request admission exhausted');
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.fail(new Error('distillation spool request timed out')), 60_000);

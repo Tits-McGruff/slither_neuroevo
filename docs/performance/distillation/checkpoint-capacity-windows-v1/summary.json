@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "b0793dcda2c0e9deb374e317ae9ef99dcb1304b2",
+  "hostGzipSha256": "6a0a2856d3d0c8c92b8e0d9aaacd03dc405e9c0c232235d406d9490bd681fef8",
+  "hostSha256": "0da45264240a2fb58ea7168ec2e7808f6ce8d84551c53b451c195d143d6315c0",
+  "hostCanonicalLfSha256": "5ec43743cbce3909bdce54d624d67c4929bd43d28f14313e0222c86d18951e09",
+  "reports": [
+    {
+      "path": "cpu-64.json",
+      "canonicalLfSha256": "31e83648c60518c44a57e6249b95846a0c919aae657efb1f9269d700596173a2",
+      "ramMiB": 64,
+      "device": "cpu"
+    },
+    {
+      "path": "cpu-256.json",
+      "canonicalLfSha256": "80076f432e6c17dc78e44fedb0e9fcd76f9399ec605e3ac0a3c3308735d5f532",
+      "ramMiB": 256,
+      "device": "cpu"
+    },
+    {
+      "path": "cpu-2048.json",
+      "canonicalLfSha256": "abb301b161c1e7905e3002efac14c9d372b08c28743a4de4f434d6f751fe0285",
+      "ramMiB": 2048,
+      "device": "cpu"
+    },
+    {
+      "path": "cuda-0-2048.json",
+      "canonicalLfSha256": "4aedd9b3ad8c306cccaf781ada58acc7b087c342b03279d3611f350c815d183a",
+      "ramMiB": 2048,
+      "device": "cuda:0"
+    }
+  ],
+  "scope": "Windows loaded replay, real Adam, one durable trainer checkpoint and exact next update while both jobs coexist. CPU minimum/default/maximum and CUDA maximum replay. HTTP, game contention, candidate backlog, three-checkpoint rotation and integrated soak remain open.",
+  "canonicalGraphManifestCanonicalLfSha256": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+  "canonicalGraphReceiptCanonicalLfSha256": "b6b1806a5cdd9c2c429df5795a7f98ade5bf9861b75dcf6d589ef49b8f9749ee",
+  "replayReferenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895"
+}

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "gate": "canonical-durable-checkpoint-capacity-v1",
+  "scope": "Rust-encoded synthetic teacher chunks and canonical initialized graph; actual loaded replay, Adam, fsynced job checkpoint and exact next update. Original and restored jobs coexist. No HTTP, live game contention, candidate backlog or integrated soak is qualified.",
+  "hostSha256": "7d39611d2841f12007cf74be4862da674c49fda503346d51d6bd17ba3e4af16b",
+  "trainerSourceSha256": "844bbabfefeb42b2082291d714d4bf1777d2586adf2feeb577547eefeb13280b",
+  "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+  "manifestSha256": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+  "initialWeightsSha256": "9cceeb088729255cedd0ee1ba7bd7556f3786b3ed3b4414047113fec24b4a486",
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+  "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+  "options": {
+    "ramMiB": 2048,
+    "device": "cuda:0",
+    "checkpointSaves": 4
+  },
+  "parameters": 494306,
+  "inputSize": 504,
+  "baselinePeakRssBytes": 524263424,
+  "status": "passed",
+  "qualificationComplete": true,
+  "workspaceRemoved": true,
+  "decodedChunks": 10000,
+  "retainedChunks": 8616,
+  "ownedReplayBytes": 2147481352,
+  "evictedChunks": 1384,
+  "fillMs": 8688.851399929263,
+  "filledPeakRssBytes": 2670661632,
+  "environment": {
+    "python": "3.12.10",
+    "implementation": "CPython",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "machine": "AMD64",
+    "numpy": "2.5.3",
+    "torch": "2.14.0+cu126",
+    "cudaRuntime": "12.6",
+    "torchBuildSha256": "62667d88337d001cde4cafba9f11abd5a7bda80f936d118135e21982cb2f1eec",
+    "threads": 2,
+    "device": "cuda:0",
+    "float32": true,
+    "tf32": false,
+    "autocast": false,
+    "deterministicAlgorithms": false,
+    "deterministicWarnOnly": false,
+    "matmulPrecision": "highest",
+    "cudnnDeterministic": false,
+    "cudnnBenchmark": false,
+    "cpuCapability": "AVX2",
+    "cpuProcessor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+    "cublasWorkspaceConfig": null,
+    "atenCpuCapability": null,
+    "gpu": {
+      "name": "NVIDIA GeForce RTX 4080",
+      "major": 8,
+      "minor": 9,
+      "totalBytes": 17170956288
+    },
+    "cudaDriver": [
+      "617.42"
+    ]
+  },
+  "firstUpdateMs": 957.4438999406993,
+  "trainedPeakRssBytes": 3488849920,
+  "checkpointBytes": 1064318636,
+  "rotation": {
+    "saves": [
+      {
+        "serial": 1,
+        "bytes": 1064318636
+      },
+      {
+        "serial": 2,
+        "bytes": 1064318636
+      },
+      {
+        "serial": 3,
+        "bytes": 1064318636
+      },
+      {
+        "serial": 4,
+        "bytes": 1064318636
+      }
+    ],
+    "retained": 3,
+    "retainedBytes": 3192955908,
+    "oldestRotated": true
+  },
+  "saveMs": 27392.864000052214,
+  "savedPeakRssBytes": 3516473344,
+  "restoreAndNextUpdateMs": 12531.306999968365,
+  "nextUpdateExact": true,
+  "independentReplayOwners": true,
+  "nextUpdateWitness": {
+    "weights": "27932b39817e6e841ed44f4bf0345d8b62c9f335134cea3067304234aa9363c8",
+    "optimizer": "ce8adb085efbfe10b40ee964b74cd7c5c5fdcdaf001b4767b334a8127f987483",
+    "state": "e99b89c97de5c4cd4edc72960a9c8346ddd01882d39d96ffa2ddbef1d67c7738",
+    "sampler": "324e07a859f1dbdae293cc51256088d19de4b18b447e4a694a7d1de288fc9905",
+    "windows": "31774832a089f83ae6a01302c8a3b5652fc082a4b6eedbbafeebc688a8643120",
+    "pythonRng": "3de8d8cb6a9d0122f39633c0d0cdf435eb38c6f45db26b69b73d15696432361b",
+    "cpuRng": "9f12738a391115a53bbecb595eeb6b0291cf176418eccc39aba4532ac3e08770",
+    "cudaRng": "6ec86f24b3d38bdf7e76a04c1a4972a706d1a82771c18fa93658af0c2b3331a6",
+    "training": {
+      "loss": 16.241436004638672,
+      "turn_mse": 1.532494306564331,
+      "turn_mae": 1.2379393577575684,
+      "boost_disagreement": 0.5,
+      "training_samples": 2048,
+      "burn_in_samples": 1024,
+      "unknown_state_starts": 32,
+      "gradient_norm": 1180.1810302734375,
+      "optimizer_updated": true
+    }
+  },
+  "completedUpdates": 2,
+  "trainingSamples": 4096,
+  "burnInSamples": 2048,
+  "restoredPeakRssBytes": 5634547712,
+  "peakAllocatedDeviceBytes": 60155392,
+  "peakReservedDeviceBytes": 81788928,
+  "elapsedMs": 52082.570699974895,
+  "processCpuMs": 47953.125,
+  "peakRssBytes": 5634547712
+}

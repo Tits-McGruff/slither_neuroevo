@@ -21,6 +21,9 @@ export class DistillationHttpRouter {
   /** Retain download buffers until response completion/cancellation. */
   private downloads = 0;
 
+  /** Bound complete in-flight routes, including control/readiness waits before worker requests. */
+  private activeRequests = 0;
+
   /** One portable artifact upload owns bounded request bytes at a time. */
   private candidateUploads = 0;
 
@@ -34,6 +37,10 @@ export class DistillationHttpRouter {
   /** Handle only the dedicated namespace; unknown routes never fall through to game APIs. */
   handle(request: IncomingMessage, response: ServerResponse, url: URL): boolean {
     if (!url.pathname.startsWith('/api/distillation/v1/')) return false;
+    if (this.activeRequests >= 32) {
+      this.json(response, 429, {error: 'distillation HTTP request admission exhausted'}); return true;
+    }
+    this.activeRequests += 1;
     void this.route(request, response, url).catch(error => {
       if (response.destroyed || response.writableEnded) return;
       if (response.headersSent) { response.destroy(); return; }
@@ -41,7 +48,7 @@ export class DistillationHttpRouter {
       const status = /not found|does not exist/u.test(reason) ? 404 : /unavailable|expired/u.test(reason) ? 410 :
         /quota|exhausted|already active|busy/u.test(reason) ? 429 : /worker|timed out|closing/u.test(reason) ? 503 : 400;
       this.json(response, status, { error: reason.slice(0, 1024) });
-    });
+    }).finally(() => { this.activeRequests -= 1; });
     return true;
   }
 

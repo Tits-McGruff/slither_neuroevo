@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "f75032a",
+  "hostGzipSha256": "585748c76b3a7bf583d03ee5b6843f2ae1a18b9235991163153e66d5057d5de7",
+  "hostSha256": "7d39611d2841f12007cf74be4862da674c49fda503346d51d6bd17ba3e4af16b",
+  "hostCanonicalLfSha256": "6f997538de2e179ccace8924a18fe34c8c26369a0c0c2a693bde6458d2416feb",
+  "reports": [
+    {
+      "path": "cpu-2048.json",
+      "canonicalLfSha256": "0cb3862b5332ea8712aaf0febda27131068fc561b5de97ea2f2a89e50f2a47ea",
+      "ramMiB": 2048,
+      "device": "cpu",
+      "checkpointSaves": 4
+    },
+    {
+      "path": "cuda-0-2048.json",
+      "canonicalLfSha256": "bcba48cd66a8fde8c7e337862a5782435aa7f0c65921de31391e046e63e2d56a",
+      "ramMiB": 2048,
+      "device": "cuda:0",
+      "checkpointSaves": 4
+    }
+  ],
+  "scope": "Windows maximum replay with populated Adam, four real durable saves, production three-file retention and exact independently restored next update. CPU/CUDA two-owner peaks. Candidate backlog, HTTP/game contention and integrated soak remain open.",
+  "canonicalGraphManifestCanonicalLfSha256": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+  "canonicalGraphReceiptCanonicalLfSha256": "b6b1806a5cdd9c2c429df5795a7f98ade5bf9861b75dcf6d589ef49b8f9749ee",
+  "replayReferenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895"
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "b0793dcda2c0e9deb374e317ae9ef99dcb1304b2",
+  "hostGzipSha256": "6a0a2856d3d0c8c92b8e0d9aaacd03dc405e9c0c232235d406d9490bd681fef8",
+  "hostSha256": "0da45264240a2fb58ea7168ec2e7808f6ce8d84551c53b451c195d143d6315c0",
+  "hostCanonicalLfSha256": "5ec43743cbce3909bdce54d624d67c4929bd43d28f14313e0222c86d18951e09",
+  "reports": [
+    {
+      "path": "cpu-64.json",
+      "canonicalLfSha256": "a832424c41a0f36563a2034e06fc060dee274e7bb6f242a02b114f660b4cf7c7",
+      "ramMiB": 64,
+      "device": "cpu"
+    },
+    {
+      "path": "cpu-256.json",
+      "canonicalLfSha256": "e007fd3ba3ae3b7b59f941f1322720dee2205d15137bc8807caead679667e9a1",
+      "ramMiB": 256,
+      "device": "cpu"
+    },
+    {
+      "path": "cpu-2048.json",
+      "canonicalLfSha256": "96f09f0b0484d1b4fd7c3111cc6b5f58f4b9c21ae7a24adb60b6b7eb8aceb3cd",
+      "ramMiB": 2048,
+      "device": "cpu"
+    }
+  ],
+  "scope": "Debian loaded replay and real Adam at minimum/default/maximum replay budgets, one durable checkpoint and exact next update while both jobs coexist. Portable input bytes were encoded by Rust on Windows. Candidate backlog, rotation, HTTP/game contention and integrated soak remain open.",
+  "canonicalGraphManifestCanonicalLfSha256": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+  "canonicalGraphReceiptCanonicalLfSha256": "b6b1806a5cdd9c2c429df5795a7f98ade5bf9861b75dcf6d589ef49b8f9749ee",
+  "replayReferenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895"
+}

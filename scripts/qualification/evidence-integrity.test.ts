@@ -276,7 +276,7 @@ it.each(['windows', 'debian'] as const)('binds %s loaded replay RAM to genuine R
 });
 
 
-it.each(['windows'] as const)('binds %s full-byte recovery to its failed predecessor and exact retained identities', platform => {
+it.each(['windows', 'debian'] as const)('binds %s full-byte recovery to its failed predecessor and exact retained identities', platform => {
   const root = resolve(import.meta.dirname, `../../docs/performance/distillation/spool-capacity-${platform}-v1`);
   const previousBytes = readFileSync(resolve(root, 'full64g-candidate.json'), 'utf8').replace(/\r\n/gu, '\n');
   const previous = JSON.parse(previousBytes) as {status: string; selectedByteQuotaLoaded: boolean;
@@ -308,4 +308,81 @@ it.each(['windows'] as const)('binds %s full-byte recovery to its failed predece
   expect(recovered.phases.leaseChecks.freshRecentPinExact).toBe(true);
   expect(recovered.phases.leaseChecks.checks).toHaveLength(2);
   for (const check of recovered.phases.leaseChecks.checks) expect(['exact', 'expired-as-declared']).toContain(check.result);
+});
+
+
+/** Loaded trainer checkpoint measurements bind the same portable Rust fixture and graph. */
+interface CheckpointCapacityEvidence {
+  /** Exact archived measured host. */
+  hostGzipSha256: string;
+  /** Raw measured source, including its original line endings. */
+  hostSha256: string;
+  /** Canonical source graph receipt. */
+  canonicalGraphReceiptCanonicalLfSha256: string;
+  /** Canonical graph input. */
+  canonicalGraphManifestCanonicalLfSha256: string;
+  /** Previously retained native codec fixture provenance. */
+  replayReferenceCanonicalLfSha256: string;
+  /** Completed load and device cases. */
+  reports: Array<{path: string; canonicalLfSha256: string; ramMiB: number; device: string; checkpointSaves?: number}>;
+}
+
+it.each([['windows', 'capacity'], ['debian', 'capacity'], ['windows', 'rotation'], ['debian', 'rotation']] as const)(
+  'binds %s checkpoint %s to populated Adam and exact restored updates', (platform, kind) => {
+  const base = resolve(import.meta.dirname, '../../docs/performance/distillation');
+  const root = resolve(base, `checkpoint-${kind}-${platform}-v1`);
+  const summary = JSON.parse(readFileSync(resolve(root, 'summary.json'), 'utf8')) as CheckpointCapacityEvidence;
+  const host = readFileSync(resolve(root, 'host.py.gz')); expect(sha256(host)).toBe(summary.hostGzipSha256);
+  expect(sha256(gunzipSync(host, {maxOutputLength: 1024 ** 2}))).toBe(summary.hostSha256);
+  const graphBytes = readFileSync(resolve(base, 'canonical-capacity-windows-v1/manifest.json'), 'utf8').replace(/\r\n/gu, '\n');
+  expect(sha256(Buffer.from(graphBytes))).toBe(summary.canonicalGraphManifestCanonicalLfSha256);
+  const receiptBytes = readFileSync(resolve(base, 'canonical-capacity-windows-v1/receipt.json'), 'utf8').replace(/\r\n/gu, '\n');
+  expect(sha256(Buffer.from(receiptBytes))).toBe(summary.canonicalGraphReceiptCanonicalLfSha256);
+  const receipt = JSON.parse(receiptBytes) as {weightsSha256: string};
+  const referenceBytes = readFileSync(resolve(base, 'replay-capacity-windows-v1/reference.json'), 'utf8').replace(/\r\n/gu, '\n');
+  expect(sha256(Buffer.from(referenceBytes))).toBe(summary.replayReferenceCanonicalLfSha256);
+  const reference = JSON.parse(referenceBytes) as {bundleSha256: string; chunks: number; encodedBytes: number};
+  expect(summary.reports.length).toBeGreaterThan(0);
+  for (const entry of summary.reports) {
+    expect(entry.path).toMatch(/^[a-zA-Z0-9_.-]+\.json$/u);
+    const bytes = readFileSync(resolve(root, entry.path), 'utf8').replace(/\r\n/gu, '\n');
+    expect(sha256(Buffer.from(bytes))).toBe(entry.canonicalLfSha256);
+    const report = JSON.parse(bytes) as {status: string; qualificationComplete: boolean; workspaceRemoved: boolean;
+      hostSha256: string; referenceSha256: string; manifestSha256: string; initialWeightsSha256: string; bundleSha256: string;
+      options: {ramMiB: number; device: string; checkpointSaves?: number}; decodedChunks: number; retainedChunks: number; evictedChunks: number;
+      ownedReplayBytes: number; checkpointBytes: number; parameters: number; inputSize: number;
+      completedUpdates: number; trainingSamples: number; burnInSamples: number; nextUpdateExact: boolean;
+      independentReplayOwners: boolean; peakAllocatedDeviceBytes?: number; peakRssBytes: number;
+      rotation?: {saves: Array<{serial: number; bytes: number}>; retained: number; retainedBytes: number; oldestRotated: boolean};
+      nextUpdateWitness: {weights: string; optimizer: string; sampler: string; state: string; windows: string}};
+    expect(report.status).toBe('passed'); expect(report.qualificationComplete).toBe(true); expect(report.workspaceRemoved).toBe(true);
+    expect(report.hostSha256).toBe(summary.hostSha256); expect(report.referenceSha256).toBe(summary.replayReferenceCanonicalLfSha256);
+    expect(report.manifestSha256).toBe(summary.canonicalGraphManifestCanonicalLfSha256);
+    expect(report.initialWeightsSha256).toBe(receipt.weightsSha256); expect(report.bundleSha256).toBe(reference.bundleSha256);
+    expect(report.options).toEqual({ramMiB: entry.ramMiB, device: entry.device,
+      ...(entry.checkpointSaves === undefined ? {} : {checkpointSaves: entry.checkpointSaves})});
+    if (kind === 'rotation') {
+      expect(entry.checkpointSaves).toBe(4); expect(report.rotation).toBeDefined();
+      const rotation = report.rotation!;
+      expect(rotation.saves.map(value => value.serial)).toEqual([1, 2, 3, 4]);
+      expect(rotation.retained).toBe(3); expect(rotation.oldestRotated).toBe(true);
+      expect(rotation.retainedBytes).toBe(rotation.saves.slice(1).reduce((sum, value) => sum + value.bytes, 0));
+      expect(rotation.saves[3]!.bytes).toBe(report.checkpointBytes);
+    }
+    expect(report.parameters).toBe(494306); expect(report.inputSize).toBe(504);
+    expect(report.decodedChunks).toBe(reference.chunks); expect(report.evictedChunks).toBeGreaterThan(0);
+    expect(report.retainedChunks + report.evictedChunks).toBe(reference.chunks);
+    expect(report.ownedReplayBytes).toBeLessThanOrEqual(entry.ramMiB * 1024 ** 2);
+    expect(report.checkpointBytes).toBeGreaterThan(report.retainedChunks * reference.encodedBytes / reference.chunks);
+    expect(report.nextUpdateExact).toBe(true); expect(report.independentReplayOwners).toBe(true);
+    expect(report.completedUpdates).toBe(2); expect(report.trainingSamples).toBe(4096); expect(report.burnInSamples).toBe(2048);
+    expect(report.peakRssBytes).toBeGreaterThan(report.ownedReplayBytes);
+    for (const field of ['weights', 'optimizer', 'sampler', 'state', 'windows'] as const) {
+      expect(report.nextUpdateWitness[field]).toMatch(/^[0-9a-f]{64}$/u);
+    }
+    if (entry.device === 'cuda:0') {
+      expect(report.peakAllocatedDeviceBytes).toBeGreaterThan(0);
+      expect(report.peakAllocatedDeviceBytes).toBeLessThanOrEqual(8 * 1024 ** 3);
+    }
+  }
 });

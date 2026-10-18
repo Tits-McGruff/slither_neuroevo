@@ -276,7 +276,7 @@ The Debian full-byte case writes all 65,536 one-MiB objects (64 GiB), passes
 pressure rotation, exact downloads, lease/manifest admission and pagination, then
 fails the first loaded reopen at the unchanged 60-second startup deadline.
 Its report remains failed with `qualificationComplete: false`; the full fixture
-is retained for recovery work. Sampled host RSS is about 352 MiB. This does not
+was retained for the recovery retest below. Sampled host RSS is about 352 MiB. This does not
 close the full-byte gate or select a larger production default.
 
 A subsequent read-only diagnostic verifies four disjoint 4-GiB ranges. Sequential
@@ -305,5 +305,63 @@ verified cleanup. Windows passes full recovery in 142.707 seconds and reduction
 to 1 GiB in 173.445 seconds, both within the inventory-priced bound. The two old
 lease downloads remain exact; a fresh recent-object pin is exact too. Watermarks,
 contracts and zero drops match the failed predecessor. Sampled peak RSS is
-372.38 MiB, and successful cleanup releases the fixture. Debian recovery remains
-pending. These complete the Windows opaque full-byte gate only.
+372.38 MiB, and successful cleanup releases the fixture. Debian also passes full
+recovery in 408.298 seconds and 1-GiB reduction in 457.589 seconds, within the
+same bound, with about 404.23 MiB sampled peak RSS. Its five-minute old lease
+expires during smaller-quota recovery and rejects as declared; a fresh recent
+pin downloads exact bytes. Watermarks, contracts, zero drops and 256 manifests
+remain intact, and its fixture is removed after the report is durably saved.
+These complete both opaque full-byte recovery gates, without selecting larger
+production defaults or qualifying codec/HTTP/trainer coexistence.
+
+
+## Loaded durable trainer checkpoints
+
+PyRL checkpoint `b0793dc` fills the same Rust-produced fixture through actual replay
+retention, trains the 494,306-parameter Motion/B32 graph, and saves one complete
+job through the production serializer. Adam moments are populated. The original
+job then takes its next update; an independently restored job must reproduce its
+windows, weights, Adam state, detached recurrence, metrics and private RNG exactly.
+Both jobs coexist during restore. Reports and exact host are retained in
+`checkpoint-capacity-windows-v1/`.
+
+| Device | Replay MiB | Checkpoint bytes | Save / restore-plus-next-update seconds | Peak process RSS MiB |
+|---|---:|---:|---:|---:|
+| CPU | 64 | 38,925,133 | 0.179 / 1.087 | 870.23 |
+| CPU | 256 | 138,172,581 | 0.728 / 2.421 | 1,253.35 |
+| CPU | 2,048 | 1,064,318,324 | 4.186 / 17.067 | 4,817.39 |
+| CUDA | 2,048 | 1,064,318,636 | 6.642 / 15.726 | 5,388.61 |
+
+All four cases pass exact next-update continuation and preserve disk reserve.
+Each restored job has completed two updates, 4,096 training samples and 2,048
+burn-in samples. CUDA's observed allocated peak is 57.37 MiB; the default windows
+and two resident model/optimizer owners do not allocate the 8-GiB admission ceiling.
+The full Windows trainer suite passes 269 tests with two existing optional-fixture
+skips. These reports cover one offline durable checkpoint with no pending candidate
+backlog. Debian passes the same three replay budgets: save/restore-plus-next-update
+times are 0.590/8.216, 1.404/13.525 and 11.558/48.622 seconds. Peak process RSS is
+484.63, 866.71 and 4,429.39 MiB. Exact source and reports are in
+`checkpoint-capacity-debian-v1/`.
+
+The follow-up `--checkpoint-saves 4` host (`f75032a`) exercises real production
+retention at 2,048 MiB replay. Windows CPU/CUDA both retain three complete
+checkpoints, remove serial one, retain about 3.19 GB of physical files, and restore
+serial four with exact next-update continuation. Four saves take 28.003/27.393
+seconds; restore plus next update takes 12.157/12.531 seconds. Peak process RSS
+is 4,816.72/5,373.52 MiB. The measured host and both reports remain in
+`checkpoint-rotation-windows-v1/`. Four focused trainer tests pass, including
+actual CPU/CUDA restore, rotation inventory and disabled-assertion rejection.
+Debian also passes maximum replay rotation: four saves take 65.057 seconds,
+latest restore plus next update takes 45.646 seconds, peak process RSS is
+4,429.14 MiB, and exactly three files retain 3,192,954,885 bytes. Its source and
+report remain in `checkpoint-rotation-debian-v1/`. Candidate backlog, HTTP/game
+contention and integrated soak remain open. Successful checkpoint workspaces are removed after
+the complete measurement report is fsynced outside them.
+
+
+The subsequent request-admission change reserves the client data slot before
+awaiting readiness and caps complete HTTP routes at 32. An empty graceful-close
+request has reserved admission even when all data slots are occupied. Focused
+client/store/category/shadow checks pass 66 tests, including real HTTP saturation
+and cleanup. This queue ownership change reuses the preceding serial full-byte
+recovery evidence; it does not change file verification, retention or deadlines.

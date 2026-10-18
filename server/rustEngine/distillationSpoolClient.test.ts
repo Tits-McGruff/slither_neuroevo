@@ -123,6 +123,32 @@ describe('bounded spool recovery lifecycle', () => {
     expect(worker.terminated).toBe(true); expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('bounds metadata waiters before inventory recovery becomes ready', async () => {
+    const {client, worker} = fixture();
+    worker.emit('message', {kind: 'recoveryWork', inventory: {chunks: 65536, bytes: 64 * 1024 ** 3}});
+    const waiting = Array.from({length: 32}, () => client.storagePolicy().catch(error => error as Error));
+    await expect(client.storagePolicy()).rejects.toThrow('request admission exhausted');
+    expect(worker.sent).toHaveLength(0);
+    await client.close();
+    for (const result of await Promise.all(waiting)) {
+      expect(result).toMatchObject({message: 'distillation spool closed during initialization'});
+    }
+    expect(worker.terminated).toBe(true); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('reserves empty graceful shutdown admission even when all data request slots are occupied', async () => {
+    const {client, worker} = fixture();
+    worker.emit('message', {kind: 'ready'}); await client.ready;
+    const requests = Array.from({length: 32}, () => client.datasets('0'.repeat(32), 1));
+    await Promise.resolve(); expect(worker.sent).toHaveLength(32);
+    const closing = client.close();
+    for (const request of worker.sent as Array<{id: number}>) {
+      worker.emit('message', {kind: 'result', id: request.id, ok: true, result: {datasets: []}});
+    }
+    await closing; await Promise.all(requests);
+    expect(worker.sent).toHaveLength(33); expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('bounds every admitted size and rejects negative or oversized inventories', () => {
     for (let gib = 1; gib <= 64; gib++) {
       expect(distillationRecoveryTimeoutMs({chunks: 65536, bytes: gib * 1024 ** 3}))

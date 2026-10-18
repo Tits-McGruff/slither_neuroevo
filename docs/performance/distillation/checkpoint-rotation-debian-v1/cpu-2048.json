@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "gate": "canonical-durable-checkpoint-capacity-v1",
+  "scope": "Rust-encoded synthetic teacher chunks and canonical initialized graph; actual loaded replay, Adam, fsynced job checkpoint and exact next update. Original and restored jobs coexist. No HTTP, live game contention, candidate backlog or integrated soak is qualified.",
+  "hostSha256": "7d39611d2841f12007cf74be4862da674c49fda503346d51d6bd17ba3e4af16b",
+  "trainerSourceSha256": "ca492226599f8c34c2bf2e928cdfb608a6359823d4707da830e388a367d18b83",
+  "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+  "manifestSha256": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+  "initialWeightsSha256": "9cceeb088729255cedd0ee1ba7bd7556f3786b3ed3b4414047113fec24b4a486",
+  "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+  "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+  "options": {
+    "ramMiB": 2048,
+    "device": "cpu",
+    "checkpointSaves": 4
+  },
+  "parameters": 494306,
+  "inputSize": 504,
+  "baselinePeakRssBytes": 234864640,
+  "status": "passed",
+  "qualificationComplete": true,
+  "workspaceRemoved": true,
+  "decodedChunks": 10000,
+  "retainedChunks": 8616,
+  "ownedReplayBytes": 2147481352,
+  "evictedChunks": 1384,
+  "fillMs": 36990.05982722156,
+  "filledPeakRssBytes": 2366148608,
+  "environment": {
+    "python": "3.13.5",
+    "implementation": "CPython",
+    "platform": "Linux-6.12.111+deb13-amd64-x86_64-with-glibc2.41",
+    "machine": "x86_64",
+    "numpy": "2.5.3",
+    "torch": "2.14.0+cpu",
+    "cudaRuntime": null,
+    "torchBuildSha256": "4e50c0c2b67f726b95ae0565a58cf81d9277eb109c76bca7ac8d822bcaa9c550",
+    "threads": 2,
+    "device": "cpu",
+    "float32": true,
+    "tf32": false,
+    "autocast": false,
+    "deterministicAlgorithms": false,
+    "deterministicWarnOnly": false,
+    "matmulPrecision": "highest",
+    "cudnnDeterministic": false,
+    "cudnnBenchmark": false,
+    "cpuCapability": "AVX2",
+    "cpuProcessor": "",
+    "cublasWorkspaceConfig": null,
+    "atenCpuCapability": null
+  },
+  "firstUpdateMs": 4196.532637812197,
+  "trainedPeakRssBytes": 2499579904,
+  "checkpointBytes": 1064318295,
+  "rotation": {
+    "saves": [
+      {
+        "serial": 1,
+        "bytes": 1064318295
+      },
+      {
+        "serial": 2,
+        "bytes": 1064318295
+      },
+      {
+        "serial": 3,
+        "bytes": 1064318295
+      },
+      {
+        "serial": 4,
+        "bytes": 1064318295
+      }
+    ],
+    "retained": 3,
+    "retainedBytes": 3192954885,
+    "oldestRotated": true
+  },
+  "saveMs": 65057.334903860465,
+  "savedPeakRssBytes": 2514173952,
+  "restoreAndNextUpdateMs": 45646.14236704074,
+  "nextUpdateExact": true,
+  "independentReplayOwners": true,
+  "nextUpdateWitness": {
+    "weights": "1ec0d7b231b61a8bc9adaf1b2787e40f25ecb383e6f4d0060a8a49f62bed5cb9",
+    "optimizer": "125bfefcf2209fb5c931f99ef59d935201b18e97224e0f9dbbad8cbf24235882",
+    "state": "dd25ddecf0acab488d42d0699f3231d38f143f83e08a969b66cd8ae9fa28f47d",
+    "sampler": "324e07a859f1dbdae293cc51256088d19de4b18b447e4a694a7d1de288fc9905",
+    "windows": "31774832a089f83ae6a01302c8a3b5652fc082a4b6eedbbafeebc688a8643120",
+    "pythonRng": "3de8d8cb6a9d0122f39633c0d0cdf435eb38c6f45db26b69b73d15696432361b",
+    "cpuRng": "9f12738a391115a53bbecb595eeb6b0291cf176418eccc39aba4532ac3e08770",
+    "cudaRng": null,
+    "training": {
+      "loss": 16.241130828857422,
+      "turn_mse": 1.5324959754943848,
+      "turn_mae": 1.2379399538040161,
+      "boost_disagreement": 0.5,
+      "training_samples": 2048,
+      "burn_in_samples": 1024,
+      "unknown_state_starts": 32,
+      "gradient_norm": 1180.137451171875,
+      "optimizer_updated": true
+    }
+  },
+  "completedUpdates": 2,
+  "trainingSamples": 4096,
+  "burnInSamples": 2048,
+  "restoredPeakRssBytes": 4644286464,
+  "elapsedMs": 156507.18365609646,
+  "processCpuMs": 163916.56941599998,
+  "peakRssBytes": 4644286464
+}

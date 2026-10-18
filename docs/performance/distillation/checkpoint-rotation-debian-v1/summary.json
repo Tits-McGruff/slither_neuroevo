@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "trainerCommit": "f75032a",
+  "hostGzipSha256": "585748c76b3a7bf583d03ee5b6843f2ae1a18b9235991163153e66d5057d5de7",
+  "hostSha256": "7d39611d2841f12007cf74be4862da674c49fda503346d51d6bd17ba3e4af16b",
+  "hostCanonicalLfSha256": "6f997538de2e179ccace8924a18fe34c8c26369a0c0c2a693bde6458d2416feb",
+  "reports": [
+    {
+      "path": "cpu-2048.json",
+      "canonicalLfSha256": "6b7a1286b037c27bcf08fb1af96af536201c56cea041c7393eef7d63edbd4dce",
+      "ramMiB": 2048,
+      "device": "cpu",
+      "checkpointSaves": 4
+    }
+  ],
+  "scope": "Debian maximum replay with populated Adam, four real durable saves, production three-file retention and exact independently restored next update. Portable input bytes encoded by Rust on Windows. Candidate backlog, HTTP/game contention and integrated soak remain open.",
+  "canonicalGraphManifestCanonicalLfSha256": "b2c30d6858297e3648ee03d7ce6e758406e56fb2f9541661a369205f180cfaaf",
+  "canonicalGraphReceiptCanonicalLfSha256": "b6b1806a5cdd9c2c429df5795a7f98ade5bf9861b75dcf6d589ef49b8f9749ee",
+  "replayReferenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895"
+}
