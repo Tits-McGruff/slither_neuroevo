@@ -944,6 +944,31 @@ bytes are also verified. Compact reports and the exact
 measured source patch remain in the existing sensor-v4 evidence directory. No
 production defaults or resource ceilings change.
 
+A production-worker storage qualifier now writes task-owned opaque objects and
+checks full byte/count admission, bounded pending requests/downloads, leases,
+manifest inventory, pagination, retention and restart. Windows and Debian both
+pass the full 4 GiB default and reduction to 1 GiB, with exact pinned bytes,
+512 MiB unique pins, all 256 manifests and settled zero-drop watermarks. Sampled
+peak RSS is about 207/288 MiB; smaller-quota restart takes 21.172/57.350 seconds.
+The existing production 60-second deadlines remain unchanged. The original
+Windows maximum-object case fills 65,536 objects but times out while reopening
+under the smaller quota. Retention now caches worker-exclusive committed totals
+and batches at most 64 minimal oldest-unpinned deletions, with metadata commitment
+before unlink. Both platforms pass 35 spool tests covering committed retry,
+multiple batches, pins and cross-dataset replacement. Revised Debian smaller-quota
+restart falls from 57.350 to 9.292 seconds at 4 GiB; its 65,536-object case passes
+at 4 GiB retained, with 12.168/32.348-second loaded/smaller-quota restarts and about
+398 MiB sampled peak RSS. A subsequent Windows publication `EPERM` exposes a
+separate sharing-error path; publication now retries only the three Windows
+access/sharing codes, with six attempts and 310 ms total requested backoff.
+Permanent failures remain explicit, and complete-file/metadata ordering and
+exclusive final reservation remain intact. All 39 Windows spool tests and eight
+actual capture/shadow checks pass. The corrected Windows maximum-object and full
+64 GiB byte gates remain open, as do native encoding/HTTP, trainer/shadows and integrated
+resource/soak qualification. CI retains a small, explicitly partial smoke on both
+platforms. Reports and exact host source are in the existing distillation
+performance directory.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

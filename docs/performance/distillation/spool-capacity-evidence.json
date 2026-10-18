@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "938b1b3cfd0592754694195863a80770813adaac",
+  "candidatePatch": "spool-retention-candidate.patch",
+  "candidatePatchSha256": "e50e7cd8e6ea5329a1fce6c2cc6a42f8e43a9f70b9ab78a10766f84d4e940a9c",
+  "hosts": {
+    "spool-capacity-host-v1.ts.gz": {
+      "gzipSha256": "2966e3746fad6a4332ac42d773074583dd1acb4de701a61c67c9edc119010203",
+      "canonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e"
+    },
+    "spool-capacity-host-v2.ts.gz": {
+      "gzipSha256": "102799fc4c2f0814f050db959f0a77b54e624c031fac6585e08e349197b48f5c",
+      "canonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb"
+    }
+  },
+  "reports": [
+    {
+      "path": "spool-capacity-windows-v1/default4g-baseline.json",
+      "canonicalLfSha256": "2668a16ac816cad6c9c7ea4775732266abb0b5becd24be14d58b11c350c6cf3e",
+      "status": "passed",
+      "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
+      "storeCanonicalLfSha256": "5246dfde0bf3727e4d371b42528c5af78bdb91ae09aaa0401cb23a916521cd70"
+    },
+    {
+      "path": "spool-capacity-windows-v1/max-count-candidate.json",
+      "canonicalLfSha256": "dde14e61dc7741533a9edf83980f3ce3564aeff75fa5ea656d2c68cbf8fa53f7",
+      "status": "failed",
+      "hostCanonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb",
+      "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
+    },
+    {
+      "path": "spool-capacity-windows-v1/max-count.json",
+      "canonicalLfSha256": "3affe624bf9171292ae5a50cb5582c6866d29081e41d85a4f53ce64720ddc267",
+      "status": "failed",
+      "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
+      "storeCanonicalLfSha256": "5246dfde0bf3727e4d371b42528c5af78bdb91ae09aaa0401cb23a916521cd70"
+    },
+    {
+      "path": "spool-capacity-debian-v1/default4g-baseline.json",
+      "canonicalLfSha256": "f3e6788fd94b95baf575b3ead6767f73eed08a3b8ea1de18b1d0b22e98efe007",
+      "status": "passed",
+      "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
+      "storeCanonicalLfSha256": "5246dfde0bf3727e4d371b42528c5af78bdb91ae09aaa0401cb23a916521cd70"
+    },
+    {
+      "path": "spool-capacity-debian-v1/default4g-candidate.json",
+      "canonicalLfSha256": "bef2ecdabfbc0a2d54c506ee4499324ce862ec1a6d9d4410c5eb972eb315c9ca",
+      "status": "passed",
+      "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
+      "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
+    },
+    {
+      "path": "spool-capacity-debian-v1/max-count-candidate.json",
+      "canonicalLfSha256": "b1b338ac16276a31077e68bec8ab6f78403e80709df11c0dba8c83bddef55da2",
+      "status": "passed",
+      "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
+      "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
+    },
+    {
+      "path": "spool-capacity-windows-v1/max-count-candidate.json",
+      "canonicalLfSha256": "dde14e61dc7741533a9edf83980f3ce3564aeff75fa5ea656d2c68cbf8fa53f7",
+      "status": "failed",
+      "hostCanonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb",
+      "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
+    }
+  ],
+  "scope": "Completed baseline and candidate opaque-storage reports only. Windows corrected maximum-object and full 64-GiB byte cases remain open. Historical host source is retained exactly after canonical LF conversion; gzip is lossless.",
+  "retentionCandidateStoreCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69",
+  "publicationCandidateStoreCanonicalLfSha256": "4a4e5d48a2c8504cc1dc0d27c577f128ae8327519d9a4a7b06dad4f546b3e0f9",
+  "publicationPatch": "spool-publication-retry.patch",
+  "publicationPatchSha256": "afa3e00ac17eb3513acc677c3f31ddd0175a7660eaf6dcdde99dc55e0adb5552"
+}

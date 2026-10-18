@@ -125,6 +125,20 @@ jobs:
           name: native-capture-byte-pressure-${{ matrix.os }}
           path: ${{ runner.temp }}/capture-byte-pressure/*.json
           if-no-files-found: warn
+      - name: Production opaque-spool capacity smoke
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/spool-capacity.ts
+          --quota-gib 1 --object-kib 64 --objects 64
+          --workspace "${{ runner.temp }}/spool-capacity-smoke-workspace"
+          --output "${{ runner.temp }}/spool-capacity-smoke.json"
+      - name: Retain opaque-spool smoke outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spool-capacity-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/spool-capacity-smoke.json
+          if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
       - name: Real-clock P0 sensor workload (measured gates are diagnostic)

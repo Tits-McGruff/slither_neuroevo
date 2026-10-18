@@ -22,3 +22,6 @@ docs/performance/sensor-v4/pellet-cell-rank-windows-v1/comparison.py -text white
 docs/performance/sensor-v4/pellet-counting-windows-v1/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
 # Unified patch context includes a literal space on otherwise blank lines.
 docs/performance/sensor-v4/*/candidate.patch text eol=lf -whitespace
+
+# Checksummed retention patches preserve unified-diff context and LF bytes.
+docs/performance/distillation/*.patch text eol=lf -whitespace
