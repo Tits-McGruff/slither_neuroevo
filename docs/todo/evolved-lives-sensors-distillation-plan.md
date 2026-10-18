@@ -1038,6 +1038,31 @@ HTTP admission, response failure cleanup and graceful close at the data ceiling.
 The unchanged serial verification/retention/deadline path reuses full-byte recovery
 evidence above.
 
+The large Motion/B32 55-snake native cohort now completes 600 warmup plus 3,600
+measured steps on Windows and Debian, with 494,306 parameters, 504 inputs and
+actual committed capture. One/three-worker continuation, sensor work, histograms
+and teacher witnesses match exactly within each target. Windows p95 is
+17.502/9.140 ms; Debian shared-host p95 is 98.377/96.156 ms and remains negative
+timing evidence. Both 300-snake large cases verify the existing 565.84-MiB versus
+512-MiB early checkpoint rejection, without full population execution. The
+qualifier's existing 4-GiB construction envelope is explicitly separate from
+checkpoint and scratch ceilings. Exact host sources and compact reports remain
+in the existing sensor-v4 performance directory. These characterize this seeded
+large workload and current rejection, not trained policies, full P3 admission,
+real-clock large graphs or integrated saturation/soak.
+
+The current Windows P1 baseline still has 4.405% pooled ray incompleteness and
+19.169-ms controlled p95. An explicit cap 512/batch 131,072 candidate has zero
+incomplete observations and 16.454/16.046-ms p95 with seven/eight workers, with
+exact within-target worker continuation and capture witnesses. Both real-clock
+spool/frame windows sustain 1x with zero dropped wall time and capture drops,
+but p99 remains in the 24-ms bucket and fails the unchanged 16.667-ms criterion.
+The wall host now accepts explicit bounded ray choices; defaults remain unchanged.
+Ten workers reject the unchanged 512-MiB staging ceiling. Exact sources, positive
+and negative measurements and admission receipt are retained in the existing
+sensor-v4 performance directory. This advances the P1 investigation without
+closing timing, representative-policy, ablation or production-default gates.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

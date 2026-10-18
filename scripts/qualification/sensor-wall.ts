@@ -88,7 +88,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report'].includes(key) &&
+    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch'].includes(key) &&
       value !== undefined && !args.has(key), 'invalid or duplicate qualification argument');
     args.set(key, value);
   }
@@ -99,6 +99,9 @@ async function run(): Promise<void> {
   const seconds = Number(args.get('--seconds') ?? 60); const warmupSeconds = Number(args.get('--warmup-seconds') ?? 10);
   assert(Number.isSafeInteger(seconds) && seconds >= 60 && seconds <= 600, 'seconds must be 60..600');
   assert(Number.isSafeInteger(warmupSeconds) && warmupSeconds >= 5 && warmupSeconds <= 60, 'warmup seconds must be 5..60');
+  const rayCap = Number(args.get('--ray-cap') ?? 256); const rayBatch = Number(args.get('--ray-batch') ?? 65536);
+  assert(Number.isSafeInteger(rayCap) && rayCap >= 1 && rayCap <= 1_000_000, 'ray cap must be 1..1000000');
+  assert(Number.isSafeInteger(rayBatch) && rayBatch >= 512 && rayBatch <= 10_000_000, 'ray batch must be 512..10000000');
   const hostPath = fileURLToPath(import.meta.url); const summaryPath = fileURLToPath(new URL('./sensorWallSummary.ts', import.meta.url));
   const hostSha256 = await digest(hostPath); const summarySha256 = await digest(summaryPath);
   const nativeSourceSha256 = computeNativeSourceIdentity(resolve('native')).sha256;
@@ -113,7 +116,7 @@ async function run(): Promise<void> {
   let report: unknown;
   try {
     await mkdir(managed); await admitDiskOperation(managed, CHECKPOINT_DISK_ADMISSION_REQUEST);
-    const request = {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 256, rayBatch: 65536, workload: scenario};
+    const request = {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap, rayBatch, workload: scenario};
     await session.initializeBaselineV2ForTest(request);
     const metadata = parseRustStartupMetadata(session.startupMetadata());
     const settings = new Map(metadata.settings.map(entry => [entry.path, entry.value]));

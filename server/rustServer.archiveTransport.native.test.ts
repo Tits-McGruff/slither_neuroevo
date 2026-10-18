@@ -499,11 +499,19 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   viewer.send(JSON.stringify({ type: 'settings', requestId: 'ordering-fixture-speed',
     updates: [{ path: 'simSpeed', value: 0.1 }] }));
   await bounded(slowed, 'ordering fixture did not slow after evolution');
-  const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
-  expect(response.status).toBe(200);
-  fixture.archive = Buffer.from(await response.arrayBuffer());
-  expect(fixture.archive.byteLength).toBeLessThan((streaming ? 64 : 4) * 1024 * 1024);
-  if (streaming) expect(fixture.archive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+  const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+  try {
+    const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+    expect(response.status).toBe(200);
+    fixture.archive = Buffer.from(await response.arrayBuffer());
+    expect(fixture.archive.byteLength).toBeLessThan((streaming ? 64 : 4) * 1024 * 1024);
+    if (streaming) expect(fixture.archive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+    // File cleanup precedes the real worker acknowledgement. Observe that same
+    // lease-release boundary as the base fixture before importing this archive.
+    await outcome(() => release.mock.calls.length === 1, 'evolved fixture export did not release its lease');
+    await bounded(release.mock.results[0]!.value, 'evolved fixture export release was not acknowledged');
+    await new Promise<void>(done => setImmediate(done));
+  } finally { release.mockRestore(); }
   await noTransferScratch(fixture.managedDirectory);
   const repacked = semanticArchive(fixture.archive);
   const previousToken = rejoinToken;

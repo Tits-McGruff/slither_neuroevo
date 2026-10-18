@@ -826,3 +826,85 @@ not a P1 speedup or release pass. The long P1 trajectory's 4.405% incompleteness
 is unchanged. Compressed reports, exact measured patch/base and comparison
 script remain reproducible; real-clock, representative-policy and soak gates
 remain open.
+
+
+## Large Motion/B32 workload and current admission
+
+The bounded `scripts/qualification/qualify-large-workload.py` host first verifies
+the current source's early rejection of 300 large Motion/B32 snakes, then runs
+55 large snakes with one and three workers. Use an exclusive report directory:
+
+```powershell
+python -B scripts/qualification/qualify-large-workload.py --executable native/target/release/sensor-v4-qualification.exe --directory NEW_DIRECTORY --source-sha256 NATIVE_SHA256 --environment development --workers 3 --warmup 600 --steps 3600
+```
+
+The native constructor, fixed-step loop, sensors, v2 stochastic teachers and
+capture remain authoritative. The graph has 494,306 parameters and 504 inputs.
+The host checks actual due envelopes, finite histograms, one shared ray budget,
+exact committed teacher bytes and exact within-target worker continuation.
+Source mismatch fails during the small rejected case before the gameplay cases.
+Reports and exact Python sources are retained in `large-motion32-windows-v1/`
+and `large-motion32-debian-v1/`.
+
+| Target | Workers | Native p95 ms | Pooled incomplete observations | Native peak RSS MiB |
+|---|---:|---:|---:|---:|
+| Windows | 1 | 17.502 | 0.002235% | 119.96 |
+| Windows | 3 | 9.140 | 0.002235% | 120.25 |
+| Debian | 1 | 98.377 | 0.002250% | 119.20 |
+| Debian | 3 | 96.156 | 0.002250% | 120.31 |
+
+Each measured case completes 3,600 steps after 600 warmup steps, delivers 198,000
+neural observations and loses no captured chunks. Continuations, consumer work,
+raw/normalized histograms and teacher witnesses agree exactly between worker
+counts on each target. Cross-platform bit equality is not claimed. Debian's
+shared-host timings miss the service reference; these remain negative timing
+evidence, not a completed performance qualification.
+
+The existing qualifier construction ceiling is 4 GiB, independently of its
+512-MiB checkpoint envelope and the unchanged native scratch ceilings. The
+55-snake authoritative reservation estimate is about 1.53 GiB; observed RSS in
+this short cohort is lower and does not price a saturated long-run world. The
+300-snake case rejects at 565.84 MiB of decoded checkpoint data, before sensing,
+complete steps or capture. Its process peaks are about 6.33/5.24 MiB on
+Windows/Debian. No checkpoint envelope is increased by this result. Large
+population admission, crowded/saturated geometry, trained policies, real-clock
+large-graph scheduling and integrated soak remain separate gates.
+
+The Windows directory also retains a current-source P1 modest-graph baseline.
+At five workers and cap 256/batch 65,536, its 3,600 measured steps have 19.169 ms
+p95 and 4.405% pooled incompleteness. Mean native service is 16.007 ms: sensing
+7.409, world step 4.560, other control 1.848, inference 1.053, other 0.716 and
+index 0.421 ms. These phase components partition the recorded service total;
+physics detail is nested. This identifies the next workload investigation
+without asserting that an older build's timings describe the current source.
+
+
+## Larger ray allowance, unchanged timing and memory gates
+
+`sensor-wall.ts` accepts explicit `--ray-cap` and `--ray-batch` within the native
+qualification constructor's existing bounds; defaults remain 256/65,536. The
+candidate below uses 512/131,072, Motion/B16, 300 modest brains, ordinary v2
+teachers and unlimited evolved respawn. Both controlled runs use 600 warmup and
+3,600 measured steps on the same Windows target/source.
+
+| Workers | Controlled native p95 ms | Pooled ray incompleteness | Real-clock minimum sim/wall ratio | Wall p95/p99 bucket ceilings ms | Combined wall gate |
+|---|---:|---:|---:|---:|---|
+| 7 | 16.454 | 0% | 0.999858 | 24 / 24 | Fails timing |
+| 8 | 16.046 | 0% | 1.000031 | 16 / 24 | Fails timing |
+
+The two controlled runs preserve exact continuation, consumer work, histograms
+and teacher witnesses. Both real-clock windows complete over 3,600 steps, copy
+actual packed frames, settle durable teacher storage and have no capture drops,
+wall debt or observed overload. Sustained 1x is established for these windows;
+the existing p99-at-most-16.667-ms criterion still fails. Neither the criterion
+nor its conservative histogram interpretation changes.
+
+A ten-worker probe rejects during native loop handoff: neural staging needs
+604,613,230 bytes against the unchanged 536,870,912-byte ceiling. Its checked
+receipt is separate from completed-world reports. Each extra worker currently
+reserves a conservative 64 MiB of sensor scratch; increasing worker count cannot
+bypass that admission. No staging or checkpoint ceiling is raised. Exact native
+and wall reports, measured TS sources, recomputed window assertions and the
+negative admission receipt are in `ray-budget-windows-v1/`. These measurements
+do not select production defaults or qualify other platforms, trained policies,
+full-stack contention or integrated soak.

@@ -53,7 +53,8 @@ def parse_args():
     return args
 
 
-def validate_report(report, scenario, profile, bins, cap, batch, workers, steps, warmup):
+def validate_report(report, scenario, profile, bins, cap, batch, workers, steps, warmup,
+                    expected_graph="modest"):
     """Reconcile actual committed observations and work without awarding a release pass."""
     population = 55 if scenario == "P0" else 300
     require(report["version"] in (4, 5) and report["admitted"], "admitted version-4/5 workload required")
@@ -61,7 +62,8 @@ def validate_report(report, scenario, profile, bins, cap, batch, workers, steps,
     contract = report["sensorContract"]
     require(contract["layoutVersion"] == 4 and contract["profile"] == profile and contract["bins"] == bins, "wrong sensor contract")
     require(report["seed"] == 42 and report["workers"] == workers and report["mathBackend"] == "rust-sse2-v1", "wrong seeded backend")
-    require(report["respawn"] and report["graphSize"] == "modest", "unlimited modest population required")
+    require(report["respawn"] and report["graphSize"] == expected_graph,
+            "unlimited population with the requested graph required")
     require(report["baselineMode"] == "v2-stochastic" and report["baselineCadenceSeconds"] == 1 / 60, "exact 60 Hz v2 required")
     require(report["teacherRespawnDelaySeconds"] == 20, "ordinary teacher replacement delay required")
     require(report["rayMinimum"] == 1 and report["rayCap"] == cap and report["rayBatch"] == batch, "wrong ray admission")
