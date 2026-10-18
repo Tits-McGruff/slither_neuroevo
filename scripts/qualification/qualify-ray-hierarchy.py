@@ -53,7 +53,7 @@ def parse_args():
 def validate_report(report, scenario, profile, bins, cap, batch, workers, steps):
     """Reconcile actual committed observations and work without awarding a release pass."""
     population = 55 if scenario == "P0" else 300
-    require(report["version"] == 4 and report["admitted"], "admitted version-4 workload required")
+    require(report["version"] in (4, 5) and report["admitted"], "admitted version-4/5 workload required")
     require(report["population"] == population and report["baselineCount"] == 10, "wrong physical population")
     contract = report["sensorContract"]
     require(contract["layoutVersion"] == 4 and contract["profile"] == profile and contract["bins"] == bins, "wrong sensor contract")

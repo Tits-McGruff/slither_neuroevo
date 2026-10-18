@@ -113,7 +113,7 @@ def main():
         require(code == 0, f"native comparison case failed: {stem} exit {code}")
         require(output.stat().st_size <= 4 * 1024 * 1024, "native report exceeds admission")
         report = json.loads(output.read_bytes())
-        require(report["admitted"] and report["version"] == 4, "admitted version-4 workload required")
+        require(report["admitted"] and report["version"] in (4, 5), "admitted version-4/5 workload required")
         require(report["capture"]["exactSamplesMatch"] is True and report["capture"]["queueAccountingMatches"], "exact capture and ownership reconciliation required")
         sources.setdefault(role, report["sourceSha256"])
         require(sources[role] == report["sourceSha256"], "wrong or changing source identity")

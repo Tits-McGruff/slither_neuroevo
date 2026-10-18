@@ -1,0 +1,14 @@
+{
+  "headSha": "61beaa437edbaca052964ba95f6d4fa87a810939",
+  "environment": "Shared Oxygen Debian VM; source-identified production and hooks builds; runtime scratch on physical data filesystem; no browser/trainer/shadow/full-capacity load.",
+  "files": {
+    "P0-w5.json.gz": {
+      "originalBytes": 220907,
+      "originalSha256": "d6586f128835ff428d5911fbef4dc19f52a5e9089a5d0970e22c033e98c5f1e2"
+    },
+    "P1-w5.json.gz": {
+      "originalBytes": 219808,
+      "originalSha256": "b2a2e46a5c01bd7850dd316725df8d36f83f351bbe962dd3ac20865830b23f17"
+    }
+  }
+}

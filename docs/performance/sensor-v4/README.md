@@ -714,3 +714,55 @@ owner machine, not an isolated performance lab. P0 passes this bounded Windows
 workload window. P1 fails both existing measured gates in this configuration;
 short controlled-step timings cannot substitute for that result. Other
 platforms, longer runs and the excluded consumers/capacity gates remain open.
+
+
+`real-clock-windows-v1/P1-w5-phases.json` repeats P1 with the existing coarse
+native timing counters sampled beside the acceptance window. Progress is 0.89484
+sim/wall with p95/p99 ceilings 24/32 ms and 6.075667 seconds of new dropped debt.
+The 2,237 attributed slow steps average about 19.659 ms. Their accumulated wall
+cost assigns 43.68% to sensing, 29.21% to the world step, 7.02% to inference,
+3.88% to control index work and 4.45% to other service work; the remaining
+11.76% is other control work. Control/neural counters are parents of those
+subcategories and must not be added again. Independently loaded atomic counters
+are coarse diagnostics beside the consistent histogram window, not an exact
+transaction snapshot. This repeat confirms an unresolved P1 deficit on the
+shared host; it does not establish a performance change or select defaults.
+
+
+`physics-costs-windows-v1/P1-w5.json` extends the controlled-step native run to
+600 warmup and 3,600 measured steps at the same Motion B16, modest graph,
+seed-42, five-worker and explicit ray settings. Version 5 adds ten existing
+hook-only physics timers, collected after complete-step publication without new
+hot-path probes; the qualification drivers also accept retained version 4.
+All-step mean/p95 are 18.014/23.420 ms. Sensing accounts for 45.56% of measured
+native service time and world steps for 27.45%. Inside world time, collision
+indexing is 23.65%, head/head work 20.62%, pellet indexing 18.00%, result
+application 10.07%, food 7.17%, movement 7.04% and head/body work 6.15%.
+Collision indexing/head work are nested in the reported collision total, not
+additional additive phases. Complete-step continuation and exact teacher-byte
+checks pass with diagnostic observation enabled/disabled and across workers.
+
+This longer trajectory delivers 1,080,000 neural and 14,344 baseline observations.
+Pooled ray incompleteness is **4.405%**, so the less-than-1% quality gate fails at
+unchanged cap 256/batch 65,536. The earlier short seeded B16 probe's pass does
+not establish longer-run quality. Both timing and ray quality remain unresolved;
+no workload, ray quota or production-default gate closes from this evidence.
+
+`real-clock-ci-ubuntu-v1/` retains byte-verified compressed windows from the
+[61beaa4 CI run](https://github.com/Tits-McGruff/slither_neuroevo/actions/runs/39083120438).
+Its full Ubuntu/Windows Node-24/26 and Rust-check matrix passes. On the Ubuntu
+runner's four available CPUs, P0 passes (1.00009 sim/wall, p99 ceiling 8 ms),
+while P1 fails (0.79439, 32 ms, 12.335 seconds new dropped debt). Capture has
+zero drops in both. These measured performance failures are explicit report
+results and do not turn the operational CI checks red.
+
+`real-clock-oxygen-v1/` retains the same source's five-worker windows on the
+shared Debian VM, with run-start SQLite/checkpoints and diagnostic objects on
+the physical data filesystem. Both fail: P0 reaches 0.79165 sim/wall with a
+96-ms p99 ceiling and 12.512666 seconds new dropped debt; P1 reaches 0.21063,
+192 ms and 47.433334 seconds. Captures have zero drops and final watermarks
+settle. These are shared-environment measurements; their stalls do not identify
+a new product regression or isolate a cause. They remain negative qualification
+evidence. Compressed raw bytes, source/environment metadata and digest provenance
+are retained; the clearly named remote checkout/build cache remains available
+for the next target-platform comparison, with no live qualification process.

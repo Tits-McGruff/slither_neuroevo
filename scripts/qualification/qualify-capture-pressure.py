@@ -48,7 +48,7 @@ def parse_args():
 
 def validate_report(report, steps):
     """Check workload identity and row/cadence accounting without accepting a timing gate."""
-    require(report["version"] == 4 and report["admitted"], "admitted version-4 workload required")
+    require(report["version"] in (4, 5) and report["admitted"], "admitted version-4/5 workload required")
     require(report["population"] == 55 and report["baselineCount"] == 10, "P0 with ten teachers required")
     require(report["teacherRespawnDelaySeconds"] == 0.5, "recorded minimum admitted teacher delay required")
     require(report["baselineMode"] == "v2-stochastic" and report["baselineCadenceSeconds"] == 1 / 60, "exact 60 Hz v2 required")

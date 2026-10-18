@@ -61,6 +61,22 @@ async function observe(native: ExperimentalRunningAuthorityNativeHandle): Promis
   }
   throw new Error('qualification histogram remained incoherent');
 }
+/** Existing coarse timing counters, sampled beside the exact acceptance window.
+ * These independent atomics are diagnostic phase attribution, not a simultaneous
+ * completed-step snapshot or a substitute for the consistent endpoint histogram.
+ */
+function costs(native: ExperimentalRunningAuthorityNativeHandle) {
+  const beforeMs = performance.now(); const health = native.health(); const afterMs = performance.now();
+  const counters: Record<string, string> = {};
+  for (const key of ['stepTimingSamples', 'stepTimingTotalMicros', 'slowStepSamples', 'slowStepControlMicros',
+    'slowStepControlIndexMicros', 'slowStepControlNeuralMicros', 'slowStepControlSensingMicros',
+    'slowStepControlInferenceMicros', 'slowStepWorldMicros', 'slowStepOtherMicros'] as const) {
+    const value = health[key]; assert(/^[0-9a-f]{16}$/u.test(value) && value !== 'f'.repeat(16), 'invalid phase counter');
+    counters[key] = value;
+  }
+  return {beforeMs, afterMs, worldEpoch: health.worldEpoch, generation: health.generation,
+    completedStep: health.completedStep, counters};
+}
 /** Clean only this process-created temporary tree after native and worker shutdown. */
 async function removeRoot(root: string): Promise<void> {
   assert.equal(dirname(resolve(root)), resolve(tmpdir()));
@@ -154,7 +170,7 @@ async function run(): Promise<void> {
     const warmupEnd = performance.now() + warmupSeconds * 1000;
     while (performance.now() < warmupEnd) {consume(); await delay(20);}
     const initialDataset = await storage.dataset(dataset.contract.captureEpoch);
-    const initial = await observe(native); const reads = [initial];
+    const initial = await observe(native); const reads = [initial]; const initialCosts = costs(native);
     const initialCopies = frameCopies; const initialBytes = frameBytes; const cpuBefore = process.cpuUsage();
     const systemCpuBefore = cpus().map(cpu => cpu.times);
     let nextRead = initial.afterMs + 200;
@@ -168,6 +184,8 @@ async function run(): Promise<void> {
       await delay(20);
     }
     const cpu = process.cpuUsage(cpuBefore); const systemCpuAfter = cpus().map(entry => entry.times); const summary = summarizeSensorWall(reads, seconds);
+    const finalCosts = costs(native);
+    assert.equal(finalCosts.worldEpoch, initialCosts.worldEpoch); assert.equal(finalCosts.generation, initialCosts.generation);
     const queueDiagnostics = native.queueDiagnostics(); const display = native.latestDisplay();
     let finalDataset = await capture.stop(dataset.contract.captureEpoch);
     const settleDeadline = performance.now() + 10_000;
@@ -203,7 +221,8 @@ async function run(): Promise<void> {
         nativeSourceSha256, nativeBuildIdentifier: binding.nativeAddonBuildIdentifier(), nativeTarget: binding.nativeAddonBuildTarget(), nativeClass: binding.nativeAddonBuildClass()},
       environment: {platform: platform(), release: release(), cpu: cpus()[0]?.model, availableCpus: availableParallelism(), totalMemoryBytes: totalmem()},
       workload: {request, metadata, captureLimits, storagePolicy, queues: INIT, runStartCheckpoint: checkpoint},
-      summary, diagnosticDelivery: {nativeDroppedChunks: finalDataset.nativeDroppedChunks,
+      summary, nativePhaseCosts: {initial: initialCosts, final: finalCosts,
+        caveat: 'Coarse atomic timing counters sampled beside the window; nested control/neural/sensing/inference totals overlap. Slow-step attribution covers only steps above 16.667 ms.'}, diagnosticDelivery: {nativeDroppedChunks: finalDataset.nativeDroppedChunks,
         nativeDroppedSamples: finalDataset.nativeDroppedSamples, spoolDroppedChunks: finalDataset.spoolDroppedChunks,
         captureHasNoDrops: [finalDataset.nativeDroppedChunks, finalDataset.nativeDroppedSamples, finalDataset.spoolDroppedChunks].every(value => value === '0'.repeat(16))},
       reads: reads.map((read, index) => {

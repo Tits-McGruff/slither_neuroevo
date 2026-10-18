@@ -1,0 +1,16 @@
+{
+  "runUrl": "https://github.com/Tits-McGruff/slither_neuroevo/actions/runs/39083120438",
+  "headSha": "61beaa437edbaca052964ba95f6d4fa87a810939",
+  "artifactId": 12120180910,
+  "artifactName": "sensor-wall-ubuntu-latest",
+  "files": {
+    "sensor-wall-P0.json.gz": {
+      "originalBytes": 224883,
+      "originalSha256": "a10dc98351691a84cd0dbb72f299c30bd67d94eb1aa7d3be821adb9cb23a0b9a"
+    },
+    "sensor-wall-P1.json.gz": {
+      "originalBytes": 221931,
+      "originalSha256": "9899fd04d9f26312a5128f719ac8cefe31bb7e77346d983e520d60d3dc6eeb65"
+    }
+  }
+}
