@@ -911,6 +911,16 @@ semantics reuse the preceding full suites and CI. Raw measurements and scope
 remain in the existing sensor-v4 performance report. Production defaults and
 scratch/quota ceilings remain unchanged.
 
+Two longer P1 experiments remain unselected. Sixteen-bin splits lower pooled
+ray incompleteness from 4.405% to 3.714%, still above the 1% gate, with essentially
+flat child CPU. Prepared bounds/common-origin packet rejection preserves exact
+continuation, charged work, histograms and teacher hashes but changes whole-step
+mean by only 0.35%; the added geometry code is reverted. Compact lossless reports,
+patches and comparison scripts remain in the existing sensor-v4 evidence directory.
+The comparison driver now admits bounded explicit warmup and verifies exact
+reported step counts. The preceding checkpoint passes all five CI jobs; unchanged
+native runtime reuses that evidence. No production defaults or limits change.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

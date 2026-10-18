@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "sources": {
+    "baseline": "0f7dcaeea16629d01b0ff679a15e724c5099eda121e3776bd829c9016f99cfb1",
+    "candidate": "e56a9c7324149cab36e1ace1849f543494dfb50a82786b722c91ecf9f7144615"
+  },
+  "binarySha256": {
+    "baseline": "874c9952ecf17bd81e64b44dbad75221225fe5d11c3bb0318d9b0c74672c5661",
+    "candidate": "84152effed1ec7ba4fcb193b1b6d0a2f5c56b4f52c5033af93b4f850fb465ae9"
+  },
+  "scope": "One seed and shared Windows host; Motion B16 modest graph, five workers, 600 warmup and 3600 measured steps. Exact 60-Hz baseline cadence and unchanged ray limits. Changed truncation can change gameplay, so cross-build trajectories need not agree and timing is descriptive. This is not real-clock, trained-policy, tactical or default-freeze qualification.",
+  "reproducibleWithinEachBuild": true,
+  "crossBuildContinuationEqual": false,
+  "rows": [
+    {
+      "role": "baseline",
+      "report": "1-baseline.json.gz",
+      "reportSha256": "1415289d9770e9758ce28e92030a3d4e5e8de00aa4fd950c0e724f53848ebe14",
+      "wallSeconds": 71.35900000005495,
+      "cpuSeconds": 191.375,
+      "meanMs": 16.722370555555557,
+      "p95Ms": 20.3296,
+      "allObservations": 1094344,
+      "incompleteFraction": 0.04405196172318759,
+      "qualityGate": false,
+      "continuationSha256": "0b94fa894c4db84dd48e19f7b1f9f375b695b5d7b9f8230777c5059012bd813f",
+      "originalReportSha256": "608bca44ea6e0bcde727212c16a6c2ab10ddce26e2c1c0e530b2cc11725525d6"
+    },
+    {
+      "role": "candidate",
+      "report": "2-candidate.json.gz",
+      "reportSha256": "aa7a298db52815f3ec430ce975d0e75193c6981f62085736f426e2be046e69ab",
+      "wallSeconds": 70.15599999995902,
+      "cpuSeconds": 192.078125,
+      "meanMs": 16.389174722222222,
+      "p95Ms": 19.9521,
+      "allObservations": 1094969,
+      "incompleteFraction": 0.03713621116214249,
+      "qualityGate": false,
+      "continuationSha256": "b19eb2d5ccf1e3c84735f5c29588790d971fe867c40568828b12643e30ebbb0d",
+      "originalReportSha256": "df45d729a7fadbd76394d68a927a14ad3e43e204e6d78ce82f27068e8161b195"
+    },
+    {
+      "role": "candidate",
+      "report": "3-candidate.json.gz",
+      "reportSha256": "c025a252bea12e6d12c8d6c2825c19649777e12935bacd0ea9385068bdb96f28",
+      "wallSeconds": 69.78200000000652,
+      "cpuSeconds": 192.546875,
+      "meanMs": 16.570264722222223,
+      "p95Ms": 20.2894,
+      "allObservations": 1094969,
+      "incompleteFraction": 0.03713621116214249,
+      "qualityGate": false,
+      "continuationSha256": "b19eb2d5ccf1e3c84735f5c29588790d971fe867c40568828b12643e30ebbb0d",
+      "originalReportSha256": "7128c9afb375802941357a73db9be3f2ee5e65448b30e02382b72896cb1282d6"
+    },
+    {
+      "role": "baseline",
+      "report": "4-baseline.json.gz",
+      "reportSha256": "8f7000ef0ee09ea5c832dcd492db275a9e6a0f1cdcc3d3fcba44a5c3947949e7",
+      "wallSeconds": 70.25,
+      "cpuSeconds": 193.6875,
+      "meanMs": 16.7121375,
+      "p95Ms": 20.4689,
+      "allObservations": 1094344,
+      "incompleteFraction": 0.04405196172318759,
+      "qualityGate": false,
+      "continuationSha256": "0b94fa894c4db84dd48e19f7b1f9f375b695b5d7b9f8230777c5059012bd813f",
+      "originalReportSha256": "7a3aa54c86f6e342f58286e8de6b506444c696b1e7cf1318389d1db78b3d6de7"
+    }
+  ],
+  "medians": {
+    "baseline": {
+      "meanMs": 16.717254027777777,
+      "p95Ms": 20.399250000000002,
+      "cpuSeconds": 192.53125,
+      "incompleteFraction": 0.04405196172318759
+    },
+    "candidate": {
+      "meanMs": 16.47971972222222,
+      "p95Ms": 20.12075,
+      "cpuSeconds": 192.3125,
+      "incompleteFraction": 0.03713621116214249
+    }
+  },
+  "selection": "Unselected: longer P1 quality still fails and child CPU is essentially unchanged. Timing is descriptive across changed gameplay trajectories.",
+  "comparisonScriptCanonicalSha256": "8864a9d5c4ac459b43ad1960a931b31b441136c6375e2d5ace329778eb53e3e9",
+  "retention": "Native JSON is retained losslessly as gzip. originalReportSha256 hashes the decompressed original; reportSha256 hashes the retained compressed file."
+}
