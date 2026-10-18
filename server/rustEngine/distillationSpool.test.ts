@@ -152,7 +152,9 @@ describe('durable distillation spool', () => {
     const source = drain([1, 2, 3]); store.ingest(source, 42);
     const lease = store.lease(source.contract!.captureEpoch, [word(1)], 60_000);
     store.close();
-    const restored = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64, maxChunks: 3 });
+    const inventory = vi.fn();
+    const restored = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64, maxChunks: 3 }, undefined, inventory);
+    expect(inventory).toHaveBeenCalledTimes(1); expect(inventory).toHaveBeenCalledWith({chunks: 3, bytes: 96});
     stores.push(restored);
     expect(restored.list(lease.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(1), word(3)]);
     expect(restored.dataset(lease.captureEpoch)).toMatchObject({ retainedBytes: word(64), retainedChunks: 2,
@@ -162,6 +164,17 @@ describe('durable distillation spool', () => {
     const exact = new DistillationSpoolStore(store.root, { ...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64, maxChunks: 2 });
     stores.push(exact);
     expect(exact.dataset(lease.captureEpoch).retainedChunks).toBe(2);
+  });
+
+  it('expires leases that elapse during verification before smaller-quota readmission', () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const store = fixture({maxBytes: 96}); const source = drain([1, 2, 3]); store.ingest(source, 42);
+    const lease = store.lease(source.contract!.captureEpoch, [word(1)], 10); store.close();
+    const restored = new DistillationSpoolStore(store.root, {...DISTILLATION_SPOOL_DEFAULTS, maxBytes: 64}, undefined,
+      () => {clock.mockReturnValue(1011);});
+    stores.push(restored);
+    expect(restored.list(lease.captureEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(2), word(3)]);
+    expect(() => restored.download(lease.captureEpoch, word(1), lease.id)).toThrow(/expired/u);
   });
 
   it('charges overlapping leases once during restart quota admission', () => {

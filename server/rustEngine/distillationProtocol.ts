@@ -14,6 +14,28 @@ export const TEACHER_BATCH_BYTES = 1024 * 1024;
 /** Fixed-width zero cursor, preserving exact unsigned ordering in SQLite. */
 export const DISTILLATION_ZERO = '0000000000000000';
 
+/** Opening metadata without a workload receipt retains the original one-minute deadline. */
+export const DISTILLATION_STARTUP_BASE_MS = 60_000;
+
+/** Bounded metadata inventory to price complete file verification before readiness. */
+export interface DistillationRecoveryWork {
+  /** Existing metadata rows, including corrupt objects that recovery will remove. */
+  chunks: number;
+  /** Valid bounded file sizes awaiting exact verification, before quota reduction. */
+  bytes: number;
+}
+
+/** Price actual retained work: one minute through 4 GiB, then ten seconds/GiB.
+ * The protocol ceiling bounds recovery to eleven minutes. Ordinary requests keep
+ * their separate one-minute deadline; a quota reduction still prices existing bytes.
+ */
+export function distillationRecoveryTimeoutMs(value: unknown): number {
+  const work = record(value, ['chunks', 'bytes'], 'spool recovery inventory');
+  const chunks = distillationInteger(work['chunks'], 0, 65_536, 'recovery chunks');
+  const bytes = distillationInteger(work['bytes'], 0, chunks * TEACHER_OBJECT_BYTES, 'recovery bytes');
+  return DISTILLATION_STARTUP_BASE_MS + Math.max(0, Math.ceil(bytes / GIB_BYTES) - 4) * 10_000;
+}
+
 /** Durable storage/lease admission, separate from native world/controller settings. */
 export interface DistillationSpoolLimits {
   /** Maximum retained complete encoded bytes. */

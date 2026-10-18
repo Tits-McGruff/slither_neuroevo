@@ -3,7 +3,7 @@ import { parseShadowReceipt } from './shadowProtocol.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES, type BrainCandidateRecord } from '../../src/protocol/brainArtifacts.ts';
 import { Worker } from 'node:worker_threads';
 import type { TeacherCaptureDrain, TeacherChunkDescriptor, DistillationStoragePolicy } from '../../src/protocol/distillation.ts';
-import { DISTILLATION_SPOOL_DEFAULTS, distillationHex, distillationInteger, parseSpoolLimits,
+import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_STARTUP_BASE_MS, distillationRecoveryTimeoutMs, distillationHex, distillationInteger, parseSpoolLimits,
   parseTeacherDrain, parseStoragePolicy, type DistillationChunkPage, type DistillationDataset, type DistillationLease,
   type DistillationSpoolLimits, type DistillationDatasetPage } from './distillationProtocol.ts';
 
@@ -45,6 +45,14 @@ export class DistillationSpoolClient {
   private rejectReady!: (error: Error) => void;
   /** One bounded startup deadline. */
   private startupTimer: NodeJS.Timeout;
+  /** One absolute monotonic initialization boundary, never reset by progress messages. */
+  private readonly startupStarted = performance.now();
+  /** Actual inventory may price this deadline once, before readiness. */
+  private recoveryInventoryReceived = false;
+  /** Readiness follows complete integrity verification and quota readmission. */
+  private initialized = false;
+  /** Original default allowance until one validated inventory establishes bounded work. */
+  private startupAllowanceMs = DISTILLATION_STARTUP_BASE_MS;
   /** Exit is observed from construction so close cannot miss an early exit event. */
   private readonly exited: Promise<void>;
   /** Resolve the retained worker exit witness. */
@@ -60,7 +68,7 @@ export class DistillationSpoolClient {
     void this.ready.catch(() => {}); // A later API call still receives the original rejection.
     this.exited = new Promise(resolve => { this.resolveExited = resolve; });
     this.worker = new Worker(new URL('./distillationSpoolWorker.ts', import.meta.url), { workerData: { root, limits: parsed } });
-    this.startupTimer = setTimeout(() => this.fail(new Error('distillation spool startup timed out')), 60_000);
+    this.startupTimer = setTimeout(() => this.fail(new Error('distillation spool startup timed out')), DISTILLATION_STARTUP_BASE_MS);
     this.startupTimer.unref();
     this.worker.on('message', (message: unknown) => this.receive(message));
     this.worker.on('error', error => this.fail(error));
@@ -70,6 +78,9 @@ export class DistillationSpoolClient {
       if (!this.closing || code !== 0) this.fail(new Error(`distillation spool worker exited (${code})`));
     });
   }
+
+  /** Report the bounded startup allowance used for this instance's actual inventory. */
+  get recoveryBudgetMs(): number { return this.startupAllowanceMs; }
 
   /** Read the policy only after the worker has opened and re-admitted its actual store. */
   async storagePolicy(): Promise<DistillationStoragePolicy> {
@@ -207,7 +218,12 @@ export class DistillationSpoolClient {
   private async closeInternal(): Promise<void> {
     if (this.closing) return;
     if (this.failure) { this.closing = true; await this.worker.terminate(); return; }
-    await this.ready;
+    if (!this.initialized) {
+      this.closing = true;
+      this.fail(new Error('distillation spool closed during initialization'));
+      await this.exited;
+      return;
+    }
     this.closing = true;
     await this.request('close', []);
     await this.exited;
@@ -231,10 +247,26 @@ export class DistillationSpoolClient {
 
   /** Require exact typed correlation; an unrelated worker response cannot settle a request. */
   private receive(message: unknown): void {
+    if (this.failure) return;
     if (!message || typeof message !== 'object' || Array.isArray(message)) { this.fail(new Error('invalid spool worker response')); return; }
     const raw = message as Record<string, unknown>;
-    if (raw['kind'] === 'ready' && Object.keys(raw).length === 1) {
-      clearTimeout(this.startupTimer); this.resolveReady(); return;
+    if (raw['kind'] === 'recoveryWork') {
+      if (this.initialized || this.recoveryInventoryReceived || Object.keys(raw).length !== 2) {
+        this.fail(new Error('invalid spool recovery inventory sequence')); return;
+      }
+      try {
+        const allowance = distillationRecoveryTimeoutMs(raw['inventory']);
+        this.recoveryInventoryReceived = true; this.startupAllowanceMs = allowance;
+        clearTimeout(this.startupTimer);
+        const remaining = allowance - (performance.now() - this.startupStarted);
+        if (remaining <= 0) { this.fail(new Error('distillation spool startup timed out')); return; }
+        this.startupTimer = setTimeout(() => this.fail(new Error('distillation spool startup timed out')), remaining);
+        this.startupTimer.unref();
+      } catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); }
+      return;
+    }
+    if (raw['kind'] === 'ready' && Object.keys(raw).length === 1 && !this.initialized) {
+      this.initialized = true; clearTimeout(this.startupTimer); this.resolveReady(); return;
     }
     const id = raw['id'];
     if (raw['kind'] !== 'result' || typeof id !== 'number' || !Number.isSafeInteger(id) || typeof raw['ok'] !== 'boolean') {

@@ -5,7 +5,7 @@ import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readF
 import { join, resolve } from 'node:path';
 import type { TeacherCaptureDrain, TeacherChunkDescriptor } from '../../src/protocol/distillation.ts';
 import { DISTILLATION_SPOOL_DEFAULTS, DISTILLATION_ZERO, distillationHex, distillationInteger,
-  parseSpoolLimits, parseTeacherDrain, type DistillationChunkPage, type DistillationDataset,
+  parseSpoolLimits, parseTeacherDrain, type DistillationRecoveryWork, type DistillationChunkPage, type DistillationDataset,
   type DistillationLease, type DistillationSpoolLimits, type DistillationDatasetPage } from './distillationProtocol.ts';
 
 /** Bounded Windows sharing-error backoff stays inside the isolated storage worker. */
@@ -77,7 +77,8 @@ export class DistillationSpoolStore {
 
   /** Create/open only the dedicated spool and reconcile incomplete publications. */
   constructor(root: string, limits: DistillationSpoolLimits = { ...DISTILLATION_SPOOL_DEFAULTS },
-    failpointForTesting?: DistillationSpoolFailpoint) {
+    failpointForTesting?: DistillationSpoolFailpoint,
+    onRecoveryWork?: (work: DistillationRecoveryWork) => void) {
     this.limits = Object.freeze(parseSpoolLimits(limits));
     if (!root || typeof root !== 'string') throw new TypeError('spool root must be nonempty');
     const requested = resolve(root);
@@ -129,7 +130,8 @@ export class DistillationSpoolStore {
       this.db.prepare("UPDATE datasets SET state = 'interrupted', resolved = production WHERE state = 'active'").run();
       this.db.prepare('DELETE FROM unavailable WHERE sequence <= (SELECT resolved FROM datasets WHERE epoch = unavailable.epoch)').run();
       this.expireLeases();
-      this.reconcile();
+      this.reconcile(onRecoveryWork);
+      this.expireLeases(); // Verification can outlast a lease; readmit only currently active pins.
       const retained = this.db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM chunks')
         .get() as {count: number; bytes: number};
       this.retainedChunks = retained.count; this.retainedBytes = retained.bytes;
@@ -442,7 +444,7 @@ export class DistillationSpoolStore {
   }
 
   /** Bound recovery scans and remove only task-owned unpublished artifacts. */
-  private reconcile(): void {
+  private reconcile(onRecoveryWork?: (work: DistillationRecoveryWork) => void): void {
     const files: string[] = [];
     const directory = opendirSync(this.root);
     try {
@@ -453,6 +455,11 @@ export class DistillationSpoolStore {
     } finally { directory.closeSync(); }
     const rows = this.db.prepare('SELECT * FROM chunks ORDER BY ordinal LIMIT ?').all(this.limits.maxChunks + 1) as ChunkRow[];
     if (rows.length > this.limits.maxChunks) throw new Error('spool metadata exceeds selected count quota');
+    // Malformed sizes require only shape rejection, never an unbounded file read.
+    // Report before complete verification/rotation; readiness still follows both.
+    const bytes = rows.reduce((sum, row) => sum + (Number.isSafeInteger(row.bytes) && row.bytes > 0 &&
+      row.bytes <= 1024 * 1024 ? row.bytes : 0), 0);
+    onRecoveryWork?.({chunks: rows.length, bytes});
     const known = new Set(rows.map(row => row.filename));
     for (const filename of files) {
       if (/^[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{64}\.teacher(?:\.[0-9a-f]{16}\.pending)?$/u.test(filename) && !known.has(filename)) {
