@@ -173,3 +173,18 @@ corresponding source receipts. Current reports bind their host/store sources
 independently. Fill progress uses acknowledged durable inventory and verifies
 watermarks and drop counters after every batch. CI runs the small smoke on
 Ubuntu/Windows Node 24 and retains its honest partial-load report.
+
+A retained failed Windows count fixture can be checked with
+`scripts/qualification/spool-capacity-continue.ts --workspace PATH --failed-report PATH --output PATH`.
+The original, unredacted failed report must identify that exact directory. Before
+starting a mutable worker, the harness opens metadata read-only and verifies the
+synthetic run, sensor/teacher contracts, seed, state and uniform 64-KiB inventory.
+It recovers the old capture as interrupted, creates a separate capture for new
+objects, and checks global inventory at 65,536 objects. Leased objects from both
+captures must remain exact after loaded and 1-GiB restarts. A failure retains the
+fixture; success closes the worker and verifies directory identity before cleanup.
+This count test retains 4 GiB, so it cannot qualify 64 GiB of stored bytes.
+
+Shared opaque fixture helpers keep the fresh-load and retained-load hosts aligned.
+An automated integrity check verifies historical host archives, patches, unique
+report paths, outcome labels and recorded host/store identities on both platforms.

@@ -1,14 +1,15 @@
 /** Load the production opaque spool without constructing a game or sample codec. */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, readFile, realpath, rm, statfs, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { availableParallelism, cpus, platform, release, totalmem } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import type { DistillationDataset, TeacherCaptureDrain, TeacherCaptureContract } from '../../src/protocol/distillation.ts';
+import type { TeacherCaptureContract } from '../../src/protocol/distillation.ts';
 import { DistillationSpoolClient } from '../../server/rustEngine/distillationSpoolClient.ts';
 import { DISTILLATION_ZERO, distillationSpoolLimitsForGiB, TEACHER_BATCH_BYTES } from '../../server/rustEngine/distillationProtocol.ts';
+import { costs, digest, drain, freeBytes, object, sample, settled, word } from './spoolFixture.ts';
 
 /** Explicit load choices; object count defaults to the selected production ceiling. */
 interface Options {
@@ -28,19 +29,6 @@ interface Options {
   deadlineMs: number;
   /** Keep a failed task-owned load only when it is explicitly needed for diagnosis. */
   retainOnFailure: boolean;
-}
-/** Fixed-size latency histogram, independent of the number of stored objects. */
-interface Costs {
-  /** Completed operation count. */
-  samples: number;
-  /** Aggregate elapsed milliseconds. */
-  totalMs: number;
-  /** Largest observed elapsed milliseconds. */
-  maximumMs: number;
-  /** Inclusive bucket ceilings in milliseconds. */
-  upperMs: number[];
-  /** Exactly one bucket per completed operation. */
-  counts: number[];
 }
 /** Validate arguments before creating any storage or reading source fixtures. */
 function options(): Options {
@@ -79,46 +67,6 @@ function options(): Options {
   return {workspace: root, output: report, quotaGiB, restartQuotaGiB, objectBytes, objects, retainOnFailure: retain === 'true',
     deadlineMs: integer('--deadline-seconds', 1800, 1, 10_800) * 1000};
 }
-/** Preserve exact unsigned metadata ordering without a JavaScript sample decoder. */
-function word(value: number): string { return value.toString(16).padStart(16, '0'); }
-/** Hash bytes for opaque-object verification and canonical-LF source provenance. */
-function digest(value: Uint8Array): string { return createHash('sha256').update(value).digest('hex'); }
-/** Recreate one bounded synthetic storage object, distinct for every sequence. */
-function object(sequence: number, size: number): Buffer {
-  const bytes = Buffer.alloc(size, 0xa5); bytes.writeBigUInt64LE(BigInt(sequence)); return bytes;
-}
-/** Describe opaque test objects; this intentionally does not encode native TeacherSampleV1. */
-function drain(contract: TeacherCaptureContract, sensors: string, first: number, count: number, size: number, stopped = false): TeacherCaptureDrain {
-  const chunks = Array.from({length: count}, (_, offset) => {
-    const sequence = first + offset; const bytes = object(sequence, size);
-    return {descriptor: {captureEpoch: contract.captureEpoch, sequence: word(sequence), generation: word(1), baselineSlot: 0,
-      physicalSnakeId: word(1), firstSample: word(sequence), lastSample: word(sequence), firstStep: word(sequence), lastStep: word(sequence),
-      count: 1, inputSize: contract.inputSize, configSha256: contract.configSha256, sensorSha256: contract.sensorSha256,
-      teacherSha256: contract.teacherSha256, startReason: 'continuation' as const, endReason: 'simulatedSecond' as const,
-      byteCount: bytes.byteLength, sha256: digest(bytes)}, bytes};
-  });
-  const last = count ? first + count - 1 : first - 1;
-  return {contract, sensorContractJson: sensors, chunks, productionWatermark: word(last), releasedThrough: word(last),
-    queuedChunks: 0, queuedBytes: DISTILLATION_ZERO, droppedChunks: DISTILLATION_ZERO, droppedSamples: DISTILLATION_ZERO,
-    droppedBytes: DISTILLATION_ZERO, stopped, moreWork: false};
-}
-/** Allocate a fixed histogram whose final bucket exceeds every operation deadline. */
-function costs(): Costs { return {samples: 0, totalMs: 0, maximumMs: 0, upperMs: Array.from({length: 32}, (_, i) => 0.25 * 2 ** i), counts: Array<number>(32).fill(0)}; }
-/** Attribute one completed operation without retaining per-object timing arrays. */
-function sample(target: Costs, milliseconds: number): void {
-  target.samples++; target.totalMs += milliseconds; target.maximumMs = Math.max(target.maximumMs, milliseconds);
-  const bucket = target.upperMs.findIndex(upper => milliseconds <= upper);
-  assert(bucket >= 0); target.counts[bucket]!++;
-}
-/** Read actual available physical space on the explicitly selected filesystem. */
-async function freeBytes(path: string): Promise<bigint> { const fs = await statfs(path, {bigint: true}); return fs.bavail * fs.bsize; }
-/** Require exact durable watermarks and absence of fabricated native/storage drops. */
-function settled(dataset: DistillationDataset, last: number, retained: number, bytes: number): void {
-  assert.equal(dataset.productionWatermark, word(last)); assert.equal(dataset.storageWatermark, word(last));
-  assert.equal(dataset.resolvedThrough, word(last)); assert.equal(dataset.retainedChunks, retained);
-  assert.equal(dataset.retainedBytes, word(retained * bytes)); assert.equal(dataset.nativeDroppedChunks, DISTILLATION_ZERO);
-  assert.equal(dataset.nativeDroppedSamples, DISTILLATION_ZERO); assert.equal(dataset.spoolDroppedChunks, DISTILLATION_ZERO);
-}
 /** Run only task-owned storage; normal worker deadlines and all production quotas remain active. */
 async function run(): Promise<void> {
   const args = options(); const policy = distillationSpoolLimitsForGiB(args.quotaGiB);
@@ -136,7 +84,7 @@ async function run(): Promise<void> {
     configSha256: '23'.repeat(32), sensorSha256: fixture.sha256, teacherSha256: '37'.repeat(32), teacherRevision: 2,
     teacherMode: 1, controlIntervalSeconds: 1 / 60, inputSize: 504};
   const sources: Record<string, string> = {};
-  for (const path of ['scripts/qualification/spool-capacity.ts', 'server/rustEngine/distillationSpoolClient.ts',
+  for (const path of ['scripts/qualification/spool-capacity.ts', 'scripts/qualification/spoolFixture.ts', 'server/rustEngine/distillationSpoolClient.ts',
     'server/rustEngine/distillationSpoolWorker.ts', 'server/rustEngine/distillationSpoolStore.ts',
     'server/rustEngine/distillationProtocol.ts', 'server/rustEngine/distillationSpoolLimits.ts',
     'src/protocol/distillation.ts', 'src/protocol/sensors.ts', 'native/fixtures/sensor-contract-shapes.json']) {

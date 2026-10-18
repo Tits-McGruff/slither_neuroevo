@@ -55,13 +55,6 @@
       "status": "passed",
       "hostCanonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
       "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
-    },
-    {
-      "path": "spool-capacity-windows-v1/max-count-candidate.json",
-      "canonicalLfSha256": "dde14e61dc7741533a9edf83980f3ce3564aeff75fa5ea656d2c68cbf8fa53f7",
-      "status": "failed",
-      "hostCanonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb",
-      "storeCanonicalLfSha256": "3ecc1c8677bbbb7d0cadc8fd244064c37510660bec080d5e935ba9af22027b69"
     }
   ],
   "scope": "Completed baseline and candidate opaque-storage reports only. Windows corrected maximum-object and full 64-GiB byte cases remain open. Historical host source is retained exactly after canonical LF conversion; gzip is lossless.",
