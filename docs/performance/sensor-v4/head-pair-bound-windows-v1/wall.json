@@ -1,0 +1,34 @@
+{
+  "nativeSourceSha256": "cd4dbab96b0508aeb8fe306c49d77680240dd441c0ce776ffc4afe074e0b6c70",
+  "releaseQualified": false,
+  "sources": {
+    "sensor-wall.ts": {
+      "archive": "sensor-wall.ts.gz",
+      "gzipSha256": "04adb46370bdb248ad3be78edb33c0874db676ca4ef62338a048944fbdf1184d",
+      "rawSha256": "70a447b7c469912fbe682c569db62c4aac833342c09a7a068147df7f3fc83a50",
+      "canonicalLfSha256": "0ff3f0d9b9bb16ddb505d53c4be297006bd22319d0ba311aa7e99182fe70822e"
+    },
+    "sensorWallSummary.ts": {
+      "archive": "sensorWallSummary.ts.gz",
+      "gzipSha256": "8c270c93235a9ea2f7db478f40bf14d04bfded33932cc8bc57c0ed6b3e525ea0",
+      "rawSha256": "4b9a810fe1d5234bac9c8793fe1d1890bafcb6112b10e81314c7e157f2e55416",
+      "canonicalLfSha256": "4253a9c03213719f7f79a23c3bbf55f70ed56bdf07317912d2585bb4644f60a0"
+    }
+  },
+  "wall": [
+    {
+      "scenario": "P0",
+      "workers": 8,
+      "report": "wall-P0-w8.json.gz",
+      "reportSha256": "61139cfbf38219291f735c65a521514fd149253290fe2eea9e0d2082d7f6069f",
+      "originalReportSha256": "0822c95f77376023ee12ad439312a9db9dab45e60969fe629ed81908bc18593e"
+    },
+    {
+      "report": "wall-P1-w8.json.gz",
+      "reportSha256": "32fd4c8b873d8a724a0a2716169b0a472984fcde62bcdfff741e5a19fd697c21",
+      "originalReportSha256": "aa13a0b68401b89c9c40a32ac13bdc3aac0c5b53775608faeea356771df97619",
+      "workers": 8,
+      "scenario": "P1"
+    }
+  ]
+}

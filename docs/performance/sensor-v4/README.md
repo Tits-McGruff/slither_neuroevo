@@ -908,3 +908,62 @@ and wall reports, measured TS sources, recomputed window assertions and the
 negative admission receipt are in `ray-budget-windows-v1/`. These measurements
 do not select production defaults or qualify other platforms, trained policies,
 full-stack contention or integrated soak.
+
+
+## Conservative head-pair bound
+
+The collision pass caches each alive snake's maximum movement/final radius and
+uses it to reject separated swept head envelopes before loading full pair state.
+Zero cache entries identify dead source snakes. Invalid, overflowing or
+underflowing scaled radii keep the original exact checks and their errors. The
+cache remains six doubles per snake and uses the existing reusable allocation.
+The exact collision solver, contact tolerance and ordering remain unchanged.
+
+A Windows P1 ABBA comparison uses eight workers, Motion/B16, modest graphs,
+cap 512/batch 131,072 and 600 warmup plus 3,600 measured steps per run. Median
+native mean falls from 13.001 to 12.372 ms and p95 from 15.698 to 14.900 ms.
+The nested head/head phase falls from about 1.105 to 0.485 ms per step. Child CPU
+medians are 197.47/198.85 seconds; these results do not establish CPU savings.
+Continuation, sensor work, raw/normalized histograms and teacher bytes match
+exactly between all four runs on this target; pooled incompleteness is zero.
+
+The same candidate's 60-second Windows background-clock P1 window completes
+3,603 steps at a minimum 1.000135 simulated/wall ratio, with zero dropped wall
+time, overload or capture drops and p50/p95/p99 upper buckets of 16 ms. It
+passes the unchanged measured throughput and step-timing criteria. It includes
+durable checkpoint startup, ordinary stochastic teachers, diagnostic spool and
+packed-frame copying. This is one seeded desktop window, excluding browser and
+WebSocket delivery, training/device contention, shadows and integrated soak.
+Production defaults remain unchanged. Exact reports, measured source bytes and
+automated recomputation are retained in `head-pair-bound-windows-v1/`.
+
+
+The matching Debian ABBA comparison preserves the same within-target equality
+and zero pooled incompleteness. Native mean/p95 medians improve from
+38.940/69.827 to 36.799/64.760 ms; child CPU medians fall from 504.60 to
+497.77 seconds. The nested head/head phase is reduced, but this shared-host
+workload still misses the service gate. Reports are retained unchanged in
+`head-pair-bound-debian-v1/`; this is comparative evidence, without a Linux
+real-time or cross-platform exact-replay claim.
+
+
+CI's existing Node 24 P1 real-clock window now records the explicit
+512/131,072 ray candidate on both runner targets, retaining automatic admitted
+worker selection and diagnostic performance outcomes. P0 retains the existing
+ray defaults. This adds no matrix job or additional clock window and does not
+change application defaults.
+
+
+A separate three-worker Debian probe completes the same 4,200-step workload
+with exactly matching eight-worker continuation, consumer work, histograms and
+teacher witnesses. Its measured mean/p95 is 57.976/111.770 ms, still failing
+timing; reducing workers does not establish a service pass on this host. This
+single probe is retained in the Debian directory, outside the four-run ABBA
+comparison, with automated equality and negative-outcome assertions.
+
+
+After the full JavaScript suite exits, the same Windows candidate/configuration
+also passes a separate 60-second P0 background-clock window: 3,603 steps,
+minimum sim/wall 1.000001, p95/p99 upper buckets 4/6 ms, zero dropped wall time,
+overload or capture drops. Both P0 and P1 clock reports are retained and
+recomputed from health reads. The same exclusions and production gates apply.

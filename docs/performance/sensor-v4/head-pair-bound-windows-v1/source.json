@@ -1,0 +1,7 @@
+{
+  "baselineCommit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85",
+  "baselineNativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+  "candidateNativeSourceSha256": "cd4dbab96b0508aeb8fe306c49d77680240dd441c0ce776ffc4afe074e0b6c70",
+  "selection": "retained: exact within-target workloads on both targets, improved descriptive medians; Windows seeded P1 clock passes, Debian timing remains below service gate; production defaults unchanged",
+  "patchSha256": "b02d79c4355d2a7dfc50369fd6cbe6b573ce16d9af3f9bc3f8ed27e929027c51"
+}

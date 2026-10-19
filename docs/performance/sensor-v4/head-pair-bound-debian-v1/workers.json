@@ -1,0 +1,28 @@
+{
+  "nativeSourceSha256": "cd4dbab96b0508aeb8fe306c49d77680240dd441c0ce776ffc4afe074e0b6c70",
+  "releaseQualified": false,
+  "records": [
+    {
+      "workers": 3,
+      "report": "worker-3.json.gz",
+      "reportSha256": "69881420323091e0d627f0d17e92ba2f3811971891faefe605b9759e29b1ff17",
+      "originalReportSha256": "402fb672e788575f020c710b139fe1066f87919bcd7657b3d878265ef9c49ba1"
+    },
+    {
+      "role": "candidate",
+      "report": "1-candidate.json.gz",
+      "reportSha256": "61fef7c806ebf87a254088f3f6b12b7bae8036b2d111855a654ef674f5e62b29",
+      "sourceSha256": "cd4dbab96b0508aeb8fe306c49d77680240dd441c0ce776ffc4afe074e0b6c70",
+      "binarySha256": "cb9bb453a3d8dd781360790b495dc9e498fead3e7c1d556d19accb33fb43c491",
+      "nativeMeanMs": 37.46488138888889,
+      "sensingMeanMs": 18.942685833333332,
+      "nativeP95Ms": 67.28452899999999,
+      "processCpuSeconds": 501.685773,
+      "processWallSeconds": 156.5987701449999,
+      "effectiveProcessCores": 3.2036380141138583,
+      "originalReportSha256": "3d336c5ccbe4d04269eecc875e5917387c6e8bc83a93092299862a42f4e4da94",
+      "workers": 8
+    }
+  ],
+  "scope": "Same-seed controlled native workload, 600 warmup and 3600 measured steps; exact within-target worker continuation/capture checks, both timing gates fail. Separate from ABBA timing comparison."
+}

@@ -547,19 +547,38 @@ struct SweptHeadEnvelope {
     min_y: f64,
     max_y: f64,
     movement_radius: f64,
-    final_radius: f64,
+    /// Conservative radius for early misses; zero marks dead entries, NaN keeps exact checks.
+    maximum_radius: f64,
 }
 
 impl SweptHeadEnvelope {
     /// Cache pair-invariant geometry after the staged motion has been validated.
-    fn from_snake(snake: &SnakeState, movement_radius: f64) -> Self {
+    fn from_snake(snake: &SnakeState, movement_radius: f64, hit_scale: f64) -> Self {
+        // Checking each scaled radius once guarantees a rejected pair's two
+        // exact sums cannot underflow to zero. Overflow/invalid input retains
+        // the original pair validation through the NaN fallback.
+        let scaled_movement = movement_radius * hit_scale;
+        let scaled_final = snake.radius * hit_scale;
+        let maximum_radius = if movement_radius.is_finite()
+            && movement_radius > 0.0
+            && snake.radius.is_finite()
+            && snake.radius > 0.0
+            && scaled_movement.is_finite()
+            && scaled_movement > 0.0
+            && scaled_final.is_finite()
+            && scaled_final > 0.0
+        {
+            movement_radius.max(snake.radius)
+        } else {
+            f64::NAN
+        };
         Self {
             min_x: snake.previous_position.x.min(snake.position.x),
             max_x: snake.previous_position.x.max(snake.position.x),
             min_y: snake.previous_position.y.min(snake.position.y),
             max_y: snake.previous_position.y.max(snake.position.y),
             movement_radius,
-            final_radius: snake.radius,
+            maximum_radius,
         }
     }
 }
@@ -734,8 +753,11 @@ impl CollisionWorkspace {
                 let movement_radius = food
                     .movement_radius_for_index(snake_index)
                     .ok_or(CollisionError::FoodShapeMismatch)?;
-                self.head_envelopes[snake_index] =
-                    SweptHeadEnvelope::from_snake(&food.snakes()[snake_index], movement_radius);
+                self.head_envelopes[snake_index] = SweptHeadEnvelope::from_snake(
+                    &food.snakes()[snake_index],
+                    movement_radius,
+                    config.hit_scale,
+                );
             }
         }
         for left_order in 0..self.order.len() {
@@ -746,21 +768,29 @@ impl CollisionWorkspace {
             }
             let left_envelope = self.head_envelopes[left_index];
             for &right_index in &self.order[left_order + 1..] {
-                let right = &food.snakes()[right_index];
-                if !food.source_world().snakes[right_index].alive {
+                let right_envelope = self.head_envelopes[right_index];
+                if right_envelope.maximum_radius == 0.0 {
+                    continue; // Default entries belong only to dead source snakes.
+                }
+                // Monotone positive arithmetic bounds both exact thresholds.
+                // An infinite/NaN bound cannot reject, preserving their errors.
+                if swept_head_envelopes_separate(
+                    left_envelope,
+                    right_envelope,
+                    (left_envelope.maximum_radius + right_envelope.maximum_radius)
+                        * config.hit_scale
+                        + CONTACT_SPACE_TOLERANCE,
+                ) {
                     continue;
                 }
-                let right_envelope = self.head_envelopes[right_index];
+                let right = &food.snakes()[right_index];
                 let movement_threshold = combined_threshold(
                     left_envelope.movement_radius,
                     right_envelope.movement_radius,
                     config.hit_scale,
                 )?;
-                let final_threshold = combined_threshold(
-                    left_envelope.final_radius,
-                    right_envelope.final_radius,
-                    config.hit_scale,
-                )?;
+                let final_threshold =
+                    combined_threshold(left.radius, right.radius, config.hit_scale)?;
                 // A pair cannot meet if even its entire swept axis-aligned
                 // envelopes stay farther apart than the larger legal radius.
                 // Keep the contact tolerance so this only rejects clear misses.
@@ -1771,6 +1801,78 @@ mod tests {
     }
 
     #[test]
+    fn cached_head_bound_preserves_exact_rejections_and_extreme_radius_errors() {
+        let radii = [
+            f64::from_bits(1),
+            f64::MIN_POSITIVE,
+            1.0e-150,
+            1.0,
+            1.0e150,
+            f64::MAX / 4.0,
+            f64::MAX,
+            0.0,
+            -1.0,
+            f64::INFINITY,
+            f64::NAN,
+        ];
+        let mut first = snake(1, WorldPoint { x: 0.0, y: 0.0 }, 0.0, 5);
+        let mut second = snake(
+            2,
+            WorldPoint {
+                x: 1000.0,
+                y: 1000.0,
+            },
+            0.0,
+            5,
+        );
+        for scale in [
+            f64::from_bits(1),
+            f64::MIN_POSITIVE,
+            0.5,
+            0.82,
+            1.0,
+            1.0e150,
+        ] {
+            for movement_first in radii {
+                for final_first in radii {
+                    first.radius = final_first;
+                    let left = SweptHeadEnvelope::from_snake(&first, movement_first, scale);
+                    assert_ne!(
+                        left.maximum_radius, 0.0,
+                        "alive entries cannot use the dead marker"
+                    );
+                    for movement_second in radii {
+                        for final_second in radii {
+                            second.radius = final_second;
+                            let right =
+                                SweptHeadEnvelope::from_snake(&second, movement_second, scale);
+                            let broad = (left.maximum_radius + right.maximum_radius) * scale
+                                + CONTACT_SPACE_TOLERANCE;
+                            if swept_head_envelopes_separate(left, right, broad) {
+                                // An early miss must preserve both old threshold validation
+                                // and the exact old swept-envelope rejection.
+                                let movement =
+                                    combined_threshold(movement_first, movement_second, scale)
+                                        .expect("early miss suppressed a movement-threshold error");
+                                let final_radius =
+                                    combined_threshold(final_first, final_second, scale)
+                                        .expect("early miss suppressed a final-threshold error");
+                                assert!(swept_head_envelopes_separate(
+                                    left,
+                                    right,
+                                    movement.max(final_radius) + CONTACT_SPACE_TOLERANCE,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(size_of::<SweptHeadEnvelope>(), 6 * size_of::<f64>());
+        assert_eq!(SweptHeadEnvelope::default().maximum_radius, 0.0);
+    }
+
+    #[test]
     fn swept_head_envelope_keeps_every_exact_contact_candidate() {
         let first = snake(1, WorldPoint { x: 0.0, y: 0.0 }, 0.0, 5);
         for x in (-4..=4).map(|step| f64::from(step) * 10.0) {
@@ -1790,8 +1892,8 @@ mod tests {
                     .unwrap();
                     if exact.is_some() {
                         assert!(!swept_head_envelopes_separate(
-                            SweptHeadEnvelope::from_snake(&first, first.radius),
-                            SweptHeadEnvelope::from_snake(&second, second.radius),
+                            SweptHeadEnvelope::from_snake(&first, first.radius, 0.82),
+                            SweptHeadEnvelope::from_snake(&second, second.radius, 0.82),
                             threshold + CONTACT_SPACE_TOLERANCE,
                         ));
                     }

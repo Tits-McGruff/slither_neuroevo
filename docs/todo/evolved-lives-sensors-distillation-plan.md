@@ -1063,6 +1063,23 @@ and negative measurements and admission receipt are retained in the existing
 sensor-v4 performance directory. This advances the P1 investigation without
 closing timing, representative-policy, ablation or production-default gates.
 
+A conservative cached head-pair bound now avoids exact pair setup for separated
+swept envelopes while retaining invalid/extreme-radius errors, exact near-contact
+checks and the same six-double cache size. All 760 release library tests pass on
+Windows and Debian. Windows P1 ABBA medians improve from 13.001/15.698 ms
+mean/p95 to 12.372/14.900 ms with exact continuation, observations and teacher
+bytes. At eight workers and explicit cap 512/batch 131,072, a 60-second native
+background-clock window completes 3,603 steps with zero dropped wall time,
+overload or capture drops and p99 in the 16-ms bucket. This passes the existing
+Windows seeded P1 window criteria; it does not select production defaults or
+qualify Linux timing, representative policies, integrated contention or soak.
+Exact measured sources and recomputable reports are retained beside the prior
+failed windows, which remain unchanged. Debian ABBA also preserves exact within-target
+work and improves mean/p95 medians from 38.940/69.827 to 36.799/64.760 ms,
+still failing the service reference on that host. A separate Windows P0 clock
+window on the same candidate also passes: 3,603 steps, p95/p99 4/6-ms buckets,
+minimum sim/wall 1.000001 and zero dropped time, overload or capture drops.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated
