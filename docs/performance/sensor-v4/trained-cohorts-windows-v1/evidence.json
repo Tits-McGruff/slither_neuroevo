@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "baseCommit": "bd007aab0755fe723a0bead7e90935ee02d273fd",
+  "nativeSourceSha256": "d49d946ca72487a3271555d58c4ecd5f3de3fb4d20271e3845c719b38c224611",
+  "candidatePatchSha256": "816b0211f4fefd6d257e01ac589c87271df50f2745e26bf4b29958e12fa620c5",
+  "files": [
+    {
+      "path": "summary.json",
+      "archive": "summary.json.gz",
+      "bytes": 4931,
+      "sha256": "561192cb17136a428206506531abf4aae464fde34374332c86ddd4b4758d6c1b",
+      "gzipSha256": "cce3c5f39d1eb2a57dcfa9b94cecea94c88c4fdbc6b1a46259273c82ddf2818c"
+    },
+    {
+      "path": "full.slither-brain",
+      "archive": "full.slither-brain.gz",
+      "bytes": 118579,
+      "sha256": "d19a7f2df7a4c2edccfe3c0f214f1936a483332b273d53b70089b64cccaffe52",
+      "gzipSha256": "06ee21eafeab404671ee371114cfeec64453456a332b19fd0ecb60df674d2e06"
+    },
+    {
+      "path": "core-only.slither-brain",
+      "archive": "core-only.slither-brain.gz",
+      "bytes": 84393,
+      "sha256": "1662565dc03fbcd233c1df81d10de48880658e2cf7f2edf183f50c0d91a81a78",
+      "gzipSha256": "9922b832db65f9b61365af7acfde4ecf4a0b38491a4ab5c9d93de5d5c277bfb2"
+    },
+    {
+      "path": "trained-sensor-cohorts.py",
+      "archive": "trained-sensor-cohorts.py.gz",
+      "bytes": 8969,
+      "sha256": "fa2e3151da56329e3187a8e0edd38c0030283176e4c50ef83dba4a88a8164abb",
+      "gzipSha256": "63cca5ba46643b08d902016447361192247eac1d4fc53ee8b1ea14055bb8de5b"
+    },
+    {
+      "path": "full-P0-w1.json",
+      "archive": "full-P0-w1.json.gz",
+      "bytes": 212703,
+      "sha256": "9cf308c34cd95265ce30180dacd6d3c4acd6b4b6274e1e9d4668377df0f6cd5a",
+      "gzipSha256": "f9f6cc57e43ea08632c32608ac900910574cc803dc647d557f12e9885ef00d2b"
+    },
+    {
+      "path": "full-P0-w8.json",
+      "archive": "full-P0-w8.json.gz",
+      "bytes": 212694,
+      "sha256": "026a4543af6b890aa66316660ab85d75ed1db7f9637dbaa4c209204a7e8c98be",
+      "gzipSha256": "95621c50f1064769b8ce1c61a3897f537f776960a3502cad2ac4f1b738dc3194"
+    },
+    {
+      "path": "full-P1-w1.json",
+      "archive": "full-P1-w1.json.gz",
+      "bytes": 221347,
+      "sha256": "7e5f2e69514e4dadd15b767fbf2755858b1f02b9f1a56ce4792bcfd62843d5eb",
+      "gzipSha256": "9c4eea4dd1e5b56c014e07cff0f3bf825f630731f6cc6af8f38eb1f484971031"
+    },
+    {
+      "path": "full-P1-w8.json",
+      "archive": "full-P1-w8.json.gz",
+      "bytes": 221278,
+      "sha256": "3a028645151ac1547dd7407995b89a5f24ede25c579e470ca0a61a98e6126a92",
+      "gzipSha256": "38ab5c3dd5999c6b5214e10c9d94108b69bfe8038aeef66272786743a62cfa07"
+    },
+    {
+      "path": "core-only-P0-w1.json",
+      "archive": "core-only-P0-w1.json.gz",
+      "bytes": 213599,
+      "sha256": "72799f9f7a471a1c18dfc218f8f44ff049164092a3dc4e4dc1d413239509b0c7",
+      "gzipSha256": "2f629966ac6438311c5a7b9490386ceb1bb9010d6b763e298a3ce809a88cba81"
+    },
+    {
+      "path": "core-only-P0-w8.json",
+      "archive": "core-only-P0-w8.json.gz",
+      "bytes": 213606,
+      "sha256": "3de1e7e02160c68d63f1c1d801599bb99e3e99d6ee54a42f14d11d8b94baffc7",
+      "gzipSha256": "7d83fb624d1d49e5b2b8fae2556cb91114e5127133590fd9de4674c281687245"
+    },
+    {
+      "path": "core-only-P1-w1.json",
+      "archive": "core-only-P1-w1.json.gz",
+      "bytes": 221982,
+      "sha256": "a38dddad07c4071770625688bfffea07b8685ec3b6e22d4bd084c418e69071cd",
+      "gzipSha256": "1c2f5218cd4ad0ea3559bd5734fbab37f04ad9d38449bc15505b20f8c937a6ad"
+    },
+    {
+      "path": "core-only-P1-w8.json",
+      "archive": "core-only-P1-w8.json.gz",
+      "bytes": 221511,
+      "sha256": "6735e63bffe1abfa932d80d9cc78a27d6a4828b788d246fe33c410972667c8e8",
+      "gzipSha256": "a6853192cb3060a63fc90b562b8e57facdf36d5eaec71ee4cb046562ac1d69bb"
+    },
+    {
+      "path": "live-cuda-w3.json",
+      "archive": "live-cuda-w3.json.gz",
+      "bytes": 35705,
+      "sha256": "6eb6a669497899178b794798fc0deb55a0aefb8bc0891477d2aa654575b3d90c",
+      "gzipSha256": "e57788003b8f55af82ab4a143cadb8104d45dfa1f9864e348f973efa8c6d280e"
+    },
+    {
+      "path": "live-distillation.ts",
+      "archive": "live-distillation.ts.gz",
+      "bytes": 25983,
+      "sha256": "2d41a11a000aa262e9934dccbdf75306a24a28d09a381bf3feddae5a9ea6beb7",
+      "gzipSha256": "a0e55073146e1a03828d93326704bac9b24e089c57df1bb5bc07f8d32b5631ea"
+    },
+    {
+      "path": "live_distillation_gate.py",
+      "archive": "live_distillation_gate.py.gz",
+      "bytes": 11472,
+      "sha256": "024207e8514b99ae1f62b6f38340ede5d6731705f9ee8352f1cda3442474f944",
+      "gzipSha256": "3b94bb6de232c00a0a5262a0af4316490143527968950ec557f384a6a0089219"
+    },
+    {
+      "path": "distillation_job.py",
+      "archive": "distillation_job.py.gz",
+      "bytes": 25793,
+      "sha256": "3c1abb2cb543ac02621722aef676e91f7a8b407082738cbf11d7a54c54c8d033",
+      "gzipSha256": "cede38d19658dc2e1e0f4782cba981e05baa330b37a58c32a091f1b9c2586245"
+    }
+  ]
+}

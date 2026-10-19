@@ -990,9 +990,9 @@ No runtime scratch, checkpoint or spool admission changes.
 PyRL's `load_tactical_corpus` verifies this format and exposes read-only arrays;
 `split_by_seed` keeps whole native trajectories out of the training split. A
 small exact native fixture covers interoperability and malformed input rejection.
-CI retains fresh corpora beside its existing tactical reports. This supplies
-reproducible tactical training data; trained population distributions, channel
-ablations, held-out agreement and student gameplay evaluation remain open.
+CI retains fresh corpora beside its existing tactical reports. The corpus
+supplies reproducible input to the paired ablations and held-out gameplay
+measurements below; broader trained-population coverage remains open.
 
 
 ## Portable student tactical evaluation
@@ -1060,3 +1060,67 @@ establish that motion information is unnecessary in representative traffic.
 The study does not select a profile, remove channels, freeze normalization,
 reduce sensing work or close representative-population/native-performance/soak
 acceptance. Both positive and negative model outcomes remain available.
+
+
+## Learned clone population workloads
+
+`sensor-v4-qualification --trained-artifact FILE` admits an ordinary portable
+brain into the existing qualification-only P0/P1 constructor. Explicit sensor
+profile/bins must match; `--graph` cannot also be supplied. The artifact supplies
+the canonical graph, weights, cadence and recurrent life rule. Ordinary fresh
+construction still checks graph dimensions, population/checkpoint/peak memory
+and initializes its normal RNG streams. Values replace already admitted weight
+buffers before the immutable run-start checkpoint; identities, zero recurrence,
+allocation and initialization RNG continuation are preserved. This introduces
+no production founder/import command and raises no admission ceiling.
+
+Trained reports use schema 6 and include the native artifact descriptor;
+ordinary random reports retain schema 5. `trained-sensor-cohorts.py` extracts the
+checksummed Full Motion and Core learned artifacts from the retained CUDA study,
+runs serial P0/P1 worker pairs, and verifies exact within-target continuation,
+sensor distributions and committed teacher capture. It records incomplete-ray
+fractions and native timings without turning diagnostic results into admission
+or production-default decisions. CI exercises all eight combinations for 12
+steps on Ubuntu/Windows Node 24 using the existing native build.
+
+These cohorts clone one learned policy at every population slot. They do not
+represent mature genetic diversity or broad trained population coverage. The
+policies learned short baseline-teacher tactics; evolved life/economic inputs
+remain authoritative and differ from that training domain. Both graph variants
+still pay for Motion/B16 sensing. Controlled-step timings exclude observer,
+startup/checkpoint, Node/browser/network, real-clock wall debt and concurrent
+training; those acceptance gates remain separate.
+
+
+The current-source live CUDA receipt is also retained with the Windows cohort
+evidence. It exercises two 250-update jobs with exact process-restart
+continuation, four active native shadows and a trained Dense brain's library
+save/export/spawn/delete lifecycle. All four shadows produce real samples;
+the authority advances with no dropped wall time. The producer uses a 4-GiB
+spool policy, not a loaded capacity fill. Torch 2.14.0+cu126 uses the RTX 4080
+with TF32 off. This is a short Basic/B8 P0 functional pipeline check, separate
+from sustained P1 device contention, loaded capacity and soak acceptance.
+
+
+The Windows and Debian runs each measure 3,600 complete steps after 600 warmup
+steps for Full/Core, P0/P1 and one/eight workers. Retained reports, exact opaque
+policy inputs, source patch and driver snapshots are in
+`trained-cohorts-windows-v1/` and `trained-cohorts-debian-v1/`. All sixteen runs
+finish with finite histograms, zero incomplete rays, no dropped teacher samples
+and exact state/distribution/capture equality within each worker pair. These
+same-target assertions do not imply cross-platform bit-identical trajectories.
+
+| Learned policy | Workload | Windows p95, eight workers | Debian p95, eight workers |
+|---|---|---:|---:|
+| Full Motion | P0 | 2.81 ms | 10.60 ms |
+| Full Motion | P1 | 12.39 ms | 37.15 ms |
+| Core | P0 | 2.93 ms | 11.77 ms |
+| Core | P1 | 12.37 ms | 41.83 ms |
+
+Both Windows P1 policies meet the necessary native p95 cost target; Debian P1
+fails it. A smaller Core graph does not guarantee a cheaper resulting physical
+workload. These serial shared-host measurements do not establish statistical
+performance differences or close real-clock service, diverse trained-population
+coverage, normalization/profile/default selection, integrated capacity or soak
+gates. The explicit 512-unit per-consumer/131,072-unit shared ray admission is
+a measured candidate; application defaults remain unchanged.

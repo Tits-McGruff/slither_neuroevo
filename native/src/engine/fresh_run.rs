@@ -369,6 +369,7 @@ pub(crate) fn prepare_sensor_qualification_run(
     limits: RunningStepWorkLimits,
     math: InferenceMathBackend,
     baseline: Option<super::baseline_v2::BaselineV2Settings>,
+    trained: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
     let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
@@ -394,6 +395,9 @@ pub(crate) fn prepare_sensor_qualification_run(
         limits,
         baseline,
     )?;
+    if let Some(artifact) = trained {
+        install_qualified_population_artifact(&mut prepared, artifact)?;
+    }
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();
     PendingRunStartTransition::admit(
@@ -405,6 +409,46 @@ pub(crate) fn prepare_sensor_qualification_run(
         prepared.work_limits,
     )
     .map_err(FreshRunError::from)
+}
+
+/// Cold qualification-only population values; ordinary fresh-run construction stays random.
+#[cfg(feature = "engine-test-hooks")]
+fn install_qualified_population_artifact(
+    prepared: &mut PreparedStage6aP0Boundary,
+    artifact: &super::brain_artifact::ValidatedBrainArtifact,
+) -> Result<(), FreshRunError> {
+    let contract = super::sensor_contract::SensorContractIdentity::from_settings(
+        &prepared.candidate.config.settings,
+    )
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let life_rule = match artifact.deployment.life_state_rule {
+        super::training_graph::TrainingLifeStateRule::Reset => 0,
+        super::training_graph::TrainingLifeStateRule::Preserve => 1,
+    };
+    if artifact.canonical_manifest.layout_sha256 != prepared.graph.layout_digest_hex()
+        || artifact.canonical_manifest.sensor_sha256
+            != contract
+                .sha256_hex()
+                .map_err(|error| FreshRunError::Settings(error.to_string()))?
+        || artifact.deployment.control_interval_seconds
+            != fresh_float(&prepared.candidate.config, "brain.controlDt")?
+        || life_rule != fresh_integer(&prepared.candidate.config, "evolvedRespawn.recurrentState")?
+        || prepared
+            .candidate
+            .population
+            .iter()
+            .any(|genome| genome.weights.len() != artifact.weights.len())
+    {
+        return Err(FreshRunError::Settings(
+            "trained qualification artifact graph/sensors/deployment mismatch".into(),
+        ));
+    }
+    // Shape, checkpoint and peak-memory preflight already admitted these boxes.
+    // Keep the ordinary initialization RNG continuation and replace values in place.
+    for genome in &mut prepared.candidate.population {
+        genome.weights.copy_from_slice(&artifact.weights);
+    }
+    Ok(())
 }
 
 fn prepare_fresh_boundary_with_sensor(
@@ -1743,6 +1787,88 @@ mod tests {
         next_evolution_state_hex: String,
         external_controller_state_hex: String,
         baseline_state_hex: Vec<String>,
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn trained_qualification_values_reuse_admitted_boxes_and_preserve_initialization_rng() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/portable-brain-v1.slither-brain"),
+        )
+        .unwrap();
+        let artifact = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        let contract = super::super::sensor_contract::SensorContractIdentity::new(
+            super::super::sensor_contract::SensorProfile::Basic,
+            8,
+        )
+        .unwrap();
+        let mut settings = production_default_settings(55, 10);
+        for setting in &mut settings {
+            match setting.path.as_str() {
+                "sense.bubbleBins" => setting.value = NormalizedSettingValue::Integer(8),
+                "brain.controlDt" => {
+                    setting.value =
+                        NormalizedSettingValue::Float(artifact.deployment.control_interval_seconds)
+                }
+                "evolvedRespawn.recurrentState" => {
+                    setting.value = NormalizedSettingValue::Integer(1)
+                }
+                _ => {}
+            }
+        }
+        let mut prepared = prepare_fresh_boundary_with_sensor_and_baseline(
+            request(42),
+            &numeric_settings(settings),
+            artifact.graph.spec().clone(),
+            true,
+            Some(contract),
+            RunningStepWorkLimits {
+                ray_work: Some(
+                    super::super::ray_work::RayWorkLimits::new(1, 256, 65536, 512).unwrap(),
+                ),
+                ..RunningStepWorkLimits::provisional_defaults()
+            },
+            None,
+        )
+        .unwrap();
+        let pointers: Vec<_> = prepared
+            .candidate
+            .population
+            .iter()
+            .map(|genome| genome.weights.as_ptr())
+            .collect();
+        let rng = prepared.candidate.rng.clone();
+        let ids: Vec<_> = prepared
+            .candidate
+            .population
+            .iter()
+            .map(|genome| (genome.slot, genome.brain, genome.lineage.clone()))
+            .collect();
+        install_qualified_population_artifact(&mut prepared, &artifact).unwrap();
+        assert_eq!(prepared.candidate.rng, rng);
+        for (index, genome) in prepared.candidate.population.iter().enumerate() {
+            assert_eq!(&*genome.weights, artifact.weights.as_slice());
+            assert_eq!(genome.weights.as_ptr(), pointers[index]);
+            assert_eq!(
+                (genome.slot, genome.brain, genome.lineage.clone()),
+                ids[index]
+            );
+        }
+        assert!(prepared
+            .candidate
+            .brains
+            .iter()
+            .all(|brain| brain.recurrent.iter().all(|value| *value == 0.0)));
+        prepared
+            .candidate
+            .config
+            .settings
+            .iter_mut()
+            .find(|entry| entry.path == "brain.controlDt")
+            .unwrap()
+            .value = NormalizedSettingValue::Float(0.03);
+        assert!(install_qualified_population_artifact(&mut prepared, &artifact).is_err());
     }
 
     fn request(seed: u32) -> Stage6aP0FreshRunRequest {

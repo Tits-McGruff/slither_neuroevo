@@ -28,3 +28,6 @@ docs/performance/distillation/*.patch text eol=lf -whitespace
 
 # Preserve exact measured comparison driver bytes on both targets.
 docs/performance/sensor-v4/head-pair-bound-*/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
+
+# The learned-cohort receipts bind this immutable study inventory by exact bytes.
+docs/performance/sensor-v4/tactical-ablation-windows-v1/evidence.json text eol=lf
