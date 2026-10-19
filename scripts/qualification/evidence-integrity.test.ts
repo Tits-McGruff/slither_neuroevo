@@ -780,3 +780,93 @@ it.each(['windows', 'debian'])('binds %s learned P0/P1 clone workloads to retain
     }
   }
 });
+
+
+it.each(['windows', 'debian'])('verifies %s head-distance reuse against the exact learned-policy workload', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/sensor-v4/head-distance-reuse-${platform}-v1`);
+  const evidence = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    baselineSourceSha256: string; candidateSourceSha256: string; candidatePatchSha256: string; files: TacticalStudyFile[];
+  };
+  expect(sha256(readFileSync(resolve(root, 'candidate.patch')))).toBe(evidence.candidatePatchSha256);
+  expect(evidence.candidateSourceSha256).not.toBe(evidence.baselineSourceSha256);
+  const files = new Map<string, Buffer>();
+  for (const entry of evidence.files) {
+    expect(entry.path).toMatch(/^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/u);
+    expect(entry.path.split('/')).not.toContain('..'); expect(entry.archive).toBe(entry.path + '.gz');
+    expect(entry.bytes).toBeGreaterThan(0); expect(entry.bytes).toBeLessThanOrEqual(4 * 1024 ** 2);
+    const encoded = readFileSync(resolve(root, entry.archive)); expect(sha256(encoded)).toBe(entry.gzipSha256);
+    const bytes = gunzipSync(encoded, {maxOutputLength: entry.bytes + 1});
+    expect(bytes.byteLength).toBe(entry.bytes); expect(sha256(bytes)).toBe(entry.sha256);
+    expect(files.has(entry.path)).toBe(false); files.set(entry.path, bytes);
+  }
+  /** Decode cold metadata while keeping model weights opaque. */
+  const json = (name: string): Record<string, unknown> => JSON.parse(files.get(name)!.toString('utf8')) as Record<string, unknown>;
+  const comparison = json('comparison.json');
+  expect(comparison['equivalent']).toBe(true); expect(comparison['scriptSha256']).toBe(sha256(files.get('comparison.py')!));
+  expect(comparison['trainedArtifactSha256']).toBe(sha256(files.get('full.slither-brain')!));
+  const records = comparison['records'] as Array<{role: string; report: string; reportSha256: string;
+    nativeMeanMs: number; sensingMeanMs: number; nativeP95Ms: number; processCpuSeconds: number}>;
+  expect(records.map(value => value.role)).toEqual(['baseline', 'candidate', 'candidate', 'baseline']);
+  const reports = records.map((record, index) => {
+    expect(record.report).toBe(`${index}-${record.role}.json`);
+    expect(sha256(files.get(record.report)!)).toBe(record.reportSha256);
+    const report = json(record.report);
+    expect(report['sourceSha256']).toBe(record.role === 'baseline' ? evidence.baselineSourceSha256 : evidence.candidateSourceSha256);
+    expect(report['admitted']).toBe(true); expect(report['version']).toBe(6); expect(report['population']).toBe(300);
+    expect(report['workers']).toBe(8); expect(report['completedSteps']).toBe(4200); expect(report['measuredSteps']).toBe(3600);
+    expect(report['rayCap']).toBe(512); expect(report['rayBatch']).toBe(131072);
+    const descriptor = report['trainedArtifact'] as {artifactSha256: string; parameterCount: number};
+    expect(descriptor.artifactSha256).toBe(comparison['trainedArtifactSha256']); expect(descriptor.parameterCount).toBe(25042);
+    const phases = report['nativePhaseCosts'] as {totalMicros: number; sensingMicros: number};
+    expect(record.nativeMeanMs).toBe(phases.totalMicros / 3600 / 1000);
+    expect(record.sensingMeanMs).toBe(phases.sensingMicros / 3600 / 1000);
+    expect(record.nativeP95Ms).toBe((report['stepCost'] as {p95Ms: number}).p95Ms);
+    expect(report['allConsumerRayIncompleteFraction']).toBe(0); expect(report['sharedBatchBudgetHeld']).toBe(true);
+    const capture = report['capture'] as Record<string, unknown>;
+    expect(capture['exactSamplesMatch']).toBe(true); expect(capture['queueAccountingMatches']).toBe(true);
+    expect(capture['droppedSamples']).toBe(0);
+    return report;
+  });
+  for (const report of reports.slice(1)) {
+    for (const field of ['target', 'rustc', 'mathBackend', 'sensorSha256', 'trainedArtifact', 'parameterCount',
+      'authoritativeMemoryReservationBytes', 'continuationSha256', 'consumerWork', 'raw', 'normalized']) {
+      expect(report[field]).toEqual(reports[0]![field]);
+    }
+    for (const field of ['sourceSampleSha256', 'drainedSampleSha256']) {
+      expect((report['capture'] as Record<string, unknown>)[field]).toEqual((reports[0]!['capture'] as Record<string, unknown>)[field]);
+    }
+  }
+  for (const role of ['baseline', 'candidate']) {
+    const pair = records.filter(record => record.role === role);
+    const medians = comparison['medians'] as Record<string, Record<string, number>>;
+    for (const field of ['nativeMeanMs', 'sensingMeanMs', 'nativeP95Ms'] as const) {
+      expect(medians[role]![field]).toBe((pair[0]![field] + pair[1]![field]) / 2);
+    }
+  }
+  if (platform === 'debian') {
+    const profile = json('profile/profile.json');
+    expect(profile['sourceSha256']).toBe(evidence.baselineSourceSha256); expect(profile['samplingHz']).toBe(200);
+    const bytes = files.get('profile/cpu.pprof')!; expect(sha256(bytes)).toBe(profile['profileSha256']);
+    expect([0, 1, 2, 3, 4].map(index => Number(bytes.readBigUInt64LE(index * 8)))).toEqual([0, 3, 0, 5000, 0]);
+    let offset = 40; let samples = 0n; let stacks = 0;
+    while (offset + 16 <= bytes.byteLength) {
+      const count = bytes.readBigUInt64LE(offset); const depth = Number(bytes.readBigUInt64LE(offset + 8));
+      expect(depth).toBeLessThanOrEqual(1024); offset += 16;
+      expect(offset + depth * 8).toBeLessThanOrEqual(bytes.byteLength);
+      if (count === 0n) { expect(depth).toBe(1); expect(bytes.readBigUInt64LE(offset)).toBe(0n); break; }
+      offset += depth * 8; samples += count; stacks++;
+    }
+    expect(samples).toBe(30680n); expect(stacks).toBe(profile['stackRecords']); expect(Number(samples)).toBe(profile['samples']);
+    for (const [name, receipt] of Object.entries(profile['symbolText'] as Record<string, {sha256: string}>)) {
+      const text = files.get('profile/' + name)!; expect(sha256(text)).toBe(receipt.sha256);
+      expect(text.toString('utf8')).not.toContain('/home/');
+    }
+    const profiled = json('profile/profile-report.json');
+    for (const field of ['sourceSha256', 'target', 'rustc', 'mathBackend', 'trainedArtifact', 'continuationSha256', 'consumerWork', 'raw', 'normalized']) {
+      expect(profiled[field]).toEqual(reports[0]![field]);
+    }
+    for (const field of ['sourceSampleSha256', 'drainedSampleSha256']) {
+      expect((profiled['capture'] as Record<string, unknown>)[field]).toEqual((reports[0]!['capture'] as Record<string, unknown>)[field]);
+    }
+  }
+});

@@ -6,9 +6,7 @@ use super::evolved_lives::{EvolvedExperimentConfig, EvolvedGenerationState, Evol
 use super::movement::{effective_boost_cost, MovementConfig};
 use super::ray_work::{RayWorkDiagnostics, RayWorkMeter};
 use super::sensor_contract::{SensorContractIdentity, SensorProfile};
-use super::sensor_geometry::{
-    projected_head_encounter, RayIntersection, SensorRay, MOTION_HORIZON_SECONDS,
-};
+use super::sensor_geometry::{HeadSeparation, RayIntersection, SensorRay, MOTION_HORIZON_SECONDS};
 use super::sensor_layout::MAX_SENSOR_BINS;
 use super::sensor_rays::{BodyRayIndex, RayIndexError, RayQueryScratch};
 use super::sensors::{
@@ -506,7 +504,8 @@ impl SensorV4Evaluator {
             let dx = other.position.x - snake.position.x;
             let dy = other.position.y - snake.position.y;
             let radius = (snake.radius + other.radius) * cfg.collision_hit_scale;
-            let distance = dx.hypot(dy);
+            let separation = HeadSeparation::new(WorldPoint { x: dx, y: dy });
+            let distance = separation.distance();
             let clearance = (distance - radius).max(0.0);
             if clearance <= radii.near {
                 let bin = sector_bin(
@@ -536,15 +535,15 @@ impl SensorV4Evaluator {
                     },
                     |heads| heads.velocities[index],
                 );
-                let encounter = projected_head_encounter(
-                    super::state::WorldPoint { x: dx, y: dy },
-                    super::state::WorldPoint {
-                        x: velocity.x - own_vx,
-                        y: velocity.y - own_vy,
-                    },
-                    radius,
-                )
-                .map_err(|_| V4SensorError::Geometry)?;
+                let encounter = separation
+                    .projected_encounter(
+                        super::state::WorldPoint {
+                            x: velocity.x - own_vx,
+                            y: velocity.y - own_vy,
+                        },
+                        radius,
+                    )
+                    .map_err(|_| V4SensorError::Geometry)?;
                 if let Some(encounter) = encounter {
                     let contact = encounter.relative_at_contact;
                     let distance = if sector_bins.is_some() {
@@ -774,6 +773,7 @@ impl std::error::Error for V4SensorError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::sensor_geometry::projected_head_encounter;
     use crate::engine::sensor_rays::BodyRayIndexWorkspace;
     use crate::engine::spatial::SensorIndexConfig;
     use crate::engine::state::{BodyRange, PelletState, WorldPoint, WorldState};

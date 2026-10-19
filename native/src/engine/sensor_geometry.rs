@@ -203,6 +203,55 @@ pub struct ProjectedHeadEncounter {
     pub relative_at_contact: WorldPoint,
 }
 
+/// One immutable relative position and its exact hypot, shared by sector and motion sensing.
+/// Private fields prevent a caller from supplying a norm for a different position.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct HeadSeparation {
+    position: WorldPoint,
+    distance: f64,
+}
+
+impl HeadSeparation {
+    /// Measure exactly once. Motion admission validates the retained position;
+    /// Basic sector sensing keeps its existing distance-only numeric behavior.
+    pub(crate) fn new(position: WorldPoint) -> Self {
+        Self {
+            distance: position.x.hypot(position.y),
+            position,
+        }
+    }
+
+    pub(crate) const fn distance(self) -> f64 {
+        self.distance
+    }
+
+    /// Reuse this position's norm without weakening the ordinary geometry boundary.
+    pub(crate) fn projected_encounter(
+        self,
+        relative_velocity: WorldPoint,
+        combined_radius: f64,
+    ) -> Result<Option<ProjectedHeadEncounter>, SensorGeometryError> {
+        validate_head_motion(self.position, relative_velocity, combined_radius)?;
+        Ok(projected_head_encounter_from_separation(
+            self,
+            relative_velocity,
+            combined_radius,
+        ))
+    }
+}
+
+/// Keep every motion entry point's finite/range admission identical.
+fn validate_head_motion(
+    position: WorldPoint,
+    velocity: WorldPoint,
+    radius: f64,
+) -> Result<(), SensorGeometryError> {
+    if !valid_point(position) || !valid_point(velocity) || !valid_nonnegative(radius) {
+        return Err(SensorGeometryError);
+    }
+    Ok(())
+}
+
 /// Relative-motion disc intersection over the declared two-second horizon.
 /// Position and velocity are other minus observer in world coordinates.
 pub fn projected_head_encounter(
@@ -210,46 +259,54 @@ pub fn projected_head_encounter(
     relative_velocity: WorldPoint,
     combined_radius: f64,
 ) -> Result<Option<ProjectedHeadEncounter>, SensorGeometryError> {
-    if !valid_point(relative_position)
-        || !valid_point(relative_velocity)
-        || !valid_nonnegative(combined_radius)
-    {
-        return Err(SensorGeometryError);
-    }
-    let p = relative_position;
+    validate_head_motion(relative_position, relative_velocity, combined_radius)?;
+    Ok(projected_head_encounter_from_separation(
+        HeadSeparation::new(relative_position),
+        relative_velocity,
+        combined_radius,
+    ))
+}
+
+/// The frozen solver, receiving the same already measured hypot and operand order.
+fn projected_head_encounter_from_separation(
+    separation: HeadSeparation,
+    relative_velocity: WorldPoint,
+    combined_radius: f64,
+) -> Option<ProjectedHeadEncounter> {
+    let p = separation.position;
     let v = relative_velocity;
-    let distance = p.x.hypot(p.y);
+    let distance = separation.distance;
     if distance <= combined_radius {
-        return Ok(Some(ProjectedHeadEncounter {
+        return Some(ProjectedHeadEncounter {
             seconds: 0.0,
             relative_at_contact: p,
-        }));
+        });
     }
     let a = v.x * v.x + v.y * v.y;
     let projection = p.x * v.x + p.y * v.y;
     if a == 0.0 || projection >= 0.0 {
-        return Ok(None);
+        return None;
     }
     let cross = p.x * v.y - p.y * v.x;
     let perpendicular_squared = cross * cross / a;
     let radius_squared = combined_radius * combined_radius;
     if perpendicular_squared > radius_squared {
-        return Ok(None);
+        return None;
     }
     let root = (a * (radius_squared - perpendicular_squared)).sqrt();
     // Product form avoids subtracting nearly equal roots near initial contact.
     let c = (distance - combined_radius) * (distance + combined_radius);
     let seconds = c / (-projection + root);
     if seconds > MOTION_HORIZON_SECONDS || !seconds.is_finite() {
-        return Ok(None);
+        return None;
     }
-    Ok(Some(ProjectedHeadEncounter {
+    Some(ProjectedHeadEncounter {
         seconds,
         relative_at_contact: WorldPoint {
             x: p.x + v.x * seconds,
             y: p.y + v.y * seconds,
         },
-    }))
+    })
 }
 
 fn ray_disc(ray: SensorRay, center: WorldPoint, radius: f64) -> Option<f64> {
@@ -338,6 +395,58 @@ mod tests {
     }
     fn close(actual: f64, expected: f64) {
         assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+    }
+
+    #[test]
+    fn shared_head_distance_preserves_numeric_edges_and_geometry_rejections() {
+        let positions = [
+            -1.0e12,
+            -100.0,
+            -10.0,
+            -0.0,
+            0.0,
+            1.0e-300,
+            10.0,
+            100.0,
+            1.0e12,
+            f64::NAN,
+            f64::INFINITY,
+        ];
+        let velocities = [
+            point(-50.0, 0.0),
+            point(0.0, 50.0),
+            point(0.0, 0.0),
+            point(50.0, -50.0),
+            point(1.0e12, -1.0e12),
+            point(f64::NAN, 0.0),
+        ];
+        let radii = [0.0, 10.0, 1.0e12, -1.0, f64::NAN];
+        let bits = |result: Result<Option<ProjectedHeadEncounter>, SensorGeometryError>| {
+            result.map(|encounter| {
+                encounter.map(|value| {
+                    [
+                        value.seconds.to_bits(),
+                        value.relative_at_contact.x.to_bits(),
+                        value.relative_at_contact.y.to_bits(),
+                    ]
+                })
+            })
+        };
+        for x in positions {
+            for y in positions {
+                let position = point(x, y);
+                let separation = HeadSeparation::new(position);
+                assert_eq!(separation.distance().to_bits(), x.hypot(y).to_bits());
+                for velocity in velocities {
+                    for radius in radii {
+                        assert_eq!(
+                            bits(separation.projected_encounter(velocity, radius)),
+                            bits(projected_head_encounter(position, velocity, radius))
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
