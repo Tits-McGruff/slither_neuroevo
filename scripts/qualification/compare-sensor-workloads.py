@@ -58,6 +58,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
+    parser.add_argument("--trained-artifact", type=Path)
     parser.add_argument("--baseline-source", required=True)
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--scenario", choices=["P0", "P1"], default="P1")
@@ -80,6 +81,10 @@ def parse_args():
     args.candidate = args.candidate.resolve(strict=True)
     if not args.baseline.is_file() or not args.candidate.is_file() or args.baseline == args.candidate:
         parser.error("distinct regular native executables required")
+    if args.trained_artifact is not None:
+        args.trained_artifact = args.trained_artifact.resolve(strict=True)
+        if not args.trained_artifact.is_file() or not 0 < args.trained_artifact.stat().st_size <= 64 * 1024**2:
+            parser.error("bounded regular trained artifact required")
     args.directory = args.directory.resolve()
     args.directory.mkdir()  # Exclusive; never reuse or remove owner files.
     return args
@@ -92,15 +97,20 @@ def main():
     binaries = {"baseline": args.baseline, "candidate": args.candidate}
     binary_sha = {name: digest(path) for name, path in binaries.items()}
     sources = {"baseline": args.baseline_source}
-    common = ["--scenario", args.scenario, "--profile", "motion", "--bins", "16", "--graph", "modest",
+    common = ["--scenario", args.scenario, "--profile", "motion", "--bins", "16",
               "--respawn", "on", "--seed", "42", "--workers", str(args.workers), "--math-backend", "sse2",
               "--minimum", "1", "--cap", str(args.ray_cap), "--batch", str(args.ray_batch), "--baseline", "v2-stochastic",
               "--baseline-cadence", "0.016666666666666666", "--capture", "on", "--warmup", str(args.warmup),
               "--steps", str(args.steps), "--environment", args.environment]
+    artifact_sha = None if args.trained_artifact is None else digest(args.trained_artifact)
+    common.extend(["--graph", "modest"] if args.trained_artifact is None else
+                  ["--trained-artifact", str(args.trained_artifact)])
     records = []
     reference = None
     for index, role in enumerate(["baseline", "candidate", "candidate", "baseline"]):
         require(digest(binaries[role]) == binary_sha[role], "executable changed during comparison")
+        if args.trained_artifact is not None:
+            require(digest(args.trained_artifact) == artifact_sha, "trained artifact changed during comparison")
         stem = f"{index}-{role}"
         output = args.directory / (stem + ".json")
         command = [str(binaries[role]), *common, "--workspace", str(args.directory / (stem + "-workspace")), "--output", str(output)]
@@ -119,7 +129,11 @@ def main():
         require(code == 0, f"native comparison case failed: {stem} exit {code}")
         require(output.stat().st_size <= 4 * 1024 * 1024, "native report exceeds admission")
         report = json.loads(output.read_bytes())
-        require(report["admitted"] and report["version"] in (4, 5), "admitted version-4/5 workload required")
+        require(report["admitted"] and report["version"] in ((4, 5) if artifact_sha is None else (6,)),
+                "admitted random or trained workload required")
+        if artifact_sha is not None:
+            require(report["trainedArtifact"]["artifactSha256"] == artifact_sha, "wrong learned policy")
+            require(digest(args.trained_artifact) == artifact_sha, "trained artifact changed during run")
         require(report["rayMinimum"] == 1 and report["rayCap"] == args.ray_cap
                 and report["rayBatch"] == args.ray_batch, "requested ray admission required")
         require(report["warmupSteps"] == args.warmup and report["measuredSteps"] == args.steps and
@@ -133,6 +147,8 @@ def main():
             reference = report
         for key in ["target", "rustc", "mathBackend", "sensorSha256", "parameterCount", "continuationSha256", "consumerWork", "raw", "normalized"]:
             require(reference[key] == report[key], f"comparison changed {key}")
+        if artifact_sha is not None:
+            require(reference["trainedArtifact"] == report["trainedArtifact"], "trained deployment changed")
         for key in ["sourceSampleSha256", "drainedSampleSha256"]:
             require(reference["capture"][key] == report["capture"][key], f"comparison changed {key}")
         phases = report["nativePhaseCosts"]
@@ -147,7 +163,7 @@ def main():
     medians = {role: {key: statistics.median(row[key] for row in records if row["role"] == role)
                       for key in ["nativeMeanMs", "sensingMeanMs", "nativeP95Ms"]} for role in binaries}
     require(digest(Path(__file__)) == script_sha, "comparison script changed during run")
-    result = {"version": 1, "scriptSha256": script_sha, "arguments": common, "order": [row["role"] for row in records],
+    result = {"version": 1, "scriptSha256": script_sha, "trainedArtifactSha256": artifact_sha, "arguments": common, "order": [row["role"] for row in records],
               "equivalent": True, "records": records, "medians": medians,
               "caveat": "Adjacent ABBA process runs on a shared host; descriptive timing evidence, not a release pass or statistical confidence claim. Native reports exclude observer/startup from step cost; child CPU/wall includes the entire CLI process. Exact equality is asserted for these same-target workloads only, not promised across revisions/platforms. Reports and executables are immutable during the comparison; no owner database, controller, or runtime defaults change."}
     with (args.directory / "comparison.json").open("x", encoding="utf-8") as stream:

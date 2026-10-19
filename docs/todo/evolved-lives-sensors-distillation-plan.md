@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-19)
+## Implementation progress (2026-10-20)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -1102,6 +1102,19 @@ performance directory. All 764 release library tests pass locally. This is one
 initialization/held-out seed on short synthetic constant-opponent tactics, not a
 profile/normalization selection or representative-population/performance/soak
 pass. Production defaults remain gated.
+
+The qualification-only population constructor now loads portable trained policies
+before its durable run-start boundary, preserving allocations, identities and
+initialization RNG. Full/Core P0/P1 measurements cover 600 warmup plus 3,600
+measured steps with one/eight workers on Windows and Debian. Every within-target
+worker pair preserves exact state/distributions/capture; no incomplete rays or
+teacher drops occur. Windows P1 native cost meets the reference; Debian P1 does
+not. These are single-policy clones, not mature diverse populations. That
+checkpoint also records both CUDA 250-update/restart students, four shadows
+and library deployment. Native head sensing now reuses its measured relative
+norm; paired source comparisons preserve all state/capture witnesses, with
+a modest Debian CPU gain and mixed Windows/tail results. Retained measurements and
+limitations are linked from `docs/performance/sensor-v4/README.md`.
 
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload

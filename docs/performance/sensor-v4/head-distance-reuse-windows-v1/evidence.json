@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "baseCommit": "292086cca07f7bd23a2cdba9152d7ae5a8e7552e",
+  "baselineSourceSha256": "d49d946ca72487a3271555d58c4ecd5f3de3fb4d20271e3845c719b38c224611",
+  "candidateSourceSha256": "efa5bd182a96b3702c5b6fba00a7d095716adc4fa615e2865934436acce2fd2b",
+  "candidatePatchSha256": "e6ba47c74a6b2e8e71b45602dfd69be8c2448ad9dfe7cc12b661321f74741711",
+  "files": [
+    {
+      "path": "comparison.json",
+      "archive": "comparison.json.gz",
+      "bytes": 4233,
+      "sha256": "e6f6cf2a50fa6d5746196986bd90146c5214f4d41cbea367fd3eac20c5f025ef",
+      "gzipSha256": "d6ad8a8d9739fb3dadcbcf75cab8de6379ff0f6d78c1e75e20c9cb473f6ad0df"
+    },
+    {
+      "path": "comparison.py",
+      "archive": "comparison.py.gz",
+      "bytes": 10987,
+      "sha256": "2b2d995b57d602071059b932a573d2db9bd7f78dada175672b15d94a73aabe9e",
+      "gzipSha256": "785ce3053382cf7bfc62c80261e77c22840786fcf60f025e9cf80c66b3683fb1"
+    },
+    {
+      "path": "full.slither-brain",
+      "archive": "full.slither-brain.gz",
+      "bytes": 118579,
+      "sha256": "d19a7f2df7a4c2edccfe3c0f214f1936a483332b273d53b70089b64cccaffe52",
+      "gzipSha256": "06ee21eafeab404671ee371114cfeec64453456a332b19fd0ecb60df674d2e06"
+    },
+    {
+      "path": "0-baseline.json",
+      "archive": "0-baseline.json.gz",
+      "bytes": 221243,
+      "sha256": "278f9440a14edc966b27a9a593638f4a56f0e7ad03d3a99d41ed3369c436c558",
+      "gzipSha256": "e812fff2a56d5f26d78d61890eddb90b202c33a199549ffa789786f3c2af5e64"
+    },
+    {
+      "path": "1-candidate.json",
+      "archive": "1-candidate.json.gz",
+      "bytes": 221234,
+      "sha256": "43883ce0ddb300456eda4335b9d97f7dd3dfea1cb9d76f68b7b6a33d9a2dbc41",
+      "gzipSha256": "59c9d0dcd4f1396eed7a9952d0bca69c9464f31a0bd46a6c0b22d6ab8116ffba"
+    },
+    {
+      "path": "2-candidate.json",
+      "archive": "2-candidate.json.gz",
+      "bytes": 221266,
+      "sha256": "33ea4ad252ec5ca3eeec00190963023398c22d7d79c8f2e477a59cd8d85e150f",
+      "gzipSha256": "91c8327fa8434554c92ac874f93c3b3d8c92eff5b419967b90f920d6daf56418"
+    },
+    {
+      "path": "3-baseline.json",
+      "archive": "3-baseline.json.gz",
+      "bytes": 221279,
+      "sha256": "a272329a5f3e56e8121473e06418396435376200f6ca27303234a3a6840dd24d",
+      "gzipSha256": "20cb5dbb0abd7158558227853d40b2b822f89e7857dad3f46c00ef6da80fd3ff"
+    }
+  ]
+}

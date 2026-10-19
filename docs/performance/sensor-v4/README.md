@@ -1092,7 +1092,7 @@ startup/checkpoint, Node/browser/network, real-clock wall debt and concurrent
 training; those acceptance gates remain separate.
 
 
-The current-source live CUDA receipt is also retained with the Windows cohort
+The trained-cohort checkpoint's live CUDA receipt is retained with the Windows cohort
 evidence. It exercises two 250-update jobs with exact process-restart
 continuation, four active native shadows and a trained Dense brain's library
 save/export/spawn/delete lifecycle. All four shadows produce real samples;
@@ -1124,3 +1124,37 @@ performance differences or close real-clock service, diverse trained-population
 coverage, normalization/profile/default selection, integrated capacity or soak
 gates. The explicit 512-unit per-consumer/131,072-unit shared ray admission is
 a measured candidate; application defaults remain unchanged.
+
+
+## Reusing measured head separation
+
+A baseline Full Motion P1 userspace CPU profile on Debian records 30,680 samples.
+Its state, histograms and teacher hashes match the unprofiled retained cohort.
+The profile identifies repeated head norms: sector sensing already computes
+`hypot(dx,dy)`, then motion prediction computes it again. `HeadSeparation` now
+owns the immutable relative point and its computed norm, shared by both paths.
+Private fields prevent mismatched point/norm inputs; geometry admission and the
+solver's arithmetic/order remain unchanged. Basic retains its prior numeric
+behavior. No persistent state, allocation, quotas, sensors or defaults change.
+
+The comparison driver accepts optional `--trained-artifact FILE`; ordinary
+random-graph comparisons remain available. Adjacent ABBA pairs use the exact
+retained Full Motion policy, P1, seed 42, eight workers, 600 warmup and 3,600
+measured steps, with explicit ray admission 512/131,072. Every run preserves
+complete state, consumer work, raw/normalized distributions and committed
+teacher hashes across the source change. Native memory reservations also match.
+
+| Target | Mean native ms, baseline to candidate | Mean sensing ms | Process CPU seconds | Native p95 ms |
+|---|---:|---:|---:|---:|
+| Windows | 9.819 to 9.767 | 3.954 to 3.922 | 156.52 to 157.26 | 12.081 to 12.135 |
+| Debian | 24.467 to 24.219 | 10.942 to 10.695 | 368.16 to 360.36 | 33.667 to 34.170 |
+
+These descriptive shared-host medians show a modest Debian CPU/mean improvement.
+Windows mean service is nearly flat and process CPU is slightly higher; p95 is
+slightly higher on both targets. They establish no statistical confidence or
+new real-clock service pass. Debian P1 remains above the step-cost target.
+Lossless reports, exact policy/driver, source patch and the Debian CPU profile
+are retained in `head-distance-reuse-windows-v1/` and
+`head-distance-reuse-debian-v1/`. Profile source paths use public relative
+prefixes; its binary records and original report are preserved. Userspace
+sampling includes observer/startup/unwinding and is diagnostic, not step timing.
