@@ -75,12 +75,15 @@ jobs:
           cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
           --bin baseline-v2-qualification -- --seed-count 4 --steps 180 --workers 1
           --cadence "0.016666666666666666" --output "${{ runner.temp }}/baseline-v2-tactics.json"
+          --corpus-directory "${{ runner.temp }}/baseline-v2-corpus"
       - name: Retain native tactical outcomes
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: baseline-v2-tactics-${{ matrix.os }}-node-${{ matrix.node-version }}
-          path: ${{ runner.temp }}/baseline-v2-tactics.json
+          path: |
+            ${{ runner.temp }}/baseline-v2-tactics.json
+            ${{ runner.temp }}/baseline-v2-corpus/
           if-no-files-found: warn
       - name: Native committed capture batch
         run: >-

@@ -1,5 +1,7 @@
 //! Bounded actual-native tactical batches, with no server or owner database.
-use slither_native::engine::baseline_qualification::{run_tactical_qualification, TacticalOptions};
+use slither_native::engine::baseline_qualification::{
+    run_tactical_qualification_with_corpus, TacticalOptions,
+};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::OpenOptions;
@@ -15,6 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--workers",
             "--cadence",
             "--output",
+            "--corpus-directory",
         ]
         .contains(&flag.as_str())
         {
@@ -36,12 +39,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     if std::path::Path::new(output).exists() {
         return Err("report already exists".into());
     }
-    let report = run_tactical_qualification(TacticalOptions {
-        seed_count: get("--seed-count", "16").parse()?,
-        steps: get("--steps", "180").parse()?,
-        workers: get("--workers", "1").parse()?,
-        cadence_seconds: get("--cadence", "0.016666666666666666").parse()?,
-    })?;
+    let report = run_tactical_qualification_with_corpus(
+        TacticalOptions {
+            seed_count: get("--seed-count", "16").parse()?,
+            steps: get("--steps", "180").parse()?,
+            workers: get("--workers", "1").parse()?,
+            cadence_seconds: get("--cadence", "0.016666666666666666").parse()?,
+        },
+        values.get("--corpus-directory").map(std::path::Path::new),
+    )?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

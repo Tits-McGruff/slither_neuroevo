@@ -967,3 +967,29 @@ also passes a separate 60-second P0 background-clock window: 3,603 steps,
 minimum sim/wall 1.000001, p95/p99 upper buckets 4/6 ms, zero dropped wall time,
 overload or capture drops. Both P0 and P1 clock reports are retained and
 recomputed from health reads. The same exclusions and production gates apply.
+
+
+## Committed tactical corpus for ablation training
+
+`baseline-v2-qualification` accepts optional `--corpus-directory NEW_DIRECTORY`.
+It exports Motion/B16 deterministic and stochastic teacher observations/actions
+from all 14 native physical fixtures, preserving each scenario/seed/mode as a
+separate sequence. Samples are staged at delivery and exported after successful
+complete-step physics; held/dead rows are absent. Capture leaves every tactical
+trajectory/RNG witness unchanged. The existing tactical report stays compatible.
+
+The exclusive directory contains little-endian `observations.f32` (N by 264),
+`actions.f32` (N by turn/boost-request), and `steps.u32` (N delivered step IDs).
+The final atomic `corpus.json` binds exact object hashes/sizes, canonical sensor
+bytes/digest, cadence, native source/target and contiguous sequence ownership.
+Worst-case binary output plus a 1-MiB metadata reserve must fit an independent
+256-MiB offline ceiling before paths are created. Files are synced before final
+publication; interrupted directories without a valid manifest are incomplete.
+No runtime scratch, checkpoint or spool admission changes.
+
+PyRL's `load_tactical_corpus` verifies this format and exposes read-only arrays;
+`split_by_seed` keeps whole native trajectories out of the training split. A
+small exact native fixture covers interoperability and malformed input rejection.
+CI retains fresh corpora beside its existing tactical reports. This supplies
+reproducible tactical training data; trained population distributions, channel
+ablations, held-out agreement and student gameplay evaluation remain open.

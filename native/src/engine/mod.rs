@@ -208,3 +208,7 @@ pub use world_step::ExternalDeliveryStatus;
 /// Seeded tactical batches using the real native prefix/control/physics pipeline.
 #[cfg(feature = "engine-test-hooks")]
 pub mod baseline_qualification;
+
+/// Bounded synthetic committed-row export for offline tactical training.
+#[cfg(feature = "engine-test-hooks")]
+mod tactical_corpus;
