@@ -993,3 +993,70 @@ small exact native fixture covers interoperability and malformed input rejection
 CI retains fresh corpora beside its existing tactical reports. This supplies
 reproducible tactical training data; trained population distributions, channel
 ablations, held-out agreement and student gameplay evaluation remain open.
+
+
+## Portable student tactical evaluation
+
+The same native qualifier accepts `--student-artifact STUDENT.slither-brain`
+with explicit `--seed-start`, `--seed-count`, `--steps`, `--workers`, `--cadence`
+and a new `--output` report. Student mode cannot export a teacher corpus.
+Ordinary portable admission independently rebuilds the graph/packing/sensors;
+this bounded cohort additionally requires Motion/B16, at most one million
+parameters and one terminal Dense2 output. Requested cadence must equal the
+artifact's deployment cadence. Seed ranges stay within 1..64 so complete held-out
+corpus seeds can be evaluated without including training geometry.
+
+Each student owns a real retained neural snake, starts with zero recurrence,
+uses normal delivered/held control and advances all physical substeps. Opponents
+keep their zero-turn constant outputs and the explicit boosted pursuer under
+the admitted graph. Trials stop at death or horizon and record actual food,
+spending, kills, collision cause, saturation and trajectory witnesses. A frozen
+v1 reference starts from the same physical geometry. Native regression tests
+check cadence, minimum-length boost eligibility, constant opponent outputs,
+paired physical outcomes and exact single/multiple-worker continuations.
+
+PyRL's `tactical_ablation_gate` compiles/initializes each graph through Rust,
+streams one identical seeded window schedule through the canonical Adam/TBPTT
+owner, checks trained whole-graph output/state parity, and deploys before/after
+portable artifacts on the held-out seed. Graph ablations remove bearing,
+heading, velocity, urgency or density through explicit Split/Concat ports;
+`core-only` retains the scalar prefix and six Basic channels. Every experiment
+still receives the full Motion sensor contract, so these are information and
+parameter/inference experiments without claimed sensing savings or a frozen
+sensor-layout choice. Short fatal lives remain eligible; available native
+prefixes determine actual burn-in and later truncated starts are labelled gaps.
+Native gameplay and held-out agreement remain separate measurements.
+
+
+The first complete Windows CUDA study uses three native seeds, 84 sequences and
+13,738 committed rows from the 14 scenarios and two teacher modes. Seeds 1/2
+train; seed 3 is held out for both agreement and actual student physics. Each
+variant performs 250 real Adam updates on the same 461,847 training and 169,984
+burn-in rows. Initial/trained artifacts, corpus, native reports, source snapshots
+and 180-delivery trained output/state parity evidence are retained losslessly in
+`tactical-ablation-windows-v1/` and bound by automated integrity checks.
+
+| Graph input selection | Parameters | Held-out turn MAE after training | Boost-request disagreement after training | Native surviving scenarios, before to after |
+|---|---:|---:|---:|---:|
+| Full Motion | 25,042 | 0.1593 | 1.365% | 6 to 9 |
+| No bearing residual | 24,018 | 0.1368 | 1.258% | 6 to 7 |
+| No heading pair | 22,994 | 0.1247 | 1.066% | 8 to 10 |
+| No velocity pair | 22,994 | 0.1356 | 0.981% | 5 to 7 |
+| No urgency | 24,018 | 0.1324 | 1.109% | 4 to 7 |
+| No density | 24,018 | 0.1362 | 1.087% | 4 to 8 |
+| Scalar/six-channel core | 15,826 | 0.1463 | 4.499% | 7 to 13 |
+
+Full Motion turn MAE falls from 0.5412 to 0.1593; its boost disagreement falls
+from 7.079% to 1.365%. All seven exported models independently load through Rust
+and complete the held-out native trials. Maximum trained-prefix output/state
+absolute differences are below 1.3e-6, within the existing canonical tolerances.
+The runs use Torch 2.14.0+cu126 on CUDA0 with TF32 disabled; native tools use the
+recorded debug build and timings are not a native performance gate.
+
+These are preliminary three-second synthetic tactics with one initialization
+seed and one held-out geometry seed, plus constant opponents. Agreement,
+survival and food rankings differ. The core's stronger survival here does not
+establish that motion information is unnecessary in representative traffic.
+The study does not select a profile, remove channels, freeze normalization,
+reduce sensing work or close representative-population/native-performance/soak
+acceptance. Both positive and negative model outcomes remain available.

@@ -523,15 +523,16 @@ fn trial(
     policy: Policy,
     options: TacticalOptions,
 ) -> Result<TacticalTrial> {
-    trial_with_corpus(scenario, seed, policy, options, None)
+    trial_with_subject(scenario, seed, policy, options, None, None)
 }
 
-fn trial_with_corpus(
+fn trial_with_subject(
     scenario: Scenario,
     seed: u32,
     policy: Policy,
     options: TacticalOptions,
     mut corpus: Option<&mut super::tactical_corpus::TacticalCorpusWriter>,
+    student: Option<&TacticalStudent>,
 ) -> Result<TacticalTrial> {
     let mut pending_observation = [0.0f32; 264];
     let sensor_config = SensorConfig {
@@ -548,8 +549,15 @@ fn trial_with_corpus(
             policy.profile(),
         )?
     };
-    let plan = plan(sensor.layout().input_size)?;
+    let plan = if let Some(student) = student {
+        GraphExecutionPlan::build(&student.artifact.graph)?
+    } else {
+        plan(sensor.layout().input_size)?
+    };
     let mut state = fixture(scenario, seed, policy, &plan)?;
+    if let Some(student) = student {
+        student.install(&mut state, scenario)?;
+    }
     let pipeline = NeuralControlPipeline::try_new(
         MAX_SNAKES,
         sensor,
@@ -558,14 +566,20 @@ fn trial_with_corpus(
         512 * 1024 * 1024,
     )?;
     let mut control = ControlPhaseWorkspace::new(pipeline)?;
-    if policy.mode().is_some() {
+    if policy.mode().is_some() && student.is_none() {
         control.configure_teacher_capture(&[0])?;
     }
     let mut prefix_workspace = FixedStepPrefixWorkspace::new();
     let mut commits = ControlCommitWorkspace::new();
     let mut physics = WorldStepWorkspace::new();
     physics.track_qualification_subject(1);
-    let config = config(policy, options.cadence_seconds);
+    let mut config = config(policy, options.cadence_seconds);
+    if student.is_some() {
+        config.prefix.baseline.slot_count = 0;
+        config.baseline = config.prefix.baseline;
+        config.control.baseline_v2 = None;
+        config.control.neural_control_interval_seconds = options.cadence_seconds;
+    }
     let lives = EvolvedGenerationState::default();
     let mut generation = SensorGenerationState::new();
     // The generation-best boundary is initialized before the first delivered sample.
@@ -576,7 +590,11 @@ fn trial_with_corpus(
     let mut report = TacticalTrial {
         scenario: scenario.label(),
         seed,
-        policy: policy.label(),
+        policy: if student.is_some() {
+            "canonical-student"
+        } else {
+            policy.label()
+        },
         steps: 0,
         alive: true,
         death_cause: None,
@@ -632,6 +650,15 @@ fn trial_with_corpus(
             wall_now_ms: u64::from(step) * 17,
             config: config.control,
         })?;
+        let student_action = if student.is_some() {
+            phase
+                .control_updates()
+                .iter()
+                .find(|action| action.snake_id() == 1)
+                .copied()
+        } else {
+            None
+        };
         let mut charged = 0u64;
         for action in phase.baseline_controls() {
             report.observations += 1;
@@ -732,6 +759,25 @@ fn trial_with_corpus(
                 decision.boost_request,
             )?;
         }
+        if let Some(action) = student_action {
+            if step == 0 {
+                report.first_action.turn = action.turn();
+                report.first_action.boost = action.boost();
+            }
+            if action.source() == super::control_phase::SelectedControlSource::NeuralEvaluated {
+                let batch = control
+                    .qualification_batch()
+                    .ok_or("missing committed student batch")?;
+                let index = batch
+                    .work()
+                    .iter()
+                    .position(|work| work.snake_id() == 1)
+                    .ok_or("missing committed student work")?;
+                report.observations += 1;
+                report.incomplete_observations +=
+                    u64::from(batch.diagnostics()[index].incomplete_rays != 0);
+            }
+        }
         report.steps += 1;
         report.alive = outcome.alive_after;
         report.alive_seconds += DT;
@@ -770,16 +816,7 @@ fn trial_with_corpus(
     Ok(report)
 }
 
-/// Execute fixed seeded paired fixtures. This does not select production defaults.
-pub fn run_tactical_qualification(options: TacticalOptions) -> Result<TacticalReport> {
-    run_tactical_qualification_with_corpus(options, None)
-}
-
-/// Optionally export exact committed Motion teacher rows into an exclusive offline directory.
-pub fn run_tactical_qualification_with_corpus(
-    options: TacticalOptions,
-    corpus_directory: Option<&std::path::Path>,
-) -> Result<TacticalReport> {
+fn validate_tactical_options(options: TacticalOptions) -> Result<()> {
     if !(1..=64).contains(&options.seed_count)
         || !(1..=600).contains(&options.steps)
         || options.workers == 0
@@ -792,6 +829,20 @@ pub fn run_tactical_qualification_with_corpus(
         control_interval_seconds: options.cadence_seconds,
     }
     .validate()?;
+    Ok(())
+}
+
+/// Execute fixed seeded paired fixtures. This does not select production defaults.
+pub fn run_tactical_qualification(options: TacticalOptions) -> Result<TacticalReport> {
+    run_tactical_qualification_with_corpus(options, None)
+}
+
+/// Optionally export exact committed Motion teacher rows into an exclusive offline directory.
+pub fn run_tactical_qualification_with_corpus(
+    options: TacticalOptions,
+    corpus_directory: Option<&std::path::Path>,
+) -> Result<TacticalReport> {
+    validate_tactical_options(options)?;
     let mut corpus = corpus_directory
         .map(|root| super::tactical_corpus::TacticalCorpusWriter::new(root, options))
         .transpose()?;
@@ -805,7 +856,7 @@ pub fn run_tactical_qualification_with_corpus(
                         writer.begin();
                     }
                     let result =
-                        trial_with_corpus(scenario, seed, policy, options, corpus.as_mut())?;
+                        trial_with_subject(scenario, seed, policy, options, corpus.as_mut(), None)?;
                     if let Some(writer) = corpus.as_mut() {
                         writer.end(&result)?;
                     }
@@ -830,6 +881,152 @@ pub fn run_tactical_qualification_with_corpus(
     Ok(TacticalReport{version:2,source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),math_backend:super::inference::InferenceMathBackend::detect().label(),sensor_sha256:[super::sensor_contract::SensorContractIdentity::new(SensorProfile::V3,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Basic,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion,BINS)?.sha256_hex()?],workers:options.workers,seed_count:options.seed_count,maximum_steps:options.steps,v2_cadence_seconds:options.cadence_seconds,bins:BINS,ordinary_ray_limits:[1,256,4096],saturation_ray_limits:[1,1,256],caveat:"Synthetic paired initial geometry; native prefix, actual delivered control/inference, all three physics substeps, food, collisions, effects and baseline death handling. Neural opponents use zero-turn constant Dense policies, with an explicit boosted pursuer in boost-escape. Trials stop on subject death; no respawn, evolution, server, dataset or student agreement is qualified. First-action differences compare identical initial geometry to frozen v1, whose cadence remains fixed-step; later trajectories may diverge. Debug trajectory witnesses apply only within a matching source/build, not across platforms or revisions. Copies and reporting are unmeasured; this is not a real-time cost or universal policy-superiority gate.",trials})
 }
 
+/// One independently decoded portable artifact, with an explicit constant-opponent head.
+pub struct TacticalStudent {
+    artifact: super::brain_artifact::ValidatedBrainArtifact,
+    opponent_boost_bias: usize,
+}
+impl TacticalStudent {
+    /// Ordinary portable admission plus the bounded Motion/B16 tactical cohort restriction.
+    pub fn from_artifact(bytes: &[u8]) -> Result<Self> {
+        Self::from_validated(super::brain_artifact::validate_brain_artifact(bytes)?)
+    }
+    fn from_validated(artifact: super::brain_artifact::ValidatedBrainArtifact) -> Result<Self> {
+        let expected =
+            super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion, BINS)?
+                .sha256_hex()?;
+        if artifact.canonical_manifest.sensor_sha256 != expected
+            || artifact.weights.len() > 1_000_000
+        {
+            return Err(
+                "student tactical cohort requires Motion/B16 and at most one million parameters"
+                    .into(),
+            );
+        }
+        let outputs = &artifact.graph.outputs;
+        if outputs.len() != 1 || outputs[0].port.unwrap_or(0) != 0 {
+            return Err("student tactical cohort requires one terminal Dense2 output".into());
+        }
+        let head = artifact
+            .graph
+            .nodes
+            .iter()
+            .find(|node| node.id == outputs[0].node_id)
+            .ok_or("missing student output node")?;
+        if head.node_type != super::graph::CompiledNodeType::Dense || head.output_size != 2 {
+            return Err("student tactical cohort requires one terminal Dense2 output".into());
+        }
+        let opponent_boost_bias = head.parameter_offset + head.parameter_length - 1;
+        Ok(Self {
+            artifact,
+            opponent_boost_bias,
+        })
+    }
+    fn install(&self, state: &mut Fixture, scenario: Scenario) -> Result<()> {
+        // Opponents remain zero-turn, with only the explicit escape pursuer boosting.
+        for brain in &mut state.brains {
+            let weights = brain
+                .non_population_weights
+                .as_mut()
+                .ok_or("missing opponent weights")?;
+            weights.fill(0.0);
+            if matches!(scenario, Scenario::BoostEscape) && brain.handle.id == 2 {
+                weights[self.opponent_boost_bias] = 1.0;
+            }
+        }
+        let subject = &mut state.world.snakes[0];
+        subject.kind = SnakeKind::Resurrected;
+        subject.baseline_slot = None;
+        subject.baseline_strategy = None;
+        let handle = BrainHandle { id: 1, epoch: 1 };
+        subject.brain = Some(handle);
+        let origin = super::retained_origin::RetainedNeuralOrigin::SavedBrain {
+            brain_id: Sha256::digest(self.artifact.artifact_sha256.as_bytes()).into(),
+            weight_digest: super::retained_origin::packed_weight_digest(&self.artifact.weights),
+            source_kind: self.artifact.provenance.source_kind,
+        };
+        origin.validate_weights(&self.artifact.weights)?;
+        state.brains.push(BrainRuntimeState {
+            handle,
+            owner: BrainOwner::Entity(1),
+            retained_origin: Some(std::sync::Arc::new(origin)),
+            non_population_weights: Some(self.artifact.weights.clone().into_boxed_slice()),
+            recurrent: vec![0.0; self.artifact.graph.total_state_size].into_boxed_slice(),
+        });
+        state.brains.sort_by_key(|brain| brain.handle.id);
+        state.rng.baselines.clear();
+        state.rng.baseline_behaviors.clear();
+        state.lifecycle = BaselineLifecycleState::initialize_after_complete_spawn(
+            BaselineLifecycleConfig {
+                slot_count: 0,
+                ..BaselineLifecycleConfig::typescript_defaults()
+            },
+            &state.world,
+        )?;
+        Ok(())
+    }
+}
+
+/// Actual student-owned physical trajectories, separate from teacher agreement/parity.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StudentTacticalReport {
+    pub version: u32,
+    pub kind: &'static str,
+    pub source_sha256: String,
+    pub target: String,
+    pub workers: usize,
+    pub seed_count: u32,
+    pub maximum_steps: u32,
+    pub first_seed: u32,
+    pub candidate: super::brain_artifact::BrainArtifactDescriptorV1,
+    pub caveat: &'static str,
+    pub reference_v1: Vec<TacticalTrial>,
+    pub trials: Vec<TacticalTrial>,
+}
+
+/// Deploy one complete portable student through normal neural control and all physics substeps.
+pub fn run_student_tactical_qualification(
+    options: TacticalOptions,
+    student: &TacticalStudent,
+    first_seed: u32,
+) -> Result<StudentTacticalReport> {
+    validate_tactical_options(options)?;
+    if first_seed == 0 || first_seed > 64 || options.seed_count > 65 - first_seed {
+        return Err("student tactical seed range must stay within 1..64".into());
+    }
+    if options.cadence_seconds != student.artifact.deployment.control_interval_seconds {
+        return Err("student deployment cadence differs from tactical request".into());
+    }
+    let mut reference_v1 = Vec::new();
+    let mut trials = Vec::new();
+    for scenario in SCENARIOS {
+        for seed in first_seed..first_seed + options.seed_count {
+            let reference = trial(scenario, seed, Policy::V1, options)?;
+            let mut result = trial_with_subject(
+                scenario,
+                seed,
+                Policy::MotionDet,
+                options,
+                None,
+                Some(student),
+            )?;
+            result.first_action.turn_absolute_difference_from_v1 =
+                (f64::from(result.first_action.turn) - f64::from(reference.first_action.turn))
+                    .abs();
+            result.first_action.boost_agrees_with_v1 =
+                result.first_action.boost == reference.first_action.boost;
+            reference_v1.push(reference);
+            trials.push(result);
+        }
+    }
+    Ok(StudentTacticalReport {version: 1, kind: "native-student-tactics-v1", source_sha256: crate::native_addon_source_sha256(),
+        target: crate::native_addon_build_target(), workers: options.workers, seed_count: options.seed_count,
+        maximum_steps: options.steps, first_seed, candidate: student.artifact.descriptor(),
+        caveat: "Synthetic paired initial native geometry with student-owned neural control, actual sensors, held cadence, zero initial recurrence and complete physics. Opponents preserve zero-turn constant outputs and the explicit boosted pursuer through a terminal Dense2 head. Trials stop at death or horizon. First actions compare identical initial geometry to frozen v1; later trajectories diverge. No population distribution, throughput, training-quality superiority or production-default qualification is implied.",
+        reference_v1, trials})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -841,6 +1038,202 @@ mod tests {
             cadence_seconds: 0.06,
         }
     }
+    fn constant_student(profile: SensorProfile, recurrent: bool) -> TacticalStudent {
+        use super::super::training_graph::{
+            CanonicalTrainingGraphManifestV1, TrainingDeployment, TrainingLifeStateRule,
+        };
+        let sensors =
+            super::super::sensor_layout::SensorLayout::for_profile(profile, BINS).unwrap();
+        let width = sensors.input_size;
+        let mut nodes = vec![GraphNodeSpec {
+            id: "input".into(),
+            kind: GraphNodeKind::Input { output_size: width },
+        }];
+        let mut edges = Vec::new();
+        let head_input = if recurrent {
+            nodes.push(GraphNodeSpec {
+                id: "memory".into(),
+                kind: GraphNodeKind::Gru {
+                    input_size: width,
+                    hidden_size: 4,
+                },
+            });
+            edges.push(GraphEdge {
+                from: "input".into(),
+                to: "memory".into(),
+                from_port: None,
+                to_port: None,
+            });
+            4
+        } else {
+            width
+        };
+        nodes.push(GraphNodeSpec {
+            id: "motor".into(),
+            kind: GraphNodeKind::Dense {
+                input_size: head_input,
+                output_size: 2,
+            },
+        });
+        edges.push(GraphEdge {
+            from: if recurrent { "memory" } else { "input" }.into(),
+            to: "motor".into(),
+            from_port: None,
+            to_port: None,
+        });
+        let graph = super::super::graph::GraphBundle::compile(
+            GraphSpec {
+                nodes,
+                edges,
+                outputs: vec![GraphOutputRef {
+                    node_id: "motor".into(),
+                    port: None,
+                }],
+                output_size: 2,
+            },
+            &super::super::fresh_run::stage6a_p0_graph_limits(),
+        )
+        .unwrap();
+        let deployment = TrainingDeployment {
+            control_interval_seconds: options().cadence_seconds,
+            life_state_rule: TrainingLifeStateRule::Reset,
+            initialization: Default::default(),
+        };
+        let manifest =
+            CanonicalTrainingGraphManifestV1::build(&graph, &sensors, deployment).unwrap();
+        let head = graph.nodes.iter().find(|node| node.id == "motor").unwrap();
+        let mut weights = vec![0.0; graph.total_parameters];
+        weights[head.parameter_offset + head.input_size] = 0.25;
+        weights[head.parameter_offset + head.parameter_length - 1] = 1.0;
+        let artifact = super::super::brain_artifact::ValidatedBrainArtifact {
+            graph,
+            sensors,
+            deployment,
+            weights,
+            canonical_manifest: manifest,
+            provenance: super::super::brain_artifact::BrainProvenanceV1 {
+                schema_version: 1,
+                source_kind: super::super::brain_artifact::BrainSourceKind::Distilled,
+                details: serde_json::json!({"fixture":"constant tactical student"}),
+            },
+            artifact_sha256: "12".repeat(32),
+            weights_sha256: "34".repeat(32),
+        };
+        // Profile rejection is tested separately using the otherwise valid owned artifact.
+        if profile == SensorProfile::Motion {
+            TacticalStudent::from_validated(artifact).unwrap()
+        } else {
+            TacticalStudent {
+                artifact,
+                opponent_boost_bias: 0,
+            }
+        }
+    }
+
+    #[test]
+    fn student_uses_actual_cadence_physics_and_exact_multiworker_continuation() {
+        let student = constant_student(SensorProfile::Motion, true);
+        let first = run_student_tactical_qualification(options(), &student, 1).unwrap();
+        let mut multi = options();
+        multi.workers = 3.min(std::thread::available_parallelism().unwrap().get());
+        let parallel = run_student_tactical_qualification(multi, &student, 1).unwrap();
+        assert_eq!(first.trials, parallel.trials);
+        assert_eq!(first.reference_v1, parallel.reference_v1);
+        assert_eq!(first.trials.len(), 14);
+        for result in &first.trials {
+            assert!(result.observations > 0 && result.observations < u64::from(result.steps));
+            assert!(result.shared_batch_budget_held);
+            assert_eq!(result.policy_world_reads, 0);
+            assert_eq!(result.behavior_draws, 0);
+            assert!((result.first_action.turn - 0.25_f32.tanh()).abs() < 1.0e-6);
+            assert!(result.first_action.boost);
+            assert!(result.boost_points_spent >= 0.0);
+            if result.scenario == "open-wander" {
+                assert_eq!(result.boost_points_spent, 0.0);
+            }
+            if result.scenario == "wall-escape" {
+                assert!(result.boost_points_spent > 0.0);
+            }
+            assert_eq!(result.alive, result.death_cause.is_none());
+        }
+        let mut mismatch = options();
+        mismatch.cadence_seconds = 0.05;
+        assert!(run_student_tactical_qualification(mismatch, &student, 1).is_err());
+        assert!(TacticalStudent::from_validated(
+            constant_student(SensorProfile::Basic, false).artifact
+        )
+        .is_err());
+        assert!(TacticalStudent::from_artifact(b"not an artifact").is_err());
+        assert!(run_student_tactical_qualification(options(), &student, 0).is_err());
+        let held_out = run_student_tactical_qualification(options(), &student, 2).unwrap();
+        assert!(held_out.trials.iter().all(|trial| trial.seed == 2));
+        assert_eq!(held_out.first_seed, 2);
+    }
+
+    #[test]
+    fn student_opponents_keep_constant_outputs_across_different_graph_layouts() {
+        let dense = constant_student(SensorProfile::Motion, false);
+        let recurrent = constant_student(SensorProfile::Motion, true);
+        for student in [&dense, &recurrent] {
+            let plan = GraphExecutionPlan::build(&student.artifact.graph).unwrap();
+            let mut state = fixture(Scenario::BoostEscape, 1, Policy::MotionDet, &plan).unwrap();
+            student.install(&mut state, Scenario::BoostEscape).unwrap();
+            assert!(state.lifecycle.slots.is_empty() && state.rng.baselines.is_empty());
+            assert!(state.rng.baseline_behaviors.is_empty());
+            let opponent = state
+                .brains
+                .iter()
+                .find(|brain| brain.handle.id == 2)
+                .unwrap();
+            let result = super::super::training_runner::evaluate_training_sequence(
+                &student.artifact.graph,
+                opponent.non_population_weights.as_ref().unwrap(),
+                &[0.5; 264],
+                &opponent.recurrent,
+                super::super::inference::InferenceMathBackend::detect(),
+            )
+            .unwrap();
+            assert_eq!(result.outputs[0], 0.0);
+            assert!((result.outputs[1] - 1.0_f32.tanh()).abs() < 1.0e-6);
+        }
+        for scenario in SCENARIOS {
+            let first = trial_with_subject(
+                scenario,
+                1,
+                Policy::MotionDet,
+                options(),
+                None,
+                Some(&dense),
+            )
+            .unwrap();
+            let second = trial_with_subject(
+                scenario,
+                1,
+                Policy::MotionDet,
+                options(),
+                None,
+                Some(&recurrent),
+            )
+            .unwrap();
+            assert_eq!(
+                (
+                    first.alive,
+                    first.death_cause,
+                    first.food_earned,
+                    first.kills,
+                    first.boost_points_spent
+                ),
+                (
+                    second.alive,
+                    second.death_cause,
+                    second.food_earned,
+                    second.kills,
+                    second.boost_points_spent
+                )
+            );
+        }
+    }
+
     #[test]
     fn committed_corpus_preserves_trajectories_and_exact_delivered_rows() {
         use std::fs;
