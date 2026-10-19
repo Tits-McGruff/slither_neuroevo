@@ -1080,6 +1080,15 @@ still failing the service reference on that host. A separate Windows P0 clock
 window on the same candidate also passes: 3,603 steps, p95/p99 4/6-ms buckets,
 minimum sim/wall 1.000001 and zero dropped time, overload or capture drops.
 
+The native tactical qualifier now optionally exports a bounded committed Motion
+corpus across all 14 fixtures and both teacher modes. Exact rows/labels publish
+only after complete physics; sequence offsets, hashes, sensor/cadence/source
+identity and atomic completion are recorded. PyRL validates an actual native
+fixture and partitions whole sequences by seed. Native tests prove unchanged
+trajectories/RNG and absent held rows; malformed/oversized/partial corpora reject.
+This enables paired ablation training without claiming trained-policy coverage
+or closing the tactical/student-quality gate.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

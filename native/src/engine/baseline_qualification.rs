@@ -523,6 +523,17 @@ fn trial(
     policy: Policy,
     options: TacticalOptions,
 ) -> Result<TacticalTrial> {
+    trial_with_corpus(scenario, seed, policy, options, None)
+}
+
+fn trial_with_corpus(
+    scenario: Scenario,
+    seed: u32,
+    policy: Policy,
+    options: TacticalOptions,
+    mut corpus: Option<&mut super::tactical_corpus::TacticalCorpusWriter>,
+) -> Result<TacticalTrial> {
+    let mut pending_observation = [0.0f32; 264];
     let sensor_config = SensorConfig {
         bins: BINS,
         ..SensorConfig::default()
@@ -677,6 +688,24 @@ fn trial(
                 unsafe_route: decision.unsafe_route,
             });
         }
+        // The exact delivered row is pending until all physical substeps succeed.
+        let pending_decision = if corpus.is_some() {
+            let delivered = phase.teacher_samples();
+            if let Some(decision) = delivered.decisions.first() {
+                let row = delivered
+                    .observation(0)
+                    .ok_or("missing pending corpus row")?;
+                if row.len() != pending_observation.len() {
+                    return Err("invalid corpus row width".into());
+                }
+                pending_observation.copy_from_slice(row);
+                Some(*decision)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let committed = commits.prepare(phase)?;
         let prepared = physics.prepare(committed, config)?;
         state.world = prepared.world().clone();
@@ -691,6 +720,17 @@ fn trial(
             .ok_or("unpublished tactical outcome")?;
         if outcome.snake_id != 1 {
             return Err("missing physical-subject outcome".into());
+        }
+        if let (Some(writer), Some(decision)) = (corpus.as_deref_mut(), pending_decision) {
+            if decision.physical_snake_id != outcome.snake_id {
+                return Err("corpus subject outcome mismatch".into());
+            }
+            writer.committed(
+                step + 1,
+                &pending_observation,
+                decision.applied_turn,
+                decision.boost_request,
+            )?;
         }
         report.steps += 1;
         report.alive = outcome.alive_after;
@@ -732,6 +772,14 @@ fn trial(
 
 /// Execute fixed seeded paired fixtures. This does not select production defaults.
 pub fn run_tactical_qualification(options: TacticalOptions) -> Result<TacticalReport> {
+    run_tactical_qualification_with_corpus(options, None)
+}
+
+/// Optionally export exact committed Motion teacher rows into an exclusive offline directory.
+pub fn run_tactical_qualification_with_corpus(
+    options: TacticalOptions,
+    corpus_directory: Option<&std::path::Path>,
+) -> Result<TacticalReport> {
     if !(1..=64).contains(&options.seed_count)
         || !(1..=600).contains(&options.steps)
         || options.workers == 0
@@ -744,12 +792,27 @@ pub fn run_tactical_qualification(options: TacticalOptions) -> Result<TacticalRe
         control_interval_seconds: options.cadence_seconds,
     }
     .validate()?;
+    let mut corpus = corpus_directory
+        .map(|root| super::tactical_corpus::TacticalCorpusWriter::new(root, options))
+        .transpose()?;
     let mut trials = Vec::new();
     for scenario in SCENARIOS {
         for seed in 1..=options.seed_count {
             let mut reference = None;
             for policy in POLICIES {
-                let mut result = trial(scenario, seed, policy, options)?;
+                let mut result = if matches!(policy, Policy::MotionDet | Policy::MotionStoch) {
+                    if let Some(writer) = corpus.as_mut() {
+                        writer.begin();
+                    }
+                    let result =
+                        trial_with_corpus(scenario, seed, policy, options, corpus.as_mut())?;
+                    if let Some(writer) = corpus.as_mut() {
+                        writer.end(&result)?;
+                    }
+                    result
+                } else {
+                    trial(scenario, seed, policy, options)?
+                };
                 if let Some((turn, boost)) = reference {
                     result.first_action.turn_absolute_difference_from_v1 =
                         (f64::from(result.first_action.turn) - f64::from(turn)).abs();
@@ -760,6 +823,9 @@ pub fn run_tactical_qualification(options: TacticalOptions) -> Result<TacticalRe
                 trials.push(result);
             }
         }
+    }
+    if let Some(writer) = corpus {
+        writer.finish(options)?;
     }
     Ok(TacticalReport{version:2,source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),math_backend:super::inference::InferenceMathBackend::detect().label(),sensor_sha256:[super::sensor_contract::SensorContractIdentity::new(SensorProfile::V3,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Basic,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion,BINS)?.sha256_hex()?],workers:options.workers,seed_count:options.seed_count,maximum_steps:options.steps,v2_cadence_seconds:options.cadence_seconds,bins:BINS,ordinary_ray_limits:[1,256,4096],saturation_ray_limits:[1,1,256],caveat:"Synthetic paired initial geometry; native prefix, actual delivered control/inference, all three physics substeps, food, collisions, effects and baseline death handling. Neural opponents use zero-turn constant Dense policies, with an explicit boosted pursuer in boost-escape. Trials stop on subject death; no respawn, evolution, server, dataset or student agreement is qualified. First-action differences compare identical initial geometry to frozen v1, whose cadence remains fixed-step; later trajectories may diverge. Debug trajectory witnesses apply only within a matching source/build, not across platforms or revisions. Copies and reporting are unmeasured; this is not a real-time cost or universal policy-superiority gate.",trials})
 }
@@ -775,6 +841,124 @@ mod tests {
             cadence_seconds: 0.06,
         }
     }
+    #[test]
+    fn committed_corpus_preserves_trajectories_and_exact_delivered_rows() {
+        use std::fs;
+        let root = std::env::temp_dir().join(format!(
+            "slither-tactical-corpus-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!root.exists());
+        let reference = run_tactical_qualification(options()).unwrap();
+        let captured = run_tactical_qualification_with_corpus(options(), Some(&root)).unwrap();
+        assert_eq!(
+            captured.trials, reference.trials,
+            "export changed authority or RNG"
+        );
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join("corpus.json")).unwrap()).unwrap();
+        assert!(!root.join(".corpus.json.pending").exists());
+        assert_eq!(manifest["inputSize"], 264);
+        assert_eq!(manifest["sensorSha256"], reference.sensor_sha256[2]);
+        let observations = fs::read(root.join("observations.f32")).unwrap();
+        let actions = fs::read(root.join("actions.f32")).unwrap();
+        let steps = fs::read(root.join("steps.u32")).unwrap();
+        for object in manifest["objects"].as_array().unwrap() {
+            let bytes = fs::read(root.join(object["file"].as_str().unwrap())).unwrap();
+            assert_eq!(object["bytes"].as_u64().unwrap(), bytes.len() as u64);
+            assert_eq!(object["sha256"], format!("{:x}", Sha256::digest(&bytes)));
+        }
+        let sequences = manifest["sequences"].as_array().unwrap();
+        assert_eq!(sequences.len(), 28);
+        let mut next = 0usize;
+        for (sequence, trial) in sequences.iter().zip(
+            captured
+                .trials
+                .iter()
+                .filter(|trial| trial.policy.starts_with("motion-")),
+        ) {
+            let rows = sequence["rows"].as_u64().unwrap() as usize;
+            assert_eq!(sequence["rowOffset"].as_u64().unwrap() as usize, next);
+            assert_eq!(rows as u64, trial.observations);
+            assert_eq!(sequence["scenario"], trial.scenario);
+            assert_eq!(sequence["policy"], trial.policy);
+            assert_eq!(
+                sequence["trajectoryWitnessSha256"],
+                trial.trajectory_witness_sha256
+            );
+            let turn = f32::from_le_bytes(actions[next * 8..next * 8 + 4].try_into().unwrap());
+            let boost = f32::from_le_bytes(actions[next * 8 + 4..next * 8 + 8].try_into().unwrap());
+            assert_eq!(turn.to_bits(), trial.first_action.turn.to_bits());
+            assert_eq!(boost, if trial.first_action.boost { 1.0 } else { 0.0 });
+            let first_flag = (next * 264 + 21) * 4;
+            assert_eq!(
+                f32::from_le_bytes(observations[first_flag..first_flag + 4].try_into().unwrap()),
+                1.0
+            );
+            let delivered_steps: Vec<_> = steps[next * 4..(next + rows) * 4]
+                .chunks_exact(4)
+                .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+                .collect();
+            assert_eq!(delivered_steps[0], 1);
+            assert!(delivered_steps.windows(2).all(|pair| pair[0] < pair[1]));
+            assert!(delivered_steps.last().unwrap() <= &trial.steps);
+            assert!(
+                rows < trial.steps as usize,
+                "held steps were incorrectly exported"
+            );
+            next += rows;
+        }
+        assert_eq!(manifest["rows"].as_u64().unwrap() as usize, next);
+        assert_eq!(observations.len(), next * 264 * 4);
+        assert_eq!(actions.len(), next * 8);
+        assert_eq!(steps.len(), next * 4);
+        assert!(run_tactical_qualification_with_corpus(options(), Some(&root)).is_err());
+        assert_eq!(
+            fs::read(root.join("observations.f32")).unwrap(),
+            observations
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn corpus_bound_rejects_before_creating_output_and_partial_matrix_cannot_publish() {
+        use super::super::tactical_corpus::TacticalCorpusWriter;
+        let root = std::env::temp_dir().join(format!(
+            "slither-tactical-bound-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut large = options();
+        large.seed_count = 64;
+        large.steps = 600;
+        assert!(run_tactical_qualification_with_corpus(large, Some(&root)).is_err());
+        assert!(!root.exists());
+        let mut writer = TacticalCorpusWriter::new(&root, options()).unwrap();
+        writer.begin();
+        let mut row = [0.0; 264];
+        row[0] = -0.0;
+        writer.committed(1, &row, -0.0, true).unwrap();
+        assert!(writer.committed(1, &row, 0.0, false).is_err());
+        row[3] = f32::NAN;
+        assert!(writer.committed(2, &row, 0.0, false).is_err());
+        assert!(writer.finish(options()).is_err());
+        assert!(!root.join("corpus.json").exists());
+        let bytes = std::fs::read(root.join("observations.f32")).unwrap();
+        assert_eq!(bytes.len(), 264 * 4);
+        assert_eq!(
+            f32::from_le_bytes(bytes[..4].try_into().unwrap()).to_bits(),
+            (-0.0_f32).to_bits()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn complete_tactical_matrix_is_repeatable_and_parallel_continuations_match() {
         let first = run_tactical_qualification(options()).unwrap();
