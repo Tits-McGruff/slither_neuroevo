@@ -25,3 +25,6 @@ docs/performance/sensor-v4/*/candidate.patch text eol=lf -whitespace
 
 # Checksummed retention patches preserve unified-diff context and LF bytes.
 docs/performance/distillation/*.patch text eol=lf -whitespace
+
+# Preserve exact measured comparison driver bytes on both targets.
+docs/performance/sensor-v4/head-pair-bound-*/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol

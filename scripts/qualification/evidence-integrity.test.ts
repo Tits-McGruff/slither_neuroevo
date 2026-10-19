@@ -34,7 +34,9 @@ const COMPARISONS = [
   ['packet-bounds-windows-v1', 'comparison.json'],
   ['pellet-cell-rank-windows-v1', 'comparison.json'],
   ['pellet-counting-windows-v1', 'P0-w3-comparison.json'],
-  ['pellet-counting-windows-v1', 'P1-w5-comparison.json']
+  ['pellet-counting-windows-v1', 'P1-w5-comparison.json'],
+  ['head-pair-bound-windows-v1', 'comparison.json'],
+  ['head-pair-bound-debian-v1', 'comparison.json']
 ] as const;
 
 /** Hash exact retained bytes without interpreting samples, models or simulation state. */
@@ -536,4 +538,65 @@ it('preserves zero-incomplete ray candidates, real-clock timing failures and unc
   expect(rejection.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
   expect(rejection.stagingBudgetBytes).toBe(512 * 1024 ** 2); expect(rejection.requiredStagingBytes).toBeGreaterThan(rejection.stagingBudgetBytes);
   expect(rejection.workspaceRemoved).toBe(true); expect(rejection.nativeReportProduced).toBe(false);
+});
+
+
+it('recomputes passing seeded Windows P0/P1 head-pair clock gates from retained health reads', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/head-pair-bound-windows-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'wall.json'), 'utf8')) as
+    Pick<RayBudgetEvidence, 'nativeSourceSha256' | 'releaseQualified' | 'sources'> & {
+      wall: Array<EvidenceRecord & {workers: number; scenario: 'P0' | 'P1'}>;
+    };
+  expect(manifest.releaseQualified).toBe(false);
+  for (const [filename, receipt] of Object.entries(manifest.sources)) {
+    expect(filename).toMatch(/^(sensor-wall|sensorWallSummary)\.ts$/u);
+    expect(receipt.archive).toBe(filename + '.gz');
+    const compressed = readFileSync(resolve(root, receipt.archive)); expect(sha256(compressed)).toBe(receipt.gzipSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 1024 ** 2}); expect(sha256(bytes)).toBe(receipt.rawSha256);
+    expect(sha256(Buffer.from(bytes.toString('utf8').replace(/\r\n/gu, '\n')))).toBe(receipt.canonicalLfSha256);
+  }
+  expect(manifest.wall.map(value => [value.scenario, value.workers])).toEqual([['P0', 8], ['P1', 8]]);
+  for (const receipt of manifest.wall) {
+    expect(receipt.report).toBe(`wall-${receipt.scenario}-w8.json.gz`);
+    const compressed = readFileSync(resolve(root, receipt.report)); expect(sha256(compressed)).toBe(receipt.reportSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 4 * 1024 ** 2}); expect(sha256(bytes)).toBe(receipt.originalReportSha256);
+    const report = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    const source = report['source'] as {nativeSourceSha256: string; hostSha256: string; summarySha256: string};
+    expect(source.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
+    expect(source.hostSha256).toBe(manifest.sources['sensor-wall.ts']!.rawSha256);
+    expect(source.summarySha256).toBe(manifest.sources['sensorWallSummary.ts']!.rawSha256);
+    expect(report['scenario']).toBe(receipt.scenario); expect(report['workers']).toBe(receipt.workers);
+    const request = (report['workload'] as {request: {rayCap: number; rayBatch: number}}).request;
+    expect(request.rayCap).toBe(512); expect(request.rayBatch).toBe(131072);
+    const summary = summarizeSensorWall(report['reads'] as SensorWallRead[], report['requestedSeconds'] as number);
+    expect(summary).toEqual(report['summary']); expect(summary.meetsRealtimeGate).toBe(true);
+    expect(summary.droppedWallMicros).toBe('0'); expect(summary.meetsExistingStepTimingGate).toBe(true);
+    expect(summary.meetsMeasuredGates).toBe(true);
+    expect((report['diagnosticDelivery'] as {captureHasNoDrops: boolean}).captureHasNoDrops).toBe(true);
+    expect((report['frames'] as {copies: number}).copies).toBeGreaterThan(0);
+  }
+});
+
+
+it('preserves the negative Debian three-worker probe and exact continuation against eight workers', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/head-pair-bound-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'workers.json'), 'utf8')) as {
+    nativeSourceSha256: string; releaseQualified: boolean; records: Array<EvidenceRecord & {workers: number}>;
+  };
+  expect(manifest.releaseQualified).toBe(false);
+  expect(manifest.records.map(value => value.workers)).toEqual([3, 8]);
+  const reports = manifest.records.map(receipt => {
+    expect(receipt.report).toMatch(/^(worker-3|1-candidate)\.json\.gz$/u);
+    const compressed = readFileSync(resolve(root, receipt.report)); expect(sha256(compressed)).toBe(receipt.reportSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: 4 * 1024 ** 2}); expect(sha256(bytes)).toBe(receipt.originalReportSha256);
+    const report = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    expect(report['sourceSha256']).toBe(manifest.nativeSourceSha256); expect(report['workers']).toBe(receipt.workers);
+    expect(report['completedSteps']).toBe(4200); expect(report['allConsumerRayIncompleteFraction']).toBe(0);
+    expect(report['nativeStepP95Within60hz']).toBe(false); return report;
+  });
+  for (const field of ['sourceSha256', 'target', 'rustc', 'mathBackend', 'sensorSha256', 'parameterCount',
+    'continuationSha256', 'consumerWork', 'raw', 'normalized']) expect(reports[0]![field]).toEqual(reports[1]![field]);
+  for (const field of ['sourceSampleSha256', 'drainedSampleSha256']) {
+    expect((reports[0]!['capture'] as Record<string, unknown>)[field]).toEqual((reports[1]!['capture'] as Record<string, unknown>)[field]);
+  }
 });

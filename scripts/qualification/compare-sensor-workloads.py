@@ -62,6 +62,8 @@ def parse_args():
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--scenario", choices=["P0", "P1"], default="P1")
     parser.add_argument("--workers", type=int, default=3)
+    parser.add_argument("--ray-cap", type=int, default=256)
+    parser.add_argument("--ray-batch", type=int, default=65536)
     parser.add_argument("--steps", type=int, default=1200)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--environment", choices=["development", "oxygen-debian"], default="development")
@@ -72,6 +74,8 @@ def parse_args():
     if (not 1 <= args.steps <= 60000 or not 0 <= args.warmup <= 60000 or args.steps + args.warmup > 60000 or
             not 1 <= args.workers <= 512 or not 1 <= args.deadline_seconds <= 3600):
         parser.error("bounded steps/warmup/workers/deadline required")
+    if not 1 <= args.ray_cap <= 1_000_000 or not 512 <= args.ray_batch <= 10_000_000:
+        parser.error("bounded native ray cap/batch required")
     args.baseline = args.baseline.resolve(strict=True)
     args.candidate = args.candidate.resolve(strict=True)
     if not args.baseline.is_file() or not args.candidate.is_file() or args.baseline == args.candidate:
@@ -90,7 +94,7 @@ def main():
     sources = {"baseline": args.baseline_source}
     common = ["--scenario", args.scenario, "--profile", "motion", "--bins", "16", "--graph", "modest",
               "--respawn", "on", "--seed", "42", "--workers", str(args.workers), "--math-backend", "sse2",
-              "--minimum", "1", "--cap", "256", "--batch", "65536", "--baseline", "v2-stochastic",
+              "--minimum", "1", "--cap", str(args.ray_cap), "--batch", str(args.ray_batch), "--baseline", "v2-stochastic",
               "--baseline-cadence", "0.016666666666666666", "--capture", "on", "--warmup", str(args.warmup),
               "--steps", str(args.steps), "--environment", args.environment]
     records = []
@@ -116,6 +120,8 @@ def main():
         require(output.stat().st_size <= 4 * 1024 * 1024, "native report exceeds admission")
         report = json.loads(output.read_bytes())
         require(report["admitted"] and report["version"] in (4, 5), "admitted version-4/5 workload required")
+        require(report["rayMinimum"] == 1 and report["rayCap"] == args.ray_cap
+                and report["rayBatch"] == args.ray_batch, "requested ray admission required")
         require(report["warmupSteps"] == args.warmup and report["measuredSteps"] == args.steps and
                 report["completedSteps"] == args.steps + args.warmup, "complete requested warmup/measurement required")
         require(report["capture"]["exactSamplesMatch"] is True and report["capture"]["queueAccountingMatches"], "exact capture and ownership reconciliation required")
