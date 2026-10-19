@@ -81,6 +81,7 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
             "--profile",
             "--bins",
             "--graph",
+            "--trained-artifact",
             "--respawn",
             "--seed",
             "--workers",
@@ -187,7 +188,11 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
         }
         _ => return Err("--capture must be off/on".into()),
     };
+    if values.contains_key("--trained-artifact") && values.contains_key("--graph") {
+        return Err("--trained-artifact supplies the graph; omit --graph".into());
+    }
     let options = SensorQualificationOptions {
+        trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
         population: match required("--scenario")? {
             "P0" => 55,
             "P1" => 300,

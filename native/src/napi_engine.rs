@@ -1545,6 +1545,7 @@ impl Task for InitializeExperimentalFreshRunTask {
                                 profile: *profile,
                                 bins: *bins,
                                 large_graph: false,
+                                trained_artifact: None,
                                 respawn: true,
                                 seed: self.request.seed,
                                 workers: self.calculation_workers,

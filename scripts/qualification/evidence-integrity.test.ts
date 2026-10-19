@@ -688,3 +688,95 @@ it('binds CUDA tactical ablations to identical windows, exact artifacts and nati
     expect(entry.gzipSha256).toBe(receipt.gzipSha256);
   }
 });
+
+
+it.each(['windows', 'debian'])('binds %s learned P0/P1 clone workloads to retained CUDA policies and exact worker continuations', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/sensor-v4/trained-cohorts-${platform}-v1`);
+  const evidence = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    nativeSourceSha256: string; candidatePatchSha256: string; files: TacticalStudyFile[];
+  };
+  expect(sha256(readFileSync(resolve(root, 'candidate.patch')))).toBe(evidence.candidatePatchSha256);
+  const files = new Map<string, Buffer>();
+  for (const entry of evidence.files) {
+    expect(entry.path).toMatch(/^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/u);
+    expect(entry.path.split('/')).not.toContain('..'); expect(entry.archive).toBe(entry.path + '.gz');
+    expect(entry.bytes).toBeGreaterThan(0); expect(entry.bytes).toBeLessThanOrEqual(4 * 1024 ** 2);
+    const compressed = readFileSync(resolve(root, entry.archive)); expect(sha256(compressed)).toBe(entry.gzipSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: entry.bytes + 1});
+    expect(bytes.byteLength).toBe(entry.bytes); expect(sha256(bytes)).toBe(entry.sha256);
+    expect(files.has(entry.path)).toBe(false); files.set(entry.path, bytes);
+  }
+  /** Decode metadata while keeping portable graph/weight bytes opaque. */
+  const json = (name: string): Record<string, unknown> => JSON.parse(files.get(name)!.toString('utf8')) as Record<string, unknown>;
+  const summary = json('summary.json');
+  expect(summary['measurementComplete']).toBe(true); expect(summary['releaseQualified']).toBe(false);
+  expect(summary['nativeSourceSha256']).toBe(evidence.nativeSourceSha256);
+  expect(summary['steps']).toBe(3600); expect(summary['warmup']).toBe(600); expect(summary['seed']).toBe(42);
+  expect(summary['scriptSha256']).toBe(sha256(files.get('trained-sensor-cohorts.py')!));
+  const study = resolve(root, '../tactical-ablation-windows-v1');
+  expect(summary['studyEvidenceSha256']).toBe(sha256(readFileSync(resolve(study, 'evidence.json'))));
+  const studyEvidence = JSON.parse(readFileSync(resolve(study, 'evidence.json'), 'utf8')) as {files: TacticalStudyFile[]};
+  const records = summary['records'] as Array<{variant: string; scenario: string; workers: number; report: string;
+    sha256: string; meanNativeMs: number; p95NativeMs: number; incompleteFraction: number; observations: number}>;
+  expect(records).toHaveLength(8);
+  if (platform === 'windows') {
+    const live = json('live-cuda-w3.json');
+    expect(live['gate']).toBe('live-canonical-distillation-v2'); expect(live['device']).toBe('cuda:0');
+    expect(live['workers']).toBe(3);
+    const source = live['source'] as Record<string, string>;
+    expect(source['nativeSourceSha256']).toBe(evidence.nativeSourceSha256);
+    expect(source['pyrlRevision']).toBe('1a500ab0ac214f19c02dc1bbd42870eba52fdf98');
+    expect(source['hostSha256']).toBe(sha256(files.get('live-distillation.ts')!));
+    expect(source['trainerGateSha256']).toBe(sha256(files.get('live_distillation_gate.py')!));
+    const resume = live['resume'] as {restartExact: boolean; updates: number};
+    expect(resume.restartExact).toBe(true); expect(resume.updates).toBe(250);
+    const deployment = live['deployment'] as Record<string, unknown>;
+    expect(deployment['restartExact']).toBe(true); expect(deployment['trainedUpdates']).toBe(250);
+    for (const key of ['mismatchedGraphRejected', 'exportExact', 'retryReceiptExact', 'catalogDeleted', 'coldFilesReclaimed']) {
+      expect(deployment[key]).toBe(true);
+    }
+    for (const shadow of live['shadows'] as Array<{enabled: boolean; error: unknown; totals: {samples: string}}>) {
+      expect(shadow.enabled).toBe(true); expect(shadow.error).toBeNull(); expect(BigInt('0x' + shadow.totals.samples)).toBeGreaterThan(0n);
+    }
+    const authority = live['authority'] as Record<string, string>;
+    expect(BigInt('0x' + authority['completedStepAfter']!)).toBeGreaterThan(BigInt('0x' + authority['completedStepBefore']!));
+    expect(authority['schedulerDroppedWallMicros']).toBe('0000000000000000');
+  }
+  for (const variant of ['full', 'core-only']) {
+    const artifact = files.get(variant + '.slither-brain')!;
+    const original = studyEvidence.files.find(entry => entry.path === variant + '/trained.slither-brain')!;
+    expect(sha256(artifact)).toBe(original.sha256);
+    for (const [scenario, population] of [['P0', 55], ['P1', 300]] as const) {
+      const pair = records.filter(record => record.variant === variant && record.scenario === scenario);
+      expect(pair.map(record => record.workers)).toEqual([1, 8]);
+      const reports = pair.map(record => {
+        expect(record.report).toBe(`${variant}-${scenario}-w${record.workers}.json`);
+        expect(sha256(files.get(record.report)!)).toBe(record.sha256);
+        const report = json(record.report);
+        expect(report['version']).toBe(6); expect(report['admitted']).toBe(true);
+        expect(report['sourceSha256']).toBe(evidence.nativeSourceSha256);
+        expect(report['population']).toBe(population); expect(report['workers']).toBe(record.workers);
+        expect(report['completedSteps']).toBe(4200); expect(report['measuredSteps']).toBe(3600);
+        expect(report['rayCap']).toBe(512); expect(report['rayBatch']).toBe(131072);
+        expect(report['graphSize']).toBe('trained-artifact'); expect(report['sharedBatchBudgetHeld']).toBe(true);
+        expect((report['trainedArtifact'] as {artifactSha256: string}).artifactSha256).toBe(original.sha256);
+        expect(record.meanNativeMs).toBe((report['nativePhaseCosts'] as {totalMicros: number}).totalMicros / 3600 / 1000);
+        expect(record.p95NativeMs).toBe((report['stepCost'] as {p95Ms: number}).p95Ms);
+        expect(record.incompleteFraction).toBe(report['allConsumerRayIncompleteFraction']);
+        expect(record.observations).toBe(report['observations']); expect(record.observations).toBeGreaterThan(0);
+        const capture = report['capture'] as Record<string, unknown>;
+        expect(capture['exactSamplesMatch']).toBe(true); expect(capture['queueAccountingMatches']).toBe(true);
+        expect(capture['droppedSamples']).toBe(0); expect(capture['droppedChunks']).toBe(0);
+        for (const hist of [...report['raw'] as Array<{nonfinite: number}>, ...report['normalized'] as Array<{nonfinite: number}>]) {
+          expect(hist.nonfinite).toBe(0);
+        }
+        return report;
+      });
+      for (const field of ['target', 'rustc', 'mathBackend', 'sensorSha256', 'trainedArtifact', 'parameterCount',
+        'continuationSha256', 'consumerWork', 'raw', 'normalized']) expect(reports[0]![field]).toEqual(reports[1]![field]);
+      for (const field of ['sourceSampleSha256', 'drainedSampleSha256']) {
+        expect((reports[0]!['capture'] as Record<string, unknown>)[field]).toEqual((reports[1]!['capture'] as Record<string, unknown>)[field]);
+      }
+    }
+  }
+});

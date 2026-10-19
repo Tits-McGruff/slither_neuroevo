@@ -19,7 +19,8 @@ use super::sensor_contract::{SensorContractIdentity, SensorProfile};
 use super::state::NormalizedSettingValue;
 use super::step_config::{production_default_settings, RunningStepWorkLimits};
 use serde::Serialize;
-use std::path::Path;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// Maximum retained timings; simulation state and histogram storage stay fixed.
@@ -34,6 +35,8 @@ pub struct SensorQualificationOptions {
     pub profile: SensorProfile,
     pub bins: usize,
     pub large_graph: bool,
+    /// Optional immutable portable source for a qualification-only trained-clone cohort.
+    pub trained_artifact: Option<PathBuf>,
     pub respawn: bool,
     pub seed: u32,
     pub workers: usize,
@@ -270,6 +273,9 @@ pub struct SensorQualificationReport {
     pub total_memory_bytes: Option<u64>,
     pub peak_rss_bytes: Option<u64>,
     pub parameter_count: Option<usize>,
+    /// Omitted for the frozen random-cohort report schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trained_artifact: Option<super::brain_artifact::BrainArtifactDescriptorV1>,
     pub authoritative_memory_reservation_bytes: Option<usize>,
     pub population: usize,
     pub baseline_count: usize,
@@ -388,6 +394,20 @@ pub(crate) fn prepare_sensor_workload(
     options: &SensorQualificationOptions,
     request: Stage6aP0FreshRunRequest,
 ) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
+    let trained = options
+        .trained_artifact
+        .as_deref()
+        .map(load_trained_artifact)
+        .transpose()
+        .map_err(super::fresh_run::FreshRunError::Settings)?;
+    prepare_sensor_workload_with_artifact(options, request, trained.as_ref())
+}
+
+fn prepare_sensor_workload_with_artifact(
+    options: &SensorQualificationOptions,
+    request: Stage6aP0FreshRunRequest,
+    trained: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
     if !matches!(options.population, 55 | 300) {
         return Err(super::fresh_run::FreshRunError::Settings(
             "qualification workload must be P0/P1".into(),
@@ -395,6 +415,18 @@ pub(crate) fn prepare_sensor_workload(
     }
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| super::fresh_run::FreshRunError::Settings(error.to_string()))?;
+    if let Some(artifact) = trained {
+        if options.large_graph
+            || artifact.canonical_manifest.sensor_sha256
+                != contract
+                    .sha256_hex()
+                    .map_err(|error| super::fresh_run::FreshRunError::Settings(error.to_string()))?
+        {
+            return Err(super::fresh_run::FreshRunError::Settings(
+                "trained cohort requires matching sensors and no graph override".into(),
+            ));
+        }
+    }
     let mut settings = production_default_settings(options.population, 10);
     for entry in &mut settings {
         match entry.path.as_str() {
@@ -409,6 +441,24 @@ pub(crate) fn prepare_sensor_workload(
                 entry.value = NormalizedSettingValue::Integer(options.bins as i64)
             }
             _ => {}
+        }
+    }
+    if let Some(artifact) = trained {
+        for entry in &mut settings {
+            match entry.path.as_str() {
+                "brain.controlDt" => {
+                    entry.value =
+                        NormalizedSettingValue::Float(artifact.deployment.control_interval_seconds)
+                }
+                "evolvedRespawn.recurrentState" => {
+                    entry.value =
+                        NormalizedSettingValue::Integer(match artifact.deployment.life_state_rule {
+                            super::training_graph::TrainingLifeStateRule::Reset => 0,
+                            super::training_graph::TrainingLifeStateRule::Preserve => 1,
+                        })
+                }
+                _ => {}
+            }
         }
     }
     let updates: Vec<_> = settings
@@ -426,7 +476,10 @@ pub(crate) fn prepare_sensor_workload(
     prepare_sensor_qualification_run(
         request,
         &updates,
-        graph(contract.input_size(), options.large_graph),
+        trained.map_or_else(
+            || graph(contract.input_size(), options.large_graph),
+            |artifact| artifact.graph.spec().clone(),
+        ),
         options.profile,
         options.bins,
         RunningStepWorkLimits {
@@ -436,6 +489,7 @@ pub(crate) fn prepare_sensor_workload(
         },
         options.math,
         options.baseline,
+        trained,
     )
 }
 
@@ -592,6 +646,23 @@ pub fn run_sensor_qualification(
     run_with_observer(options, workspace, true)
 }
 
+/// Read one finite portable input once, before any candidate population construction.
+fn load_trained_artifact(
+    path: &Path,
+) -> Result<super::brain_artifact::ValidatedBrainArtifact, String> {
+    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    let maximum = super::brain_artifact::MAX_BRAIN_ARTIFACT_BYTES as u64;
+    if !metadata.is_file() || metadata.len() > maximum {
+        return Err("trained artifact byte admission".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    super::brain_artifact::validate_brain_artifact(&bytes)
+}
+
 fn run_with_observer(
     options: &SensorQualificationOptions,
     workspace: &Path,
@@ -630,10 +701,15 @@ fn run_with_observer(
     {
         return Err("qualification workspace must be an empty real directory".into());
     }
+    let trained = options
+        .trained_artifact
+        .as_deref()
+        .map(load_trained_artifact)
+        .transpose()?;
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        version:5,native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
+        version:if trained.is_some() {6}else{5},trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
@@ -645,7 +721,7 @@ fn run_with_observer(
         teacher_respawn_delay_seconds:options.teacher_respawn_delay_seconds,
         consumer_work:[ConsumerSensorWork::default();3],minimum_due_consumers:None,maximum_due_consumers:0,
         all_consumer_ray_incomplete_fraction:None,all_consumer_ray_incomplete_below_one_percent:None,shared_batch_budget_held:None,
-        graph_size:if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
+        graph_size:if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
         sensor_sha256:contract.sha256_hex().map_err(|error|error.to_string())?,
         ray_minimum:options.ray_limits.map(RayWorkLimits::minimum),ray_cap:options.ray_limits.map(RayWorkLimits::cap),
         ray_batch:options.ray_limits.map(RayWorkLimits::batch),normalized:contract.order().iter().map(|label|BoundedHistogram::new(label,-1.0,1.0)).collect(),
@@ -657,7 +733,10 @@ fn run_with_observer(
         step_cost:None,observer_cost:None,native_step_p95_within_60hz:None,ordinary_ray_incomplete_below_one_percent:None,
         caveat:"Actual seeded native random-population gameplay with ten explicitly recorded v1/v2 baselines, duration-only completion, optional unlimited evolved respawn, and discard-new overflow. Includes authoritative complete steps and frame packing; excludes startup/checkpoint publication, Node/browser/network and observer analysis. Run-start uses a real immutable checkpoint plus matching benchmark acknowledgement, without SQLite. Simulated wall times are controlled; this does not measure wall-debt scheduling under load. This is not a trained-policy distribution, external-controller workload qualification, tactical agreement, ablation or final production-default selection. Clearance metres invert encoded Float32 channel minima and are censored at the sensing radius; incomplete body values are conservative, not ground truth. Pellet values use a systematic maximum-64 subset per committed boundary. Decaying due counts remain explicit; no zero-sample quality pass.",
     };
-    let pending = prepare_sensor_workload(
+    if trained.is_some() {
+        report.caveat = "Actual native trained-clone qualification cohort, initialized cold from one independently validated portable graph/weights artifact before the durable run-start boundary. Random initialization RNG draws are retained; no runtime founder/import command is introduced. This is one cloned learned policy, not a genetically diverse mature population. Evolved-life/economic sensor values are authoritative and can differ from the baseline teacher domain. Artifact cadence/life-state rules are recorded settings. Complete steps, frame packing, sensor distributions and optional committed teacher capture are measured; wall-debt scheduling, representative coverage, integrated contention and production defaults are separate gates.";
+    }
+    let pending = prepare_sensor_workload_with_artifact(
         options,
         Stage6aP0FreshRunRequest {
             run_id: format!(
@@ -667,6 +746,7 @@ fn run_with_observer(
             seed: options.seed,
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024usize,
         },
+        trained.as_ref(),
     );
     let mut pending = match pending {
         Ok(pending) => pending,
@@ -844,6 +924,7 @@ mod tests {
                 profile: SensorProfile::Motion,
                 bins: 8,
                 large_graph: false,
+                trained_artifact: None,
                 respawn: true,
                 seed: 42,
                 workers: 1,
@@ -936,6 +1017,86 @@ mod tests {
     }
 
     #[test]
+    fn trained_cohort_uses_artifact_graph_and_deployment_with_exact_worker_continuation() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/portable-brain-v1.slither-brain");
+        let artifact = load_trained_artifact(&path).unwrap();
+        let mut options = SensorQualificationOptions {
+            population: 55,
+            profile: SensorProfile::Basic,
+            bins: 8,
+            large_graph: false,
+            trained_artifact: Some(path),
+            respawn: true,
+            seed: 42,
+            workers: 1,
+            math: InferenceMathBackend::Sse2,
+            ray_limits: Some(RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+            baseline: Some(super::super::baseline_v2::BaselineV2Settings {
+                mode: super::super::baseline_v2::BaselineV2Mode::Stochastic,
+                control_interval_seconds: 0.06,
+            }),
+            teacher_respawn_delay_seconds: 0.5,
+            capture: Some(
+                super::super::capture_qualification::CaptureQualificationOptions {
+                    drain_every_steps: 1,
+                    queue_chunks: 1024,
+                },
+            ),
+            warmup_steps: 0,
+            measured_steps: 12,
+            environment: "development".into(),
+        };
+        let single = run_sensor_qualification(&options, &Scratch::new().0).unwrap();
+        assert!(single.admitted);
+        assert_eq!(single.version, 6);
+        assert_eq!(single.graph_size, "trained-artifact");
+        assert_eq!(single.parameter_count, Some(artifact.weights.len()));
+        assert_eq!(
+            single.trained_artifact.as_ref().unwrap().artifact_sha256,
+            artifact.artifact_sha256
+        );
+        assert!(
+            single.observations > 55 && single.observations < 55 * 12,
+            "artifact cadence must hold neural evaluations"
+        );
+        options.workers = 3.min(std::thread::available_parallelism().unwrap().get());
+        let parallel = run_sensor_qualification(&options, &Scratch::new().0).unwrap();
+        assert_eq!(single.continuation_sha256, parallel.continuation_sha256);
+        assert_eq!(single.consumer_work, parallel.consumer_work);
+        assert_eq!(
+            serde_json::to_value(&single.normalized).unwrap(),
+            serde_json::to_value(&parallel.normalized).unwrap()
+        );
+        assert_eq!(
+            single.capture.as_ref().unwrap().source_sample_sha256,
+            parallel.capture.as_ref().unwrap().source_sample_sha256
+        );
+        assert_eq!(
+            single.capture.as_ref().unwrap().exact_samples_match,
+            Some(true)
+        );
+        options.profile = SensorProfile::Motion;
+        let mismatch = run_sensor_qualification(&options, &Scratch::new().0).unwrap();
+        assert!(
+            !mismatch.admitted
+                && mismatch
+                    .rejection
+                    .as_ref()
+                    .unwrap()
+                    .contains("matching sensors")
+        );
+        assert_eq!(mismatch.completed_steps, 0);
+        options.profile = SensorProfile::Basic;
+        options.large_graph = true;
+        assert!(
+            !run_sensor_qualification(&options, &Scratch::new().0)
+                .unwrap()
+                .admitted
+        );
+    }
+
+    #[test]
     fn actual_capture_bytes_and_authority_match_across_fast_slow_and_parallel_runs() {
         use super::super::capture_qualification::CaptureQualificationOptions;
         let mut options = SensorQualificationOptions {
@@ -943,6 +1104,7 @@ mod tests {
             profile: SensorProfile::Motion,
             bins: 16,
             large_graph: false,
+            trained_artifact: None,
             respawn: true,
             seed: 42,
             workers: 1,

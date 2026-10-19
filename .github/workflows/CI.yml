@@ -115,6 +115,20 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.14'
+      - name: Native trained-policy P0/P1 worker continuation
+        if: matrix.node-version == '24.x'
+        run: >-
+          python scripts/qualification/trained-sensor-cohorts.py
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --study docs/performance/sensor-v4/tactical-ablation-windows-v1
+          --directory "${{ runner.temp }}/trained-sensor-cohorts" --workers 3 --warmup 0 --steps 12
+      - name: Retain native trained-policy outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-sensor-cohorts-${{ matrix.os }}
+          path: ${{ runner.temp }}/trained-sensor-cohorts/*.json
+          if-no-files-found: warn
       - name: Native capture byte-pressure and authority cohort
         if: matrix.node-version == '24.x'
         run: >-
