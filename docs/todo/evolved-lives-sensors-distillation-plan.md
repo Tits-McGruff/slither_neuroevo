@@ -1089,6 +1089,20 @@ trajectories/RNG and absent held rows; malformed/oversized/partial corpora rejec
 This enables paired ablation training without claiming trained-policy coverage
 or closing the tactical/student-quality gate.
 
+Portable canonical students now own real native tactical control/physics, with
+explicit held-out seed ranges, exact artifact/cadence admission and preserved
+constant opponents. Full and five motion-group ablations plus a scalar/six-channel
+core each complete 250 CUDA Adam updates on identical native data/windows.
+The three-seed study retains 13,738 committed rows and 180-delivery trained
+output/state parity. Full turn MAE improves 0.5412 to 0.1593, boost disagreement
+7.079% to 1.365%, and native surviving scenarios 6 to 9 of 14. The core reaches
+13 survivors but 4.499% boost disagreement; rankings differ. Exact artifacts,
+corpus, sources and all outcomes are retained under the existing sensor-v4
+performance directory. All 764 release library tests pass locally. This is one
+initialization/held-out seed on short synthetic constant-opponent tactics, not a
+profile/normalization selection or representative-population/performance/soak
+pass. Production defaults remain gated.
+
 Stages D through J and remaining B/C acceptance gates remain open: representative
 sensor/tactical/ablation evaluation, sustained teacher throughput, larger workload
 and device-memory admission, crowded/saturated geometry, and the integrated

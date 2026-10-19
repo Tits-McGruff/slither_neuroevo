@@ -600,3 +600,91 @@ it('preserves the negative Debian three-worker probe and exact continuation agai
     expect((reports[0]!['capture'] as Record<string, unknown>)[field]).toEqual((reports[1]!['capture'] as Record<string, unknown>)[field]);
   }
 });
+
+
+/** Exact immutable files retained from one native/CUDA tactical study. */
+interface TacticalStudyFile {
+  /** Original study-relative path. */
+  path: string;
+  /** Safe retained gzip path. */
+  archive: string;
+  /** Original byte length. */
+  bytes: number;
+  /** Original byte digest. */
+  sha256: string;
+  /** Retained gzip digest. */
+  gzipSha256: string;
+}
+
+it('binds CUDA tactical ablations to identical windows, exact artifacts and native held-out physics', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/tactical-ablation-windows-v1');
+  const evidence = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    nativeSourceSha256: string; candidatePatchSha256: string; files: TacticalStudyFile[];
+  };
+  expect(sha256(readFileSync(resolve(root, 'candidate.patch')))).toBe(evidence.candidatePatchSha256);
+  const files = new Map<string, Buffer>();
+  for (const entry of evidence.files) {
+    expect(entry.path).toMatch(/^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/u);
+    expect(entry.path.split('/')).not.toContain('..'); expect(entry.archive).toBe(entry.path + '.gz');
+    expect(Number.isSafeInteger(entry.bytes) && entry.bytes > 0 && entry.bytes <= 256 * 1024 ** 2).toBe(true);
+    expect(files.has(entry.path)).toBe(false);
+    const compressed = readFileSync(resolve(root, entry.archive)); expect(sha256(compressed)).toBe(entry.gzipSha256);
+    const bytes = gunzipSync(compressed, {maxOutputLength: entry.bytes + 1});
+    expect(bytes.byteLength).toBe(entry.bytes); expect(sha256(bytes)).toBe(entry.sha256);
+    files.set(entry.path, bytes);
+  }
+  /** Parse only metadata; observation, state and portable-weight bytes remain opaque. */
+  const json = (path: string): Record<string, unknown> => JSON.parse(files.get(path)!.toString('utf8')) as Record<string, unknown>;
+  const summary = json('summary.json');
+  expect(summary['status']).toBe('measured'); expect(summary['measurementComplete']).toBe(true);
+  expect(summary['releaseQualified']).toBe(false);
+  expect((summary['environment'] as {device: string; tf32: boolean}).device).toBe('cuda:0');
+  expect((summary['environment'] as {device: string; tf32: boolean}).tf32).toBe(false);
+  const corpus = json('corpus/corpus.json'); expect(sha256(files.get('corpus/corpus.json')!)).toBe(summary['corpusManifestSha256']);
+  expect(corpus['inputSize']).toBe(264); expect(corpus['seedCount']).toBe(3);
+  for (const object of corpus['objects'] as Array<{file: string; bytes: number; sha256: string}>) {
+    const bytes = files.get('corpus/' + object.file)!;
+    expect(bytes.byteLength).toBe(object.bytes); expect(sha256(bytes)).toBe(object.sha256);
+  }
+  const variants = summary['variants'] as Array<Record<string, unknown>>;
+  expect(variants.map(value => value['variant'])).toEqual([
+    'full', 'no-bearing', 'no-heading', 'no-velocity', 'no-urgency', 'no-density', 'core-only'
+  ]);
+  let referenceWindows: unknown; let referencePhysics: unknown;
+  for (const variant of variants) {
+    const name = variant['variant'] as string;
+    expect(variant['nativeSourceSha256']).toBe(evidence.nativeSourceSha256);
+    expect(variant['initialWeightsSha256']).not.toBe(variant['trainedWeightsSha256']);
+    const training = variant['training'] as Record<string, unknown>;
+    expect(training['updates']).toBe(250); expect(training['trainingRows']).toBeGreaterThan(0);
+    const identity = [training['scheduleSha256'], training['trainingRows'], training['burnInRows']];
+    referenceWindows ??= identity; expect(identity).toEqual(referenceWindows);
+    const parity = variant['parity'] as {steps: number; outputMaxAbs: number; stateMaxAbs: number};
+    expect(parity.steps).toBeGreaterThan(0); expect(parity.steps).toBeLessThanOrEqual(256);
+    expect(Number.isFinite(parity.outputMaxAbs) && parity.outputMaxAbs >= 0).toBe(true);
+    expect(Number.isFinite(parity.stateMaxAbs) && parity.stateMaxAbs >= 0).toBe(true);
+    for (const [phase, artifact] of [['nativeBefore', 'initial'], ['nativeAfter', 'trained']] as const) {
+      const receipt = variant[phase] as {report: string; sha256: string};
+      expect(receipt.report).toBe(phase === 'nativeBefore' ? 'native-before.json' : 'native-after.json');
+      const path = name + '/' + receipt.report; expect(sha256(files.get(path)!)).toBe(receipt.sha256);
+      const native = json(path);
+      expect(native['sourceSha256']).toBe(evidence.nativeSourceSha256);
+      expect(native['kind']).toBe('native-student-tactics-v1'); expect(native['firstSeed']).toBe(3);
+      expect(native['seedCount']).toBe(1);
+      const descriptor = native['candidate'] as {artifactSha256: string; weightsSha256: string; parameterCount: number; inputSize: number};
+      expect(descriptor.artifactSha256).toBe(sha256(files.get(name + '/' + artifact + '.slither-brain')!));
+      expect(descriptor.weightsSha256).toBe(variant[artifact === 'initial' ? 'initialWeightsSha256' : 'trainedWeightsSha256']);
+      expect(descriptor.parameterCount).toBe(variant['parameters']); expect(descriptor.inputSize).toBe(264);
+      const trials = native['trials'] as Array<{seed: number; observations: number; sharedBatchBudgetHeld: boolean}>;
+      expect(trials).toHaveLength(14);
+      expect(trials.every(trial => trial.seed === 3 && trial.observations > 0 && trial.sharedBatchBudgetHeld)).toBe(true);
+      referencePhysics ??= native['referenceV1']; expect(native['referenceV1']).toEqual(referencePhysics);
+    }
+  }
+  for (const [name, receipt] of Object.entries(summary['sources'] as Record<string, {sha256: string; gzipSha256: string}>)) {
+    expect(name).toMatch(/^[a-zA-Z0-9_-]+\.py$/u);
+    expect(sha256(files.get('sources/' + name)!)).toBe(receipt.sha256);
+    const entry = evidence.files.find(file => file.path === 'sources/' + name)!;
+    expect(entry.gzipSha256).toBe(receipt.gzipSha256);
+  }
+});
