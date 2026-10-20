@@ -25,13 +25,25 @@ export interface DiskAdmissionRequest {
   finalManagedBytes: bigint;
 }
 
-/** Peak checkpoint publication reserves the codec candidate beside the final file. */
-export const CHECKPOINT_DISK_ADMISSION_REQUEST: Readonly<DiskAdmissionRequest> = {
-  operation: 'checkpoint',
-  sourceSpoolBytes: 0n,
-  candidateSpoolBytes: CHECKPOINT_CANDIDATE_BYTES,
-  finalManagedBytes: CHECKPOINT_PUBLICATION_BYTES
-};
+/** Price one already validated native policy; this function does not select runtime limits.
+ * The audited framing/winner headroom covers envelopes through 768 MiB. */
+export function checkpointDiskAdmissionRequest(
+  archiveEnvelopeBytes: bigint,
+  decodedEnvelopeBytes: bigint = archiveEnvelopeBytes
+): Readonly<DiskAdmissionRequest> {
+  const maximum = 768n * 1024n * 1024n;
+  if (archiveEnvelopeBytes <= 0n || decodedEnvelopeBytes <= 0n ||
+      archiveEnvelopeBytes > maximum || decodedEnvelopeBytes > maximum) {
+    throw new RangeError('checkpoint disk pricing requires positive envelopes through 768 MiB');
+  }
+  const headroom = 16n * 1024n * 1024n;
+  return { operation: 'checkpoint', sourceSpoolBytes: 0n,
+    candidateSpoolBytes: decodedEnvelopeBytes + headroom,
+    finalManagedBytes: archiveEnvelopeBytes + headroom };
+}
+
+/** Production keeps its existing 512-MiB native policy and 528-MiB file allowances. */
+export const CHECKPOINT_DISK_ADMISSION_REQUEST = checkpointDiskAdmissionRequest(512n * 1024n * 1024n);
 
 /** Complete scalar terms used to decide one disk admission. */
 export interface DiskAdmissionDecision extends DiskAdmissionRequest {

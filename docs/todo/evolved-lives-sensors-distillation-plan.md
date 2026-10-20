@@ -1132,6 +1132,20 @@ Repository inspection baseline:
 - Slither's local worktree was clean before this document was added.
 - `AGENTS.md` is the architectural reference. Historical TypeScript execution is not a design authority except where current Rust deliberately retains frozen provenance fixtures.
 
+Offline checkpoint-capacity qualification now audits the full 300-genome,
+494,306-parameter Motion/B32 shape and exercises explicit 768-MiB candidates on
+Windows and Debian. Both compressed and forced-raw cases pass real evolution/HoF,
+independent exact restore continuation, immutable retry, SQLite commits and opaque
+archive/import. Existing-file verification streams every role without a second
+population; imports preserve the selected limits, and impossible successor numeric
+allocation rejects before evolution/RNG work. Native peaks are about 1.13 GiB;
+the conservative dual-state reservation is 4,062.65 MiB under the explicit 4-GiB
+native budget. Production stays at 512 MiB, and both scratch reservations remain
+512 MiB. All 770 release Rust tests pass on both targets. Compact reports and the
+source patch are retained under `docs/performance/sensor-v4/checkpoint-capacity-*-v1/`.
+Repeated post-import handoffs, full library/inspector overlap, integrated P3 and soak
+remain open; the candidate is not a production-envelope selection.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

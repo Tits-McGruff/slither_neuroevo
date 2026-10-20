@@ -1333,11 +1333,31 @@ impl RunningAuthorityLoop {
     /// Streaming parameters avoids materializing a textual population copy.
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn qualification_continuation_sha256(&self) -> String {
+        self.qualification_continuation_digest(true)
+    }
+
+    /// Boundary checkpoints reset wall debt. Compare equal completed physics
+    /// steps while preserving every gameplay/RNG/life/weight/recurrent field.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_restored_continuation_sha256(&self) -> String {
+        self.qualification_continuation_digest(false)
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    fn qualification_continuation_digest(&self, include_wall_debt: bool) -> String {
         use sha2::{Digest, Sha256};
         use std::fmt::Write;
         let state = self.authority.state();
         let mut hash = Sha256::new();
-        hash.update(b"slither.sensor-qualification-continuation.v1\0");
+        hash.update(if include_wall_debt {
+            b"slither.sensor-qualification-continuation.v1\0".as_slice()
+        } else {
+            b"slither.checkpoint-capacity-continuation.v1\0".as_slice()
+        });
+        let mut generation = state.generation.clone();
+        if !include_wall_debt {
+            generation.wall_accumulator_seconds = 0.0;
+        }
         hash.update(super::external_replacement::authority_world_digest(
             &state.world,
         ));
@@ -1345,7 +1365,7 @@ impl RunningAuthorityLoop {
             format!(
                 "{:?}",
                 (
-                    &state.generation,
+                    &generation,
                     &state.rng,
                     &state.allocators,
                     &state.fixed_step

@@ -1,0 +1,70 @@
+{
+  "audit": {
+    "checkpointPublicationPeakBytes": 1611680354,
+    "checkpointScratchBytes": 536870912,
+    "checkpointWorkspaceBytes": 18550096,
+    "conservativeTwoStateBytes": 4260002340,
+    "decodedBytes": 593324392,
+    "decodedEnvelopeFits": false,
+    "decodedRoleBytes": [
+      9303,
+      1449,
+      31240,
+      593167200,
+      115200
+    ],
+    "limits": {
+      "maxArchiveBytes": 536870912,
+      "maxBaselineRngCount": 120,
+      "maxGraphBytes": 1048576,
+      "maxManifestBytes": 1048576,
+      "maxNumericCandidateBytes": 536870912,
+      "maxNumericStoredBytes": 536870912,
+      "maxPopulationCount": 300,
+      "maxPopulationIndexBytes": 1048576,
+      "maxRecurrentFloats": 4915200,
+      "maxSettingCount": 128,
+      "maxStateBytes": 4194304,
+      "maxStringBytes": 262144,
+      "maxTotalDecodedBytes": 536870912,
+      "maxTotalStringBytes": 4194304,
+      "maxWeightFloats": 300000000
+    },
+    "minimumSuccessorNumericPeakBytes": 2723283570,
+    "numericPayloadAllocated": false,
+    "parametersPerGenome": 494306,
+    "population": 300,
+    "processMemoryCeilingBytes": 4294967296,
+    "recurrentPerBrain": 96,
+    "roleNames": [
+      "state",
+      "graph",
+      "population-index",
+      "weights",
+      "recurrent"
+    ],
+    "stateMemory": {
+      "frameBytes": 13012000,
+      "graphBytes": 3894,
+      "recurrentBytes": 139776,
+      "scratchBytes": 1073744224,
+      "spatialBytes": 268435456,
+      "structuralBytes": 30490040,
+      "textBytes": 4724,
+      "totalBytes": 2130001170,
+      "validationBytes": 24461520,
+      "weightBytes": 719709536
+    },
+    "twoStateBudgetFits": true,
+    "workerScratchBytes": 536870912
+  },
+  "continuationExcludesWallDebt": true,
+  "diskAvailableBeforeBytes": 198361833472,
+  "diskRequiredIncludingReserveBytes": 4294967296,
+  "mode": "audit",
+  "offlineReceipts": true,
+  "schemaVersion": 1,
+  "sourceSha256": "8e4d934f064a3a3d2af0b98c812bc2579ca95a530a505cc0be73dcadbb0f33a6",
+  "sqliteCommitted": false,
+  "target": "x86_64-pc-windows-msvc"
+}

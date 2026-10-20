@@ -1158,3 +1158,67 @@ are retained in `head-distance-reuse-windows-v1/` and
 `head-distance-reuse-debian-v1/`. Profile source paths use public relative
 prefixes; its binary records and original report are preserved. Userspace
 sampling includes observer/startup/unwinding and is diagnostic, not step timing.
+
+
+## Offline checkpoint capacity candidate
+
+`checkpoint-capacity-qualification` and `scripts/qualification/checkpoint-capacity.ts`
+exercise explicit 512/768-MiB policies through the ordinary native constructors,
+codec, evolution, Hall-of-Fame, export and import paths. Production remains at
+512 MiB. The raw-fallback case lowers the compressed-candidate cap to 1 MiB;
+the ordinary candidate cap and both native scratch reservations stay 512 MiB.
+The candidate changes only stored/archive/decoded limits to 768 MiB.
+
+The metadata-only P3 audit prices 300 fresh Motion/B32 genomes with 494,306
+parameters and 96 recurrent floats each. Decoded roles total 565.84 MiB, including
+565.69 MiB of weights and 0.11 MiB of recurrence. The bounded codec workspace is
+17.69 MiB. The current-plus-successor state reservation is 4,062.65 MiB, leaving
+33.35 MiB inside the explicitly supplied 4-GiB native admission budget. The
+512-MiB audit rejects this shape before numeric allocation; no dimensions shrink.
+
+Both targets pass a real generation transition and winner publication, strict
+independent restores and equal completed-step gameplay continuation, exact file
+retry, SQLite commits, a metadata-worker export lease, the self-contained archive
+and two imports including an existing digest-derived destination. Streamed
+existing-file verification checks every logical role and manifest mirror without
+allocating another decoded population. Imports retain their selected checkpoint
+and graph limits. An impossible successor numeric allocation now rejects before
+evolution consumes RNG or allocates its output population.
+
+| Target and codec | Generation checkpoint MiB | Save/evolution peak RSS MiB | Archive/import peak RSS MiB | Node-host peak RSS MiB |
+|---|---:|---:|---:|---:|
+| Windows compressed | 475.42 | 1151.91 | 1142.31 | 95.30 |
+| Windows raw fallback | 565.74 | 1152.07 | 1140.33 | 96.96 |
+| Debian compressed | 475.42 | 1153.13 | 1143.34 | 172.27 |
+| Debian raw fallback | 565.74 | 1151.46 | 1141.39 | 131.23 |
+
+Raw and compressed cases have identical logical checkpoint and continuation
+hashes within each target. Boundary checkpoints reset wall debt; the restored
+continuation witness excludes only that scheduler field. The native capacity
+phases use explicit offline barrier receipts, and the Node driver separately
+records the real SQLite commit/import receipts. Native RSS uses the operating
+system lifetime high-water counter; Node-host values are observed at 100-ms
+intervals. These describe separate processes. Disk checks preserve the operating reserve; Node prices the
+768-MiB checkpoint policy at 2,656 MiB required free space, while the native
+whole-case check reserves 5,632 MiB including retained files and work overlap.
+The driver removes only its exclusively created fixture tree after retaining
+and syncing the compact report.
+
+Reports and the exact source patch are retained in
+`checkpoint-capacity-windows-v1/` and `checkpoint-capacity-debian-v1/`.
+All 770 release Rust tests pass on both targets. CI runs the same contracts at
+55 snakes with both codecs on Windows/Ubuntu Node 24. These measurements cover
+one fresh large cohort and one evolved generation, with one winner object.
+Repeated generation handoffs after overlapping imports, full saved-library and
+inspector coexistence, diverse/crowded P3 geometry, integrated trainer/shadow
+contention and soak remain open. This evidence does not select the production
+envelope or qualify P3 real-clock throughput.
+
+```powershell
+cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin checkpoint-capacity-qualification
+node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary native/target/release/checkpoint-capacity-qualification.exe --workspace native/target/capacity-local --output native/target/capacity-local.json --population 300 --graph large --mode compressed --envelope-mib 768
+```
+
+Use the executable without `.exe` on Debian; select `--mode raw` for the forced
+fallback. Workspace and output names must be new, and the retained output must
+sit outside the disposable workspace.

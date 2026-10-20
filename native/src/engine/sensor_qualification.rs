@@ -408,6 +408,29 @@ fn prepare_sensor_workload_with_artifact(
     request: Stage6aP0FreshRunRequest,
     trained: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
+    let (updates, spec) = sensor_workload_spec(options, trained)?;
+    prepare_sensor_qualification_run(
+        request,
+        &updates,
+        spec,
+        options.profile,
+        options.bins,
+        RunningStepWorkLimits {
+            calculation_workers: options.workers,
+            ray_work: options.ray_limits,
+            ..RunningStepWorkLimits::provisional_defaults()
+        },
+        options.math,
+        options.baseline,
+        trained,
+    )
+}
+
+/// Shared normalized settings/graph for ordinary, trained and capacity-only qualification.
+pub(crate) fn sensor_workload_spec(
+    options: &SensorQualificationOptions,
+    trained: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<(Vec<FreshRunSettingUpdate>, GraphSpec), super::fresh_run::FreshRunError> {
     if !matches!(options.population, 55 | 300) {
         return Err(super::fresh_run::FreshRunError::Settings(
             "qualification workload must be P0/P1".into(),
@@ -473,24 +496,13 @@ fn prepare_sensor_workload_with_artifact(
             },
         })
         .collect();
-    prepare_sensor_qualification_run(
-        request,
-        &updates,
+    Ok((
+        updates,
         trained.map_or_else(
             || graph(contract.input_size(), options.large_graph),
             |artifact| artifact.graph.spec().clone(),
         ),
-        options.profile,
-        options.bins,
-        RunningStepWorkLimits {
-            calculation_workers: options.workers,
-            ray_work: options.ray_limits,
-            ..RunningStepWorkLimits::provisional_defaults()
-        },
-        options.math,
-        options.baseline,
-        trained,
-    )
+    ))
 }
 
 fn raw_histograms() -> Vec<BoundedHistogram> {
@@ -615,7 +627,7 @@ fn observe_committed(
 
 /// Operating-system lifetime high water, including admission/checkpoint construction.
 #[cfg(target_os = "windows")]
-fn process_peak_rss_bytes() -> Option<u64> {
+pub(crate) fn process_peak_rss_bytes() -> Option<u64> {
     use windows_sys::Win32::System::ProcessStatus::{
         K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
     };
@@ -633,7 +645,7 @@ fn process_peak_rss_bytes() -> Option<u64> {
     u64::try_from(counters.PeakWorkingSetSize).ok()
 }
 #[cfg(not(target_os = "windows"))]
-fn process_peak_rss_bytes() -> Option<u64> {
+pub(crate) fn process_peak_rss_bytes() -> Option<u64> {
     super::sensing_fixture::linux_process_status_bytes("VmHWM:")
 }
 

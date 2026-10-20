@@ -100,7 +100,7 @@ pub const RESURRECTED_ENTITY_ID_START: u64 = (1_u64 << 63) | (1_u64 << 62);
 pub const RESURRECTED_ENTITY_ID_EXHAUSTED: u64 = u64::MAX;
 
 /// Exact running-build identity and admission ceiling supplied by the wrapper.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StateAdmissionPolicy {
     /// Remaining hard peak ceiling after the caller accounts for the current
     /// engine, Node, transfer spools, and any simultaneously staged state.
@@ -929,6 +929,8 @@ pub struct StateCandidate {
 
 /// Reusable checked memory estimate for an engine candidate.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct StateMemoryEstimate {
     /// Rust structs and vector element buffers.
     pub structural_bytes: usize,
@@ -1711,6 +1713,23 @@ impl AuthoritativeState {
     /// Project the complete selection-pressure contract from admitted run state.
     pub fn evolution_config(&self) -> Result<super::evolution::EvolutionConfig, StepConfigError> {
         project_evolution_config(&self.candidate.config, self.graph().total_parameters)
+    }
+
+    /// Reject an impossible successor numeric allocation before evolution constructs it.
+    /// Full successor/state/codec admission remains a separate, stronger gate.
+    pub(crate) fn preflight_generation_numeric_allocation(&self) -> Result<(), StateError> {
+        let peak = generation_numeric_peak_bytes(
+            self.memory.total_bytes,
+            self.candidate.population.len(),
+            self.graph.compiled(),
+        )?;
+        if peak > self.memory_ceiling_bytes {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: peak,
+                ceiling_bytes: self.memory_ceiling_bytes,
+            });
+        }
+        Ok(())
     }
 
     /// Admit one exact next-generation boundary while retaining this authority.
@@ -3344,6 +3363,26 @@ pub fn checked_allocation_bytes(
     count
         .checked_mul(item_size)
         .ok_or(StateError::ArithmeticOverflow { context })
+}
+
+/// Minimum current-plus-successor numeric peak, checked before any output weights exist.
+pub(crate) fn generation_numeric_peak_bytes(
+    current_bytes: usize,
+    population: usize,
+    graph: &CompiledGraph,
+) -> Result<usize, StateError> {
+    let scalars = graph
+        .total_parameters
+        .checked_add(graph.total_state_size)
+        .and_then(|per_genome| per_genome.checked_mul(population))
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "next generation numeric shape",
+        })?;
+    checked_add(
+        current_bytes,
+        checked_allocation_bytes(scalars, size_of::<f32>(), "next generation numeric bytes")?,
+        "current plus next generation numeric memory",
+    )
 }
 
 /// Estimate complete candidate and compiled-graph owned memory without
@@ -6271,6 +6310,45 @@ mod tests {
         let admission = complete_running_policy(&candidate, memory_ceiling);
         AuthoritativeState::validate_and_own(candidate, graph, &admission)
             .expect("complete running fixture must admit")
+    }
+
+    #[test]
+    fn terminal_memory_rejection_precedes_evolution_and_preserves_authority() {
+        use super::super::running_step::{
+            RunningStepCoordinator, RunningStepError, RunningStepInputs,
+        };
+        use super::super::step_config::RunningStepWorkLimits;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let before = authority.state().clone();
+        let peak = generation_numeric_peak_bytes(
+            authority.memory.total_bytes,
+            before.population.len(),
+            &graph,
+        )
+        .unwrap();
+        authority.memory_ceiling_bytes = peak - 1;
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        coordinator.request_manual_finish();
+        let result = coordinator.advance_nonterminal(
+            &mut authority,
+            RunningStepInputs {
+                wall_now_ms: 100,
+                wall_accumulator_seconds: 0.0,
+            },
+        );
+        assert!(matches!(result, Err(RunningStepError::State(error))
+            if matches!(*error, StateError::MemoryCeilingExceeded {estimated_bytes,ceiling_bytes}
+                if estimated_bytes==peak && ceiling_bytes==peak-1)));
+        assert_eq!(coordinator.last_step_cost().generation_evolution, 0);
+        assert!(coordinator.pending_generation_transition().is_none());
+        assert_eq!(authority.state(), &before);
+        assert!(generation_numeric_peak_bytes(usize::MAX, 1, &graph).is_err());
     }
 
     struct RunningStepBuffers {

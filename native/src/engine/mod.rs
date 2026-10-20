@@ -212,3 +212,7 @@ pub mod baseline_qualification;
 /// Bounded synthetic committed-row export for offline tactical training.
 #[cfg(feature = "engine-test-hooks")]
 mod tactical_corpus;
+
+/// Offline checkpoint envelope/resource qualification; never a production startup override.
+#[cfg(feature = "engine-test-hooks")]
+pub mod checkpoint_capacity;

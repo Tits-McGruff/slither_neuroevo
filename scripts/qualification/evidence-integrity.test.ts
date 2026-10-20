@@ -870,3 +870,79 @@ it.each(['windows', 'debian'])('verifies %s head-distance reuse against the exac
     }
   }
 });
+
+/** Scalar-only receipts for the full checkpoint candidate, without decoding populations. */
+interface CapacityEvidence {
+  /** Native source identity and exact shape/memory/codec audit. */
+  native: {
+    sourceSha256: string;
+    initialRestoreExact: boolean;
+    generationRestoreExact: boolean;
+    continuationExcludesWallDebt: boolean;
+    peakRssBytes: number;
+    combinedGenerationStateBytes: number;
+    continuationSha256: string;
+    generation: {logicalRootSha256: string; storedByteCount: string; weightsEncoding: string};
+    runStart: {logicalRootSha256: string};
+    audit: {
+      population: number; parametersPerGenome: number; recurrentPerBrain: number;
+      decodedRoleBytes: number[]; decodedBytes: number; processMemoryCeilingBytes: number;
+      workerScratchBytes: number; checkpointScratchBytes: number; checkpointWorkspaceBytes: number;
+      decodedEnvelopeFits: boolean; twoStateBudgetFits: boolean;
+      limits: {maxArchiveBytes: number; maxTotalDecodedBytes: number; maxNumericCandidateBytes: number};
+    };
+  };
+  /** Real opaque archive/import verification and native resident peak. */
+  archive: {sourceSha256: string; importLimitsPreserved: boolean; idempotentImportExact: boolean;
+    continuationSha256: string; peakRssBytes: number};
+  /** Host-owned durable SQLite receipts and process peak. */
+  sqliteCommitted: boolean;
+  sqliteImported: boolean;
+  peakHostRssBytes: number;
+}
+
+it.each(['windows', 'debian'])('checkpoint capacity %s retains full raw/compressed and durable import evidence', target => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4', `checkpoint-capacity-${target}-v1`);
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    sourceSha256: string; candidatePatchSha256: string; reports: Record<string, string>;
+  };
+  expect(sha256(readFileSync(resolve(root, 'candidate.patch')))).toBe(manifest.candidatePatchSha256);
+  const reports: CapacityEvidence[] = [];
+  for (const mode of ['compressed', 'raw']) {
+    const name = `${mode}.json`; const bytes = readFileSync(resolve(root, name));
+    expect(sha256(bytes)).toBe(manifest.reports[name]);
+    const receipt = JSON.parse(bytes.toString('utf8')) as CapacityEvidence;
+    reports.push(receipt);
+    const native = receipt.native; const audit = native.audit;
+    expect(native.sourceSha256).toBe(manifest.sourceSha256);
+    expect(receipt.archive.sourceSha256).toBe(manifest.sourceSha256);
+    expect(audit.population).toBe(300); expect(audit.parametersPerGenome).toBe(494306);
+    expect(audit.recurrentPerBrain).toBe(96);
+    expect(audit.decodedRoleBytes[3]).toBe(300 * 494306 * 4);
+    expect(audit.decodedBytes).toBe(audit.decodedRoleBytes.reduce((total, value) => total + value, 0));
+    expect(audit.decodedBytes).toBeGreaterThan(512 * 1024 ** 2);
+    expect(audit.limits.maxArchiveBytes).toBe(768 * 1024 ** 2);
+    expect(audit.limits.maxTotalDecodedBytes).toBe(768 * 1024 ** 2);
+    expect(audit.limits.maxNumericCandidateBytes).toBe((mode === 'raw' ? 1 : 512) * 1024 ** 2);
+    expect(audit.workerScratchBytes).toBe(512 * 1024 ** 2);
+    expect(audit.checkpointScratchBytes).toBe(512 * 1024 ** 2);
+    expect(audit.checkpointWorkspaceBytes).toBeLessThan(audit.checkpointScratchBytes);
+    expect(audit.decodedEnvelopeFits).toBe(true); expect(audit.twoStateBudgetFits).toBe(true);
+    expect(audit.processMemoryCeilingBytes).toBe(4 * 1024 ** 3);
+    expect(native.combinedGenerationStateBytes).toBeLessThanOrEqual(audit.processMemoryCeilingBytes);
+    expect(native.peakRssBytes).toBeGreaterThan(0); expect(native.peakRssBytes).toBeLessThan(audit.processMemoryCeilingBytes);
+    expect(receipt.archive.peakRssBytes).toBeGreaterThan(0);
+    expect(receipt.archive.peakRssBytes).toBeLessThan(audit.processMemoryCeilingBytes);
+    expect(native.initialRestoreExact && native.generationRestoreExact).toBe(true);
+    expect(native.continuationExcludesWallDebt).toBe(true);
+    expect(receipt.sqliteCommitted && receipt.sqliteImported).toBe(true);
+    expect(receipt.archive.importLimitsPreserved && receipt.archive.idempotentImportExact).toBe(true);
+    expect(receipt.archive.continuationSha256).toBe(native.continuationSha256);
+    expect(receipt.peakHostRssBytes).toBeGreaterThan(0);
+    expect(native.generation.weightsEncoding).toBe(mode === 'raw' ? 'raw-f32le-v1' : 'f32le-shuffle4-zstd-v1');
+    if (mode === 'raw') expect(BigInt(`0x${native.generation.storedByteCount}`)).toBeGreaterThan(512n * 1024n ** 2n);
+  }
+  expect(reports[0]!.native.runStart.logicalRootSha256).toBe(reports[1]!.native.runStart.logicalRootSha256);
+  expect(reports[0]!.native.generation.logicalRootSha256).toBe(reports[1]!.native.generation.logicalRootSha256);
+  expect(reports[0]!.native.continuationSha256).toBe(reports[1]!.native.continuationSha256);
+});

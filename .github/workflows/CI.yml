@@ -70,6 +70,21 @@ jobs:
         run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
       - name: Test native crate
         run: cargo test --manifest-path native/Cargo.toml --release --features engine-test-hooks -- --test-threads=1
+      - name: Build checkpoint capacity qualifier
+        if: matrix.node-version == '24.x'
+        run: cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin checkpoint-capacity-qualification
+      - name: Native checkpoint capacity with SQLite and archive smoke
+        if: matrix.node-version == '24.x'
+        run: |
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-compressed" --output "${{ runner.temp }}/capacity-compressed.json" --population 55 --graph small --mode compressed --envelope-mib 768
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-raw" --output "${{ runner.temp }}/capacity-raw.json" --population 55 --graph small --mode raw --envelope-mib 768
+      - name: Retain checkpoint capacity smoke
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-capacity-${{ matrix.os }}
+          path: ${{ runner.temp }}/capacity-*.json
+          if-no-files-found: warn
       - name: Native baseline-v2 tactical batch
         run: >-
           cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks

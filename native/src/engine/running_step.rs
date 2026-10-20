@@ -1158,6 +1158,7 @@ impl RunningStepCoordinator {
                     self.last_phase_allocations.generation_guard =
                         allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
                 }
+                authority.preflight_generation_numeric_allocation()?;
                 let elapsed_seconds = prepared.generation_elapsed_seconds();
                 let preparation_started = Instant::now();
                 let next = prepare_generation_boundary_with_evolved(

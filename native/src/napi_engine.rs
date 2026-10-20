@@ -149,6 +149,14 @@ pub struct Stage3CheckpointFixtureOptions {
 
 /// Scalar-only descriptor returned by a real Rust checkpoint publisher.
 #[napi(object)]
+#[cfg_attr(
+    feature = "engine-test-hooks",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "engine-test-hooks",
+    serde(rename_all = "camelCase", deny_unknown_fields)
+)]
 pub struct ManagedCheckpointDescriptor {
     /// Descriptor protocol version.
     pub protocol_version: u32,
@@ -200,6 +208,8 @@ pub struct ManagedCheckpointDescriptor {
 
 /// Scalar-only descriptor for one deduplicated Hall-of-Fame weight object.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct ManagedHallOfFameWeightsDescriptor {
     pub version: u32,
     pub logical_sha256: String,
@@ -222,6 +232,8 @@ pub struct ManagedCheckpointPublicationOptions {
 
 /// Exact Rust-owned eight-field generation summary wire record.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6GenerationSummaryRecord {
     pub completed_generation: String,
     pub best_f64_hex: String,
@@ -235,6 +247,8 @@ pub struct Stage6GenerationSummaryRecord {
 
 /// Exact Rust-owned Hall-of-Fame successor reference wire record.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6HallOfFameRecord {
     pub completed_generation: String,
     pub source_population_slot: String,
@@ -248,6 +262,8 @@ pub struct Stage6HallOfFameRecord {
 
 /// Exact versioned terminal chronology persisted beside compact generation history.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6GenerationCompletionRecord {
     pub version: u32,
     pub reason: String,
@@ -258,6 +274,8 @@ pub struct Stage6GenerationCompletionRecord {
 
 /// Fixed metadata extension; byte order and all numeric bits are Rust-authored.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6GenerationExperimentRecord {
     pub version: u32,
     pub history_hex: String,
@@ -266,6 +284,8 @@ pub struct Stage6GenerationExperimentRecord {
 
 /// Complete scalar-only generation commit assembled by Rust admission.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6GenerationCommitRecord {
     pub experiment: Option<Stage6GenerationExperimentRecord>,
     pub completion: Option<Stage6GenerationCompletionRecord>,
@@ -3172,7 +3192,7 @@ pub(crate) fn checkpoint_descriptor_to_napi(
 }
 
 /// Convert one elite-object descriptor without exposing its numeric body.
-fn hall_of_fame_weights_descriptor_to_napi(
+pub(crate) fn hall_of_fame_weights_descriptor_to_napi(
     descriptor: HallOfFameWeightsDescriptor,
 ) -> ManagedHallOfFameWeightsDescriptor {
     ManagedHallOfFameWeightsDescriptor {
@@ -3295,7 +3315,7 @@ pub(crate) fn bounded_object_string(
 }
 
 /// Reconstruct one scalar descriptor supplied by the persistence worker.
-fn checkpoint_descriptor_from_napi(
+pub(crate) fn checkpoint_descriptor_from_napi(
     descriptor: ManagedCheckpointDescriptor,
 ) -> Result<CheckpointDescriptor> {
     if descriptor.protocol_version != CHECKPOINT_DESCRIPTOR_VERSION {
@@ -3512,7 +3532,9 @@ pub(crate) fn parse_background_sequence(value: JsString<'_>) -> Result<u64> {
 }
 
 /// Convert the Rust-owned compact generation record without numeric narrowing.
-fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6GenerationCommitRecord {
+pub(crate) fn generation_commit_to_napi(
+    record: GenerationCommitRecord,
+) -> Stage6GenerationCommitRecord {
     Stage6GenerationCommitRecord {
         experiment: record.experiment.map(|record| {
             let bytes = record.encode();
