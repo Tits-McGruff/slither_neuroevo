@@ -1248,7 +1248,7 @@ impl RunningAuthorityLoop {
         };
         let clock = self.background_clock;
         let visualization_enabled = self.coordinator.visualization_enabled();
-        let mut replacement = match transition.into_running_loop(
+        let (mut replacement, running_ceiling) = match transition.into_replacement_running_loop(
             FixedStepSchedulerPolicy::provisional_defaults(),
             wall_now_ms,
         ) {
@@ -1264,7 +1264,19 @@ impl RunningAuthorityLoop {
             replacement.set_background_clock(clock);
         }
         replacement.set_visualization_enabled(visualization_enabled);
-        *self = replacement;
+        // Retire all prior state/coordinator allocations before restoring the
+        // imported authority's complete running budget. No simulation runs in between.
+        let retired = std::mem::replace(self, replacement);
+        drop(retired);
+        if let Err(error) = self
+            .authority
+            .reclaim_retired_memory_budget(running_ceiling)
+        {
+            self.state = RunningAuthorityLoopState::Faulted;
+            return Err(RunningAuthorityLoopError::Import(Box::new(
+                RunStartTransitionError::from(error),
+            )));
+        }
         Ok(publication)
     }
 

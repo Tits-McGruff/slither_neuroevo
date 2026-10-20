@@ -1222,3 +1222,53 @@ node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts 
 Use the executable without `.exe` on Debian; select `--mode raw` for the forced
 fallback. Workspace and output names must be new, and the retained output must
 sit outside the disposable workspace.
+
+
+## Repeated imported generation handoffs
+
+The follow-up fixes a running-budget bug exposed by the larger checkpoint
+candidate. A restored population could retain the reduced ceiling used while
+another owner was alive, then fail ordinary successor admission after that owner
+was retired. Identity rebinding now preserves overlap admission. Replacement
+coordinator construction also uses that reduced ceiling; the old loop is
+explicitly dropped before the new loop reclaims its original caller-selected
+running budget. Standalone handoff requires its predecessor to be retired.
+Reclamation changes no persisted state, dimensions, RNG, or resource defaults;
+invalid lifecycle and decreasing-ceiling requests reject without changing state.
+
+The loaded harness now keeps the first imported world live while decoding a
+second candidate against the remaining budget, replaces it through the actual
+native import path, then evolves generations 3, 4 and 5. Each successor publishes
+its checkpoint/winner, activates normally, and matches an independently restored
+completed-step continuation beside the current population. Node commits the
+import and all three generation records, then verifies SQLite's final current
+pointer. Native offline barrier receipts and real metadata commits remain
+separately labelled. Compressed/raw logical roots and continuation witnesses
+match within each target at all three successors.
+
+| Target and codec | Archive/handoff native peak RSS MiB | Node-host peak RSS MiB | Whole capacity case seconds |
+|---|---:|---:|---:|
+| Windows compressed | 1154.77 | 97.92 | 56.75 |
+| Windows raw fallback | 1154.98 | 97.33 | 44.40 |
+| Debian compressed | 1158.31 | 140.04 | 95.44 |
+| Debian raw fallback | 1157.52 | 127.72 | 75.07 |
+
+The cohort remains 300 fresh Motion/B32 genomes, 494,306 parameters each, with
+three additional short evolved rounds after import. The approximately
+2,031.32-MiB old-state reservation leaves 2,064.68 MiB for staging under the
+unchanged 4-GiB native ceiling. Successor admission needs about 4,062.65 MiB,
+which fits the reclaimed 4,096 MiB and exceeds the staging ceiling. Both native
+and Node measurements now include OS high-water counters; Node also retains
+100-ms samples. Earlier capacity receipts retain their original sampled-host
+method. Fixtures are removed after their compact reports are synced.
+
+Retained reports and exact source patches are in `checkpoint-handoffs-windows-v1/`
+and `checkpoint-handoffs-debian-v1/`. All 773 release Rust tests pass on each
+target, including standalone/live replacement and recovery-branch regressions.
+The existing Windows/Ubuntu CI capacity command now includes these three handoffs.
+Production checkpoint/scratch limits are unchanged, and 768 MiB remains an
+offline candidate. These are controlled native-boundary runs: production libuv
+archive/fresh preparation still receives its full task ceiling, so shared
+admission against concurrent live generation transitions remains to implement
+and qualify. Full library/inspector coexistence and integrated P3/soak also remain
+open.

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "dc49c3fbc1274b229e07e7c03f8f474d62587231",
+  "sourceSha256": "609b72307b883175772d7c3a33e36a5bffd058ffcc4ef5ac912351d644662ebe",
+  "candidatePatchSha256": "0548812d383300aa6dc0df5d18b6fa3f6e8f79711b7fc69cea2a1aac3e6401a2",
+  "reports": {
+    "compressed.json": "cd1fbf576a5a948d5b3266589988a8d3cb06c3528da160c72d2612ab36e977dc",
+    "raw.json": "6a2488e827f89bcf301b52cd717d7d928eb2aa167d5455f67bcfd97bb3bae27d"
+  },
+  "nativeReleaseTests": 773,
+  "scope": "live replacement under overlap admission, three post-import generation checkpoints and exact independent continuations, all SQLite metadata commits; native 4 GiB unchanged; offline 768 MiB candidate, no production/global-asynchronous-admission or soak claim"
+}

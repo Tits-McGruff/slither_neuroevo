@@ -325,7 +325,7 @@ pub fn run_checkpoint_archive_capacity(
     let estimate = super::export_archive::estimate_import_disk_bytes(&archive_path)?;
     let imported_directory = workspace.join("managed");
     std::fs::create_dir(&imported_directory)?;
-    let first = prepare_import_archive(
+    let mut first = prepare_import_archive(
         &archive_path,
         workspace,
         &imported_directory,
@@ -340,15 +340,22 @@ pub fn run_checkpoint_archive_capacity(
     if first.transition.qualification_checkpoint_limits() != &prepared.limits {
         return Err("import discarded selected checkpoint limits".into());
     }
+    let first_descriptor = first.descriptor.clone();
+    first
+        .transition
+        .configure_qualification_work_limits(prepared.work_limits)?;
+    first
+        .transition
+        .acknowledge_import_persistence(&first_descriptor)?;
+    first.transition.publish_running_authority()?;
+    let mut running = first
+        .transition
+        .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)?;
+    running.service_after_command_drain(17, SchedulerServiceMode::Background, None)?;
+    let retired_source_bytes = running.authoritative_memory_bytes();
     let mut overlap_policy = prepared.admission_policy.clone();
     overlap_policy.memory_ceiling_bytes = memory_ceiling_bytes
-        .checked_sub(
-            first
-                .transition
-                .qualification_authority()
-                .memory_estimate()
-                .total_bytes,
-        )
+        .checked_sub(retired_source_bytes)
         .ok_or("no import overlap budget")?;
     let mut second = prepare_import_archive(
         &archive_path,
@@ -362,41 +369,128 @@ pub fn run_checkpoint_archive_capacity(
         &overlap_policy,
         memory_ceiling_bytes,
     )?;
-    if first.transition.qualification_authority().state()
-        != second.transition.qualification_authority().state()
-        || first
-            .descriptor
-            .first_content_mismatch(&second.descriptor)
-            .is_some()
+    if first_descriptor
+        .first_content_mismatch(&second.descriptor)
+        .is_some()
     {
         return Err("idempotent import differs".into());
     }
-    drop(first);
+    let overlap_combined_bytes = retired_source_bytes
+        .checked_add(
+            second
+                .transition
+                .qualification_authority()
+                .memory_estimate()
+                .total_bytes,
+        )
+        .ok_or("overlap total overflow")?;
+    if overlap_combined_bytes > memory_ceiling_bytes {
+        return Err("import overlap exceeds process budget".into());
+    }
     second
         .transition
         .configure_qualification_work_limits(prepared.work_limits)?;
-    second
-        .transition
-        .acknowledge_import_persistence(&second.descriptor)?;
-    second.transition.publish_running_authority()?;
-    let mut running = second
-        .transition
-        .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)?;
-    running.service_after_command_drain(17, SchedulerServiceMode::Background, None)?;
+    let slot = super::contract::PreparedImportSlot::new();
+    slot.put(second.transition)
+        .map_err(|_| "capacity import slot already occupied")?;
+    running.stage_prepared_import(&slot)?;
+    running.publish_prepared_import(&slot, &second.descriptor, None, 17)?;
+    running.service_after_command_drain(34, SchedulerServiceMode::Background, None)?;
+    let initial_continuation = running.qualification_restored_continuation_sha256();
+    let generations = exercise_imported_generations(
+        &mut running,
+        &prepared,
+        &imported_directory,
+        &descriptor.run_id,
+        34,
+    )?;
     let import_inventory = second.inventory;
     Ok(
-        serde_json::json!({"schemaVersion":1,"sourceSha256": crate::native_addon_source_sha256(),
+        serde_json::json!({"schemaVersion":2,"sourceSha256": crate::native_addon_source_sha256(),
         "target":crate::native_addon_build_target(), "sqliteCommitted": false, "offlineReceipts": true,
         "archiveBytes": u64::from_str_radix(&archive.stored_byte_count_hex,16)?,
         "importCandidateSpoolBytes":estimate.candidate_spool_bytes,"importFinalManagedBytes":estimate.final_managed_bytes,
         "importLimitsPreserved":true,"idempotentImportExact":true,
-        "continuationSha256":running.qualification_restored_continuation_sha256(),
+        "continuationSha256":initial_continuation,
+        "retiredSourceStateBytes":retired_source_bytes,"overlapCombinedStateBytes":overlap_combined_bytes,
+        "stagingMemoryCeilingBytes":overlap_policy.memory_ceiling_bytes,"runningMemoryCeilingBytes":memory_ceiling_bytes,
+        "postImportGenerations":generations,
         "descriptor":crate::napi_engine::checkpoint_descriptor_to_napi(second.descriptor),
         "inventory":{"version":import_inventory.version,"relativeFilename":import_inventory.relative_filename,
             "sha256":import_inventory.sha256,"storedByteCount":import_inventory.stored_byte_count_hex,
             "historyCount":import_inventory.history_count_hex,"hallOfFameCount":import_inventory.hall_of_fame_count_hex},
         "peakRssBytes":super::sensor_qualification::process_peak_rss_bytes(),"totalSeconds":started.elapsed().as_secs_f64()}),
     )
+}
+
+/// Repeated real evolution/publication/activation with independent exact restore
+/// beside the current live population, charged to the same process ceiling.
+fn exercise_imported_generations(
+    running: &mut super::running_loop::RunningAuthorityLoop,
+    prepared: &QualifiedCheckpointRun,
+    managed: &std::path::Path,
+    run_id: &str,
+    mut wall_ms: u64,
+) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>> {
+    use super::checkpoint::CheckpointOperationId;
+    use super::run_start::PendingRunStartTransition;
+    use super::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
+    let mut reports = Vec::with_capacity(3);
+    for ordinal in 0..3_u64 {
+        running.request_finish_generation(
+            format!("capacity-import-{ordinal}"),
+            run_id.into(),
+            2 + ordinal,
+        )?;
+        wall_ms += 17;
+        running.service_after_command_drain(wall_ms, SchedulerServiceMode::Background, None)?;
+        let transition = running
+            .pending_generation_transition()
+            .ok_or("post-import generation missing")?;
+        let combined = transition.combined_state_bytes();
+        if transition.memory_ceiling_bytes() != prepared.admission_policy.memory_ceiling_bytes
+            || combined > prepared.admission_policy.memory_ceiling_bytes
+        {
+            return Err("import did not reclaim the correct running budget".into());
+        }
+        let publication = running.publish_pending_generation_checkpoint(
+            managed,
+            CheckpointOperationId::parse(format!("{:032x}", 256 + ordinal))?,
+        )?;
+        running.acknowledge_pending_generation_persistence(&publication.descriptor)?;
+        running.prepare_acknowledged_generation_reassignments()?;
+        running.publish_acknowledged_generation_start(wall_ms, None)?;
+        wall_ms += 17;
+        running.service_after_command_drain(wall_ms, SchedulerServiceMode::Background, None)?;
+        let expected = running.qualification_restored_continuation_sha256();
+        let mut restore_policy = prepared.admission_policy.clone();
+        restore_policy.memory_ceiling_bytes = restore_policy
+            .memory_ceiling_bytes
+            .checked_sub(running.authoritative_memory_bytes())
+            .ok_or("no independent restore overlap budget")?;
+        let mut restored = PendingRunStartTransition::restore_committed(
+            managed,
+            &publication.descriptor,
+            restore_policy,
+            prepared.limits.clone(),
+            prepared.graph_limits.clone(),
+            prepared.work_limits,
+        )?;
+        restored.publish_running_authority()?;
+        let mut restored =
+            restored.into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)?;
+        restored.service_after_command_drain(17, SchedulerServiceMode::Background, None)?;
+        if restored.completed_step() != running.completed_step()
+            || restored.qualification_restored_continuation_sha256() != expected
+        {
+            return Err("post-import independent continuation differs".into());
+        }
+        reports.push(serde_json::json!({"descriptor":crate::napi_engine::checkpoint_descriptor_to_napi(publication.descriptor),
+            "hallOfFameWeights":crate::napi_engine::hall_of_fame_weights_descriptor_to_napi(publication.hall_of_fame_weights),
+            "generationCommit":crate::napi_engine::generation_commit_to_napi(publication.commit_record),
+            "combinedStateBytes":combined,"continuationSha256":expected,"independentRestoreExact":true}));
+    }
+    Ok(reports)
 }
 
 #[cfg(test)]

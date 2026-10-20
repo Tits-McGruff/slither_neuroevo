@@ -197,6 +197,11 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Current overlap ceiling before the imported owner replaces its predecessor.
+    pub(crate) fn admitted_memory_ceiling_bytes(&self) -> usize {
+        self.authority.memory_ceiling_bytes()
+    }
+
     /// Verify the committed source before moving a private candidate to a branch.
     pub fn validate_recovery_source(
         &self,
@@ -237,9 +242,13 @@ impl PendingRunStartTransition {
         if !self.restored_checkpoint {
             return Err(RunStartTransitionError::InvalidBoundary);
         }
+        // Rebinding identity does not retire the prior live population. Keep
+        // its overlap charge until the final running-authority ownership swap.
+        let mut branch_policy = self.admission_policy.clone();
+        branch_policy.memory_ceiling_bytes = self.admitted_memory_ceiling_bytes();
         self.authority = self
             .authority
-            .into_recovery_branch(branch_run_id, &self.admission_policy)?;
+            .into_recovery_branch(branch_run_id, &branch_policy)?;
         self.admission_policy.require_exact_build_identity = true;
         self.compatible_recovery_branch_required = false;
         Ok(self)
@@ -484,12 +493,34 @@ impl PendingRunStartTransition {
     ///
     /// This is the future background-thread handoff. The experimental one-shot
     /// step and the retained loop are deliberately exclusive so two scheduler
-    /// owners can never advance the same authority incarnation.
+    /// owners can never advance the same authority incarnation. Any predecessor
+    /// population must already be retired; live replacement uses the separate
+    /// overlap-preserving handoff below.
     pub fn into_running_loop(
         self,
         policy: FixedStepSchedulerPolicy,
         wall_origin_ms: u64,
     ) -> Result<RunningAuthorityLoop, RunStartLoopHandoffError> {
+        self.into_running_loop_with_retirement(policy, wall_origin_ms, true)
+            .map(|(running, _)| running)
+    }
+
+    /// Build a replacement under its reduced overlap admission. The existing
+    /// loop must retire its predecessor before reclaiming the returned budget.
+    pub(crate) fn into_replacement_running_loop(
+        self,
+        policy: FixedStepSchedulerPolicy,
+        wall_origin_ms: u64,
+    ) -> Result<(RunningAuthorityLoop, usize), RunStartLoopHandoffError> {
+        self.into_running_loop_with_retirement(policy, wall_origin_ms, false)
+    }
+
+    fn into_running_loop_with_retirement(
+        mut self,
+        policy: FixedStepSchedulerPolicy,
+        wall_origin_ms: u64,
+        predecessor_retired: bool,
+    ) -> Result<(RunningAuthorityLoop, usize), RunStartLoopHandoffError> {
         if !self.authority_published {
             return Err(RunStartLoopHandoffError::new(
                 self,
@@ -518,9 +549,21 @@ impl PendingRunStartTransition {
                 ))
             }
         };
-        Ok(RunningAuthorityLoop::from_prepared(
-            self.authority,
-            prepared,
+        let running_ceiling = self.admission_policy.memory_ceiling_bytes;
+        if predecessor_retired {
+            if let Err(error) = self
+                .authority
+                .reclaim_retired_memory_budget(running_ceiling)
+            {
+                return Err(RunStartLoopHandoffError::new(
+                    self,
+                    RunStartTransitionError::from(error),
+                ));
+            }
+        }
+        Ok((
+            RunningAuthorityLoop::from_prepared(self.authority, prepared),
+            running_ceiling,
         ))
     }
 

@@ -1715,6 +1715,33 @@ impl AuthoritativeState {
         project_evolution_config(&self.candidate.config, self.graph().total_parameters)
     }
 
+    /// Budget currently available while this state may overlap another owner.
+    pub(crate) const fn memory_ceiling_bytes(&self) -> usize {
+        self.memory_ceiling_bytes
+    }
+
+    /// Restore a caller-selected running budget only after predecessor retirement.
+    /// This changes no state allocation, RNG, graph, or persisted configuration.
+    pub(crate) fn reclaim_retired_memory_budget(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), StateError> {
+        if self.candidate.phase != AuthorityPhase::Running || ceiling < self.memory_ceiling_bytes {
+            return invalid(
+                "memory.retirement",
+                "budget reclamation requires running authority and a nondecreasing ceiling",
+            );
+        }
+        if self.memory.total_bytes > ceiling {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: self.memory.total_bytes,
+                ceiling_bytes: ceiling,
+            });
+        }
+        self.memory_ceiling_bytes = ceiling;
+        Ok(())
+    }
+
     /// Reject an impossible successor numeric allocation before evolution constructs it.
     /// Full successor/state/codec admission remains a separate, stronger gate.
     pub(crate) fn preflight_generation_numeric_allocation(&self) -> Result<(), StateError> {
@@ -6310,6 +6337,30 @@ mod tests {
         let admission = complete_running_policy(&candidate, memory_ceiling);
         AuthoritativeState::validate_and_own(candidate, graph, &admission)
             .expect("complete running fixture must admit")
+    }
+
+    #[test]
+    fn retired_budget_reclamation_preserves_state_and_rejects_invalid_context() {
+        let graph = default_graph();
+        let candidate = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(candidate, graph);
+        let before = authority.state().clone();
+        let original = authority.memory_ceiling_bytes();
+        assert!(authority
+            .reclaim_retired_memory_budget(original - 1)
+            .is_err());
+        assert_eq!(authority.memory_ceiling_bytes(), original);
+        authority
+            .reclaim_retired_memory_budget(original + 1)
+            .unwrap();
+        assert_eq!(authority.memory_ceiling_bytes(), original + 1);
+        assert_eq!(authority.state(), &before);
+        authority.candidate.phase =
+            AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart);
+        assert!(authority
+            .reclaim_retired_memory_budget(original + 2)
+            .is_err());
+        assert_eq!(authority.memory_ceiling_bytes(), original + 1);
     }
 
     #[test]
