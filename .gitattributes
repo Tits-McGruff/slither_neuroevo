@@ -37,3 +37,6 @@ docs/performance/sensor-v4/checkpoint-capacity-*/*.json text eol=lf
 
 # Repeated handoff receipts retain their checksummed JSON bytes.
 docs/performance/sensor-v4/checkpoint-handoffs-*/*.json text eol=lf
+
+# Shared population-admission receipts retain checksummed cross-platform JSON.
+docs/performance/sensor-v4/population-admission-*/*.json text eol=lf

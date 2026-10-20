@@ -1720,6 +1720,28 @@ impl AuthoritativeState {
         self.memory_ceiling_bytes
     }
 
+    /// Restrict a private boundary before it can allocate running-world storage.
+    pub(crate) fn restrict_overlap_memory_budget(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), StateError> {
+        if !matches!(self.candidate.phase, AuthorityPhase::GenerationBoundary(_)) {
+            return invalid(
+                "memory.overlap",
+                "only a private boundary can receive overlap admission",
+            );
+        }
+        let selected = self.memory_ceiling_bytes.min(ceiling);
+        if self.memory.total_bytes > selected {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: self.memory.total_bytes,
+                ceiling_bytes: selected,
+            });
+        }
+        self.memory_ceiling_bytes = selected;
+        Ok(())
+    }
+
     /// Restore a caller-selected running budget only after predecessor retirement.
     /// This changes no state allocation, RNG, graph, or persisted configuration.
     pub(crate) fn reclaim_retired_memory_budget(

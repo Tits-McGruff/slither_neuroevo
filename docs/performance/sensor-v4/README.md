@@ -1267,8 +1267,46 @@ and `checkpoint-handoffs-debian-v1/`. All 773 release Rust tests pass on each
 target, including standalone/live replacement and recovery-branch regressions.
 The existing Windows/Ubuntu CI capacity command now includes these three handoffs.
 Production checkpoint/scratch limits are unchanged, and 768 MiB remains an
-offline candidate. These are controlled native-boundary runs: production libuv
-archive/fresh preparation still receives its full task ceiling, so shared
-admission against concurrent live generation transitions remains to implement
-and qualify. Full library/inspector coexistence and integrated P3/soak also remain
-open.
+offline candidate. These controlled native-boundary receipts predate shared
+background-job admission, which is covered below. Full library/inspector
+coexistence and integrated P3/soak remain open.
+
+
+## Shared population-work admission
+
+Native import, export preparation and fresh-run construction now reserve capacity
+before allocation. The ordered coordinator holds a complete source boundary and
+subtracts its admitted ownership from the process ceiling. One cross-thread lease
+covers task computation, result publication and finalization; cancellation cannot
+resume physics while it is active. Publication seals the slot until the predecessor
+has been dropped, then restores the caller's selected running ceiling. Unstarted
+read-only owners price their retained source too and cannot start during that work.
+
+The server acquires this reservation before native preparation and before any
+replacement durability transaction. Reservations wait through an existing generation
+handoff. Export releases its hold before HTTP body streaming; the real socket
+regression requires steering and completed steps while a slow response is still
+blocked. Rejected decoding, disk/SQLite failures and disconnected clients preserve
+the old world and controller leases. Legacy JSON receives the remaining admission,
+with a streaming ownership/scratch estimate before materializing its population.
+
+The same reservation now precedes decoding in the loaded 300-genome Motion/B32
+harness. Both codecs replace a live source and produce three further generations;
+all checkpoints, independently restored continuations and real SQLite selections
+pass. The 4-GiB native ceiling and the 768-MiB offline checkpoint policy are unchanged.
+
+| Target and codec | Archive/handoff native peak RSS MiB | Node-host peak RSS MiB | Whole capacity case seconds |
+|---|---:|---:|---:|
+| Windows compressed | 1154.70 | 110.53 | 56.06 |
+| Windows raw fallback | 1154.95 | 98.14 | 44.14 |
+| Debian compressed | 1158.57 | 141.17 | 94.96 |
+| Debian raw fallback | 1157.95 | 129.09 | 71.97 |
+
+Reports and measured source patches are retained in `population-admission-windows-v1/`
+and `population-admission-debian-v1/`. OS high-water counters and host sampling
+retain the preceding handoff methodology. All 784 release native tests pass on both
+targets. The large loaded receipts exercise native admission; production libuv
+ordering is tested with actual source-identified addons and HTTP routes under the
+ordinary production limits. Full saved-library/inspector coexistence, diverse crowded
+geometry, trainer/shadow contention, sustained teacher throughput and soak remain
+open. These receipts do not promote the checkpoint candidate or select v4 defaults.

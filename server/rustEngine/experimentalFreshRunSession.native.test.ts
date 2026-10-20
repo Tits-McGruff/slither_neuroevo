@@ -465,6 +465,14 @@ describe('experimental server startup composition', () => {
       expect(owner.runtime.health().faultCode).toBeUndefined();
       expect(await owner.persistence.selectCurrent()).toEqual(owner.runStart.descriptor);
       expect(readdirSync(paths.managedRoot).some(name => name.endsWith('.import-validation'))).toBe(false);
+      owner.runtime.start();
+      expect(() => owner.runtime.prepareExportArchive(
+        paths.managedRoot, lease.operationId, lease.descriptor, lease.inventory
+      )).toThrow(/stage population work before background allocation/u);
+      expect(() => owner.runtime.validateImportArchive(
+        readyPath, paths.managedRoot, '01'.repeat(16)
+      )).toThrow(/stage population work before background allocation/u);
+      expect(owner.runtime.health().faultCode).toBeUndefined();
     } finally {
       rmSync(readyPath, { force: true });
       rmSync(corruptPath, { force: true });

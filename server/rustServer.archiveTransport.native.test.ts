@@ -211,7 +211,7 @@ async function experiment(action: (fixture: Fixture) => Promise<void>, privateQu
     let archive: Buffer;
     try {
       const response = await fixtureArchiveDownload(server.port, 'transport fixture baseline');
-      expect(response.status).toBe(200);
+      expect(response.status, response.status === 200 ? undefined : await response.text()).toBe(200);
       archive = Buffer.from(await response.arrayBuffer());
       expect(archive.byteLength).toBeLessThan(4 * 1024 * 1024);
       // Body completion and ready-file removal precede the worker's actual
@@ -1162,7 +1162,8 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
     }, 20_000);
 
   it('rejects independently valid import and reset exceeding native state memory before replacement', async () => {
-    const ceiling = 1400n * 1024n ** 2n;
+    // Admit the default source plus its baseline export, but reject the larger graph beside it.
+    const ceiling = 2720n * 1024n ** 2n;
     const inspect = CheckpointPersistenceClient.prototype.inspectRetention;
     const retention = vi.spyOn(CheckpointPersistenceClient.prototype, 'inspectRetention')
       .mockImplementation(async function (this: CheckpointPersistenceClient) {
@@ -1180,6 +1181,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const candidateHash = createHash('sha256').update(candidate).digest('hex');
         const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
         const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+        const cancel = vi.spyOn(BackgroundOutputPump.prototype, 'cancelPreparedImport');
         try {
           const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
             { method: 'POST', body: new Uint8Array(candidate), signal: AbortSignal.timeout(5000) });
@@ -1187,8 +1189,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const rejected = await response.json() as { ok: boolean; message: string };
           expect(rejected).toMatchObject({ ok: false });
           expect(rejected.message).toMatch(/checkpoint state admission failed: state requires an estimated \d+ bytes/iu);
-          expect(rejected.message).toContain(`exceeding the ${ceiling}-byte ceiling`);
-          expect(stage).not.toHaveBeenCalled();
+          const remaining = /exceeding the (\d+)-byte ceiling/u.exec(rejected.message)?.[1];
+          expect(remaining).toBeDefined();
+          expect(BigInt(remaining!)).toBeGreaterThan(0n);
+          expect(BigInt(remaining!)).toBeLessThan(ceiling);
+          expect(stage).toHaveBeenCalledTimes(1);
+          expect(cancel).toHaveBeenCalledTimes(1);
           expect(commit).not.toHaveBeenCalled();
           await preserved(fixture);
           await advancing(fixture);
@@ -1199,10 +1205,16 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
             ] }));
           await outcome(() => peer.packets.some(packet => packet['type'] === 'error' &&
-            String(packet['message']).includes(`${ceiling}-byte ceiling`)),
+            /exceeding the \d+-byte ceiling/u.test(String(packet['message']))),
           'oversized reset did not reject the retained native ceiling');
+          const resetError = peer.packets.find(packet => packet['type'] === 'error' &&
+            /exceeding the \d+-byte ceiling/u.test(String(packet['message'])));
+          const resetRemaining = /exceeding the (\d+)-byte ceiling/u.exec(String(resetError?.['message']))?.[1];
+          expect(BigInt(resetRemaining!)).toBeGreaterThan(0n);
+          expect(BigInt(resetRemaining!)).toBeLessThan(ceiling);
           expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toEqual([]);
-          expect(stage).not.toHaveBeenCalled();
+          expect(stage).toHaveBeenCalledTimes(2);
+          expect(cancel).toHaveBeenCalledTimes(2);
           expect(commit).not.toHaveBeenCalled();
           await preserved(fixture);
           await advancing(fixture);
@@ -1222,7 +1234,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(BigInt(`0x${replaced['worldEpoch'] as string}`))
             .toBeGreaterThan(BigInt(`0x${fixture.identity['worldEpoch'] as string}`));
           await advancing(fixture);
-        } finally { stage.mockRestore(); commit.mockRestore(); }
+        } finally { stage.mockRestore(); commit.mockRestore(); cancel.mockRestore(); }
       });
     } finally { construction.mockRestore(); retention.mockRestore(); }
   }, 30_000);
@@ -1584,6 +1596,9 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               'real download did not wait for socket drain');
           }
           await heldInput(peers, false);
+          await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+            headingChange(baselines[index]!.sample, peer.sample!) < -0.01),
+          'simulation did not resume before archive body delivery completed');
           expect(actualResponse!.writableFinished).toBe(false);
           if (boundary === 'while waiting for drain') {
             expect(actualResponse!.writableNeedDrain).toBe(true);
@@ -1800,7 +1815,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         expect(await response.json(), fault).toMatchObject({ ok: false,
           message: expect.stringContaining(`checkpoint ${code}:`) });
         expect(spool).toHaveBeenCalledOnce();
-        expect(stage).not.toHaveBeenCalled();
+        expect(stage).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         await preserved(fixture);
         await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
@@ -1940,7 +1955,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           method: 'POST', body: damaged, signal: AbortSignal.timeout(5000) });
         expect(response.status).toBe(400);
         expect(await response.json()).toMatchObject({ ok: false, message: expect.stringContaining(`checkpoint ${code}:`) });
-        expect(stage).not.toHaveBeenCalled();
+        expect(stage).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         await preserved(fixture);
         await advancing(fixture);
@@ -1974,12 +1989,23 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const originalSpool = archiveUpload.spoolArchiveUpload;
         const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
         const originalSelect = CheckpointPersistenceClient.prototype.selectStartup;
+        const binding = createRequire(import.meta.url)(resolve('native/index.js')) as {
+          ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle };
+        };
+        const originalPrepare = binding.ExperimentalRunningAuthority.prototype.prepareImportArchive;
         const boundarySpy = boundary === 'afterSpool'
           ? vi.spyOn(archiveUpload, 'spoolArchiveUpload').mockImplementationOnce(async options => {
             const result = await originalSpool(options);
             await hold();
             return result;
           })
+          : boundary === 'afterPreparation'
+            ? vi.spyOn(binding.ExperimentalRunningAuthority.prototype, 'prepareImportArchive')
+              .mockImplementationOnce(async function(this: ExperimentalRunningAuthorityNativeHandle, ...args) {
+                const result = await originalPrepare.apply(this, args);
+                await hold();
+                return result;
+              })
           : boundary === 'beforeCommit'
             ? vi.spyOn(CheckpointPersistenceClient.prototype, 'selectStartup')
               .mockImplementationOnce(async function(this: CheckpointPersistenceClient, ...args) {
@@ -1989,7 +2015,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               })
             : vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
             .mockImplementationOnce(async function(this: BackgroundOutputPump) {
-              if (boundary === 'afterPreparation') await hold();
               await originalStage.call(this);
               if (boundary === 'afterStage') await hold();
             });
@@ -2009,7 +2034,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           client.on('error', () => {});
           client.end(body);
           await bounded(paused, `import never reached ${boundary}`);
-          if (boundary !== 'afterSpool') {
+          if (boundary === 'afterPreparation' || boundary === 'beforeCommit') {
             const checkpoints = (await readdir(fixture.managedDirectory)).filter(name => name.endsWith('.checkpoint-v3'));
             expect(checkpoints.length).toBeGreaterThan(
               fixture.files.filter(file => file.filename.endsWith('.checkpoint-v3')).length);
@@ -2131,7 +2156,8 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         resume.resolve();
         await exportAfterDisconnect(fixture);
         expect(spool).not.toHaveBeenCalled();
-        expect(preparation).not.toHaveBeenCalled();
+        // The successful export retry owns one reservation; the disconnected import owned none.
+        expect(preparation).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         await preserved(fixture);
         await advancing(fixture);

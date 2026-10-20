@@ -8,13 +8,11 @@ use super::external_replacement::UnavailableControllerReservation;
 use super::generation::GenerationCommitRecord;
 use super::live_settings::LiveSettingUpdate;
 use super::physics::PhysicsStepKey;
-use super::run_start::PendingRunStartTransition;
 use super::running_loop::RunningGenerationStartResolution;
 use super::running_step::ExternalObservationEvent;
 use super::running_step::GenerationTransitionReason;
 use super::state::ControllerKind;
 use std::mem::size_of;
-use std::sync::{Arc, Mutex};
 
 /// First supported engine-spine contract version.
 pub const ENGINE_CONTRACT_VERSION: u32 = 1;
@@ -295,65 +293,8 @@ pub struct ControllerReclaimReceipt {
     pub accepted: bool,
 }
 
-/// Process-local private import storage shared only by the native preparation
-/// task and the running authority command that consumes it.
-#[derive(Clone, Debug)]
-pub struct PreparedImportSlot(Arc<Mutex<Option<PendingRunStartTransition>>>);
-
-impl PreparedImportSlot {
-    /// Create one empty single-candidate slot.
-    #[must_use]
-    pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(None)))
-    }
-
-    /// Whether a complete private candidate is awaiting its durable decision.
-    #[must_use]
-    pub fn is_some(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_some()
-    }
-
-    /// Store one candidate only after validation and managed publication finish.
-    pub fn put(
-        &self,
-        candidate: PendingRunStartTransition,
-    ) -> Result<(), Box<PendingRunStartTransition>> {
-        let mut retained = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if retained.is_some() {
-            return Err(Box::new(candidate));
-        }
-        *retained = Some(candidate);
-        Ok(())
-    }
-
-    /// Remove and return the retained candidate.
-    pub fn take(&self) -> Option<PendingRunStartTransition> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-    }
-}
-
-impl Default for PreparedImportSlot {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PartialEq for PreparedImportSlot {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for PreparedImportSlot {}
+/// Process-local population admission shared by preparation and authority commands.
+pub use super::population_work::PreparedImportSlot;
 
 /// Typed controls and retained generation-transition commands.
 #[derive(Clone, Debug, PartialEq)]
@@ -573,11 +514,7 @@ impl RunningAuthorityCommand {
                     "controller delivery receipt batch must not be empty",
                 ))
             }
-            Self::StagePreparedImport { slot }
-            | Self::PublishPreparedImport { slot, .. }
-            | Self::CancelPreparedImport { slot }
-                if !slot.is_some() =>
-            {
+            Self::PublishPreparedImport { slot, .. } if !slot.is_some() => {
                 Err(EngineError::new(
                     EngineErrorCode::InvalidCommand,
                     "prepared import slot is empty",
@@ -1316,6 +1253,19 @@ impl CompletedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_population_slot_admits_reservation_and_cancellation_before_allocation() {
+        let slot = PreparedImportSlot::new();
+        assert!(
+            RunningAuthorityCommand::StagePreparedImport { slot: slot.clone() }
+                .validate()
+                .is_ok()
+        );
+        assert!(RunningAuthorityCommand::CancelPreparedImport { slot }
+            .validate()
+            .is_ok());
+    }
 
     #[test]
     fn unsupported_command_is_rejected_not_ignored() {

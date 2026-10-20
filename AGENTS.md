@@ -126,6 +126,15 @@ scalar/SSE2 and multiworker continuation tests rather than reviving TS execution
 
 ## Persistence and operations
 
+Population import, export preparation and fresh-run construction share one native
+reservation captured at a complete held step boundary. Charge the live source
+against the process ceiling before any background population allocation; retain
+one transferable job lease through compute, publication and finalization.
+Cancellation cannot resume physics while that lease is active. Reclaim the
+selected running budget only after the predecessor is dropped. Export releases
+the hold before HTTP body streaming. An unstarted read-only owner uses the same
+source accounting and cannot start until its temporary lease is released.
+
 Exact checkpoints are generation-boundary population saves, not mid-round
 world snapshots. They capture evolved population, generation/step/run/config
 identity, RNG/allocator state and zero recurrent state before spawn/sensing.

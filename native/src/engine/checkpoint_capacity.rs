@@ -353,10 +353,11 @@ pub fn run_checkpoint_archive_capacity(
         .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)?;
     running.service_after_command_drain(17, SchedulerServiceMode::Background, None)?;
     let retired_source_bytes = running.authoritative_memory_bytes();
+    let slot = super::contract::PreparedImportSlot::new();
+    running.stage_prepared_import(&slot)?;
+    let work = slot.acquire_work(memory_ceiling_bytes)?;
     let mut overlap_policy = prepared.admission_policy.clone();
-    overlap_policy.memory_ceiling_bytes = memory_ceiling_bytes
-        .checked_sub(retired_source_bytes)
-        .ok_or("no import overlap budget")?;
+    overlap_policy.memory_ceiling_bytes = work.admission.remaining_bytes;
     let mut second = prepare_import_archive(
         &archive_path,
         workspace,
@@ -390,10 +391,9 @@ pub fn run_checkpoint_archive_capacity(
     second
         .transition
         .configure_qualification_work_limits(prepared.work_limits)?;
-    let slot = super::contract::PreparedImportSlot::new();
     slot.put(second.transition)
         .map_err(|_| "capacity import slot already occupied")?;
-    running.stage_prepared_import(&slot)?;
+    drop(work);
     running.publish_prepared_import(&slot, &second.descriptor, None, 17)?;
     running.service_after_command_drain(34, SchedulerServiceMode::Background, None)?;
     let initial_continuation = running.qualification_restored_continuation_sha256();
@@ -410,7 +410,7 @@ pub fn run_checkpoint_archive_capacity(
         "target":crate::native_addon_build_target(), "sqliteCommitted": false, "offlineReceipts": true,
         "archiveBytes": u64::from_str_radix(&archive.stored_byte_count_hex,16)?,
         "importCandidateSpoolBytes":estimate.candidate_spool_bytes,"importFinalManagedBytes":estimate.final_managed_bytes,
-        "importLimitsPreserved":true,"idempotentImportExact":true,
+        "importLimitsPreserved":true,"idempotentImportExact":true,"nativeAdmissionBeforeAllocation":true,
         "continuationSha256":initial_continuation,
         "retiredSourceStateBytes":retired_source_bytes,"overlapCombinedStateBytes":overlap_combined_bytes,
         "stagingMemoryCeilingBytes":overlap_policy.memory_ceiling_bytes,"runningMemoryCeilingBytes":memory_ceiling_bytes,

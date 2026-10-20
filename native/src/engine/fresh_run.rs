@@ -1658,6 +1658,60 @@ mod tests {
         }
     }
 
+    /// No candidate is required to hold the source, but only that hold's lease
+    /// can release it; active worker ownership cannot be cancelled out from under it.
+    #[test]
+    fn population_work_holds_complete_steps_before_allocation_and_resumes_without_debt() {
+        let managed = TestDirectory::create("population-work-hold");
+        let mut input = request(42);
+        input.memory_ceiling_bytes = 4 * 1024 * MIB;
+        let mut pending = prepare_stage6a_p0_fresh_run(input).unwrap();
+        let descriptor = pending
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000091").unwrap(),
+            )
+            .unwrap();
+        pending.acknowledge_persistence(&descriptor).unwrap();
+        pending.publish_running_authority().unwrap();
+        let mut running = pending
+            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+            .unwrap();
+        let epoch = running.world_epoch();
+        let slot = super::super::contract::PreparedImportSlot::new();
+        let foreign = super::super::contract::PreparedImportSlot::new();
+        running.stage_prepared_import(&slot).unwrap();
+        let lease = slot.acquire_work(4 * 1024 * MIB).unwrap();
+        assert_eq!(lease.admission.source_world_epoch, epoch);
+        assert_eq!(
+            lease.admission.remaining_bytes + running.authoritative_memory_bytes(),
+            4 * 1024 * MIB
+        );
+        assert!(matches!(
+            running
+                .service_after_command_drain(1000, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::ImportPending
+        ));
+        assert_eq!(running.completed_step(), 0);
+        assert!(running.cancel_prepared_import(&foreign, 1000).is_err());
+        assert!(running.cancel_prepared_import(&slot, 1000).is_err());
+        assert_eq!(running.state(), RunningAuthorityLoopState::ImportPending);
+        drop(lease);
+        running.cancel_prepared_import(&slot, 1000).unwrap();
+        assert!(matches!(
+            running
+                .service_after_command_drain(1000, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::Idle { .. }
+        ));
+        running
+            .service_after_command_drain(1017, SchedulerServiceMode::Background, None)
+            .unwrap();
+        assert_eq!(running.completed_step(), 1);
+        assert_eq!(running.world_epoch(), epoch);
+    }
+
     #[test]
     fn metadata_only_checkpoint_size_matches_published_recurrent_population() {
         let managed = TestDirectory::create("predicted-size");
