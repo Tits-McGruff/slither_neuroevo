@@ -245,6 +245,35 @@ impl PendingRunStartTransition {
         Ok(self)
     }
 
+    /// Borrow the admitted offline candidate for exact capacity comparisons.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_authority(&self) -> &AuthoritativeState {
+        &self.authority
+    }
+
+    /// Read the exact limits retained after an offline import.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_checkpoint_limits(&self) -> &CheckpointLimits {
+        &self.checkpoint_limits
+    }
+
+    /// Apply explicit offline v4 work admission before any authority publication.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn configure_qualification_work_limits(
+        &mut self,
+        limits: RunningStepWorkLimits,
+    ) -> Result<(), String> {
+        if self.authority_published || limits.ray_work.is_none() {
+            return Err(
+                "qualification limits require unpublished v4 authority and explicit rays".into(),
+            );
+        }
+        validate_calculation_workers(limits.calculation_workers)
+            .map_err(|error| error.to_string())?;
+        self.work_limits = limits;
+        Ok(())
+    }
+
     /// Publish or exactly retry the immutable run-start file.
     ///
     /// The transition epoch is the Rust-allocated process-local world

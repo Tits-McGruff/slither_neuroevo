@@ -10,6 +10,7 @@ import {
   OPERATING_DISK_RESERVE_BYTES,
   SQLITE_WAL_ALLOWANCE_BYTES,
   evaluateDiskAdmission,
+  checkpointDiskAdmissionRequest,
   inspectArchiveTempBytes,
   inspectManagedDisk
 } from './diskAdmission.ts';
@@ -22,6 +23,23 @@ afterEach(() => {
 });
 
 describe('managed disk admission', () => {
+  it('prices explicit candidate envelopes without changing production or dropping overlap reserves', () => {
+    const mib = 1024n * 1024n;
+    expect(checkpointDiskAdmissionRequest(512n * mib)).toEqual(CHECKPOINT_DISK_ADMISSION_REQUEST);
+    const request = checkpointDiskAdmissionRequest(768n * mib);
+    expect(request.candidateSpoolBytes).toBe(784n * mib); expect(request.finalManagedBytes).toBe(784n * mib);
+    const required = (784n * 2n + 64n + 1024n) * mib;
+    expect(evaluateDiskAdmission(request, 0n, required).requiredFreeBytes).toBe(required);
+    expect(() => evaluateDiskAdmission(request, 0n, required - 1n)).toThrow(DiskAdmissionError);
+    expect(checkpointDiskAdmissionRequest(512n * mib, 768n * mib)).toMatchObject({
+      candidateSpoolBytes: 784n * mib, finalManagedBytes: 528n * mib
+    });
+    for (const invalid of [-1n, 0n, 768n * mib + 1n]) {
+      expect(() => checkpointDiskAdmissionRequest(invalid)).toThrow(RangeError);
+      expect(() => checkpointDiskAdmissionRequest(512n * mib, invalid)).toThrow(RangeError);
+    }
+  });
+
   it('reserves both checkpoint codec and final-file bytes before publication', () => {
     const oldSingleFileAllowance = 528n * 1024n * 1024n;
     const formerlyAcceptedFreeBytes = oldSingleFileAllowance + SQLITE_WAL_ALLOWANCE_BYTES +

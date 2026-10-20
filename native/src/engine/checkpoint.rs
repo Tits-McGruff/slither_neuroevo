@@ -6,8 +6,8 @@
 //! binary contracts. Only the small private manifest uses Serde.
 
 use super::graph::{
-    GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,
-    CANONICAL_GRAPH_LAYOUT_VERSION,
+    CompiledGraph, GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec,
+    GraphOutputRef, GraphSpec, CANONICAL_GRAPH_LAYOUT_VERSION,
 };
 use super::rng::SerializedRngState;
 use super::state::{
@@ -93,6 +93,8 @@ const USTAR_ENTRY_COUNT: usize = LOGICAL_ROLE_COUNT + 1;
 
 /// Caller-reviewed pre-allocation and file-size bounds for checkpoint I/O.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct CheckpointLimits {
     /// Maximum complete managed checkpoint bytes.
     pub max_archive_bytes: u64,
@@ -848,6 +850,18 @@ pub(crate) fn boundary_decoded_byte_count(
     graph: &super::graph::CompiledGraph,
     limits: &CheckpointLimits,
 ) -> Result<u64, CheckpointError> {
+    decoded_role_byte_count(boundary_decoded_role_byte_counts(
+        state, spec, graph, limits,
+    )?)
+}
+
+/// Exact state/graph/index/weight/recurrent role sizes, including metadata-only boundaries.
+pub(crate) fn boundary_decoded_role_byte_counts(
+    state: &StateCandidate,
+    spec: &GraphSpec,
+    graph: &super::graph::CompiledGraph,
+    limits: &CheckpointLimits,
+) -> Result<[u64; LOGICAL_ROLE_COUNT], CheckpointError> {
     validate_limits(limits)?;
     let weight_bytes = usize_to_u64(state.population.len(), "population count")?
         .checked_mul(usize_to_u64(graph.total_parameters, "parameter count")?)
@@ -859,7 +873,7 @@ pub(crate) fn boundary_decoded_byte_count(
         .checked_mul(usize_to_u64(graph.total_state_size, "recurrent count")?)
         .and_then(|count| count.checked_mul(size_of::<f32>() as u64))
         .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "recurrent bytes overflow"))?;
-    decoded_role_byte_count([
+    Ok([
         encode_state(state, limits)?.len() as u64,
         encode_graph(spec, graph, limits)?.len() as u64,
         encode_population_index(
@@ -887,15 +901,15 @@ fn decoded_role_byte_count(lengths: [u64; LOGICAL_ROLE_COUNT]) -> Result<u64, Ch
 /// Publish one exact generation-boundary checkpoint as an immutable managed file.
 ///
 /// Ordinary publication deliberately performs no mandatory second full decode.
-/// A pre-existing content-addressed destination is the exception: it is decoded
-/// and admitted before being accepted as an idempotent publication.
+/// A pre-existing destination is fully stream-decoded and hashed against the
+/// admitted logical root without allocating a second population.
 pub fn publish_checkpoint(
     managed_directory: &Path,
     operation_id: CheckpointOperationId,
     transition_epoch: u64,
     boundary: GenerationBoundaryView<'_>,
     limits: &CheckpointLimits,
-    graph_limits: &GraphLimits,
+    _graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<CheckpointDescriptor, CheckpointError> {
     validate_limits(limits)?;
@@ -1158,11 +1172,9 @@ pub fn publish_checkpoint(
             &operation_id,
             transition_epoch,
             state,
-            boundary.graph_spec(),
+            boundary.graph(),
             &logical_root_hex,
             limits,
-            graph_limits,
-            admission_policy,
         );
     }
 
@@ -1231,11 +1243,9 @@ pub fn publish_checkpoint(
                 &operation_id,
                 transition_epoch,
                 state,
-                boundary.graph_spec(),
+                boundary.graph(),
                 &logical_root_hex,
                 limits,
-                graph_limits,
-                admission_policy,
             );
         }
         Err(error) => return Err(error.into()),
@@ -1718,7 +1728,7 @@ pub fn restore_checkpoint(
     let candidate = assemble_candidate(state_parts, &index, weights, recurrent)?;
     let state =
         AuthoritativeState::validate_and_own(candidate, Arc::clone(&graph), admission_policy)?;
-    crosscheck_manifest_state(&manifest, &validated, &state)?;
+    crosscheck_manifest_state(&manifest, &validated, state.state(), state.graph())?;
     let content = content_descriptor_from_manifest(
         &manifest,
         archive_length,
@@ -1798,7 +1808,7 @@ fn checked_zstd_estimate(value: usize, label: &'static str) -> Result<usize, Che
 /// The authoritative state estimate already includes the configured checkpoint
 /// scratch reservation. Callers replace that declaration with this codec-derived
 /// bound before comparing against the hard process admission ceiling.
-fn checkpoint_workspace_bound(
+pub(crate) fn checkpoint_workspace_bound(
     limits: &CheckpointLimits,
     population_count: usize,
 ) -> Result<usize, CheckpointError> {
@@ -5155,9 +5165,9 @@ fn validate_manifest(
 fn crosscheck_manifest_state(
     manifest: &CheckpointManifest,
     validated: &ValidatedManifest,
-    state: &AuthoritativeState,
+    candidate: &StateCandidate,
+    graph: &CompiledGraph,
 ) -> Result<(), CheckpointError> {
-    let candidate = state.state();
     let boundary = match candidate.phase {
         AuthorityPhase::GenerationBoundary(kind) => CheckpointBoundaryKind::from_state(kind),
         AuthorityPhase::Running => {
@@ -5198,8 +5208,8 @@ fn crosscheck_manifest_state(
         || validated.weight_float_count != actual_weight_count
         || validated.recurrent_float_count != actual_recurrent_count
         || manifest.graph_architecture_key != candidate.config.graph_architecture_key
-        || manifest.graph_architecture_key != state.graph().architecture_key
-        || manifest.graph_layout_sha256 != state.graph().layout_digest_hex()
+        || manifest.graph_architecture_key != graph.architecture_key
+        || manifest.graph_layout_sha256 != graph.layout_digest_hex()
     {
         return Err(CheckpointError::format(
             "MANIFEST_STATE_MISMATCH",
@@ -5333,36 +5343,109 @@ pub(crate) fn publication_descriptor_for_restored(
 
 /// Accept an existing digest-derived file only after a complete strict restore and state comparison.
 #[allow(clippy::too_many_arguments)]
+/// Verify every logical byte without allocating another population. The expected
+/// root comes from an independently admitted boundary or fully restored import.
+pub(super) fn verify_existing_checkpoint_content(
+    path: &Path,
+    expected_state: &StateCandidate,
+    expected_graph: &CompiledGraph,
+    expected_root: &str,
+    limits: &CheckpointLimits,
+) -> Result<CheckpointContentDescriptor, CheckpointError> {
+    validate_limits(limits)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() == 0
+        || metadata.len() > limits.max_archive_bytes
+    {
+        return Err(CheckpointError::format(
+            "MANAGED_FILE_TYPE",
+            "existing checkpoint must be one bounded regular file",
+        ));
+    }
+    let mut file = File::open(path)?;
+    let archive_length = file.metadata()?.len();
+    let entries = scan_strict_ustar(&mut file, archive_length, limits)?;
+    let manifest_entry = entries
+        .last()
+        .ok_or_else(|| CheckpointError::format("USTAR_EMPTY", "archive has no entries"))?;
+    let manifest_bytes = read_entry_bytes(&mut file, manifest_entry, limits.max_manifest_bytes)?;
+    let manifest: CheckpointManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| CheckpointError::format("MANIFEST_JSON", error.to_string()))?;
+    let validated = validate_manifest(&manifest, &entries, limits)?;
+    if manifest.logical_root_sha256 != expected_root {
+        return Err(CheckpointError::format(
+            "DIGEST_COLLISION",
+            "existing checkpoint has a different logical root",
+        ));
+    }
+    crosscheck_manifest_state(&manifest, &validated, expected_state, expected_graph)?;
+    for (index, maximum) in [
+        limits.max_state_bytes,
+        limits.max_graph_bytes,
+        limits.max_population_index_bytes,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        read_and_verify_small_role(&mut file, &entries[index], &validated.roles[index], maximum)?;
+    }
+    for (index, encoding, count) in [
+        (3, validated.weights_encoding, validated.weight_float_count),
+        (
+            4,
+            validated.recurrent_encoding,
+            validated.recurrent_float_count,
+        ),
+    ] {
+        file.seek(SeekFrom::Start(entries[index].data_offset))?;
+        decode_adaptive_numeric_reader(
+            &mut file,
+            encoding,
+            entries[index].size,
+            usize_to_u64(count, "numeric float count")?,
+            validated.roles[index].logical_sha256,
+            &mut io::sink(),
+        )?;
+    }
+    content_descriptor_from_manifest(
+        &manifest,
+        archive_length,
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                CheckpointError::format("MANAGED_FILENAME", "checkpoint filename is not UTF-8")
+            })?
+            .to_owned(),
+    )
+}
+
+/// Preserve descriptor operation identity while verifying the existing content.
 fn validate_existing_idempotent(
     final_path: &Path,
     operation_id: &CheckpointOperationId,
     transition_epoch: u64,
     expected_state: &StateCandidate,
-    expected_graph: &GraphSpec,
+    expected_graph: &CompiledGraph,
     expected_root: &str,
     limits: &CheckpointLimits,
-    graph_limits: &GraphLimits,
-    admission_policy: &StateAdmissionPolicy,
 ) -> Result<CheckpointDescriptor, CheckpointError> {
-    let restored = restore_checkpoint(final_path, limits, graph_limits, admission_policy).map_err(
-        |error| {
-            CheckpointError::format(
-                "DIGEST_COLLISION",
-                format!("existing digest-derived file failed strict validation: {error}"),
-            )
-        },
-    )?;
-    if restored.content.logical_root_sha256 != expected_root
-        || restored.state.state() != expected_state
-        || restored.state.graph_spec() != expected_graph
-    {
-        return Err(CheckpointError::format(
+    let content = verify_existing_checkpoint_content(
+        final_path,
+        expected_state,
+        expected_graph,
+        expected_root,
+        limits,
+    )
+    .map_err(|error| {
+        CheckpointError::format(
             "DIGEST_COLLISION",
-            "existing digest-derived file is not the same admitted logical checkpoint",
-        ));
-    }
+            format!("existing digest-derived file failed strict validation: {error}"),
+        )
+    })?;
     Ok(publication_descriptor(
-        restored.content,
+        content,
         operation_id.clone(),
         transition_epoch,
     ))
@@ -6204,6 +6287,65 @@ mod tests {
             "00000000000000000000000000000002"
         );
         assert_eq!(second.transition_epoch_hex, "000000000000000a");
+    }
+
+    /// Existing-file verification reads all five roles and checks mirrored facts
+    /// while retaining only codec blocks instead of a second decoded population.
+    #[test]
+    fn streamed_existing_verification_rejects_each_corrupt_role_and_manifest_mirror() {
+        for compressed in [false, true] {
+            let directory = TestDirectory::new("stream-verify");
+            let (state, _graph, policy) = admitted_state(3, compressed);
+            let (path, descriptor) = publish_fixture(
+                &directory,
+                &state,
+                &policy,
+                "00000000000000000000000000000091",
+            );
+            let limits = checkpoint_limits();
+            let original = fs::read(&path).unwrap();
+            let mut file = File::open(&path).unwrap();
+            let entries = scan_strict_ustar(&mut file, original.len() as u64, &limits).unwrap();
+            let verify = || {
+                verify_existing_checkpoint_content(
+                    &path,
+                    state.state(),
+                    state.graph(),
+                    &descriptor.logical_root_sha256,
+                    &limits,
+                )
+            };
+            let expected = restore_checkpoint(&path, &limits, &graph_limits(), &policy)
+                .unwrap()
+                .content;
+            assert_eq!(verify().unwrap(), expected);
+            for entry in &entries[..5] {
+                let mut corrupt = original.clone();
+                corrupt[entry.data_offset as usize] ^= 1;
+                fs::write(&path, corrupt).unwrap();
+                assert!(verify().is_err(), "unverified role {}", entry.name);
+                fs::write(&path, &original).unwrap();
+            }
+            let entry = &entries[5];
+            let start = entry.data_offset as usize;
+            let end = start + entry.size as usize;
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(&original[start..end]).unwrap();
+            let generation = manifest["generationHex"].as_str().unwrap().to_owned();
+            let replacement = if generation.ends_with('0') { '1' } else { '0' };
+            let mut changed = generation;
+            changed.pop();
+            changed.push(replacement);
+            manifest["generationHex"] = serde_json::Value::String(changed);
+            let bytes = serde_json::to_vec(&manifest).unwrap();
+            assert_eq!(bytes.len(), entry.size as usize);
+            let mut corrupt = original.clone();
+            corrupt[start..end].copy_from_slice(&bytes);
+            fs::write(&path, corrupt).unwrap();
+            assert!(verify().is_err());
+            fs::write(&path, original).unwrap();
+            assert_eq!(verify().unwrap(), expected);
+        }
     }
 
     /// One independently published evolved save with real winner weights.

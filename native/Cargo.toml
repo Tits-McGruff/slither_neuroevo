@@ -79,3 +79,8 @@ strip = false         # KEPT: Ensures symbols aren't deleted so you can read fun
 name = "baseline-v2-qualification"
 path = "src/bin/baseline_v2_qualification.rs"
 required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "checkpoint-capacity-qualification"
+path = "src/bin/checkpoint_capacity_qualification.rs"
+required-features = ["engine-test-hooks"]

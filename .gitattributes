@@ -31,3 +31,6 @@ docs/performance/sensor-v4/head-pair-bound-*/comparison.py -text whitespace=trai
 
 # The learned-cohort receipts bind this immutable study inventory by exact bytes.
 docs/performance/sensor-v4/tactical-ablation-windows-v1/evidence.json text eol=lf
+
+# Capacity receipts hash their exact compact JSON across both target checkouts.
+docs/performance/sensor-v4/checkpoint-capacity-*/*.json text eol=lf

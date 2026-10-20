@@ -682,16 +682,14 @@ pub fn prepare_import_archive(
     let managed_directory = managed_directory.canonicalize()?;
     let final_path = managed_directory.join(&descriptor.relative_filename);
     if final_path.exists() {
-        let existing = super::checkpoint::restore_checkpoint(
+        let existing = super::checkpoint::verify_existing_checkpoint_content(
             &final_path,
+            candidate.restored.state.state(),
+            candidate.restored.state.graph(),
+            &candidate.restored.content.logical_root_sha256,
             checkpoint_limits,
-            graph_limits,
-            admission_policy,
         )?;
-        if existing.content != candidate.restored.content
-            || existing.state.state() != candidate.restored.state.state()
-            || existing.state.graph_spec() != candidate.restored.state.graph_spec()
-        {
+        if existing != candidate.restored.content {
             return Err(CheckpointError::format(
                 "IMPORT_CHECKPOINT_COLLISION",
                 "existing digest-derived checkpoint differs from the imported candidate",
@@ -704,6 +702,8 @@ pub fn prepare_import_archive(
         candidate.restored,
         descriptor.clone(),
         memory_ceiling_bytes,
+        checkpoint_limits.clone(),
+        graph_limits.clone(),
     )
     .map_err(|error| CheckpointError::format("IMPORT_CANDIDATE", error.to_string()))?;
     drop(construction_phase);

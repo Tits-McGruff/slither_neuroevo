@@ -270,13 +270,15 @@ pub(crate) fn prepare_stage6a_p0_validated_import(
     restored: super::checkpoint::RestoredCheckpoint,
     descriptor: super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
+    checkpoint_limits: CheckpointLimits,
+    graph_limits: GraphLimits,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
     PendingRunStartTransition::restore_validated_import(
         restored,
         descriptor,
         production_restore_policy(memory_ceiling_bytes, true)?,
-        production_checkpoint_limits(),
-        stage6a_p0_graph_limits(),
+        checkpoint_limits,
+        graph_limits,
         RunningStepWorkLimits::provisional_defaults(),
     )
     .map_err(FreshRunError::from)
@@ -512,6 +514,40 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
     work_limits: RunningStepWorkLimits,
     baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    initialize_fresh_boundary(prepare_fresh_boundary_shell(
+        request,
+        replacement_settings,
+        graph_spec,
+        modern,
+        sensor_contract,
+        work_limits,
+        baseline_v2,
+        production_checkpoint_limits(),
+    )?)
+}
+
+/// Metadata-only inputs; numeric boxes are initialized only after complete shape admission.
+struct FreshBoundaryShell {
+    candidate: StateCandidate,
+    graph: Arc<GraphBundle>,
+    admission_policy: StateAdmissionPolicy,
+    checkpoint_limits: CheckpointLimits,
+    graph_limits: GraphLimits,
+    work_limits: RunningStepWorkLimits,
+    initialization: GenomeInitializationConfig,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_fresh_boundary_shell(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    sensor_contract: Option<super::sensor_contract::SensorContractIdentity>,
+    work_limits: RunningStepWorkLimits,
+    baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
+    checkpoint_limits: CheckpointLimits,
+) -> Result<FreshBoundaryShell, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
     let graph = Arc::new(GraphBundle::compile(graph_spec, &graph_limits)?);
@@ -594,7 +630,6 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
     let config_hash = normalized_config_hash(&config)?;
     let admission_policy =
         current_build_policy(request.memory_ceiling_bytes, settings_schema_sha256, true);
-    let checkpoint_limits = production_checkpoint_limits();
 
     let build_identifier = crate::native_addon_build_identifier();
     let mut candidate = boundary_shell(
@@ -636,6 +671,31 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
             .export_state();
         }
     }
+    Ok(FreshBoundaryShell {
+        candidate,
+        graph,
+        admission_policy,
+        checkpoint_limits,
+        graph_limits,
+        work_limits,
+        initialization: projected.genome_initialization,
+    })
+}
+
+/// Enforce the existing production preflight before allocating a single numeric box.
+fn initialize_fresh_boundary(
+    shell: FreshBoundaryShell,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    let FreshBoundaryShell {
+        mut candidate,
+        graph,
+        admission_policy,
+        checkpoint_limits,
+        graph_limits,
+        work_limits,
+        initialization,
+    } = shell;
+    let population_count = candidate.config.population_count;
     let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
         FreshRunError::ArithmeticOverflow {
             context: "fresh-run population weight count",
@@ -675,11 +735,7 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
             parameters_per_genome: graph.total_parameters,
         });
     }
-    initialize_population_numeric(
-        &mut candidate,
-        graph.compiled(),
-        projected.genome_initialization,
-    )?;
+    initialize_population_numeric(&mut candidate, graph.compiled(), initialization)?;
 
     Ok(PreparedStage6aP0Boundary {
         candidate,
@@ -687,6 +743,142 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
         admission_policy,
         checkpoint_limits,
         graph_limits,
+        work_limits,
+    })
+}
+
+/// Audit or allocate an explicit offline checkpoint candidate through the ordinary constructor.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) fn prepare_checkpoint_capacity_run(
+    request: Stage6aP0FreshRunRequest,
+    options: &super::sensor_qualification::SensorQualificationOptions,
+    policy: super::checkpoint_capacity::CheckpointCapacityPolicy,
+    allocate: bool,
+) -> Result<super::checkpoint_capacity::QualifiedCheckpointRun, FreshRunError> {
+    use super::checkpoint_capacity::{CheckpointCapacityAudit, QualifiedCheckpointRun};
+    if options.trained_artifact.is_some()
+        || options.ray_limits.is_none()
+        || options.profile == super::sensor_contract::SensorProfile::V3
+    {
+        return Err(FreshRunError::Settings(
+            "capacity qualification requires fresh v4 and explicit rays".into(),
+        ));
+    }
+    let (updates, spec) = super::sensor_qualification::sensor_workload_spec(options, None)?;
+    let contract =
+        super::sensor_contract::SensorContractIdentity::new(options.profile, options.bins)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let work_limits = RunningStepWorkLimits {
+        calculation_workers: options.workers,
+        ray_work: options.ray_limits,
+        ..RunningStepWorkLimits::provisional_defaults()
+    };
+    let limits = policy.limits();
+    let mut shell = prepare_fresh_boundary_shell(
+        request,
+        &updates,
+        spec,
+        true,
+        Some(contract),
+        work_limits,
+        options.baseline,
+        limits.clone(),
+    )?;
+    shell.candidate.identity.math_backend = options.math.label().into();
+    shell.admission_policy.expected_math_backend = options.math.label().into();
+    let count = shell.candidate.population.len();
+    let parameters = shell.graph.total_parameters;
+    let recurrent = shell.graph.total_state_size;
+    let checked = |value: Option<usize>| {
+        value.ok_or(FreshRunError::ArithmeticOverflow {
+            context: "checkpoint capacity audit",
+        })
+    };
+    let weight_floats = checked(count.checked_mul(parameters))?;
+    let recurrent_floats = checked(count.checked_mul(recurrent))?;
+    let state_memory = preflight_generation_boundary_allocation(
+        &shell.candidate,
+        &shell.graph,
+        weight_floats,
+        recurrent_floats,
+        &shell.admission_policy,
+    )?;
+    let roles = super::checkpoint::boundary_decoded_role_byte_counts(
+        &shell.candidate,
+        shell.graph.spec(),
+        shell.graph.compiled(),
+        &limits,
+    )?;
+    let decoded_bytes = roles
+        .iter()
+        .try_fold(0u64, |sum, value| sum.checked_add(*value))
+        .ok_or(FreshRunError::ArithmeticOverflow {
+            context: "checkpoint decoded audit",
+        })?;
+    let workspace = super::checkpoint::checkpoint_workspace_bound(&limits, count)?;
+    let publication_peak = checked(
+        state_memory
+            .total_bytes
+            .checked_sub(shell.candidate.config.checkpoint_scratch_bytes)
+            .and_then(|value| value.checked_add(workspace)),
+    )?;
+    let pair = checked(state_memory.total_bytes.checked_mul(2))?;
+    let minimum_numeric_peak = super::state::generation_numeric_peak_bytes(
+        state_memory.total_bytes,
+        count,
+        shell.graph.compiled(),
+    )?;
+    let numeric_payload_allocated = shell
+        .candidate
+        .population
+        .iter()
+        .any(|genome| !genome.weights.is_empty())
+        || shell
+            .candidate
+            .brains
+            .iter()
+            .any(|brain| !brain.recurrent.is_empty() || brain.non_population_weights.is_some());
+    let audit = CheckpointCapacityAudit {
+        population: count,
+        parameters_per_genome: parameters,
+        recurrent_per_brain: recurrent,
+        role_names: ["state", "graph", "population-index", "weights", "recurrent"],
+        decoded_role_bytes: roles,
+        decoded_bytes,
+        limits: limits.clone(),
+        state_memory,
+        checkpoint_workspace_bytes: workspace,
+        checkpoint_publication_peak_bytes: publication_peak,
+        conservative_two_state_bytes: pair,
+        minimum_successor_numeric_peak_bytes: minimum_numeric_peak,
+        process_memory_ceiling_bytes: shell.admission_policy.memory_ceiling_bytes,
+        decoded_envelope_fits: decoded_bytes <= limits.max_total_decoded_bytes,
+        two_state_budget_fits: pair <= shell.admission_policy.memory_ceiling_bytes,
+        numeric_payload_allocated,
+        worker_scratch_bytes: shell.candidate.config.worker_scratch_bytes,
+        checkpoint_scratch_bytes: shell.candidate.config.checkpoint_scratch_bytes,
+    };
+    let admission_policy = shell.admission_policy.clone();
+    let graph_limits = shell.graph_limits.clone();
+    let pending = if allocate && audit.decoded_envelope_fits {
+        let prepared = initialize_fresh_boundary(shell)?;
+        Some(PendingRunStartTransition::admit(
+            prepared.candidate,
+            prepared.graph,
+            prepared.admission_policy,
+            prepared.checkpoint_limits,
+            prepared.graph_limits,
+            prepared.work_limits,
+        )?)
+    } else {
+        None
+    };
+    Ok(QualifiedCheckpointRun {
+        audit,
+        pending,
+        limits,
+        graph_limits,
+        admission_policy,
         work_limits,
     })
 }
