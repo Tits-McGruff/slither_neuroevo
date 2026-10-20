@@ -107,7 +107,15 @@ async function retainedFiles(databasePath: string, runIds: readonly [string, str
 }
 
 /** Use the real download endpoint, with only a small test population buffered for exact comparison. */
-async function archive(server: RustServer, descriptor: ManagedCheckpointDescriptor): Promise<Buffer> {
+async function archive(server: RustServer, descriptor: ManagedCheckpointDescriptor, releaseBoundary?: () => void): Promise<Buffer> {
+  const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+  const acquiring = vi.spyOn(CheckpointPersistenceClient.prototype, 'acquireCurrentExportLease')
+    .mockImplementationOnce(async function(this: CheckpointPersistenceClient) {
+      const lease = await originalAcquire.call(this);
+      expect(lease.descriptor.logicalRootSha256).toBe(descriptor.logicalRootSha256);
+      releaseBoundary?.();
+      return lease;
+    });
   const originalRelease = CheckpointPersistenceClient.prototype.releaseExportLease;
   let released = false;
   const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease').mockImplementation(async function(
@@ -121,7 +129,7 @@ async function archive(server: RustServer, descriptor: ManagedCheckpointDescript
     expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
     await observed(() => released ? true : undefined);
     return bytes;
-  } finally { release.mockRestore(); }
+  } finally { acquiring.mockRestore(); release.mockRestore(); }
 }
 
 /** Construct production checkpoints; every server, socket and private file has one cleanup owner. */
@@ -182,13 +190,11 @@ async function experiment(action: (fixture: Fixture) => Promise<void>): Promise<
       return BigInt(`0x${current.completedStep}`);
     };
     const second = await observed(() => boundaries.get(2), sourceProgress);
-    archives.set(2, await archive(source, second.descriptor));
     const pin = await fetch(`http://127.0.0.1:${source.port}/api/checkpoints/current/pin`, { method: 'POST' });
     expect(pin.status).toBe(200);
-    second.release();
+    archives.set(2, await archive(source, second.descriptor, second.release));
     const third = await observed(() => boundaries.get(3), sourceProgress);
-    archives.set(3, await archive(source, third.descriptor));
-    third.release();
+    archives.set(3, await archive(source, third.descriptor, third.release));
     viewer.send(JSON.stringify({ type: 'join', mode: 'spectator',
       rejoinToken: messages.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'] }));
     viewer.send(JSON.stringify({ type: 'settings', requestId: 'complete-retained-boundary',

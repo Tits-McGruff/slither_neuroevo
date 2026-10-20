@@ -197,6 +197,34 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Keep the selected runtime ceiling separate from private boundary admission.
+    pub(crate) fn selected_running_memory_ceiling_bytes(&self) -> usize {
+        self.admission_policy.memory_ceiling_bytes
+    }
+
+    pub(crate) fn restrict_overlap_memory_ceiling(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        self.authority
+            .restrict_overlap_memory_budget(ceiling)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn select_retired_source_memory_ceiling(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published || ceiling < self.authority.memory_ceiling_bytes() {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        self.admission_policy.memory_ceiling_bytes = ceiling;
+        Ok(())
+    }
+
     /// Current overlap ceiling before the imported owner replaces its predecessor.
     pub(crate) fn admitted_memory_ceiling_bytes(&self) -> usize {
         self.authority.memory_ceiling_bytes()

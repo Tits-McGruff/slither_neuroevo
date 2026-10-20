@@ -80,6 +80,7 @@ async function main(): Promise<void> {
     assert.equal(archive['sourceSha256'], save['sourceSha256']);
     assert.equal(archive['continuationSha256'], save['continuationSha256']);
     assert.equal(archive['importLimitsPreserved'], true); assert.equal(archive['idempotentImportExact'], true);
+    assert.equal(archive['nativeAdmissionBeforeAllocation'], true);
     const restored = parseManagedCheckpointDescriptor(archive['descriptor']);
     destination = new CheckpointPersistenceClient({databasePath: join(owned, 'import.sqlite'), managedRootPath: join(imported, 'managed')});
     await destination.commitImport(restored, archive['inventory']);

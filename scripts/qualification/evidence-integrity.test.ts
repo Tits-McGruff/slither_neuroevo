@@ -961,6 +961,8 @@ interface HandoffCapacityEvidence extends CapacityEvidence {
     overlapCombinedStateBytes: number;
     stagingMemoryCeilingBytes: number;
     runningMemoryCeilingBytes: number;
+    /** New receipts exercise reservation before decoding rather than after candidate construction. */
+    nativeAdmissionBeforeAllocation?: boolean;
     postImportGenerations: Array<{
       descriptor: {generation: string; completedStep: string; logicalRootSha256: string; weightsEncoding: string};
       combinedStateBytes: number;
@@ -970,8 +972,10 @@ interface HandoffCapacityEvidence extends CapacityEvidence {
   };
 }
 
-it.each(['windows', 'debian'])('loaded import handoffs %s reclaim only retired budget and retain three exact successors', target => {
-  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4', `checkpoint-handoffs-${target}-v1`);
+it.each(['windows', 'debian'].flatMap(target =>
+  ['checkpoint-handoffs', 'population-admission'].map(kind => ({target, kind}))))(
+  '$kind $target reclaim only retired budget and retain three exact successors', ({target, kind}) => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4', `${kind}-${target}-v1`);
   const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
     sourceSha256: string; candidatePatchSha256: string; reports: Record<string, string>;
   };
@@ -991,6 +995,7 @@ it.each(['windows', 'debian'])('loaded import handoffs %s reclaim only retired b
     expect(archive.overlapCombinedStateBytes).toBeLessThanOrEqual(full);
     expect(archive.stagingMemoryCeilingBytes).toBeLessThan(full);
     expect(archive.idempotentImportExact && archive.importLimitsPreserved).toBe(true);
+    if (kind === 'population-admission') expect(archive.nativeAdmissionBeforeAllocation).toBe(true);
     expect(archive.continuationSha256).toBe(report.native.continuationSha256);
     expect(archive.postImportGenerations).toHaveLength(3);
     const roots = new Set<string>();

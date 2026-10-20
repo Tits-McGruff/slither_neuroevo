@@ -31,7 +31,7 @@ import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
 import { loadExperimentalFreshRunSession } from './rustEngine/experimentalFreshRunSession.ts';
 import type { ManagedLegacySnapshotFormat } from './rustEngine/checkpointPersistenceProtocol.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from './rustEngine/diskAdmission.ts';
-import type { RustArchiveWorkProgress } from './rustEngine/backgroundRuntime.ts';
+import type { ExperimentalRunningAuthorityNativeHandle, RustArchiveWorkProgress } from './rustEngine/backgroundRuntime.ts';
 import { describeNetworkSuite } from './test/networkSuites.ts';
 import { buildStackGraphSpec } from '../src/brains/stackBuilder.ts';
 import { compileGraph, graphKey } from '../src/brains/graph/compiler.ts';
@@ -2414,6 +2414,8 @@ describeNetworkSuite('Rust server real sockets', () => {
     let cleanupSpy: ReturnType<typeof vi.spyOn> | undefined;
     let stageSpy: ReturnType<typeof vi.spyOn> | undefined;
     let releaseSpy: ReturnType<typeof vi.spyOn> | undefined;
+    let orphanClient: CheckpointPersistenceClient | undefined;
+    let cleanupLease: Awaited<ReturnType<CheckpointPersistenceClient['acquireCurrentExportLease']>> | undefined;
     try {
       let initialExportReleased = false;
       const releaseExportLease = CheckpointPersistenceClient.prototype.releaseExportLease;
@@ -2590,12 +2592,17 @@ describeNetworkSuite('Rust server real sockets', () => {
       const beforeHealth = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
         runId: string; worldEpoch: string; generation: string;
       };
+      cleanupSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'reclaimManagedOrphans');
       const rejected = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
         method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: archive
       });
       expect(rejected.status).toBe(400);
       expect(await rejected.json()).toMatchObject({ ok: false,
         message: expect.stringContaining('existing immutable object differs') });
+      expect(cleanupSpy).toHaveBeenCalledOnce();
+      expect(await cleanupSpy.mock.results[0]!.value).toMatchObject({ completed: true });
+      orphanClient = cleanupSpy.mock.contexts[0] as CheckpointPersistenceClient;
+      cleanupSpy.mockRestore();
       expect(await snapshot()).toEqual(before);
       expect(await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json()).toMatchObject({
         ok: true, runId: beforeHealth.runId, worldEpoch: beforeHealth.worldEpoch, generation: beforeHealth.generation
@@ -2613,8 +2620,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         await new Promise<void>(done => setTimeout(done, 10));
       } while (performance.now() < exportCleanupDeadline);
       expect(exportScratch!).toEqual([]);
-      // Settle the preceding corruption case's deferred scan independently,
-      // so the next rejection must schedule its own cleanup.
+      // The held rejection already scanned. Its next durable boundary must not repeat cleanup.
       const beforeSettlement = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
         generation: string;
       };
@@ -2623,26 +2629,38 @@ describeNetworkSuite('Rust server real sockets', () => {
         updates: [{ path: 'simSpeed', value: 12 }] }));
       await healthUntil(target.port, health =>
         BigInt(`0x${health['generation'] as string}`) > BigInt(`0x${beforeSettlement.generation}`));
-      expect(cleanupSpy).toHaveBeenCalledOnce();
-      expect(await cleanupSpy.mock.results[0]!.value).toMatchObject({ completed: true });
+      expect(cleanupSpy).not.toHaveBeenCalled();
       cleanupSpy.mockRestore();
       targetViewer!.socket.send(JSON.stringify({ type: 'settings', requestId: 'hold-deferred-cleanup-fixture',
         updates: [{ path: 'simSpeed', value: 0.1 }] }));
       await until(targetViewer!, () => targetViewer!.packets.some(packet =>
         packet['type'] === 'settingsApplied' && packet['requestId'] === 'hold-deferred-cleanup-fixture'));
 
-      // Preparation has produced permanent files, but a busy/rejected stage
-      // still leaves the old game running. Reclaim at its next durable boundary.
-      stageSpy = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
-        .mockRejectedValueOnce(new Error('injected pre-stage rejection'));
+      // A real export lease defers reclamation after files were published but before import commit.
+      const binding = createRequire(import.meta.url)(resolve('native/index.js')) as {
+        ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle };
+      };
+      const originalPrepare = binding.ExperimentalRunningAuthority.prototype.prepareImportArchive;
+      cleanupSpy = vi.spyOn(CheckpointPersistenceClient.prototype, 'reclaimManagedOrphans');
+      stageSpy = vi.spyOn(binding.ExperimentalRunningAuthority.prototype, 'prepareImportArchive')
+        .mockImplementationOnce(async function(this: ExperimentalRunningAuthorityNativeHandle, ...args) {
+          await originalPrepare.apply(this, args);
+          cleanupLease = await orphanClient!.acquireCurrentExportLease();
+          throw new Error('injected post-preparation rejection');
+        });
       const unstaged = await fetch(`http://127.0.0.1:${target.port}/api/import/archive`, {
         method: 'POST', headers: { 'Content-Type': 'application/vnd.slither-neuroevo.save' }, body: initialArchive
       });
       expect(unstaged.status).toBe(400);
-      expect(await unstaged.json()).toMatchObject({ ok: false, message: 'injected pre-stage rejection' });
+      expect(await unstaged.json()).toMatchObject({ ok: false, message: 'injected post-preparation rejection' });
       stageSpy.mockRestore();
+      expect(cleanupSpy).toHaveBeenCalledOnce();
+      expect(await cleanupSpy.mock.results[0]!.value).toMatchObject({ completed: false });
+      cleanupSpy.mockRestore();
       const deferredFile = join(managedDirectory, `${initialCheckpointId}.checkpoint-v3`);
       expect((await stat(deferredFile)).isFile()).toBe(true);
+      await orphanClient!.releaseExportLease(cleanupLease!.operationId);
+      cleanupLease = undefined;
       const unchanged = await (await fetch(`http://127.0.0.1:${target.port}/api/health`)).json() as {
         runId: string; generation: string;
       };
@@ -2669,6 +2687,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(validRetry.status, JSON.stringify(retryResult)).toBe(200);
       expect(retryResult).toMatchObject({ ok: true, checkpointId: initialCheckpointId });
     } finally {
+      if (cleanupLease) await orphanClient!.releaseExportLease(cleanupLease.operationId).catch(() => {});
       releaseSpy?.mockRestore();
       stageSpy?.mockRestore();
       cleanupSpy?.mockRestore();

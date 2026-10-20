@@ -6566,6 +6566,37 @@ mod tests {
         }
     }
 
+    /// Legacy conversion must honor the same reduced overlap budget as native archives.
+    #[test]
+    fn legacy_json_import_uses_remaining_admission_before_decode_or_publication() {
+        let target = TestDirectory::new("legacy-overlap-admission");
+        let upload = target.path.join("population.json");
+        let bytes = br#"{"genomes":[{"archKey":"legacy-default-graph","weights":[0]}]}"#;
+        fs::write(&upload, bytes).unwrap();
+        let mut policy = admission_policy(String::new());
+        policy.memory_ceiling_bytes = 64 * 1024;
+        let error = crate::engine::export_archive::prepare_import_archive(
+            &upload,
+            &target.path,
+            &target.path,
+            &"d".repeat(32),
+            "legacy-overlap",
+            42,
+            &checkpoint_limits(),
+            &graph_limits(),
+            &policy,
+            4 * 1024 * 1024 * 1024,
+        )
+        .err()
+        .unwrap();
+        assert!(
+            error.to_string().contains("LEGACY_IMPORT_RESOURCE"),
+            "{error}"
+        );
+        assert_eq!(fs::read_dir(&target.path).unwrap().count(), 1);
+        assert_eq!(fs::read(&upload).unwrap(), bytes);
+    }
+
     /// A valid evolved save reaches HOF extraction before build rejection or panic.
     /// Neither failure may publish elite objects or delete a pre-existing shared elite.
     #[test]

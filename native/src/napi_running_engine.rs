@@ -1,5 +1,6 @@
 //! Production-addon handle for one Rust-owned background authority.
 
+use crate::engine::population_work::PopulationWorkLease;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 #[cfg(feature = "engine-test-hooks")]
@@ -435,8 +436,25 @@ fn catch_background_task_panic<T>(
     }
 }
 
+/// A probe has no concurrent world. Every owned-world task requires a live lease.
+fn population_task_ceiling(
+    runtime: &EngineRuntime,
+    lease: &Option<PopulationWorkLease>,
+    full: usize,
+) -> Result<usize> {
+    match lease {
+        Some(lease) => Ok(lease.admission.remaining_bytes),
+        None if !runtime.owns_authoritative_state() => Ok(full),
+        None => Err(Error::new(
+            Status::GenericFailure,
+            "stage population work before background allocation",
+        )),
+    }
+}
+
 /// Libuv task for constructing and publishing a private generation-one run.
 pub struct PrepareFreshRunTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     managed_directory: PathBuf,
     operation_id: CheckpointOperationId,
@@ -454,12 +472,21 @@ impl Task for PrepareFreshRunTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("fresh-run preparation", Some(&self.runtime), || {
+            let mut request = self.request.clone();
+            request.memory_ceiling_bytes = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.request.memory_ceiling_bytes,
+            )?;
             let mut transition = prepare_configured_fresh_run_with_settings_and_graph(
-                self.request.clone(),
+                request,
                 &self.settings,
                 self.graph.clone(),
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            transition
+                .select_retired_source_memory_ceiling(self.request.memory_ceiling_bytes)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             transition
                 .configure_calculation_workers(self.calculation_workers)
                 .map_err(|error| Error::new(Status::GenericFailure, error))?;
@@ -495,6 +522,7 @@ impl Task for PrepareFreshRunTask {
 
 /// Libuv task for file/codec work that must not block the Node event loop.
 pub struct PrepareExportArchiveTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     memory_ceiling_bytes: usize,
     managed_directory: PathBuf,
@@ -522,7 +550,11 @@ impl Task for PrepareExportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = self.memory_ceiling_bytes;
+            let memory_ceiling = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.memory_ceiling_bytes,
+            )?;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, false)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -559,6 +591,7 @@ impl Task for PrepareExportArchiveTask {
 
 /// Libuv task for validating an untrusted upload without touching authority.
 pub struct ValidateImportArchiveTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     memory_ceiling_bytes: usize,
     archive_path: PathBuf,
@@ -594,6 +627,7 @@ impl Task for EstimateImportDiskTask {
 
 /// Libuv preparation task retaining its admitted candidate in the native handle.
 pub struct PrepareImportArchiveTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     memory_ceiling_bytes: usize,
     archive_path: PathBuf,
@@ -619,7 +653,11 @@ impl Task for PrepareImportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = self.memory_ceiling_bytes;
+            let memory_ceiling = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.memory_ceiling_bytes,
+            )?;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -633,7 +671,7 @@ impl Task for PrepareImportArchiveTask {
                 &checkpoint_limits,
                 &graph_limits,
                 &admission_policy,
-                memory_ceiling,
+                self.memory_ceiling_bytes,
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             prepared
@@ -701,7 +739,11 @@ impl Task for ValidateImportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = self.memory_ceiling_bytes;
+            let memory_ceiling = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.memory_ceiling_bytes,
+            )?;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -804,6 +846,45 @@ impl ExperimentalRunningAuthority {
         }
     }
 
+    fn acquire_population_work(
+        &self,
+        allow_unstarted: bool,
+    ) -> Result<Option<PopulationWorkLease>> {
+        if !self.runtime.owns_authoritative_state() {
+            return Ok(None);
+        }
+        if allow_unstarted
+            && self.runtime.health().lifecycle == crate::engine::LifecycleState::Created
+        {
+            let health = self.runtime.health();
+            let epoch = health
+                .running_authority
+                .as_ref()
+                .ok_or_else(|| {
+                    Error::new(Status::GenericFailure, "population source is unavailable")
+                })?
+                .world_epoch;
+            let source = self
+                .runtime
+                .authoritative_state_memory_bytes()
+                .ok_or_else(|| {
+                    Error::new(
+                        Status::GenericFailure,
+                        "population source memory is unavailable",
+                    )
+                })?;
+            return self
+                .prepared_import
+                .acquire_unstarted_work(self.memory_ceiling_bytes, source, epoch)
+                .map(Some)
+                .map_err(|detail| Error::new(Status::GenericFailure, detail));
+        }
+        self.prepared_import
+            .acquire_work(self.memory_ceiling_bytes)
+            .map(Some)
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))
+    }
+
     fn begin_archive_job(
         &self,
         operation_id: String,
@@ -875,7 +956,15 @@ impl ExperimentalRunningAuthority {
     /// Start the retained coordinator after Node has attached its output router.
     #[napi(catch_unwind)]
     pub fn start(&self) -> Result<()> {
-        self.root(|| self.runtime.start().map_err(engine_error_to_napi))
+        self.root(|| {
+            if self.prepared_import.has_admission() {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "population work must finish before coordinator startup",
+                ));
+            }
+            self.runtime.start().map_err(engine_error_to_napi)
+        })
     }
 
     /// Queue immutable publication with bounded, server-controlled inputs.
@@ -939,8 +1028,10 @@ impl ExperimentalRunningAuthority {
         };
         crate::engine::saved_brain_archive::validate_selection(&saved_brains)
             .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let population_work = self.acquire_population_work(true)?;
         let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
         Ok(AsyncTask::new(PrepareExportArchiveTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             memory_ceiling_bytes: self.memory_ceiling_bytes,
             managed_directory,
@@ -980,9 +1071,11 @@ impl ExperimentalRunningAuthority {
             32,
             false,
         )?)?;
+        let population_work = self.acquire_population_work(true)?;
         let progress =
             self.begin_archive_job(operation_id.as_str().to_owned(), "validate-import")?;
         Ok(AsyncTask::new(ValidateImportArchiveTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             memory_ceiling_bytes: self.memory_ceiling_bytes,
             archive_path,
@@ -1051,7 +1144,15 @@ impl ExperimentalRunningAuthority {
             ));
         }
         let memory_ceiling_bytes = self.memory_ceiling_bytes;
+        let population_work = match self.acquire_population_work(false) {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.import_active.store(false, Ordering::Release);
+                return Err(error);
+            }
+        };
         Ok(AsyncTask::new(PrepareFreshRunTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             managed_directory,
             operation_id,
@@ -1125,7 +1226,16 @@ impl ExperimentalRunningAuthority {
                 return Err(error);
             }
         };
+        let population_work = match self.acquire_population_work(false) {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.import_active.store(false, Ordering::Release);
+                progress.finished.store(true, Ordering::Release);
+                return Err(error);
+            }
+        };
         Ok(AsyncTask::new(PrepareImportArchiveTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             memory_ceiling_bytes: self.memory_ceiling_bytes,
             archive_path,
@@ -2264,8 +2374,8 @@ mod task_panic_tests {
 
     use super::{
         catch_background_task_panic, ArchiveProgressJob, ExperimentalRunningAuthority,
-        PrepareExportArchiveTask, PrepareFreshRunTask, PrepareImportArchiveTask,
-        ValidateImportArchiveTask,
+        PopulationWorkLease, PrepareExportArchiveTask, PrepareFreshRunTask,
+        PrepareImportArchiveTask, ValidateImportArchiveTask,
     };
     use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
     use crate::engine::contract::{
@@ -2422,11 +2532,84 @@ mod task_panic_tests {
     }
 
     #[test]
+    fn unstarted_archive_admission_counts_source_and_prevents_concurrent_start() {
+        let files = TaskFiles::new();
+        let mut pending = prepare_configured_fresh_run_with_settings_and_graph(
+            files.request(),
+            &[],
+            typescript_default_graph_spec(),
+        )
+        .unwrap();
+        let descriptor = pending
+            .publish_checkpoint(
+                &files.0,
+                CheckpointOperationId::parse("e".repeat(32)).unwrap(),
+            )
+            .unwrap();
+        pending.acknowledge_persistence(&descriptor).unwrap();
+        pending.publish_running_authority().unwrap();
+        let running = pending
+            .into_running_loop(
+                crate::engine::scheduler::FixedStepSchedulerPolicy::provisional_defaults(),
+                0,
+            )
+            .unwrap();
+        let probe = running_test_runtime();
+        let mut init = probe.queue_limits();
+        init.output.max_event_owned_bytes = 4 * 1024 * 1024;
+        init.output.max_reliable_owned_bytes = 8 * 1024 * 1024;
+        init.output.max_discrete_owned_bytes = 8 * 1024 * 1024;
+        init.output.max_total_owned_bytes = 16 * 1024 * 1024;
+        probe.request_stop();
+        probe.join().unwrap();
+        let runtime = Arc::new(
+            EngineRuntime::new_running_authority(init, running, Arc::new(NoopWakeSink))
+                .unwrap_or_else(|error| panic!("running test runtime: {}", error.error())),
+        );
+        let handle = ExperimentalRunningAuthority::from_runtime(
+            Arc::clone(&runtime),
+            1,
+            4 * 1024 * 1024 * 1024,
+        );
+        assert!(handle.acquire_population_work(false).is_err());
+        assert!(super::population_task_ceiling(&runtime, &None, 4 * 1024 * 1024 * 1024).is_err());
+        let lease = handle.acquire_population_work(true).unwrap().unwrap();
+        assert_eq!(
+            lease.admission.remaining_bytes + runtime.authoritative_state_memory_bytes().unwrap(),
+            4 * 1024 * 1024 * 1024
+        );
+        assert!(handle.start().is_err());
+        assert_eq!(
+            runtime.health().lifecycle,
+            crate::engine::LifecycleState::Created
+        );
+        drop(lease);
+        handle.start().unwrap();
+        assert!(handle.acquire_population_work(true).is_err());
+        runtime.request_stop();
+        runtime.join().unwrap();
+    }
+
+    fn task_population_lease(
+        runtime: &Arc<EngineRuntime>,
+        slot: &PreparedImportSlot,
+    ) -> Option<PopulationWorkLease> {
+        if !runtime.owns_authoritative_state() {
+            return None;
+        }
+        let full = 4 * 1024 * 1024 * 1024;
+        slot.reserve_admission(full, runtime.authoritative_state_memory_bytes().unwrap(), 1)
+            .unwrap();
+        Some(slot.acquire_work(full).unwrap())
+    }
+
+    #[test]
     fn fresh_run_task_panic_removes_written_checkpoint_and_keeps_candidate_private() {
         let files = TaskFiles::new();
         let runtime = running_test_runtime();
         let prepared = PreparedImportSlot::new();
         let mut task = PrepareFreshRunTask {
+            population_work: task_population_lease(&runtime, &prepared),
             runtime: Arc::clone(&runtime),
             managed_directory: files.0.clone(),
             operation_id: CheckpointOperationId::parse("c".repeat(32)).unwrap(),
@@ -2459,6 +2642,7 @@ mod task_panic_tests {
         let runtime = running_test_runtime();
         let progress = Arc::new(ArchiveProgressJob::new(operation.clone(), "export"));
         let mut task = PrepareExportArchiveTask {
+            population_work: task_population_lease(&runtime, &PreparedImportSlot::new()),
             runtime: Arc::clone(&runtime),
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             managed_directory: files.0.clone(),
@@ -2491,6 +2675,7 @@ mod task_panic_tests {
         let before = files.names();
         let runtime = running_test_runtime();
         let mut task = ValidateImportArchiveTask {
+            population_work: task_population_lease(&runtime, &PreparedImportSlot::new()),
             runtime: Arc::clone(&runtime),
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             archive_path: archive.clone(),
@@ -2520,6 +2705,7 @@ mod task_panic_tests {
         let runtime = running_test_runtime();
         let prepared = PreparedImportSlot::new();
         let mut task = PrepareImportArchiveTask {
+            population_work: task_population_lease(&runtime, &prepared),
             runtime: Arc::clone(&runtime),
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             archive_path: archive.clone(),
@@ -2562,6 +2748,7 @@ mod task_panic_tests {
             let prepared = PreparedImportSlot::new();
             let make_task =
                 |runtime: &Arc<EngineRuntime>, operation: &str| PrepareImportArchiveTask {
+                    population_work: task_population_lease(runtime, &prepared),
                     runtime: Arc::clone(runtime),
                     memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
                     archive_path: archive.clone(),

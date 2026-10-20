@@ -49,7 +49,7 @@ pub enum RunningAuthorityLoopState {
     ExternalDeliveryPending,
     /// One terminal step awaits checkpoint metadata and successor admission.
     GenerationTransitionPending,
-    /// A fully prepared import pauses stepping before its database transaction.
+    /// A population-work hold bounds allocation and its later durability transaction.
     ImportPending,
     /// A first unrecoverable loop error permanently ended this instance.
     Faulted,
@@ -78,7 +78,7 @@ pub enum RunningAuthorityLoopProgress {
     ControllerJoinPending,
     /// No scheduler ticket exists while a reconnect assignment is unresolved.
     ControllerReclaimPending,
-    /// Import preparation is complete and stepping is paused for durability.
+    /// Population work owns the source hold through preparation and durability.
     ImportPending,
     /// No complete fixed delta is due yet.
     Idle {
@@ -219,6 +219,7 @@ pub struct RunningAuthorityLoop {
     pending_step: Option<ScheduledStep>,
     pending_due_steps: Option<usize>,
     state: RunningAuthorityLoopState,
+    population_work_slot: Option<super::contract::PreparedImportSlot>,
     background_clock: Option<std::time::Instant>,
     pending_reclaim: Option<(u64, super::state::PreparedControllerReclaim)>,
     pending_join: Option<(u64, super::state::PreparedControllerJoin)>,
@@ -593,6 +594,7 @@ impl RunningAuthorityLoop {
             pending_step: None,
             pending_due_steps: None,
             state: RunningAuthorityLoopState::Ready,
+            population_work_slot: None,
             background_clock: None,
             pending_reclaim: None,
             pending_join: None,
@@ -1215,11 +1217,15 @@ impl RunningAuthorityLoop {
             "publish a prepared import",
             RunningAuthorityLoopState::ImportPending,
         )?;
-        let mut transition = Some(slot.take().ok_or(
-            RunningAuthorityLoopError::RetainedStateMismatch {
-                field: "prepared import candidate",
-            },
-        )?);
+        if self.population_work_slot.as_ref() != Some(slot) {
+            return Err(RunningAuthorityLoopError::PopulationWork(
+                "publication belongs to another source hold".into(),
+            ));
+        }
+        let mut transition = Some(
+            slot.take_for_publication(self.authority.world_epoch())
+                .map_err(RunningAuthorityLoopError::PopulationWork)?,
+        );
         let attempted = (|| {
             transition
                 .as_mut()
@@ -1241,7 +1247,7 @@ impl RunningAuthorityLoop {
         let publication = match attempted {
             Ok(publication) => publication,
             Err(error) => {
-                let _ = slot.put(transition);
+                let _ = slot.retain_failed_publication(transition);
                 self.state = RunningAuthorityLoopState::Faulted;
                 return Err(RunningAuthorityLoopError::Import(Box::new(error)));
             }
@@ -1255,7 +1261,7 @@ impl RunningAuthorityLoop {
             Ok(replacement) => replacement,
             Err(failure) => {
                 let (transition, error) = failure.into_parts();
-                let _ = slot.put(transition);
+                let _ = slot.retain_failed_publication(transition);
                 self.state = RunningAuthorityLoopState::Faulted;
                 return Err(RunningAuthorityLoopError::Import(Box::new(error)));
             }
@@ -1277,20 +1283,23 @@ impl RunningAuthorityLoop {
                 RunStartTransitionError::from(error),
             )));
         }
+        slot.complete_publication();
         Ok(publication)
     }
 
-    /// Pause new steps only after a complete private candidate exists.
+    /// Hold the complete source before private population allocation or publication.
     pub(crate) fn stage_prepared_import(
         &mut self,
         slot: &super::contract::PreparedImportSlot,
     ) -> Result<(), RunningAuthorityLoopError> {
         self.require_action_state("stage a prepared import", RunningAuthorityLoopState::Ready)?;
-        if !slot.is_some() {
-            return Err(RunningAuthorityLoopError::RetainedStateMismatch {
-                field: "prepared import candidate",
-            });
-        }
+        slot.reserve_admission(
+            self.authority.memory_ceiling_bytes(),
+            self.authority.memory_estimate().total_bytes,
+            self.authority.world_epoch(),
+        )
+        .map_err(RunningAuthorityLoopError::PopulationWork)?;
+        self.population_work_slot = Some(slot.clone());
         self.state = RunningAuthorityLoopState::ImportPending;
         Ok(())
     }
@@ -1305,9 +1314,16 @@ impl RunningAuthorityLoop {
             "cancel a prepared import",
             RunningAuthorityLoopState::ImportPending,
         )?;
-        let _ = slot.take();
+        if self.population_work_slot.as_ref() != Some(slot) {
+            return Err(RunningAuthorityLoopError::PopulationWork(
+                "cancellation belongs to another source hold".into(),
+            ));
+        }
+        slot.cancel()
+            .map_err(RunningAuthorityLoopError::PopulationWork)?;
         self.scheduler
             .resume_after_external_pause(&self.authority, wall_now_ms)?;
+        self.population_work_slot = None;
         self.state = RunningAuthorityLoopState::Ready;
         Ok(())
     }
@@ -1998,6 +2014,8 @@ pub enum RunningAuthorityLoopError {
     RunningStep(Box<RunningStepError>),
     /// Optional post-publication frame packing failed.
     Frame(Box<FrameV1Error>),
+    /// A coarse population job could not acquire or release shared admission.
+    PopulationWork(String),
     /// Durable import activation failed after its database current-pointer commit.
     Import(Box<RunStartTransitionError>),
 }
@@ -2032,6 +2050,9 @@ impl Display for RunningAuthorityLoopError {
             Self::RunningStep(error) => write!(formatter, "running authority step failed: {error}"),
             Self::Frame(error) => write!(formatter, "running authority frame failed: {error}"),
             Self::Import(error) => write!(formatter, "running authority import failed: {error}"),
+            Self::PopulationWork(detail) => {
+                write!(formatter, "population work admission failed: {detail}")
+            }
         }
     }
 }
@@ -2044,6 +2065,7 @@ impl Error for RunningAuthorityLoopError {
             Self::Frame(error) => Some(error),
             Self::Import(error) => Some(error),
             Self::AlreadyFaulted
+            | Self::PopulationWork(_)
             | Self::InvalidActionState { .. }
             | Self::RetainedStateMismatch { .. }
             | Self::InvalidBackgroundStart { .. } => None,

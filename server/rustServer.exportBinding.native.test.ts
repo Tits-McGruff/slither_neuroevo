@@ -118,6 +118,9 @@ describeNetworkSuite('Rust exact download binding', () => {
       if (holdingLease) {
         selectedLease = lease; leaseClients.add(this);
         await preparation.promise;
+      } else {
+        // Reservation waits for the committed generation to retire its predecessor.
+        generationTwo.resolve();
       }
       return lease;
     });
@@ -159,7 +162,6 @@ describeNetworkSuite('Rust exact download binding', () => {
       const second = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
       expect(second.status).toBe(409);
       expect(await second.json()).toMatchObject({ ok: false, message: expect.stringContaining('in progress') });
-      generationTwo.resolve();
       for (let generation = 3; generation <= 11; generation++) await observed(() => boundaries.get(generation));
       expect(headersDelivered).toBe(false);
       expect(await readFile(join(directory, selected.relativeFilename))).toEqual(originalBytes);
@@ -167,6 +169,7 @@ describeNetworkSuite('Rust exact download binding', () => {
       expect(inventory.plannedPrune.checkpointCount).toBeGreaterThan(0);
       const current = await sourceClient.selectCurrent();
       expect(current).toEqual(boundaries.get(11));
+      generationEleven.resolve();
       preparation.resolve();
       const response = await pendingDownload;
       expect(response.status).toBe(200);

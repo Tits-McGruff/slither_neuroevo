@@ -135,9 +135,8 @@ export class BackgroundOutputPump {
     return this.active;
   }
 
-  /** Pause stepping after Rust has prepared a complete private import. */
+  /** Hold the old authority before population allocation or its durability transaction. */
   stagePreparedImport(): Promise<void> {
-    if (this.generation.active) return Promise.reject(new Error('generation persistence is busy'));
     return this.issueImportCommand('stage', sequence =>
       this.options.owner.runtime.submitStagePreparedImport(sequence)
     ).then(() => undefined);

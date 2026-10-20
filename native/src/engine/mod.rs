@@ -216,3 +216,9 @@ mod tactical_corpus;
 /// Offline checkpoint envelope/resource qualification; never a production startup override.
 #[cfg(feature = "engine-test-hooks")]
 pub mod checkpoint_capacity;
+
+/// Shared native admission for background population ownership.
+pub(crate) mod population_work;
+
+/// Pre-materialization resource pricing for legacy population JSON.
+pub(crate) mod legacy_json_resources;

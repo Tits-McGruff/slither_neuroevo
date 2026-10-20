@@ -659,14 +659,19 @@ pub fn prepare_import_archive(
 ) -> Result<PreparedImportArchive, CheckpointError> {
     let _phase = ArchivePhaseScope::enter(ArchivePhase::Import);
     if upload_looks_like_legacy_json(archive_path)? {
-        return prepare_legacy_json_import(
+        let mut legacy = prepare_legacy_json_import(
             archive_path,
             managed_directory,
             operation_id,
             legacy_run_id,
             legacy_seed,
-            memory_ceiling_bytes,
-        );
+            admission_policy.memory_ceiling_bytes,
+        )?;
+        legacy
+            .transition
+            .select_retired_source_memory_ceiling(memory_ceiling_bytes)
+            .map_err(|error| CheckpointError::format("LEGACY_IMPORT_MEMORY", error.to_string()))?;
+        return Ok(legacy);
     }
     let mut candidate = validate_import_candidate(
         archive_path,
@@ -769,6 +774,17 @@ fn prepare_legacy_json_import(
             "legacy JSON must be one nonempty regular file no larger than 512 MiB",
         ));
     }
+    let decoded_ownership =
+        super::legacy_json_resources::estimate(File::open(archive_path)?, memory_ceiling_bytes)
+            .map_err(|detail| CheckpointError::format("LEGACY_IMPORT_RESOURCE", detail))?;
+    let construction_ceiling = memory_ceiling_bytes
+        .checked_sub(decoded_ownership)
+        .ok_or_else(|| {
+            CheckpointError::format(
+                "LEGACY_IMPORT_RESOURCE",
+                "legacy decoded ownership exceeds admission",
+            )
+        })?;
     let input = BufReader::new(ProgressReader(File::open(archive_path)?));
     let mut decoder = serde_json::Deserializer::from_reader(input);
     let legacy = LegacyPopulationFile::deserialize(&mut decoder).map_err(|error| {
@@ -783,6 +799,7 @@ fn prepare_legacy_json_import(
             format!("legacy population JSON has trailing data: {error}"),
         )
     })?;
+    drop(decoder);
     drop(decode_phase);
     let save_sha256 = hex_digest(hash_file_range(archive_path, 0, metadata.len())?);
     let mut origin = LegacyPopulationOrigin::new(LegacyPopulationSource::BrowserJson);
@@ -792,7 +809,7 @@ fn prepare_legacy_json_import(
         legacy,
         legacy_run_id,
         legacy_seed,
-        memory_ceiling_bytes,
+        construction_ceiling,
         origin,
     )?;
     drop(construction_phase);

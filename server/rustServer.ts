@@ -331,6 +331,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   }
   const browserOrigins = createBrowserOriginPolicy(config);
   const sessionId = randomUUID();
+  /** Ordered source hold shared by coarse archive population work. */
+  let populationWork: { hold(): Promise<void>; release(): Promise<void> } | undefined;
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
   try {
@@ -499,14 +501,18 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       if (response.destroyed) return;
       await admitExportSpace(owner.managedDirectory, lease, selected.reduce((sum, entry) => sum + BigInt(`0x${entry.artifactByteCount}`), 0n));
       if (response.destroyed) return;
-      const preparation = owner.runtime.prepareExportArchive(
-        owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory,
-        ...(selected.length ? [JSON.stringify(selected)] : [])
-      );
-      const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
-      let ready: Awaited<typeof preparation>;
-      try { ready = await preparation; readyOwned = true; }
-      finally { stopWatch(); }
+      if (!populationWork) throw new Error('population work admission is not ready');
+      await populationWork.hold();
+      let ready: Awaited<ReturnType<typeof owner.runtime.prepareExportArchive>>;
+      try {
+        const preparation = owner.runtime.prepareExportArchive(
+          owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory,
+          ...(selected.length ? [JSON.stringify(selected)] : [])
+        );
+        const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
+        try { ready = await preparation; readyOwned = true; }
+        finally { stopWatch(); }
+      } finally { await populationWork.release(); }
       const downloadGeneration = BigInt(`0x${lease.descriptor.generation}`).toString();
       const downloadFilename = `slither-neuroevo-${lease.descriptor.logicalRootSha256.slice(0, 12)}-gen-${downloadGeneration}-v1.slither-save`;
       if (ready.operationId !== lease.operationId ||
@@ -1065,6 +1071,17 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       observeLifecycleLatency: (kind, operation, durationMs) =>
         telemetry.observeControllerLifecycle(kind, operation, durationMs),
       observeDisconnect: kind => telemetry.observeControllerDisconnect(kind) });
+    populationWork = {
+      async hold() {
+        routing.pauseForReplacement();
+        try { await output.stagePreparedImport(); }
+        catch (error) { routing.resumeAfterReplacement(); throw error; }
+      },
+      async release() {
+        try { await output.cancelPreparedImport(); routing.resumeAfterReplacement(); }
+        catch (error) { fail(error); throw error; }
+      }
+    };
     /** Converge many UI subscriptions onto one ordered native capture toggle. */
     flushVisualization = (): void => {
       const enabled = visualizationConnections.size > 0;
@@ -1189,6 +1206,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           finalManagedBytes: BigInt(`0x${diskEstimate.finalManagedBytes}`)
         });
         requireConnected();
+        routing.pauseForReplacement();
+        routingHeld = true;
+        await output.stagePreparedImport();
+        staged = true;
         nativePreparationStarted = true;
         const preparation = owner.runtime.prepareImportArchive(
           upload.readyPath,
@@ -1215,10 +1236,6 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         prepared = true;
         inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
         // Hold the old world before cancelling so newly published, unreferenced files can be reclaimed safely.
-        routing.pauseForReplacement();
-        routingHeld = true;
-        await output.stagePreparedImport();
-        staged = true;
         requireConnected();
         const selected = await owner.persistence.selectStartup();
         if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
@@ -1324,6 +1341,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       try {
         await owner.admitCheckpoint();
         const preexistingManagedNames = new Set(await readdir(owner.managedDirectory));
+        routing.pauseForReplacement();
+        routingHeld = true;
+        await output.stagePreparedImport();
+        staged = true;
         nativePreparationStarted = true;
         const candidate = await owner.runtime.prepareFreshRun(
           owner.managedDirectory,
@@ -1357,10 +1378,6 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           }
           throw error;
         }
-        routing.pauseForReplacement();
-        routingHeld = true;
-        await output.stagePreparedImport();
-        staged = true;
         const selected = await owner.persistence.selectStartup();
         if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
           throw new Error('staged fresh run found no matching current checkpoint');
