@@ -1146,6 +1146,18 @@ source patch are retained under `docs/performance/sensor-v4/checkpoint-capacity-
 Repeated post-import handoffs, full library/inspector overlap, integrated P3 and soak
 remain open; the candidate is not a production-envelope selection.
 
+Repeated import handoffs now reclaim the selected running memory budget only
+after the predecessor retires; identity rebinding and replacement construction
+retain reduced overlap admission. Windows/Debian compressed and forced-raw
+300-genome cases each pass three further evolved generations, exact independent
+restored continuations and real SQLite commits through generation 5. Retained
+reports/source patches are under `docs/performance/sensor-v4/checkpoint-handoffs-*-v1/`.
+Native peaks stay below 1,159 MiB with the unchanged 4-GiB ceiling; all 773 release
+Rust tests pass on both targets. The 768-MiB envelope remains an offline candidate.
+Shared admission for production libuv archive/fresh preparation concurrent with
+live generation transitions, full library/inspector overlap and integrated soak
+remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

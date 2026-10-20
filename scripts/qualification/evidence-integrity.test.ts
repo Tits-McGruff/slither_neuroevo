@@ -946,3 +946,74 @@ it.each(['windows', 'debian'])('checkpoint capacity %s retains full raw/compress
   expect(reports[0]!.native.generation.logicalRootSha256).toBe(reports[1]!.native.generation.logicalRootSha256);
   expect(reports[0]!.native.continuationSha256).toBe(reports[1]!.native.continuationSha256);
 });
+
+/** Loaded live replacement and three independently restored successor receipts. */
+interface HandoffCapacityEvidence extends CapacityEvidence {
+  /** Revised host report binds all three durable metadata/current-pointer commits. */
+  schemaVersion: number;
+  sqlitePostImportGenerations: number;
+  finalCheckpointId: string;
+  hostRssMeasurement: string;
+  /** The original imported boundary retains its separate continuation witness. */
+  archive: CapacityEvidence['archive'] & {
+    schemaVersion: number;
+    retiredSourceStateBytes: number;
+    overlapCombinedStateBytes: number;
+    stagingMemoryCeilingBytes: number;
+    runningMemoryCeilingBytes: number;
+    postImportGenerations: Array<{
+      descriptor: {generation: string; completedStep: string; logicalRootSha256: string; weightsEncoding: string};
+      combinedStateBytes: number;
+      continuationSha256: string;
+      independentRestoreExact: boolean;
+    }>;
+  };
+}
+
+it.each(['windows', 'debian'])('loaded import handoffs %s reclaim only retired budget and retain three exact successors', target => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4', `checkpoint-handoffs-${target}-v1`);
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    sourceSha256: string; candidatePatchSha256: string; reports: Record<string, string>;
+  };
+  expect(sha256(readFileSync(resolve(root, 'candidate.patch')))).toBe(manifest.candidatePatchSha256);
+  const reports: HandoffCapacityEvidence[] = [];
+  for (const mode of ['compressed', 'raw']) {
+    const filename = `${mode}.json`; const bytes = readFileSync(resolve(root, filename));
+    expect(sha256(bytes)).toBe(manifest.reports[filename]);
+    const report = JSON.parse(bytes.toString('utf8')) as HandoffCapacityEvidence;
+    reports.push(report);
+    const archive = report.archive; const full = report.native.audit.processMemoryCeilingBytes;
+    expect(report.schemaVersion).toBe(2); expect(archive.schemaVersion).toBe(2);
+    expect(report.native.sourceSha256).toBe(manifest.sourceSha256); expect(archive.sourceSha256).toBe(manifest.sourceSha256);
+    expect(report.native.audit.population).toBe(300); expect(report.native.audit.parametersPerGenome).toBe(494306);
+    expect(full).toBe(4 * 1024 ** 3); expect(archive.runningMemoryCeilingBytes).toBe(full);
+    expect(archive.retiredSourceStateBytes + archive.stagingMemoryCeilingBytes).toBe(full);
+    expect(archive.overlapCombinedStateBytes).toBeLessThanOrEqual(full);
+    expect(archive.stagingMemoryCeilingBytes).toBeLessThan(full);
+    expect(archive.idempotentImportExact && archive.importLimitsPreserved).toBe(true);
+    expect(archive.continuationSha256).toBe(report.native.continuationSha256);
+    expect(archive.postImportGenerations).toHaveLength(3);
+    const roots = new Set<string>();
+    for (const [ordinal, generation] of archive.postImportGenerations.entries()) {
+      expect(BigInt(`0x${generation.descriptor.generation}`)).toBe(BigInt(3 + ordinal));
+      expect(BigInt(`0x${generation.descriptor.completedStep}`)).toBe(BigInt(4 + ordinal * 2));
+      expect(generation.combinedStateBytes).toBeGreaterThan(archive.stagingMemoryCeilingBytes);
+      expect(generation.combinedStateBytes).toBeLessThanOrEqual(full);
+      expect(generation.independentRestoreExact).toBe(true);
+      expect(generation.descriptor.weightsEncoding).toBe(mode === 'raw' ? 'raw-f32le-v1' : 'f32le-shuffle4-zstd-v1');
+      roots.add(generation.descriptor.logicalRootSha256);
+    }
+    expect(roots.size).toBe(3);
+    expect(report.sqliteCommitted && report.sqliteImported).toBe(true); expect(report.sqlitePostImportGenerations).toBe(3);
+    expect(report.finalCheckpointId).toBe(archive.postImportGenerations.at(-1)!.descriptor.logicalRootSha256);
+    expect(report.hostRssMeasurement).toBe('os-high-water-and-100ms-samples');
+    expect(report.peakHostRssBytes).toBeGreaterThan(0); expect(archive.peakRssBytes).toBeGreaterThan(0);
+    expect(archive.peakRssBytes).toBeLessThan(full);
+  }
+  for (let ordinal = 0; ordinal < 3; ordinal++) {
+    const compressed = reports[0]!.archive.postImportGenerations[ordinal]!;
+    const raw = reports[1]!.archive.postImportGenerations[ordinal]!;
+    expect(compressed.descriptor.logicalRootSha256).toBe(raw.descriptor.logicalRootSha256);
+    expect(compressed.continuationSha256).toBe(raw.continuationSha256);
+  }
+});

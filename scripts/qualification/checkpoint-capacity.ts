@@ -85,7 +85,29 @@ async function main(): Promise<void> {
     await destination.commitImport(restored, archive['inventory']);
     const selected = await destination.selectCurrent();
     assert(selected); assert.equal(selected.logicalRootSha256, generation.logicalRootSha256);
-    const evidence = {schemaVersion: 1, population: Number(population), graph, mode, envelopeMiB: Number(envelope),
+    assert.equal(archive['schemaVersion'], 2);
+    const handoffs: unknown[] = archive['postImportGenerations'] as unknown[];
+    assert(Array.isArray(handoffs) && handoffs.length === 3, 'three post-import handoffs');
+    let latest = restored;
+    for (const value of handoffs) {
+      assert(value && typeof value === 'object');
+      const handoff = value as Record<string, unknown>;
+      assert.equal(handoff['independentRestoreExact'], true);
+      const next = parseManagedCheckpointDescriptor(handoff['descriptor']);
+      assert.equal(BigInt(`0x${next.generation}`), BigInt(`0x${latest.generation}`) + 1n);
+      const fields = handoff['generationCommit']; assert(fields && typeof fields === 'object');
+      const commit = parseManagedGenerationCommit({...fields, hallOfFameWeights: handoff['hallOfFameWeights']}, next);
+      assert(commit); await destination.commit(next, commit); latest = next;
+    }
+    const final = await destination.selectCurrent();
+    assert(final); assert.equal(final.logicalRootSha256, latest.logicalRootSha256);
+    const hostHighWaterBytes = process.resourceUsage().maxRSS * 1024;
+    assert(Number.isSafeInteger(hostHighWaterBytes) && hostHighWaterBytes > 0, 'OS host RSS high-water counter');
+    peakHostRssBytes = Math.max(peakHostRssBytes, hostHighWaterBytes);
+    const evidence = {schemaVersion: 2, population: Number(population), graph, mode, envelopeMiB: Number(envelope),
+      sqlitePostImportGenerations: handoffs.length, finalCheckpointId: final.logicalRootSha256,
+      hostRssMeasurement: 'os-high-water-and-100ms-samples',
+
       native: save, archive, sqliteCommitted: true, sqliteImported: true, peakHostRssBytes,
       checkpointDiskDecision: JSON.parse(JSON.stringify(disk, (_key, value: unknown) => typeof value === 'bigint' ? value.toString() : value)) as unknown,
       totalSeconds: (performance.now() - started) / 1000};

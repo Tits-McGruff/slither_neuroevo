@@ -34,3 +34,6 @@ docs/performance/sensor-v4/tactical-ablation-windows-v1/evidence.json text eol=l
 
 # Capacity receipts hash their exact compact JSON across both target checkouts.
 docs/performance/sensor-v4/checkpoint-capacity-*/*.json text eol=lf
+
+# Repeated handoff receipts retain their checksummed JSON bytes.
+docs/performance/sensor-v4/checkpoint-handoffs-*/*.json text eol=lf

@@ -1475,6 +1475,189 @@ mod tests {
         assert!(limits.max_archive_bytes >= P3_RAW_WEIGHT_BYTES);
     }
 
+    /// Decoding alongside an old population uses a reduced budget. After that
+    /// owner is retired, the imported loop must afford ordinary dual-state evolution.
+    #[test]
+    fn imported_loop_reclaims_retired_population_budget_for_generation_handoffs() {
+        for branch in [false, true] {
+            let managed = TestDirectory::create("import-retired-budget");
+            let full_ceiling = 4 * 1024 * MIB;
+            let mut input = request(42);
+            input.memory_ceiling_bytes = full_ceiling;
+            let prepared = prepare_stage6a_p0_boundary(
+                input,
+                &[FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 3.0,
+                }],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            let mut staging_policy = prepared.admission_policy.clone();
+            let probe = AuthoritativeState::validate_and_own(
+                prepared.candidate,
+                prepared.graph,
+                &staging_policy,
+            )
+            .unwrap();
+            staging_policy.memory_ceiling_bytes = probe.memory_estimate().total_bytes + 8 * MIB;
+            let operation =
+                CheckpointOperationId::parse("00000000000000000000000000000081").unwrap();
+            let descriptor = super::super::checkpoint::publish_checkpoint(
+                managed.path(),
+                operation,
+                1,
+                probe.checkpoint_boundary().unwrap(),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &staging_policy,
+            )
+            .unwrap();
+            let restored = super::super::checkpoint::restore_checkpoint(
+                &managed.path().join(&descriptor.relative_filename),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &staging_policy,
+            )
+            .unwrap();
+            drop(probe); // Old population is now retired; its reservation can be reclaimed.
+            let mut pending = prepare_stage6a_p0_validated_import(
+                restored,
+                descriptor.clone(),
+                full_ceiling,
+                prepared.checkpoint_limits,
+                prepared.graph_limits,
+            )
+            .unwrap();
+            pending.acknowledge_import_persistence(&descriptor).unwrap();
+            let run_id = if branch {
+                let name = "standalone-import-recovery".to_owned();
+                pending = pending
+                    .into_committed_recovery_branch(name.clone())
+                    .unwrap();
+                name
+            } else {
+                descriptor.run_id.clone()
+            };
+            assert_eq!(pending.admitted_memory_ceiling_bytes(), staging_policy.memory_ceiling_bytes,
+            "identity rebinding must retain overlap admission until running ownership transfers");
+            pending.publish_running_authority().unwrap();
+            let mut running = pending
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            running
+                .request_finish_generation("finish-import".into(), run_id, 1)
+                .unwrap();
+            running
+                .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                .expect("retired source budget must support the imported generation transition");
+            let transition = running.pending_generation_transition().unwrap();
+            assert_eq!(transition.memory_ceiling_bytes(), full_ceiling);
+            assert!(transition.combined_state_bytes() > staging_policy.memory_ceiling_bytes);
+            assert!(transition.combined_state_bytes() <= full_ceiling);
+        }
+    }
+
+    /// The real replacement path keeps staging bounded through identity rebinding
+    /// and coordinator construction, then reclaims budget after dropping the old loop.
+    #[test]
+    fn live_import_replacement_reclaims_budget_with_and_without_recovery_branch() {
+        for branch in [false, true] {
+            let managed = TestDirectory::create("live-import-retirement");
+            let full_ceiling = 4 * 1024 * MIB;
+            let mut input = request(42);
+            input.memory_ceiling_bytes = full_ceiling;
+            let prepared = prepare_stage6a_p0_boundary(
+                input.clone(),
+                &[FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 3.0,
+                }],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            let mut policy = prepared.admission_policy.clone();
+            let probe =
+                AuthoritativeState::validate_and_own(prepared.candidate, prepared.graph, &policy)
+                    .unwrap();
+            policy.memory_ceiling_bytes = probe.memory_estimate().total_bytes + 8 * MIB;
+            let descriptor = super::super::checkpoint::publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000082").unwrap(),
+                1,
+                probe.checkpoint_boundary().unwrap(),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &policy,
+            )
+            .unwrap();
+            drop(probe);
+            let restored = super::super::checkpoint::restore_checkpoint(
+                &managed.path().join(&descriptor.relative_filename),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &policy,
+            )
+            .unwrap();
+            let pending = prepare_stage6a_p0_validated_import(
+                restored,
+                descriptor.clone(),
+                full_ceiling,
+                prepared.checkpoint_limits,
+                prepared.graph_limits,
+            )
+            .unwrap();
+            assert_eq!(
+                pending.admitted_memory_ceiling_bytes(),
+                policy.memory_ceiling_bytes
+            );
+            let slot = super::super::contract::PreparedImportSlot::new();
+            slot.put(pending).unwrap();
+            input.run_id = "old-live-import-owner".into();
+            input.seed = 43;
+            let mut old = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+                input,
+                &[FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 3.0,
+                }],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            let old_descriptor = old
+                .publish_checkpoint(
+                    managed.path(),
+                    CheckpointOperationId::parse("00000000000000000000000000000083").unwrap(),
+                )
+                .unwrap();
+            old.acknowledge_persistence(&old_descriptor).unwrap();
+            old.publish_running_authority().unwrap();
+            let mut running = old
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            let branch_id = branch.then_some("live-import-recovery-branch");
+            running.stage_prepared_import(&slot).unwrap();
+            running
+                .publish_prepared_import(&slot, &descriptor, branch_id, 0)
+                .unwrap();
+            assert!(!slot.is_some());
+            running
+                .request_finish_generation(
+                    "finish-live-import".into(),
+                    branch_id.unwrap_or(&descriptor.run_id).to_owned(),
+                    1,
+                )
+                .unwrap();
+            running
+                .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                .unwrap();
+            let transition = running.pending_generation_transition().unwrap();
+            assert_eq!(transition.memory_ceiling_bytes(), full_ceiling);
+            assert!(transition.combined_state_bytes() > policy.memory_ceiling_bytes);
+            assert!(transition.combined_state_bytes() <= full_ceiling);
+        }
+    }
+
     #[test]
     fn metadata_only_checkpoint_size_matches_published_recurrent_population() {
         let managed = TestDirectory::create("predicted-size");
