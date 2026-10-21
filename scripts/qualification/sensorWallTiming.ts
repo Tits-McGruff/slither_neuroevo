@@ -8,5 +8,6 @@ export function sensorWallTiming(seconds: number, sixHour = false) {
   // including the bounded process-start allowance: strictly below 4,096.
   return {requestedSeconds: seconds, sixHour, maxWallSeconds: sixHour ? 21_900 : 600,
     processDeadlineMs: sixHour ? 21_930_000 : 630_000,
-    readIntervalMs: sixHour ? 7000 : 200, generationBoundaryLimit: sixHour ? 128 : 8};
+    // Cold verification reads the bounded browser history page (at most 120 rows).
+    readIntervalMs: sixHour ? 7000 : 200, generationBoundaryLimit: sixHour ? 120 : 8};
 }

@@ -1235,7 +1235,7 @@ jobs remain eager; maturity, integrated throughput and soak gates remain open.
 
 The live qualification host and PyRL sustain helper now admit an explicit bounded
 six-hour mode with persistent workspaces, bounded health/progress observations,
-periodic ordinary job snapshots and up to 128 durable generation barriers.
+periodic ordinary job snapshots and up to 120 durable generation barriers.
 Focused duration/continuation checks and the unchanged 60-second Debian live
 path pass; no six-hour live-window acceptance is claimed. The latest short run
 still fails timing/debt gates, so the integrated performance requirement remains
