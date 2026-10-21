@@ -1420,3 +1420,60 @@ to the existing live-distillation command, supplying the matching Motion/B16,
 to retain the small library/deployment smoke. The integrated real-time performance
 failure remains open, along with representative crowded geometry, sustained
 teacher-throughput coverage beyond this bounded window and the six-hour soak.
+
+
+## Continuous native soak harness
+
+The existing native sensor qualifier now has an explicit
+`--soak-shadow-artifact PATH` mode. It retains one authority for up to 1,296,000
+complete 60-Hz steps. The world uses the ordinary random modest P0/P1 population,
+unlimited evolved respawn, ten v2 teachers and discard-new pellet overflow. The
+separate validated artifact supplies four diagnostic shadows on one teacher;
+it does not replace population weights or controlling actions.
+
+Unlike the short distribution qualifier, this mode stores no per-step timing or
+sample history. It retains 25 exact timing counters, streaming drained-object
+hashes, fixed sample/capture counters and at most 362 storage snapshots. Current
+resident memory accompanies the process high-water measure. Minute-scale snapshots
+include actual snake/body/pellet/brain capacities, fixed population lifecycle slots,
+recent/transaction event buffers, packed parameter/recurrent counts, deaths/respawns
+and placement work. Native record limits and fair shared ray grants are checked.
+
+The explicitly slow consumer drains at a fixed simulated-step interval. Every
+retained object is decoded and checked against its descriptor/hash/contract;
+ordinals and object sequences remain ordered across whole-chunk losses. Final
+stop seals pending chunks and reconciles all source samples as drained or dropped,
+including disjoint count/byte drop attribution and the complete released watermark.
+All four shadows must preserve exact teacher-sample coverage. Focused native checks
+compare single/multiple-worker continuation, captured work and storage against an
+ordinary uninspected reference; resource-limit/workspace rejections precede world
+construction. A bounded 601-step pressure smoke is included in Windows/Ubuntu CI.
+
+For a six-hour measured interval, build the release `sensor-v4-qualification`
+binary with `engine-test-hooks`, supply the retained Full Motion/B16 student, and
+use the following explicit arguments (with separate new workspace/report paths):
+
+```text
+--scenario P0 --profile motion --bins 16 --graph modest --respawn on
+--seed 42 --workers 3 --math-backend sse2 --minimum 1 --cap 512 --batch 131072
+--baseline v2-stochastic --baseline-cadence 0.016666666666666666
+--teacher-respawn-delay 0.5 --capture on --capture-drain-steps 600
+--capture-queue-chunks 8 --warmup 0 --steps 1296000
+--soak-shadow-artifact PATH --workspace NEW_DIRECTORY --output REPORT.json
+```
+
+The CLI checks actual free space, creates its workspace exclusively, retains
+bounded progress beside the final report, and removes only that exact workspace
+after completion/failure. Progress is diagnostic; process/session status and the
+completed final report establish completion. `sixHourEquivalent` is true only for
+1,296,000 measured steps. Short smokes cannot qualify duration. This is a native
+state/lifecycle/diagnostic-pressure soak; trainer/HTTP/spool contention, repeated
+generation-boundary durability, crowded mature geometry and real-clock performance
+remain separate acceptance requirements. Long-run results are still pending.
+
+Verify a completed report with `scripts/qualification/verify-soak.ts --report PATH`.
+Add `--require-six-hours` to require the full measured duration, repeated population
+deaths and observed slow-consumer pressure. The verifier independently reconciles
+sample/chunk/drop ownership, all four shadow counts, timing samples and snapshot
+chronology/resource bounds. It does not turn these native diagnostics into an
+integrated trainer, storage-durability or real-time performance claim.

@@ -9,7 +9,7 @@ use slither_native::engine::sensor_qualification::{
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// One exclusively created scratch tree; only this exact resolved tree is removable.
@@ -66,11 +66,20 @@ fn available_bytes(path: &Path) -> Result<u64, Box<dyn Error>> {
     Ok(available)
 }
 
-fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Error>> {
+/// Complete CLI request, including an opt-in shadow artifact for continuous soak mode.
+struct Arguments {
+    options: SensorQualificationOptions,
+    path: PathBuf,
+    output: PathBuf,
+    soak_shadow: Option<PathBuf>,
+}
+
+fn parse() -> Result<Arguments, Box<dyn Error>> {
     let mut arguments = std::env::args().skip(1);
     let mut values = BTreeMap::new();
     while let Some(flag) = arguments.next() {
         if ![
+            "--soak-shadow-artifact",
             "--capture",
             "--capture-drain-steps",
             "--capture-queue-chunks",
@@ -247,15 +256,21 @@ fn parse() -> Result<(SensorQualificationOptions, PathBuf, PathBuf), Box<dyn Err
     if !["development", "oxygen-debian"].contains(&options.environment.as_str()) {
         return Err("unsupported environment label".into());
     }
-    Ok((
+    Ok(Arguments {
         options,
-        PathBuf::from(required("--workspace")?),
-        PathBuf::from(required("--output")?),
-    ))
+        path: PathBuf::from(required("--workspace")?),
+        output: PathBuf::from(required("--output")?),
+        soak_shadow: values.get("--soak-shadow-artifact").map(PathBuf::from),
+    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let (options, path, output) = parse()?;
+    let Arguments {
+        options,
+        path,
+        output,
+        soak_shadow,
+    } = parse()?;
     let workspace = Workspace::create(&path)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
         let output_parent = output
@@ -272,8 +287,38 @@ fn main() -> Result<(), Box<dyn Error>> {
         if available_bytes(&workspace.path)? < REQUIRED_FREE_BYTES {
             return Err("qualification requires two GiB free to preserve its disk reserve".into());
         }
-        let report =
-            run_sensor_qualification(&options, &workspace.path).map_err(std::io::Error::other)?;
+        let report = if let Some(shadow) = &soak_shadow {
+            let progress_path = output.with_extension("progress.json");
+            if progress_path == output {
+                return Err("soak report and progress paths must differ".into());
+            }
+            let mut progress_file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(progress_path)?;
+            slither_native::engine::soak_qualification::run_sensor_soak(
+                &options,
+                &workspace.path,
+                shadow,
+                &mut |value| {
+                    (|| -> Result<(), Box<dyn Error>> {
+                        progress_file.seek(SeekFrom::Start(0))?;
+                        progress_file.set_len(0)?;
+                        serde_json::to_writer(&mut progress_file, value)?;
+                        progress_file.write_all(b"\n")?;
+                        progress_file.sync_all()?;
+                        Ok(())
+                    })()
+                    .map_err(|error| error.to_string())
+                },
+            )
+            .map_err(std::io::Error::other)?
+        } else {
+            serde_json::to_value(
+                run_sensor_qualification(&options, &workspace.path)
+                    .map_err(std::io::Error::other)?,
+            )?
+        };
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -282,12 +327,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         file.write_all(b"\n")?;
         file.sync_all()?;
         println!(
-            "admitted={} neural_observations={} all_observations={} all_incomplete={:?} p95_ms={:?} report={}",
-            report.admitted,
-            report.observations,
-            report.consumer_work.iter().map(|work|work.observations).sum::<u64>(),
-            report.all_consumer_ray_incomplete_fraction,
-            report.step_cost.map(|cost| cost.p95_ms),
+            "admitted={} report={}",
+            report
+                .get("admitted")
+                .or_else(|| report.get("complete"))
+                .unwrap_or(&serde_json::Value::Bool(false)),
             output.display()
         );
         Ok(())

@@ -226,3 +226,7 @@ pub(crate) mod population_work;
 
 /// Pre-materialization resource pricing for legacy population JSON.
 pub(crate) mod legacy_json_resources;
+
+/// Continuous native long-run pressure qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod soak_qualification;
