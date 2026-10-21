@@ -192,6 +192,19 @@ jobs:
           name: spool-capacity-smoke-${{ matrix.os }}
           path: ${{ runner.temp }}/spool-capacity-smoke.json
           if-no-files-found: warn
+      - name: Python for retained scientific evidence verification
+        if: matrix.node-version == '24.x'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Retained ablation restore boundary tests
+        if: matrix.node-version == '24.x'
+        run: python -B -m unittest discover -s scripts/qualification -p test_verify_replicated_ablation.py
+      - name: Recompute retained replicated native ablation evidence
+        if: matrix.node-version == '24.x'
+        run: >-
+          python -B scripts/qualification/verify-replicated-ablation.py
+          --evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
       - name: Real-clock P0 sensor workload (measured gates are diagnostic)

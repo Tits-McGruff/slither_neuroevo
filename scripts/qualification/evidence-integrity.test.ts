@@ -1250,3 +1250,56 @@ it('retains exact P2 fast-respawn authority across worker counts and slow captur
   }
   expect(reports).toHaveLength(3);
 });
+
+
+it('retains the readable nine-cell ablation matrix and all 63 trained/parity receipts', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/replicated-ablation-windows-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    matrixSha256: string; nativeSourceSha256: string;
+    files: Array<{path: string; archive: string; bytes: number; sha256: string; gzipSha256: string}>;
+  };
+  /** Read only small summary receipts here; the bounded Python CI verifier restores/checks the complete corpus and candidates. */
+  const original = (name: string): Buffer => {
+    const receipt = manifest.files.find(record => record.path === name)!;
+    expect(receipt.archive).toBe(`objects/${receipt.sha256}.gz`);
+    const encoded = readFileSync(resolve(root, receipt.archive)); expect(sha256(encoded)).toBe(receipt.gzipSha256);
+    const bytes = gunzipSync(encoded, {maxOutputLength: 1024 * 1024});
+    expect(bytes.length).toBe(receipt.bytes); expect(sha256(bytes)).toBe(receipt.sha256); return bytes;
+  };
+  const bytes = original('matrix.json'); expect(sha256(bytes)).toBe(manifest.matrixSha256);
+  const matrix = JSON.parse(bytes.toString('utf8')) as {measurementComplete: boolean; releaseQualified: boolean;
+    maturityQualified: boolean; profileChoice: null; replicatedSeedFoldCoverage: boolean; updatesPerVariant: number;
+    initializationSeeds: number[]; validationSeeds: number[]; cellCount: number; corpusNativeSourceSha256: string;
+    variants: Record<string, unknown>; cells: Array<{seed: number; validationSeed: number; summarySha256: string}>};
+  expect(JSON.parse(readFileSync(resolve(root, 'matrix.json'), 'utf8')) as unknown).toEqual(matrix);
+  expect(matrix).toMatchObject({measurementComplete: true, releaseQualified: false, maturityQualified: false, profileChoice: null,
+    replicatedSeedFoldCoverage: true, updatesPerVariant: 1000, initializationSeeds: [1, 2, 3], validationSeeds: [2, 4, 6], cellCount: 9});
+  expect(matrix.corpusNativeSourceSha256).toBe(manifest.nativeSourceSha256);
+  const variants = ['core-only', 'full', 'no-bearing', 'no-density', 'no-heading', 'no-urgency', 'no-velocity'];
+  expect(Object.keys(matrix.variants).sort()).toEqual(variants);
+  let models = 0;
+  for (const cell of matrix.cells) {
+    const directory = `seed-${cell.seed}-fold-${cell.validationSeed}`;
+    const summaryBytes = original(directory + '/summary.json'); expect(sha256(summaryBytes)).toBe(cell.summarySha256);
+    const summary = JSON.parse(summaryBytes.toString('utf8')) as {measurementComplete: boolean; status: string;
+      config: {seed: number; validationSeed: number; updates: number};
+      variants: Array<{variant: string; training: {updates: number; trainingRows: number; burnInRows: number};
+        initialWeightsSha256: string; trainedWeightsSha256: string; parity: {steps: number; outputMaxAbs: number; stateMaxAbs: number}}>};
+    expect(summary.measurementComplete).toBe(true); expect(summary.status).toBe('measured');
+    expect(summary.config).toMatchObject({seed: cell.seed, validationSeed: cell.validationSeed, updates: 1000});
+    expect(summary.variants.map(variant => variant.variant).sort()).toEqual(variants);
+    for (const variant of summary.variants) {
+      expect(variant.training.updates).toBe(1000); expect(variant.training.trainingRows).toBeGreaterThan(0);
+      expect(variant.training.burnInRows).toBeGreaterThan(0);
+      expect(variant.initialWeightsSha256).not.toBe(variant.trainedWeightsSha256);
+      expect(variant.parity.steps).toBe(256);
+      expect(variant.parity.outputMaxAbs).toBeLessThanOrEqual(4.470348358154297e-7);
+      expect(variant.parity.stateMaxAbs).toBeLessThanOrEqual(8.046627044677734e-7);
+      for (const filename of ['initial.slither-brain', 'trained.slither-brain', 'native-before.json', 'native-after.json']) {
+        expect(manifest.files.some(record => record.path === `${directory}/${variant.variant}/${filename}`)).toBe(true);
+      }
+      models++;
+    }
+  }
+  expect(models).toBe(63);
+});

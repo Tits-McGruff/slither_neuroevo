@@ -1,0 +1,2174 @@
+{
+  "schemaVersion": 1,
+  "kind": "paired-ablation-matrix-v1",
+  "measurementComplete": true,
+  "releaseQualified": false,
+  "maturityQualified": false,
+  "profileChoice": null,
+  "replicatedSeedFoldCoverage": true,
+  "updatesPerVariant": 1000,
+  "initializationSeeds": [
+    1,
+    2,
+    3
+  ],
+  "validationSeeds": [
+    2,
+    4,
+    6
+  ],
+  "cellCount": 9,
+  "corpusManifestSha256": "afbb77b3b6fb8d9f4dec4ee981ace4ed02a3d44c01624fa3f9303187b37bd324",
+  "corpusNativeSourceSha256": "00c6adb838af9ddff8fa706a23f5854bff7905587bf40a730023a15ab0675689",
+  "runnerSha256": {
+    "canonical": "4e63bd01116e1c70be5fb3aa58800aed3931768f15fb0d654b81dfd56e129037",
+    "tactical": "c62aba29065225443a6a3cd0c2406348d05728ed985241520fb67b57956e8c90"
+  },
+  "trainerSourceSha256": "ba80d565fd50ac8fbb49196456e394a6cc14e55d3d6a37de47da2b4d09152c14",
+  "environment": {
+    "python": "3.12.10",
+    "implementation": "CPython",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "machine": "AMD64",
+    "numpy": "2.5.3",
+    "torch": "2.14.0+cu126",
+    "cudaRuntime": "12.6",
+    "torchBuildSha256": "62667d88337d001cde4cafba9f11abd5a7bda80f936d118135e21982cb2f1eec",
+    "threads": 2,
+    "device": "cpu",
+    "float32": true,
+    "tf32": false,
+    "autocast": false,
+    "deterministicAlgorithms": false,
+    "deterministicWarnOnly": false,
+    "matmulPrecision": "highest",
+    "cudnnDeterministic": false,
+    "cudnnBenchmark": false,
+    "cpuCapability": "AVX2",
+    "cpuProcessor": "AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD",
+    "cublasWorkspaceConfig": null,
+    "atenCpuCapability": null
+  },
+  "variants": {
+    "full": {
+      "parameters": 25042,
+      "layoutSha256": "edc5bd650aac487c83959c14c16df50819554bf5a0c56581f4f91b1e7f43e925",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.07715245009990135,
+          "minimum": 0.056883326243126586,
+          "maximum": 0.14088899542073735,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.016912499568626747,
+          "minimum": 0.010280162960887443,
+          "maximum": 0.03184255912818544,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.04287985993781286,
+          "minimum": 0.028316650981216152,
+          "maximum": 0.05906778329708537,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.007668417518145019,
+          "minimum": 0.0053575414837413494,
+          "maximum": 0.009904371584699454,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 9.444444444444445,
+          "minimum": 7,
+          "maximum": 11,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 97.15185185185257,
+          "minimum": 75.2166666666672,
+          "maximum": 110.75000000000084,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 31.594705883938715,
+          "minimum": 7.0302049517398695,
+          "maximum": 99.29223673802335,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "kills": {
+          "count": 9,
+          "mean": 2.888888888888889,
+          "minimum": 1,
+          "maximum": 4,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.06879646799252415,
+          "minimum": 0.04422150241130168,
+          "maximum": 0.14047295057057033,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.014234004946928657,
+          "minimum": 0.007733246738147622,
+          "maximum": 0.03015487712751972,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.0304816110548989,
+          "minimum": 0.019766740390121194,
+          "maximum": 0.0447856310612517,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.004965313856617628,
+          "minimum": 0.004164187983343248,
+          "maximum": 0.006284153005464481,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.08551355695631241,
+          "minimum": 0.06665060213050643,
+          "maximum": 0.14130504027090438,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.019592599983461696,
+          "minimum": 0.012830492772012172,
+          "maximum": 0.033530241128851154,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.05528253913721565,
+          "minimum": 0.0368780208716886,
+          "maximum": 0.07334993553291905,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.010372331383269663,
+          "minimum": 0.006552494415487714,
+          "maximum": 0.01407103825136612,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0,
+          "maximum": 0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "kills": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0,
+          "maximum": 0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": 0.0,
+          "maximum": 0.0,
+          "negative": 0,
+          "zero": 9,
+          "positive": 0
+        }
+      }
+    },
+    "no-bearing": {
+      "parameters": 24018,
+      "layoutSha256": "3a4d306c6cc439075d0d1322f968024349cd31fc109acb8bcd2c7c23524c3e76",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.08175215924854447,
+          "minimum": 0.05805809899321635,
+          "maximum": 0.10920308268135363,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.01725826315047254,
+          "minimum": 0.010027202185673306,
+          "maximum": 0.02538292675070424,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.04115290434033254,
+          "minimum": 0.02827618181798614,
+          "maximum": 0.05261485364104881,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.00697889127089459,
+          "minimum": 0.005283131185356053,
+          "maximum": 0.008674863387978142,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 8.777777777777779,
+          "minimum": 6,
+          "maximum": 11,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 93.80555555555621,
+          "minimum": 70.50000000000044,
+          "maximum": 111.73333333333417,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 12.352117686405673,
+          "minimum": 9.636724092136136,
+          "maximum": 20.974001041124573,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "kills": {
+          "count": 9,
+          "mean": 2.4444444444444446,
+          "minimum": 1,
+          "maximum": 5,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.0744641907236434,
+          "minimum": 0.050756120773953105,
+          "maximum": 0.10398347449432957,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.014670962613842767,
+          "minimum": 0.007570472383591336,
+          "maximum": 0.021583925130588762,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.02884159048995903,
+          "minimum": 0.01892962334217733,
+          "maximum": 0.03735420370851058,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.0046294119782997484,
+          "minimum": 0.0037180249851279,
+          "maximum": 0.005408565999122935,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.08904407980917278,
+          "minimum": 0.06493928677818611,
+          "maximum": 0.11442269086837768,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.019846995297005246,
+          "minimum": 0.012487224700818377,
+          "maximum": 0.029181928370819718,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.053468630702032935,
+          "minimum": 0.03763526732674838,
+          "maximum": 0.06787550357358703,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.009329036592751921,
+          "minimum": 0.006552494415487714,
+          "maximum": 0.012021857923497269,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.0045997091486431226,
+          "minimum": -0.03168591273938372,
+          "maximum": 0.04568124208628435,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.00034576358184579156,
+          "minimum": -0.006459632377481202,
+          "maximum": 0.007624961675849999,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "loss": {
+          "count": 9,
+          "mean": -0.0017269555974803224,
+          "minimum": -0.01306590832581455,
+          "maximum": 0.008305108620835003,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": -0.0006895262472504291,
+          "minimum": -0.0017114368628618204,
+          "maximum": 7.441029838529695e-05,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": -0.6666666666666666,
+          "minimum": -4,
+          "maximum": 3,
+          "negative": 5,
+          "zero": 2,
+          "positive": 2
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": -3.346296296296354,
+          "minimum": -32.13333333333365,
+          "maximum": 28.833333333333556,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": -19.24258819753304,
+          "minimum": -84.79771119023208,
+          "maximum": 4.579339521843938,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "kills": {
+          "count": 9,
+          "mean": -0.4444444444444444,
+          "minimum": -2,
+          "maximum": 3,
+          "negative": 5,
+          "zero": 1,
+          "positive": 3
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.0056677227311192424,
+          "minimum": -0.03648947607624076,
+          "maximum": 0.05214028439835237,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.0004369576669141111,
+          "minimum": -0.008570951996930958,
+          "maximum": 0.008236215023821412,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": -0.0016400205649398736,
+          "minimum": -0.00994945563052397,
+          "maximum": 0.008178045956560857,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.0003359018783178803,
+          "minimum": -0.001092896174863388,
+          "maximum": 0.0008196721311475403,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.0035305228528603786,
+          "minimum": -0.026882349402526692,
+          "maximum": 0.03921354282994104,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.00025439531354355015,
+          "minimum": -0.004991475823914394,
+          "maximum": 0.0070128890754390105,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": -0.0018139084351827099,
+          "minimum": -0.01773729224665753,
+          "maximum": 0.008432341585031485,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.0010432947905177413,
+          "minimum": -0.0031273268801191353,
+          "maximum": 0.0007308872971787742,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        }
+      }
+    },
+    "no-heading": {
+      "parameters": 22994,
+      "layoutSha256": "821c383b92143c3b0ede988cbdfe9a22e0b2aa22c760a45d244e8d237ccaeeae",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.07033199021506385,
+          "minimum": 0.05439913383737651,
+          "maximum": 0.08991597073325694,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.015688258527879126,
+          "minimum": 0.009591298394192897,
+          "maximum": 0.01991473184542252,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.039782622427776276,
+          "minimum": 0.02916019337989273,
+          "maximum": 0.04745320301156878,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.007209910363122705,
+          "minimum": 0.005059900290200163,
+          "maximum": 0.009016393442622951,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 8.555555555555555,
+          "minimum": 7,
+          "maximum": 10,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 92.89259259259323,
+          "minimum": 76.68333333333386,
+          "maximum": 102.81666666666743,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 10.903898626651305,
+          "minimum": 3.0,
+          "maximum": 18.52473049953114,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "kills": {
+          "count": 9,
+          "mean": 3.0,
+          "minimum": 2,
+          "maximum": 4,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.06184836417987161,
+          "minimum": 0.04574721977159,
+          "maximum": 0.07962272457086324,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.013128361833837195,
+          "minimum": 0.007137533275057063,
+          "maximum": 0.016570241030258247,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.028260345700405327,
+          "minimum": 0.019726476832063054,
+          "maximum": 0.032893134377152924,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.004902404113852409,
+          "minimum": 0.003569303985722784,
+          "maximum": 0.005700920917994445,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.07881906484327769,
+          "minimum": 0.06306264391605834,
+          "maximum": 0.10020921689565064,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.018249300550179558,
+          "minimum": 0.012048352252877833,
+          "maximum": 0.023757920178070747,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.05130899369847641,
+          "minimum": 0.0386065537771536,
+          "maximum": 0.06256649542620273,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.009518016213747696,
+          "minimum": 0.006552494415487714,
+          "maximum": 0.012704918032786885,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": -0.00682045988483749,
+          "minimum": -0.07375580131030474,
+          "maximum": 0.008598618524113935,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": -0.001224241040747625,
+          "minimum": -0.015318548931775852,
+          "maximum": 0.0034842965259936753,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "loss": {
+          "count": 9,
+          "mean": -0.003097237510036584,
+          "minimum": -0.014793057548380936,
+          "maximum": 0.0008435423986765771,
+          "negative": 8,
+          "zero": 0,
+          "positive": 1
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": -0.0004585071550223133,
+          "minimum": -0.00175412951322906,
+          "maximum": 0.001754129513229061,
+          "negative": 6,
+          "zero": 1,
+          "positive": 2
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": -0.8888888888888888,
+          "minimum": -3,
+          "maximum": 2,
+          "negative": 6,
+          "zero": 1,
+          "positive": 2
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": -4.259259259259336,
+          "minimum": -25.45000000000023,
+          "maximum": 21.700000000000145,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": -20.690807257287407,
+          "minimum": -80.7675062384922,
+          "maximum": 8.040772850578652,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "kills": {
+          "count": 9,
+          "mean": 0.1111111111111111,
+          "minimum": -1,
+          "maximum": 3,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": -0.006948103812652541,
+          "minimum": -0.08100830336086087,
+          "maximum": 0.008910218354564986,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": -0.0011056431130914617,
+          "minimum": -0.016443677482709206,
+          "maximum": 0.0025920295877391135,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": -0.0022212653544935743,
+          "minimum": -0.015164754576370364,
+          "maximum": 0.001464484562530205,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": -6.290974276521891e-05,
+          "minimum": -0.001092896174863388,
+          "maximum": 0.0008196721311475403,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": -0.006694492113034717,
+          "minimum": -0.06650329925974861,
+          "maximum": 0.013398828413764954,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": -0.0013432994332821377,
+          "minimum": -0.014193420380842488,
+          "maximum": 0.004376563464248237,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": -0.00397354543873923,
+          "minimum": -0.014421360520391516,
+          "maximum": 0.0017285329054649995,
+          "negative": 8,
+          "zero": 0,
+          "positive": 1
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.0008543151695219667,
+          "minimum": -0.003654436485893876,
+          "maximum": 0.0029235491887151,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        }
+      }
+    },
+    "no-velocity": {
+      "parameters": 22994,
+      "layoutSha256": "dc609e0c0a0dccafe5b3c06c4b9f18eab997eba5955c1f3fbecdbc1379875aa9",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.07793751163793067,
+          "minimum": 0.0599720026909378,
+          "maximum": 0.09337546587641773,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.017071677875551944,
+          "minimum": 0.011449069497672049,
+          "maximum": 0.020448652447247116,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.0420453980649829,
+          "minimum": 0.03302194449760364,
+          "maximum": 0.04904289139750225,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.007773133023980517,
+          "minimum": 0.0055807723788972394,
+          "maximum": 0.011748633879781421,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 9.555555555555555,
+          "minimum": 7,
+          "maximum": 12,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 101.24074074074147,
+          "minimum": 76.65000000000053,
+          "maximum": 121.06666666666759,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 13.100444915787214,
+          "minimum": 5.926738221338018,
+          "maximum": 20.549326823744924,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "kills": {
+          "count": 9,
+          "mean": 3.3333333333333335,
+          "minimum": 2,
+          "maximum": 4,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.0700719579027958,
+          "minimum": 0.048561521224646534,
+          "maximum": 0.08784713572491713,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.01441347890500843,
+          "minimum": 0.008572008582646473,
+          "maximum": 0.018021071912112805,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.03019892424425908,
+          "minimum": 0.022217568903186363,
+          "maximum": 0.03493295336355928,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.005530530495533887,
+          "minimum": 0.004164187983343248,
+          "maximum": 0.00819672131147541,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.08580691488700981,
+          "minimum": 0.07139777743097392,
+          "maximum": 0.09890379602791834,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.019731206606772203,
+          "minimum": 0.014329986488384181,
+          "maximum": 0.023299167325597395,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.053896328046539,
+          "minimum": 0.04384080101240063,
+          "maximum": 0.06315282943144522,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.010016368605048894,
+          "minimum": 0.006999255398361877,
+          "maximum": 0.015300546448087432,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.0007850615380293291,
+          "minimum": -0.0715787958903391,
+          "maximum": 0.01689542220704869,
+          "negative": 1,
+          "zero": 0,
+          "positive": 8
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.0001591783069251957,
+          "minimum": -0.015930680839008973,
+          "maximum": 0.00386357895987474,
+          "negative": 1,
+          "zero": 0,
+          "positive": 8
+        },
+        "loss": {
+          "count": 9,
+          "mean": -0.0008344618728299585,
+          "minimum": -0.015113352471199187,
+          "maximum": 0.004705293516387491,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.00010471550583549764,
+          "minimum": -0.001681040783511183,
+          "maximum": 0.0018442622950819668,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 0.1111111111111111,
+          "minimum": -2,
+          "maximum": 3,
+          "negative": 4,
+          "zero": 1,
+          "positive": 4
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 4.088888888888893,
+          "minimum": -17.083333333333485,
+          "maximum": 27.783333333333573,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": -18.494260968151497,
+          "minimum": -81.20245132523121,
+          "maximum": 9.868411108897998,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "kills": {
+          "count": 9,
+          "mean": 0.4444444444444444,
+          "minimum": -2,
+          "maximum": 3,
+          "negative": 3,
+          "zero": 2,
+          "positive": 4
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.001275489910271642,
+          "minimum": -0.078522978812619,
+          "maximum": 0.026653494315796986,
+          "negative": 1,
+          "zero": 0,
+          "positive": 8
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.0001794739580797735,
+          "minimum": -0.01668108080824216,
+          "maximum": 0.004042860469593672,
+          "negative": 1,
+          "zero": 0,
+          "positive": 8
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": -0.000282686810639823,
+          "minimum": -0.014336778541080286,
+          "maximum": 0.0036900370940787693,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.0005652166389162588,
+          "minimum": -0.0004098360655737706,
+          "maximum": 0.0019125683060109292,
+          "negative": 1,
+          "zero": 3,
+          "positive": 5
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.00029335793069738516,
+          "minimum": -0.06463461296805918,
+          "maximum": 0.017562943912183243,
+          "negative": 1,
+          "zero": 0,
+          "positive": 8
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.00013860662331050759,
+          "minimum": -0.01518028086977578,
+          "maximum": 0.004568714014080391,
+          "negative": 1,
+          "zero": 0,
+          "positive": 8
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": -0.0013862110906766435,
+          "minimum": -0.015889926401318102,
+          "maximum": 0.006962780140712027,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.0003559627782207679,
+          "minimum": -0.003362081567022366,
+          "maximum": 0.0017759562841530054,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        }
+      }
+    },
+    "no-urgency": {
+      "parameters": 24018,
+      "layoutSha256": "f112cc257c05b9968e5978ce1293cedc668613118a042a416d76ecf8078b7c2d",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.09070612101218437,
+          "minimum": 0.06668547080319766,
+          "maximum": 0.13565767485587324,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.018984934769639843,
+          "minimum": 0.014105953527300546,
+          "maximum": 0.03544265013391691,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.04361830817524643,
+          "minimum": 0.031748741108956584,
+          "maximum": 0.06495492252536485,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.007567264066102929,
+          "minimum": 0.0053575414837413494,
+          "maximum": 0.010040983606557377,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 8.11111111111111,
+          "minimum": 6,
+          "maximum": 11,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 86.95370370370432,
+          "minimum": 65.3833333333338,
+          "maximum": 115.30000000000082,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 9.4679966743932,
+          "minimum": 0.0,
+          "maximum": 21.017782836873085,
+          "negative": 0,
+          "zero": 1,
+          "positive": 8
+        },
+        "kills": {
+          "count": 9,
+          "mean": 2.888888888888889,
+          "minimum": 1,
+          "maximum": 4,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.08514586453572183,
+          "minimum": 0.058648823714647136,
+          "maximum": 0.1310274893794555,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.016296225370651878,
+          "minimum": 0.011991893643250711,
+          "maximum": 0.030957099904250253,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.031036704928447165,
+          "minimum": 0.02417176906939137,
+          "maximum": 0.048322594029411595,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.0049462336888509316,
+          "minimum": 0.00409296886420114,
+          "maximum": 0.0058743169398907105,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.09626835093672845,
+          "minimum": 0.07379403111356476,
+          "maximum": 0.140287860332291,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.02167478153561415,
+          "minimum": 0.015567621488848108,
+          "maximum": 0.03992820036358358,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.056204035820871585,
+          "minimum": 0.03870143355137363,
+          "maximum": 0.0815872510213181,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.010189126883524573,
+          "minimum": 0.006403574087862993,
+          "maximum": 0.014207650273224045,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.013553670912283024,
+          "minimum": -0.009371162340289257,
+          "maximum": 0.04853032133623429,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.0020724352010130947,
+          "minimum": -0.002107597558754063,
+          "maximum": 0.009377575466627342,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.0007384482374335681,
+          "minimum": -0.007244267653275814,
+          "maximum": 0.014199390957527407,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": -0.0001011534520420889,
+          "minimum": -0.001973395702382693,
+          "maximum": 0.0028275913386412686,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": -1.3333333333333333,
+          "minimum": -5,
+          "maximum": 3,
+          "negative": 5,
+          "zero": 2,
+          "positive": 2
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": -10.198148148148254,
+          "minimum": -44.33333333333371,
+          "maximum": 32.400000000000205,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": -22.126709209545517,
+          "minimum": -84.79771119023208,
+          "maximum": 6.6161344930995245,
+          "negative": 8,
+          "zero": 0,
+          "positive": 1
+        },
+        "kills": {
+          "count": 9,
+          "mean": 0.0,
+          "minimum": -2,
+          "maximum": 3,
+          "negative": 5,
+          "zero": 1,
+          "positive": 3
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.01634939654319768,
+          "minimum": -0.012547570369282696,
+          "maximum": 0.060086714554797464,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.0020622204237232197,
+          "minimum": -0.002259213414267113,
+          "maximum": 0.010420193622007318,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.0005550938735482676,
+          "minimum": -0.007037654588294161,
+          "maximum": 0.01345249688488823,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": -1.9080167766697355e-05,
+          "minimum": -0.00116941967548604,
+          "maximum": 0.0013661202185792348,
+          "negative": 5,
+          "zero": 2,
+          "positive": 2
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.01075479398041604,
+          "minimum": -0.009237501473476309,
+          "maximum": 0.03695843928089271,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.0020821815521524533,
+          "minimum": -0.00214233341019782,
+          "maximum": 0.008333559907911788,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.0009214966836559375,
+          "minimum": -0.01160568364826041,
+          "maximum": 0.014947286079556574,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.0001832044997450904,
+          "minimum": -0.0032762472077438563,
+          "maximum": 0.004765450483991065,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        }
+      }
+    },
+    "no-density": {
+      "parameters": 24018,
+      "layoutSha256": "629f07f920a585ad6ae2d02248fca321cc7c12e7e5588ca8d5701d53e9c127a9",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.0908865648695571,
+          "minimum": 0.07193277914993527,
+          "maximum": 0.13998336001334946,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.019080315110682058,
+          "minimum": 0.014472864352590315,
+          "maximum": 0.03723226726523351,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.04349535904819199,
+          "minimum": 0.032009567326666995,
+          "maximum": 0.06652121175121252,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.0075662542593347305,
+          "minimum": 0.0055063620805119425,
+          "maximum": 0.00976775956284153,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 8.0,
+          "minimum": 6,
+          "maximum": 10,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 85.46481481481541,
+          "minimum": 65.81666666666712,
+          "maximum": 106.56666666666742,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 8.977176881628111,
+          "minimum": 0.0,
+          "maximum": 18.376437940169126,
+          "negative": 0,
+          "zero": 1,
+          "positive": 8
+        },
+        "kills": {
+          "count": 9,
+          "mean": 2.7777777777777777,
+          "minimum": 1,
+          "maximum": 4,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.08532170964818801,
+          "minimum": 0.0645542401107934,
+          "maximum": 0.13674632106485263,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.016540528655882077,
+          "minimum": 0.012201563029116212,
+          "maximum": 0.03328450531724209,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.031333148619393035,
+          "minimum": 0.02460365003148833,
+          "maximum": 0.050774936688443024,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.0049835341054199934,
+          "minimum": 0.004164187983343248,
+          "maximum": 0.0058743169398907105,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.0964536492910792,
+          "minimum": 0.07806086642162578,
+          "maximum": 0.1432203989618463,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.02162125444129485,
+          "minimum": 0.016197276861030313,
+          "maximum": 0.04118002921322493,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.0556618046713127,
+          "minimum": 0.03937831871205981,
+          "maximum": 0.08226748681398201,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.01014981796428927,
+          "minimum": 0.006552494415487714,
+          "maximum": 0.01366120218579235,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.013734114769655763,
+          "minimum": -0.012793028419786467,
+          "maximum": 0.04908330865058527,
+          "negative": 2,
+          "zero": 0,
+          "positive": 7
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.0021678155420553078,
+          "minimum": -0.003112189597933669,
+          "maximum": 0.009348214697169002,
+          "negative": 4,
+          "zero": 0,
+          "positive": 5
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.000615499110379126,
+          "minimum": -0.011743210653623735,
+          "maximum": 0.014874224556912553,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": -0.00010216325881028804,
+          "minimum": -0.00175412951322906,
+          "maximum": 0.0030508222337971586,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": -1.4444444444444444,
+          "minimum": -5,
+          "maximum": 2,
+          "negative": 6,
+          "zero": 1,
+          "positive": 2
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": -11.687037037037152,
+          "minimum": -44.93333333333372,
+          "maximum": 23.6666666666668,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": -22.617529002310604,
+          "minimum": -88.23182683454361,
+          "maximum": 9.158073216071353,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "kills": {
+          "count": 9,
+          "mean": -0.1111111111111111,
+          "minimum": -2,
+          "maximum": 3,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.016525241655663863,
+          "minimum": -0.015804055805414746,
+          "maximum": 0.06084177823452493,
+          "negative": 2,
+          "zero": 0,
+          "positive": 7
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.0023065237089534177,
+          "minimum": -0.0031741895799428394,
+          "maximum": 0.010764747168835537,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.0008515375644941299,
+          "minimum": -0.008208598041794992,
+          "maximum": 0.014077674831301946,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 1.822024880236473e-05,
+          "minimum": -0.0008196721311475412,
+          "maximum": 0.0013661202185792348,
+          "negative": 4,
+          "zero": 3,
+          "positive": 2
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.010940092334766798,
+          "minimum": -0.009782001034158175,
+          "maximum": 0.037309079390360364,
+          "negative": 2,
+          "zero": 0,
+          "positive": 7
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.002028654457833155,
+          "minimum": -0.003050189615924504,
+          "maximum": 0.00792978367118452,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.00037926553409705493,
+          "minimum": -0.016151927146903257,
+          "maximum": 0.015671841884538122,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.00022251341898039232,
+          "minimum": -0.0031273268801191353,
+          "maximum": 0.0050632911392405056,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        }
+      }
+    },
+    "core-only": {
+      "parameters": 15826,
+      "layoutSha256": "ff36922c62a70ab0dfd32e370ad350a977bae8387e5c9b9f9de56412ad6bc70a",
+      "measurements": {
+        "turnMae": {
+          "count": 9,
+          "mean": 0.06401981266599889,
+          "minimum": 0.047746468392216086,
+          "maximum": 0.09252987862284717,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": 0.013291277588152827,
+          "minimum": 0.01011957394115644,
+          "maximum": 0.020115974407052734,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "loss": {
+          "count": 9,
+          "mean": 0.03803808964997763,
+          "minimum": 0.029566007398168143,
+          "maximum": 0.0477296742259479,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": 0.007135283344461941,
+          "minimum": 0.00513431058858546,
+          "maximum": 0.008948087431693988,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 9.88888888888889,
+          "minimum": 8,
+          "maximum": 11,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 102.54259259259335,
+          "minimum": 87.28333333333394,
+          "maximum": 112.38333333333418,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": 12.163432062585423,
+          "minimum": 4.0302049517398695,
+          "maximum": 31.573837115149946,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "kills": {
+          "count": 9,
+          "mean": 3.4444444444444446,
+          "minimum": 2,
+          "maximum": 5,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": 0.0565920613575117,
+          "minimum": 0.039808819330851994,
+          "maximum": 0.08795109436811645,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": 0.011186088929951883,
+          "minimum": 0.007645165520027094,
+          "maximum": 0.017680051922798156,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": 0.02669754848880721,
+          "minimum": 0.020304829128206237,
+          "maximum": 0.0346802148174067,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.004882691079170342,
+          "minimum": 0.0037180249851279,
+          "maximum": 0.0058743169398907105,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": 0.07145108331793494,
+          "minimum": 0.05569475614926927,
+          "maximum": 0.0971086628775779,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": 0.015397536961295097,
+          "minimum": 0.012380994966202322,
+          "maximum": 0.02255189689130731,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": 0.0493826342882657,
+          "minimum": 0.038839598267449434,
+          "maximum": 0.06077913363448909,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": 0.009388541683512247,
+          "minimum": 0.006552494415487714,
+          "maximum": 0.012431693989071037,
+          "negative": 0,
+          "zero": 0,
+          "positive": 9
+        }
+      },
+      "pairedDifferenceFromFull": {
+        "turnMae": {
+          "count": 9,
+          "mean": -0.013132637433902453,
+          "minimum": -0.04835911679789018,
+          "maximum": 0.01663002721947017,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "turnMse": {
+          "count": 9,
+          "mean": -0.003621221980473922,
+          "minimum": -0.011726584721132707,
+          "maximum": 0.0034269064662623104,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "loss": {
+          "count": 9,
+          "mean": -0.0048417702878352335,
+          "minimum": -0.011625586162793529,
+          "maximum": 0.005056538741692731,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "boostDisagreement": {
+          "count": 9,
+          "mean": -0.0005331341736830783,
+          "minimum": -0.00146177459435755,
+          "maximum": 0.00021926618915363294,
+          "negative": 7,
+          "zero": 1,
+          "positive": 1
+        },
+        "survivingTrials": {
+          "count": 9,
+          "mean": 0.4444444444444444,
+          "minimum": -1,
+          "maximum": 3,
+          "negative": 2,
+          "zero": 4,
+          "positive": 3
+        },
+        "survivalSeconds": {
+          "count": 9,
+          "mean": 5.3907407407407755,
+          "minimum": -8.433333333333408,
+          "maximum": 29.48333333333356,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "foodEarned": {
+          "count": 9,
+          "mean": -19.431273821353287,
+          "minimum": -95.26203178628347,
+          "maximum": 23.995989190298133,
+          "negative": 6,
+          "zero": 0,
+          "positive": 3
+        },
+        "kills": {
+          "count": 9,
+          "mean": 0.5555555555555556,
+          "minimum": -2,
+          "maximum": 2,
+          "negative": 3,
+          "zero": 0,
+          "positive": 6
+        },
+        "motion-v2-deterministic/turnMae": {
+          "count": 9,
+          "mean": -0.012204406635012452,
+          "minimum": -0.05252185620245388,
+          "maximum": 0.020180456380203042,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-deterministic/turnMse": {
+          "count": 9,
+          "mean": -0.003047916016976774,
+          "minimum": -0.012474825204721565,
+          "maximum": 0.003672022724846586,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-deterministic/loss": {
+          "count": 9,
+          "mean": -0.003784062566091689,
+          "minimum": -0.010105416243844999,
+          "maximum": 0.004982055022488174,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-deterministic/boostDisagreement": {
+          "count": 9,
+          "mean": -8.262277744728656e-05,
+          "minimum": -0.001092896174863388,
+          "maximum": 0.0006830601092896174,
+          "negative": 5,
+          "zero": 0,
+          "positive": 4
+        },
+        "motion-v2-stochastic/turnMae": {
+          "count": 9,
+          "mean": -0.01406247363837747,
+          "minimum": -0.04419637739332648,
+          "maximum": 0.013074839479072897,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-stochastic/turnMse": {
+          "count": 9,
+          "mean": -0.004195063022166596,
+          "minimum": -0.010978344237543843,
+          "maximum": 0.0031814616825362255,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-stochastic/loss": {
+          "count": 9,
+          "mean": -0.00589990484894995,
+          "minimum": -0.015259981312226903,
+          "maximum": 0.0051311222901560885,
+          "negative": 7,
+          "zero": 0,
+          "positive": 2
+        },
+        "motion-v2-stochastic/boostDisagreement": {
+          "count": 9,
+          "mean": -0.0009837896997574157,
+          "minimum": -0.00321590410758661,
+          "maximum": 0.0004385323783072659,
+          "negative": 6,
+          "zero": 1,
+          "positive": 2
+        }
+      }
+    }
+  },
+  "cells": [
+    {
+      "seed": 1,
+      "validationSeed": 2,
+      "summarySha256": "2654a3b4cb582ef2ba05f29413186949c1065ba497464def1cf0a8251618bef8"
+    },
+    {
+      "seed": 1,
+      "validationSeed": 4,
+      "summarySha256": "fedab807460d4dac926f1a3fcd83a17744b8a48c0143ca5d75978faea6aac62c"
+    },
+    {
+      "seed": 1,
+      "validationSeed": 6,
+      "summarySha256": "40b833eb90eff7ad7c149d39367559f9c9963907562c6bffd18fc8aed17d296e"
+    },
+    {
+      "seed": 2,
+      "validationSeed": 2,
+      "summarySha256": "e730746f297b5cef265a5ce67f7d9c4dc2d955e15727428cc91dd6ad4c9b933d"
+    },
+    {
+      "seed": 2,
+      "validationSeed": 4,
+      "summarySha256": "bd984cffaff36e8955e2d3ad5e1a97cd33e88c528f8263808220b3d207c9faba"
+    },
+    {
+      "seed": 2,
+      "validationSeed": 6,
+      "summarySha256": "6e242d8f1a6a0f1348a1f8c8d2489d581bc2bb1b75d131956d15e5c4c277a8c5"
+    },
+    {
+      "seed": 3,
+      "validationSeed": 2,
+      "summarySha256": "59b33512e50924947230bf7421acbbcfd4c7fc4acc4534c4fd082bc08890bf8c"
+    },
+    {
+      "seed": 3,
+      "validationSeed": 4,
+      "summarySha256": "d78cc10b19c47a0fb5adc13a1fbcc0c2a7524c9c82037f1dbda8065426619b1a"
+    },
+    {
+      "seed": 3,
+      "validationSeed": 6,
+      "summarySha256": "5c706fd81b03ecdfc2199061fd3418f54a5cded64f6d59f79f1c53f7df260cf5"
+    }
+  ],
+  "scope": "Balanced initialization/held-out geometry folds of native synthetic tactics. Metrics are macro means of cells and paired differences from Full, with separate teacher-policy strata. Cells sharing data/folds are not claimed statistically independent; no confidence interval, winner, model-maturity, representative-population, sensing-cost, real-time or sensor-default conclusion."
+}
