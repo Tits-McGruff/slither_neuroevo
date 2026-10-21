@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-21)
+## Implementation progress (2026-10-22)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -1197,9 +1197,32 @@ samples; each shadow must match its teacher's exact sample count. Single/multiwo
 and uninspected-reference continuation checks pass, together with all 790 release
 native tests on Windows and Debian. Both release CLI pressure smokes pass, and the
 independent verifier rejects their short duration as six-hour evidence. CI includes
-the bounded pressure smoke and verification. Full-duration measurements are pending;
-this native state/diagnostic soak does not replace integrated trainer/storage,
-crowded-policy, generation-transition or real-time acceptance.
+the bounded pressure smoke and verification. Both supported targets subsequently
+completed all 1,296,000 measured steps in one authority; compressed receipts under
+`docs/performance/sensor-v4/continuous-soak-{windows,debian}-v1/` reconcile capture
+losses and fixed storage across 361 snapshots. This closes native duration/state
+pressure only; integrated trainer/storage, crowded-policy, generation-transition
+and real-time acceptance remain separate.
+
+Same-graph learned-family qualification now admits 2..16 distinct portable policy
+sources with stable population-slot assignment, explicit cold-source accounting
+and exact worker/capture continuation. It remains outside production founder APIs.
+The live trainer host also supports repeated manual generation handoffs joined to
+real SQLite pointers/sidecars, metadata-worker restart and exact qualified Rust
+boundary restore. `12b41a4` passes 797 native tests and an actual two-generation
+CPU run with four progressing shadows and drop-free capture. Its minimum
+simulated/wall ratio is 0.9962, but the 48-ms p99 bucket fails the step-time gate.
+PyRL CI `f769642` pins this native implementation and exercises the live durability
+mode. A bounded functional run does not close long-duration integrated acceptance.
+
+The retained 2,000-update held-out study now covers all nine seed/fold cells and
+seven ablations, with points at 0/250/500/1000/1500/2000. Its 63 final policies pass
+actual Rust/PyTorch prefix parity. A bounded independent verifier exactly
+recomputes the matrix and all 63 initial/1,000-update weight comparisons against
+the prior study, with unchanged packed data and compute settings. All seven mean
+curves still improve in the final 500 updates; maturity and profile selection
+remain unqualified. Sources, models, corpus, traces, learning curves and gameplay
+receipts are retained in `docs/performance/sensor-v4/heldout-curves-windows-v1/`.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 

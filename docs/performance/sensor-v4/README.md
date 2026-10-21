@@ -1618,6 +1618,55 @@ It needs Python, no Torch installation, training process or simulator. Five boun
 regressions reject traversal/aliases, duplicate or invalid lengths, changed gzip
 bytes, excess expansion and original-byte mismatches before any archived reader
 runs. Windows/Ubuntu Node 24 CI verifies the complete retained study.
+## Held-out learning curves
+
+`heldout-curves-windows-v1/` retains a second nine-cell, seven-variant CPU study
+with the same corpus, paired initialization/held-out seeds and training settings,
+extended to 2,000 updates. Frozen native commit `e8673ff` and PyRL `d5fa5d1` ran
+on Python 3.12.10 / Torch 2.14.0+cu126, CPU with two threads. Validation observes
+complete held-out lives at updates 0/250/500/1000/1500/2000 with independent student
+recurrence. All 63 final policies pass the actual 256-observation Rust/PyTorch
+prefix check; maximum output/state differences are 4.48e-7 / 8.35e-7.
+
+These are macro means over the nine paired cells, with overlapping folds; they
+are not independent population replicates or confidence intervals. Gameplay
+columns describe the final policy in the existing 14 short native trials.
+
+| Variant | MAE at 1,000 | MAE at 1,500 | MAE at 2,000 | Final food | Final survivors |
+|---|---:|---:|---:|---:|---:|
+| Full | 0.07715 | 0.06651 | 0.06155 | 29.65 | 10.44 |
+| No bearing | 0.08175 | 0.06918 | 0.05930 | 15.90 | 10.00 |
+| No heading | 0.07033 | 0.06178 | 0.05509 | 16.47 | 9.11 |
+| No velocity | 0.07794 | 0.07361 | 0.06194 | 14.57 | 9.22 |
+| No urgency | 0.09071 | 0.08239 | 0.07383 | 12.38 | 9.78 |
+| No density | 0.09089 | 0.08249 | 0.07303 | 15.51 | 10.00 |
+| Core only | 0.06402 | 0.05802 | 0.05097 | 24.51 | 10.89 |
+
+All seven mean curves still improve in the last 500 updates, so this study does
+not establish a learning plateau or model maturity. Full retains higher mean
+food than Core, while Core has lower imitation error and slightly more surviving
+short trials. These mixed outcomes do not select a profile. Core remains a graph
+ablation under Motion/B16 sensing, not an automatic Basic conversion.
+
+The capsule retains 1,326 logical files in 693 content-addressed gzip objects
+(about 24.1 MiB), including all original corpus/model/parity/gameplay/source
+receipts and the executed driver. Its archived stdlib reader exactly recomputes
+every learning-curve aggregate. An additional independently verified witness
+joins all 63 initial/1,000-update weight hashes to the earlier study, with exact
+packed-input, configuration and recorded compute-environment equality. This is
+observed equality for these paired runs, not a cross-build/platform physics
+replay promise. Maturity, representative gameplay and default selection remain
+explicitly unqualified.
+
+```text
+python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/heldout-curves-windows-v1 --previous-evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
+```
+
+Windows/Ubuntu Node 24 CI restores the full capsule, recomputes its matrix, and
+checks the training-prefix witness against the retained predecessor. Eight
+boundary regressions cover bounded restore and altered predecessor identities,
+weights, configurations and witness rows.
+
 ## Crowded native sensing stress
 
 The test-hook `crowded-sensor-qualification` runner reuses the existing native
