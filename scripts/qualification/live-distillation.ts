@@ -23,6 +23,8 @@ import { DistillationHttpRouter } from '../../server/rustEngine/distillationHttp
 import { SavedBrainLibrary } from '../../server/rustEngine/savedBrainLibrary.ts';
 import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1 } from '../../server/protocol.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
+import { parseRustStartupMetadata } from '../../server/rustEngine/startupMetadata.ts';
+import { summarizeSensorWall, type SensorWallRead } from './sensorWallSummary.ts';
 import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../server/rustEngine/diskAdmission.ts';
 
@@ -30,7 +32,7 @@ import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../ser
 interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
   /** Delegate all state construction to the real Rust qualification constructor. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
-    rayMinimum: number; rayCap: number; rayBatch: number}): Promise<unknown>;
+    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string}): Promise<unknown>;
 }
 /** Production-sized bounded queues, without any external controller. */
 const INIT: ExperimentalEngineInit = {contractVersion: 1, maxInboundBatches: 16, maxInboundCommands: 16,
@@ -106,12 +108,31 @@ async function removeRoot(root: string): Promise<void> {
   await rm(root, {recursive: true, force: true});
 }
 
+/** Read a coherent cumulative timing histogram without advancing native authority. */
+async function wallRead(native: ExperimentalRunningAuthorityNativeHandle): Promise<SensorWallRead> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const beforeMs = performance.now(); const health = native.health(true); const afterMs = performance.now();
+    assert.equal(health.lifecycle, 'running'); assert.equal(health.faultCode, undefined);
+    if (health.stepTimingHistogramConsistent) {
+      const {worldEpoch, generation, completedStep, calculationWorkers, schedulerCompletedSteps,
+        schedulerDroppedWallMicros, schedulerOverloaded, lifecycle, stepTimingSamples,
+        stepTimingHistogramConsistent, stepTimingBucketUpperMicros, stepTimingBucketCounts} = health;
+      assert(stepTimingBucketUpperMicros && stepTimingBucketCounts);
+      return {beforeMs, afterMs, health: {worldEpoch, generation, completedStep, calculationWorkers,
+        schedulerCompletedSteps, schedulerDroppedWallMicros, schedulerOverloaded, lifecycle, stepTimingSamples,
+        stepTimingHistogramConsistent, stepTimingBucketUpperMicros, stepTimingBucketCounts}};
+    }
+    await new Promise(done => setTimeout(done, 5));
+  }
+  throw new Error('contention histogram remained incoherent');
+}
+
 /** Require explicit checkout/interpreter/report, so this gate cannot touch an owner database. */
 async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -120,6 +141,13 @@ async function run(): Promise<void> {
   const spoolGiB = Number(args.get('--spool-gib') ?? '4');
   const spoolLimits = distillationSpoolLimitsForGiB(spoolGiB);
   assert(['cpu', 'cuda:0'].includes(device)); assert([1, 3].includes(workers));
+  const workload = args.get('--workload');
+  assert(workload === undefined || workload === 'P0' || workload === 'P1');
+  const seconds = Number(args.get('--contention-seconds') ?? '60');
+  assert(Number.isSafeInteger(seconds) && seconds >= 60 && seconds <= 300);
+  assert(workload ? args.has('--student-artifact') : !args.has('--student-artifact') && !args.has('--contention-seconds'));
+  const studentArtifact = resolve(args.get('--student-artifact') ?? 'native/fixtures/portable-brain-v1.slither-brain');
+  const studentArtifactSha256 = await digest(studentArtifact);
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
   const trainerGateSha256 = await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py'));
@@ -149,7 +177,18 @@ async function run(): Promise<void> {
     const Constructor = binding.ExperimentalStage6aFreshRunSession as new (run: string, seed: string, memory: string, workers: number) => QualifiedSession;
     const runId = 'live-distillation-' + randomBytes(8).toString('hex');
     const session = new Constructor(runId, '0000002a', '0000000100000000', workers);
-    await session.initializeBaselineV2ForTest({profile: 'basic', bins: 8, mode: 0, cadence: 0.06, rayMinimum: 1, rayCap: 256, rayBatch: 65536});
+    const request = workload
+      ? {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 512, rayBatch: 131072, workload}
+      : {profile: 'basic', bins: 8, mode: 0, cadence: 0.06, rayMinimum: 1, rayCap: 256, rayBatch: 65536};
+    await session.initializeBaselineV2ForTest(request);
+    const metadata = parseRustStartupMetadata(session.startupMetadata());
+    if (workload) {
+      assert.equal(metadata.parameterCount, 25042); assert.equal(metadata.sensorVersion, 4);
+      const settings = new Map(metadata.settings.map(entry => [entry.path, entry.value]));
+      assert.equal(settings.get('snakeCount'), workload === 'P0' ? 55 : 300);
+      assert.equal(settings.get('generationSeconds'), 604800); assert.equal(settings.get('simSpeed'), 1);
+      assert.equal(settings.get('evolvedRespawn.enabled'), true); assert.equal(settings.get('brain.controlDt'), 1 / 60);
+    }
     persistence = new CheckpointPersistenceClient({databasePath: join(root, 'game.sqlite'), managedRootPath: managed});
     const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({managedDirectory: managed, operationId: randomBytes(16).toString('hex')}));
     await persistence.commit(descriptor); session.acknowledgeRunStartPersistence(descriptor);
@@ -203,13 +242,15 @@ async function run(): Promise<void> {
     native.start(); await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
     const address = server.address(); assert(address && typeof address !== 'string');
     const dataset = await capture.start({expectedRunId: runId, expectedConfigRevision: '0000000000000001',
-      baselineSlots: Array.from({length: 10}, (_, slot) => slot), pendingBytes: 1024 ** 2, queueChunks: 32, queueBytes: 4 * 1024 ** 2});
+      baselineSlots: Array.from({length: 10}, (_, slot) => slot), pendingBytes: workload ? 16 * 1024 ** 2 : 1024 ** 2,
+      queueChunks: workload ? 1024 : 32, queueBytes: workload ? 16 * 1024 ** 2 : 4 * 1024 ** 2});
     const origin = 'http://127.0.0.1:' + address.port;
     const producerStoragePolicy = JSON.parse((await exchange(address.port, '/api/distillation/v1/storage', 'GET')).toString('utf8')) as {maxBytes: string};
     assert.equal(BigInt('0x' + producerStoragePolicy.maxBytes), BigInt(spoolGiB) * 1024n ** 3n);
     const jobDirectory = join(root, 'job');
     const common = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
-      '--artifact', resolve('native/fixtures/portable-brain-v1.slither-brain'), '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB)];
+      '--artifact', studentArtifact, '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB),
+      '--max-wall-seconds', workload ? '600' : '180'];
     const before = native.health();
     console.info('[live-distillation] training', device, 'workers=' + workers);
     await python(pythonPath, checkout, ['--phase', 'train', ...common]);
@@ -234,6 +275,81 @@ async function run(): Promise<void> {
       await new Promise(done => setTimeout(done, 50)); metrics = await capture.shadows.metrics();
     }
     assert(metrics.slots.every(slot => slot?.enabled && slot.artifactSha256 === identity && BigInt('0x' + slot.totals.samples) > 0n));
+    if (workload) {
+      const shadowsBefore = metrics.slots;
+      const captureBefore = await storage.dataset(dataset.contract.captureEpoch);
+      const first = await wallRead(native); const reads = [first];
+      const frame = new Uint8Array(metadata.maximumFrameBytes);
+      let frameSequence = '0'.repeat(16); let frameCopies = 0; let frameBytes = 0;
+      let finished = false; let trainerError: unknown;
+      const training = python(pythonPath, checkout, ['--phase', 'sustain', ...common, '--seconds', String(seconds)])
+        .catch(error => {trainerError = error;}).finally(() => {finished = true;});
+      let nextRead = first.afterMs + 200;
+      try {
+        while (!finished) {
+          if (pumpError) throw pumpError;
+          const copied = native.copyLatestFrame(frame, frameSequence);
+          assert.notEqual(copied.status, 'tooSmall');
+          if (copied.status === 'copied') {
+            assert(copied.display.sequence > frameSequence); frameSequence = copied.display.sequence;
+            frameCopies++; frameBytes += copied.display.frameByteLength;
+          }
+          if (performance.now() >= nextRead) {
+            assert(reads.length < 4095); reads.push(await wallRead(native)); nextRead = performance.now() + 200;
+          }
+          await new Promise(done => setTimeout(done, 34));
+        }
+      } finally {await training;}
+      if (trainerError) throw trainerError;
+      reads.push(await wallRead(native));
+      const summary = summarizeSensorWall(reads, seconds);
+      const sustain = JSON.parse(await readFile(join(jobDirectory, 'sustain-report.json'), 'utf8')) as Record<string, unknown>;
+      assert.equal(sustain['requestedSeconds'], seconds); assert(Number(sustain['activeWallSeconds']) >= seconds);
+      assert(Number(sustain['optimizerUpdates']) > 0 && Number(sustain['fetches']) > 0);
+      assert(BigInt(String(sustain['finalCursor'])) > BigInt(String(sustain['initialCursor'])));
+      metrics = await capture.shadows.metrics();
+      const shadowProgress = metrics.slots.map((slot, index) => {
+        const previous = shadowsBefore[index]; assert(slot?.enabled && previous?.enabled);
+        assert.equal(slot.artifactSha256, identity); assert.equal(slot.activationSequence, previous.activationSequence);
+        const samples = BigInt('0x' + slot.totals.samples) - BigInt('0x' + previous.totals.samples);
+        assert(samples > 0n, 'every shadow must evaluate during the trainer window'); return samples.toString();
+      });
+      let captureAfter = await capture.stop(dataset.contract.captureEpoch);
+      const settleDeadline = performance.now() + 10_000;
+      while (captureAfter.state !== 'stopped' || captureAfter.resolvedThrough !== captureAfter.productionWatermark) {
+        assert(performance.now() < settleDeadline, 'contention capture settlement deadline');
+        await capture.poll(); await new Promise(done => setTimeout(done, 10));
+        captureAfter = await storage.dataset(dataset.contract.captureEpoch);
+      }
+      assert.equal(captureAfter.error, null); assert(frameCopies > 0); assert.equal(forbiddenRequests, 0);
+      const queueDiagnostics = native.queueDiagnostics();
+      assert.equal(hostSha256, await digest(fileURLToPath(import.meta.url)));
+      assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
+      assert.equal(studentArtifactSha256, await digest(studentArtifact));
+      if (pumpError) throw pumpError;
+      const contentionReport = {schemaVersion: 1, gate: 'live-trainer-four-shadow-contention-v1',
+        device, workers, seed: 42, seconds,
+        scope: 'Real background scheduler, seeded random modest population with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Excludes crowded geometry, diverse mature policies, full library/spool capacity, six-hour soak and production-default selection.',
+        source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
+          pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
+          hostSha256, trainerGateSha256, studentArtifactSha256,
+          nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
+        workload: {scenario: workload, request, metadata}, spoolGiB, producerStoragePolicy,
+        hostPeakRssBytes, train, resume: {...resume, candidatePath: undefined}, sustain, summary,
+        reads: reads.map((read, index) => {
+          const health = {...read.health};
+          if (index > 0 && index < reads.length - 1) {delete health.stepTimingBucketUpperMicros; delete health.stepTimingBucketCounts;}
+          return {...read, health};
+        }), shadows: {before: shadowsBefore, after: metrics.slots, sampleProgress: shadowProgress},
+        capture: {before: captureBefore, after: captureAfter,
+          noDrops: [captureAfter.nativeDroppedChunks, captureAfter.nativeDroppedSamples, captureAfter.spoolDroppedChunks]
+            .every(value => value === '0'.repeat(16))},
+        frames: {copies: frameCopies, bytes: frameBytes, reusableBufferBytes: frame.byteLength},
+        queueDiagnostics, http: {forbiddenRequests, routes: Object.fromEntries(routes)}};
+      await mkdir(dirname(output), {recursive: true});
+      await writeFile(output, JSON.stringify(contentionReport, null, 2) + '\n', {flag: 'wx'});
+      console.info('[live-distillation] contention measured', output); return;
+    }
     // Train an active-graph-compatible student too. Differing architectures may
     // be retained, while the single-graph runtime must reject their deployment.
     const denseDirectory = join(root, 'dense-job');

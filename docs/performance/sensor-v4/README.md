@@ -1365,3 +1365,58 @@ remain 512 MiB, and 768 MiB remains an offline candidate. The catalog's record/o
 quotas are unchanged. Diverse crowded geometry, sustained teacher throughput,
 trainer/four-shadow contention and six-hour-equivalent soak remain open. This gate
 does not select production v4 defaults or qualify integrated P3 real-clock speed.
+
+
+## Live trainer and four-shadow contention
+
+`live-distillation.ts` now accepts an explicit P0/P1 workload, a native-validated
+Motion/B16 student and a 60..300-second contention window. It uses the existing
+real-clock qualification constructor, durable SQLite run start, ten stochastic
+v2 teachers, native capture/spool/HTTP routes and a reused latest-frame buffer.
+The population remains random, modest and respawning; the four shadows use the
+same learned candidate. No actor/controller traffic or second simulator is used.
+
+After training to update 250 and proving exact cross-process next-update restart,
+a third PyTorch process restores that job. During 60 active seconds it performs
+real default 32-window, 32-burn-in, 64-step TBPTT/Adam updates and admits new live
+chunks. Both optimizer and intake-cursor progress are mandatory. Each shadow must
+retain its activation identity and evaluate additional actual native observations.
+Capture is then stopped and its complete production watermark settled. Coherent
+native histogram endpoints and monotonic clock brackets retain failed timing gates.
+The wall window includes trainer startup/restore/shutdown; active trainer duration
+is separately recorded. These are independent seeded runs, not a causal device
+speed comparison or matched teacher-life distribution.
+
+All three P1 runs completed with no capture drops, fresh intake, four-shadow
+progress and exact initial trainer restart. All three **failed** the 98% real-time
+and existing step-time gates:
+
+| Target/device | Updates in 60 active seconds | Minimum simulated/wall ratio | Step p95 upper bucket ms | Dropped wall seconds | Trainer peak RSS MiB |
+|---|---:|---:|---:|---:|---:|
+| Windows CPU | 560 | 0.9193 | 24 | 4.93 | 757.07 |
+| Windows RTX 4080 CUDA | 168 | 0.8230 | 24 | 11.41 | 1365.17 |
+| Debian CPU | 319 | 0.3783 | 96 | 40.34 | 347.55 |
+
+Replay peaks were 48.82/70.26/23.11 MiB respectively, within the 256-MiB job
+budget. The CUDA model's allocated device peak was 22.64 MiB; this modest-model
+receipt does not replace the separate large-model/device-capacity qualification.
+Node-host RSS is retained separately in each report. The trainer caught up from
+its saved intake cursor while actual simulation/capture continued. No timing
+threshold, worker count default, checkpoint/scratch ceiling or ray default changed.
+
+Exact compressed reports and measured host/trainer sources are retained under
+`trainer-contention-v1/`. The student is the already retained Full ablation
+artifact, identified by its original-byte digest. Integrity tests recompute each
+wall-window summary and verify source/artefact hashes, optimizer/intake progress,
+all four shadow identities, replay/device ceilings and final capture settlement.
+The current trainer differs from the measured source only in line wrapping; their
+Python ASTs match. Four new trainer-loop contract tests and the complete 315-test
+PyRL suite pass (two existing skips). Native source is unchanged from the preceding
+787-test, full-library/inspector checkpoint on both targets.
+
+To reproduce, add `--workload P1 --student-artifact PATH --contention-seconds 60`
+to the existing live-distillation command, supplying the matching Motion/B16,
+1/60-second portable student and an explicit CPU/CUDA device. Omit these arguments
+to retain the small library/deployment smoke. The integrated real-time performance
+failure remains open, along with representative crowded geometry, sustained
+teacher-throughput coverage beyond this bounded window and the six-hour soak.

@@ -1010,7 +1010,7 @@ interface LibraryInspectorCapacityEvidence extends HandoffCapacityEvidence {
     brainIds: string[]; originalBytes: number;
   };
   /** Native selected-original verification and actual mailbox snapshots. */
-  archive: HandoffCapacityEvidence['archive'] & {
+  archive: Omit<HandoffCapacityEvidence['archive'], 'postImportGenerations'> & {
     coexistence: {savedBrainCount: number; selectedOriginalBytes: number;
       sourceInspector: InspectorCapacityReceipt; replacementInspector: InspectorCapacityReceipt};
     postImportGenerations: Array<HandoffCapacityEvidence['archive']['postImportGenerations'][number] & {inspector: InspectorCapacityReceipt}>;
@@ -1082,5 +1082,86 @@ it.each(['windows', 'debian'].flatMap(target =>
     const raw = reports[1]!.archive.postImportGenerations[ordinal]!;
     expect(compressed.descriptor.logicalRootSha256).toBe(raw.descriptor.logicalRootSha256);
     expect(compressed.continuationSha256).toBe(raw.continuationSha256);
+  }
+});
+
+
+/** Measured concurrent trainer/authority reports bind their immutable host and trainer sources. */
+interface TrainerContentionEvidence {
+  /** Explicit candidate resource gate; timing failures remain visible. */
+  gate: string;
+  device: string;
+  workers: number;
+  seconds: number;
+  source: {hostSha256: string; trainerGateSha256: string; nativeSourceSha256: string;
+    studentArtifactSha256: string; target: string};
+  workload: {scenario: string; request: {profile: string; bins: number; rayCap: number; rayBatch: number};
+    metadata: {parameterCount: number; sensorVersion: number}};
+  train: {updates: number};
+  resume: {updates: number; restartExact: boolean};
+  sustain: {initialUpdates: number; updates: number; optimizerUpdates: number; requestedSeconds: number;
+    activeWallSeconds: number; initialCursor: number; finalCursor: number; fetches: number;
+    peakReplayBytes: number; peakRssBytes: number; peakDeviceBytes: number;
+    sequence: {batch_size: number; burn_in_steps: number; bptt_steps: number}};
+  summary: ReturnType<typeof summarizeSensorWall>;
+  reads: SensorWallRead[];
+  shadows: {before: Array<{artifactSha256: string; activationSequence: string; totals: {samples: string}}>;
+    after: Array<{artifactSha256: string; activationSequence: string; totals: {samples: string}}>;
+    sampleProgress: string[]};
+  capture: {noDrops: boolean; after: DistillationDataset};
+  frames: {copies: number; bytes: number; reusableBufferBytes: number};
+  http: {forbiddenRequests: number};
+}
+
+it('retains real trainer/four-shadow progress and honest measured performance failures', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/trainer-contention-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    nativeSourceSha256: string; studentArtifactSha256: string;
+    sources: Record<string, {sha256: string; gzipSha256: string}>;
+    reports: Record<string, {sha256: string; gzipSha256: string; device: string; target: string}>;
+  };
+  for (const [filename, receipt] of Object.entries(manifest.sources)) {
+    expect(filename).toMatch(/^(host\.ts|trainer\.py)\.gz$/u);
+    const encoded = readFileSync(resolve(root, filename)); expect(sha256(encoded)).toBe(receipt.gzipSha256);
+    expect(sha256(gunzipSync(encoded, {maxOutputLength: 128 * 1024}))).toBe(receipt.sha256);
+  }
+  expect(Object.keys(manifest.reports).sort()).toEqual([
+    'debian-cpu-P1.json.gz', 'windows-cpu-P1.json.gz', 'windows-cuda-P1.json.gz']);
+  for (const [filename, receipt] of Object.entries(manifest.reports)) {
+    const encoded = readFileSync(resolve(root, filename)); expect(sha256(encoded)).toBe(receipt.gzipSha256);
+    const decoded = gunzipSync(encoded, {maxOutputLength: 1024 * 1024}); expect(sha256(decoded)).toBe(receipt.sha256);
+    const report = JSON.parse(decoded.toString('utf8')) as TrainerContentionEvidence;
+    expect(report.gate).toBe('live-trainer-four-shadow-contention-v1');
+    expect(report.device).toBe(receipt.device); expect(report.workers).toBe(3); expect(report.seconds).toBe(60);
+    expect(report.source.target).toBe(receipt.target);
+    expect(report.source.hostSha256).toBe(manifest.sources['host.ts.gz']!.sha256);
+    expect(report.source.trainerGateSha256).toBe(manifest.sources['trainer.py.gz']!.sha256);
+    expect(report.source.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
+    expect(report.source.studentArtifactSha256).toBe(manifest.studentArtifactSha256);
+    expect(report.workload.scenario).toBe('P1'); expect(report.workload.metadata.parameterCount).toBe(25042);
+    expect(report.workload.request).toMatchObject({profile: 'motion', bins: 16, rayCap: 512, rayBatch: 131072});
+    expect(report.train.updates).toBe(126); expect(report.resume).toMatchObject({updates: 250, restartExact: true});
+    expect(report.sustain.initialUpdates).toBe(250);
+    expect(report.sustain.updates - 250).toBe(report.sustain.optimizerUpdates);
+    expect(report.sustain.optimizerUpdates).toBeGreaterThan(0); expect(report.sustain.fetches).toBeGreaterThan(0);
+    expect(report.sustain.finalCursor).toBeGreaterThan(report.sustain.initialCursor);
+    expect(report.sustain.requestedSeconds).toBe(60); expect(report.sustain.activeWallSeconds).toBeGreaterThanOrEqual(60);
+    expect(report.sustain.sequence).toMatchObject({batch_size: 32, burn_in_steps: 32, bptt_steps: 64});
+    expect(report.sustain.peakReplayBytes).toBeLessThanOrEqual(256 * 1024 ** 2);
+    expect(report.sustain.peakRssBytes).toBeGreaterThan(0);
+    expect(report.sustain.peakDeviceBytes).toBeLessThanOrEqual(8 * 1024 ** 3);
+    expect(report.summary).toEqual(summarizeSensorWall(report.reads, report.seconds));
+    expect(report.shadows.after).toHaveLength(4); expect(report.shadows.before).toHaveLength(4);
+    for (const [slot, after] of report.shadows.after.entries()) {
+      const before = report.shadows.before[slot]!;
+      expect(after.artifactSha256).toBe(before.artifactSha256);
+      expect(after.activationSequence).toBe(before.activationSequence);
+      const delta = BigInt('0x' + after.totals.samples) - BigInt('0x' + before.totals.samples);
+      expect(delta).toBeGreaterThan(0n); expect(delta.toString()).toBe(report.shadows.sampleProgress[slot]);
+    }
+    expect(report.capture.noDrops).toBe(true); expect(report.capture.after.state).toBe('stopped');
+    expect(report.capture.after.resolvedThrough).toBe(report.capture.after.productionWatermark);
+    expect(report.capture.after.error).toBe(null); expect(report.http.forbiddenRequests).toBe(0);
+    expect(report.frames.copies).toBeGreaterThan(0); expect(report.frames.bytes).toBeGreaterThan(0);
   }
 });
