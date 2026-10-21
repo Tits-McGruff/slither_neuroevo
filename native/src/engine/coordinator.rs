@@ -31,7 +31,7 @@ use super::world_step::ExternalDeliveryStatus;
 /// conservative bucket upper bounds, while maximum and mean use exact sampled
 /// microseconds. The denser sub-frame buckets preserve useful P0/P1 resolution
 /// without retaining one record per authoritative step.
-const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 25] = [
+pub(crate) const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 25] = [
     100,
     200,
     300,

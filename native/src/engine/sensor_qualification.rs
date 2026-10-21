@@ -82,7 +82,7 @@ impl ConsumerSensorWork {
         self.pellet_capped_observations += sample.pellet_cap_hits;
         self.body_capped_observations += sample.segment_cap_hits;
     }
-    fn merge(&mut self, other: Self) {
+    pub(crate) fn merge(&mut self, other: Self) {
         self.observations += other.observations;
         self.v4_observations += other.v4_observations;
         self.ray_charged_units += other.ray_charged_units;
@@ -659,7 +659,7 @@ pub fn run_sensor_qualification(
 }
 
 /// Read one finite portable input once, before any candidate population construction.
-fn load_trained_artifact(
+pub(crate) fn load_trained_artifact(
     path: &Path,
 ) -> Result<super::brain_artifact::ValidatedBrainArtifact, String> {
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;

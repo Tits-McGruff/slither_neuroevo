@@ -1189,6 +1189,18 @@ sources/reports are retained in `docs/performance/sensor-v4/trainer-contention-v
 The unchanged native source reuses the preceding cross-platform 787-test gate;
 PyRL's full suite passes 315 tests with two existing skips.
 
+A continuous native soak harness now retains one authority for up to 1,296,000
+complete steps, with four validated candidate shadows and an explicit slow capture
+consumer. Fixed timing counters and bounded minute-scale storage/RSS snapshots
+replace per-step histories. Whole-chunk losses reconcile against all actual source
+samples; each shadow must match its teacher's exact sample count. Single/multiworker
+and uninspected-reference continuation checks pass, together with all 790 release
+native tests on Windows and Debian. Both release CLI pressure smokes pass, and the
+independent verifier rejects their short duration as six-hour evidence. CI includes
+the bounded pressure smoke and verification. Full-duration measurements are pending;
+this native state/diagnostic soak does not replace integrated trainer/storage,
+crowded-policy, generation-transition or real-time acceptance.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

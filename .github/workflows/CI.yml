@@ -85,6 +85,27 @@ jobs:
           name: checkpoint-capacity-${{ matrix.os }}
           path: ${{ runner.temp }}/capacity-*.json
           if-no-files-found: warn
+      - name: Continuous native soak pressure smoke
+        if: matrix.node-version == '24.x'
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin sensor-v4-qualification -- --scenario P0 --profile basic --bins 8
+          --graph modest --respawn on --seed 42 --workers 3 --math-backend sse2
+          --minimum 1 --cap 256 --batch 16384 --baseline v2-stochastic --baseline-cadence 0.06
+          --teacher-respawn-delay 0.5 --capture on --capture-drain-steps 600 --capture-queue-chunks 1
+          --warmup 1 --steps 600 --soak-shadow-artifact native/fixtures/portable-brain-v1.slither-brain
+          --workspace "${{ runner.temp }}/continuous-soak-smoke"
+          --output "${{ runner.temp }}/continuous-soak-smoke.json"
+      - name: Verify continuous soak smoke ownership and bounds
+        if: matrix.node-version == '24.x'
+        run: node node_modules/tsx/dist/cli.mjs scripts/qualification/verify-soak.ts --report "${{ runner.temp }}/continuous-soak-smoke.json"
+      - name: Retain continuous soak smoke
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuous-soak-${{ matrix.os }}
+          path: ${{ runner.temp }}/continuous-soak-smoke*.json
+          if-no-files-found: warn
       - name: Native baseline-v2 tactical batch
         run: >-
           cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks

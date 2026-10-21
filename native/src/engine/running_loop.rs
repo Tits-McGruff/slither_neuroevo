@@ -1357,6 +1357,45 @@ impl RunningAuthorityLoop {
         self.coordinator.pending_hall_of_fame_weights_descriptor()
     }
 
+    /// Fixed-size long-run resource witness; diagnostics never copy historic lives or dense weights.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_storage_snapshot(&self) -> Result<serde_json::Value, String> {
+        let state = self.authority.state();
+        let world = &state.world;
+        let lives = &state.fixed_step.evolved_generation;
+        let config = &state.config;
+        let telemetry = super::evolved_telemetry::EvolvedLifecycleTelemetry::capture(
+            lives,
+            self.completed_step(),
+        )
+        .map_err(|e| e.to_string())?;
+        if world.snakes.len() > config.max_world_snakes
+            || world.body_points.len() > config.max_body_points
+            || world.pellets.len() > config.max_pellets
+            || lives.slots.len() != config.population_count
+            || state.brains.len() > config.population_count + config.max_non_population_brains
+            || lives.transaction_life_ends.len() > config.population_count
+        {
+            return Err("soak authoritative storage exceeded admitted record bounds".into());
+        }
+        Ok(serde_json::json!({"completedStep":self.completed_step(),
+            "snakes":world.snakes.len(),"snakeCapacity":world.snakes.capacity(),"snakeLimit":config.max_world_snakes,
+            "bodyPoints":world.body_points.len(),"bodyCapacity":world.body_points.capacity(),"bodyLimit":config.max_body_points,
+            "pellets":world.pellets.len(),"pelletCapacity":world.pellets.capacity(),"pelletLimit":config.max_pellets,
+            "brains":state.brains.len(),"brainCapacity":state.brains.capacity(),
+            "lifeSlots":lives.slots.len(),"lifeSlotCapacity":lives.slots.capacity(),
+            "recentLifeEnds":lives.recent_life_ends.len(),"recentLifeEndCapacity":lives.recent_life_ends.capacity(),
+            "transactionLifeEnds":lives.transaction_life_ends.len(),"transactionLifeEndCapacity":lives.transaction_life_ends.capacity(),
+            "lives":telemetry.lives,"deaths":telemetry.deaths,"respawns":telemetry.respawns,
+            "failedPlacements":telemetry.failed_placements,"pendingSeconds":telemetry.pending_seconds,
+            "recurrentElements":state.brains.iter().map(|brain|brain.recurrent.len()).sum::<usize>(),
+            "weightElements":state.population.iter().map(|genome|genome.weights.len()).sum::<usize>(),
+            "admittedStateBytes":self.authoritative_memory_bytes(),
+            "currentRssBytes":super::soak_qualification::current_rss_bytes(),
+            "placementCandidates":telemetry.placement.candidates,
+            "placementGeometryChecks":telemetry.placement.geometry_checks}))
+    }
+
     /// Same-build/environment continuation witness for observer noninterference.
     /// Streaming parameters avoids materializing a textual population copy.
     #[cfg(feature = "engine-test-hooks")]
