@@ -205,6 +205,23 @@ jobs:
         run: >-
           python -B scripts/qualification/verify-replicated-ablation.py
           --evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
+      - name: Build native crowded v4 sensing runner
+        if: matrix.node-version == '24.x'
+        run: cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin crowded-sensor-qualification
+      - name: In-arena crowded v4 sensing and exact worker matrix
+        if: matrix.node-version == '24.x'
+        shell: bash
+        run: |
+          runner="native/target/release/crowded-sensor-qualification"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then runner="$runner.exe"; fi
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/crowded-sensors.ts --runner "$runner" --directory "${{ runner.temp }}/crowded-v4-sensors"
+      - name: Retain crowded v4 sensing receipts
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: crowded-v4-sensors-${{ matrix.os }}
+          path: ${{ runner.temp }}/crowded-v4-sensors/*.json
+          if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
       - name: Real-clock P0 sensor workload (measured gates are diagnostic)
