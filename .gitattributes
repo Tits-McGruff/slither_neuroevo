@@ -40,3 +40,6 @@ docs/performance/sensor-v4/checkpoint-handoffs-*/*.json text eol=lf
 
 # Shared population-admission receipts retain checksummed cross-platform JSON.
 docs/performance/sensor-v4/population-admission-*/*.json text eol=lf
+
+# Full-catalog/inspector receipts retain their exact checksummed bytes.
+docs/performance/sensor-v4/library-inspector-*/*.json text eol=lf

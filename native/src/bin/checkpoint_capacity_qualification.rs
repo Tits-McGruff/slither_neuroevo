@@ -53,6 +53,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             "--memory-gib",
             "--source",
             "--lease",
+            "--coexistence",
+            "--saved-brains",
         ]
         .contains(&flag.as_str())
         {
@@ -75,6 +77,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     if !["audit", "compressed", "raw", "archive", "archive-raw"].contains(&mode) {
         return Err("mode must be audit/compressed/raw/archive/archive-raw".into());
     }
+    let coexistence = match values
+        .get("--coexistence")
+        .map(String::as_str)
+        .unwrap_or("none")
+    {
+        "none" => false,
+        "library-inspector" => true,
+        _ => return Err("coexistence must be none/library-inspector".into()),
+    };
+    if coexistence && mode == "audit" {
+        return Err("coexistence requires an allocated workload".into());
+    }
     let population: usize = get("--population")?.parse()?;
     if ![55, 300].contains(&population) {
         return Err("population must be 55 or 300".into());
@@ -94,7 +108,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     fs::create_dir(&workspace)?;
     let workspace = workspace.canonicalize()?;
     let available = available_bytes(&workspace)?;
-    let reserve = (6 * envelope as u64 + 1024) * 1024 * 1024;
+    let reserve = (6 * envelope as u64 + 1024) * 1024 * 1024
+        + if coexistence {
+            slither_native::engine::coexistence_capacity::additional_disk_reserve_bytes()
+        } else {
+            0
+        };
     if available < reserve {
         return Err(format!(
             "insufficient disk: {available} available, {reserve} required including reserve"
@@ -110,6 +129,20 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         let mut lease = String::new();
         std::io::Read::read_to_string(&mut std::io::Read::take(file, 64 * 1024 + 1), &mut lease)?;
+        let saved_brains = if coexistence {
+            let path = PathBuf::from(get("--saved-brains")?);
+            let file = std::fs::File::open(path)?;
+            if file.metadata()?.len() > 128 * 1024 {
+                return Err("saved brain selection exceeds 128 KiB".into());
+            }
+            let entries: Vec<_> = serde_json::from_reader(file)?;
+            if entries.len() != slither_native::engine::coexistence_capacity::LIBRARY_RECORDS {
+                return Err("coexistence requires 100 selected saved brains".into());
+            }
+            entries
+        } else {
+            Vec::new()
+        };
         run_checkpoint_archive_capacity(
             &options,
             Path::new(get("--source")?),
@@ -117,6 +150,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             &lease,
             policy,
             memory_gib * 1024 * 1024 * 1024,
+            &saved_brains,
         )?
     } else {
         run_checkpoint_capacity(
@@ -125,6 +159,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             policy,
             memory_gib * 1024 * 1024 * 1024,
             mode != "audit",
+            coexistence,
         )?
     };
     report["diskAvailableBeforeBytes"] = available.into();

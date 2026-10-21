@@ -76,8 +76,8 @@ jobs:
       - name: Native checkpoint capacity with SQLite and archive smoke
         if: matrix.node-version == '24.x'
         run: |
-          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-compressed" --output "${{ runner.temp }}/capacity-compressed.json" --population 55 --graph small --mode compressed --envelope-mib 768
-          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-raw" --output "${{ runner.temp }}/capacity-raw.json" --population 55 --graph small --mode raw --envelope-mib 768
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-compressed" --output "${{ runner.temp }}/capacity-compressed.json" --population 55 --graph small --mode compressed --envelope-mib 768 --coexistence library-inspector
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-raw" --output "${{ runner.temp }}/capacity-raw.json" --population 55 --graph small --mode raw --envelope-mib 768 --coexistence library-inspector
       - name: Retain checkpoint capacity smoke
         if: always() && matrix.node-version == '24.x'
         uses: actions/upload-artifact@v4

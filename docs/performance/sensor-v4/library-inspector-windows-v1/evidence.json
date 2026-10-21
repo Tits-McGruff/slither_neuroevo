@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "7c1f1c49f7282a59b874fd38c025a0e11ffa6323",
+  "sourceSha256": "1230ee387a4b7e6afaab7fda3bbe0567e813b3c50eae992b931a8321264722dd",
+  "candidatePatchSha256": "a4efe8d4dbd5246955054008060a29f00fb4a5657c0ccd681024248a54cdbbab",
+  "reports": {
+    "compressed.json": "209e557b036848a323cd414cffab290a782857ced131a1a6e7575ffe4406ebec",
+    "raw.json": "aeab2ef7018f9284ed9a558e3f47b74379e4d98b7b748aebe1979438a2b60a11"
+  },
+  "nativeReleaseTests": 787,
+  "scope": "100 distinct manual/synthetic large Motion-B32 portable originals, real catalog saves and overflow rejection, full archive/import and pagination, selected native inspector across replacement and three exact successors, reference-aware catalog reclamation; offline 768 MiB candidate; no learned-quality, crowded/contention or soak claim"
+}

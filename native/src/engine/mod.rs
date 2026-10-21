@@ -217,6 +217,10 @@ mod tactical_corpus;
 #[cfg(feature = "engine-test-hooks")]
 pub mod checkpoint_capacity;
 
+/// Offline full-library and inspector coexistence qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod coexistence_capacity;
+
 /// Shared native admission for background population ownership.
 pub(crate) mod population_work;
 

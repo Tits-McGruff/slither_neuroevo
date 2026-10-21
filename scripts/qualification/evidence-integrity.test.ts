@@ -947,6 +947,32 @@ it.each(['windows', 'debian'])('checkpoint capacity %s retains full raw/compress
   expect(reports[0]!.native.continuationSha256).toBe(reports[1]!.native.continuationSha256);
 });
 
+/** Actual delivered inspector snapshot transported through the native mailbox and wire encoder. */
+interface InspectorCapacityReceipt {
+  /** Completed simulation step at publication. */
+  completedStep: number;
+  /** Full Motion/B32 width. */
+  inputSize: number;
+  /** Exact delivered observation step. */
+  sampleStep: number;
+  /** Complete encoded inspector message size. */
+  wireBytes: number;
+  /** Capacity cases use delivered observations. */
+  pureProbe: boolean;
+  /** Trace storage survives source/import overlap. */
+  tracePresent: boolean;
+  /** Repeated reads do not generate new publications. */
+  duplicatePublicationSuppressed: boolean;
+}
+
+/** Check that diagnostics describe the exact delivered step without changing its boundary. */
+function verifyCapacityInspector(receipt: InspectorCapacityReceipt, step: number): void {
+  expect(receipt.completedStep).toBe(step); expect(receipt.sampleStep).toBe(step);
+  expect(receipt.inputSize).toBe(504); expect(receipt.wireBytes).toBeGreaterThan(0);
+  expect(receipt.pureProbe).toBe(false); expect(receipt.tracePresent).toBe(true);
+  expect(receipt.duplicatePublicationSuppressed).toBe(true);
+}
+
 /** Loaded live replacement and three independently restored successor receipts. */
 interface HandoffCapacityEvidence extends CapacityEvidence {
   /** Revised host report binds all three durable metadata/current-pointer commits. */
@@ -972,8 +998,27 @@ interface HandoffCapacityEvidence extends CapacityEvidence {
   };
 }
 
+/** Full 100-record original/archive/catalog and selected-inspector coexistence receipts. */
+interface LibraryInspectorCapacityEvidence extends HandoffCapacityEvidence {
+  /** Explicit offline mode; ordinary production envelopes are unchanged. */
+  coexistence: string;
+  /** Source/imported membership, quota rejection and final reference-aware reclamation. */
+  library: {
+    recordCount: number; overflowRejected: boolean; overflowPublishedFiles: boolean;
+    importedPages: number; deletedRecords: number; deletedLibraryWeights: number;
+    preservedSharedWeights: number; finalCatalogEmpty: boolean; populationCheckpointPreserved: boolean;
+    brainIds: string[]; originalBytes: number;
+  };
+  /** Native selected-original verification and actual mailbox snapshots. */
+  archive: HandoffCapacityEvidence['archive'] & {
+    coexistence: {savedBrainCount: number; selectedOriginalBytes: number;
+      sourceInspector: InspectorCapacityReceipt; replacementInspector: InspectorCapacityReceipt};
+    postImportGenerations: Array<HandoffCapacityEvidence['archive']['postImportGenerations'][number] & {inspector: InspectorCapacityReceipt}>;
+  };
+}
+
 it.each(['windows', 'debian'].flatMap(target =>
-  ['checkpoint-handoffs', 'population-admission'].map(kind => ({target, kind}))))(
+  ['checkpoint-handoffs', 'population-admission', 'library-inspector'].map(kind => ({target, kind}))))(
   '$kind $target reclaim only retired budget and retain three exact successors', ({target, kind}) => {
   const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4', `${kind}-${target}-v1`);
   const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
@@ -995,7 +1040,7 @@ it.each(['windows', 'debian'].flatMap(target =>
     expect(archive.overlapCombinedStateBytes).toBeLessThanOrEqual(full);
     expect(archive.stagingMemoryCeilingBytes).toBeLessThan(full);
     expect(archive.idempotentImportExact && archive.importLimitsPreserved).toBe(true);
-    if (kind === 'population-admission') expect(archive.nativeAdmissionBeforeAllocation).toBe(true);
+    if (kind !== 'checkpoint-handoffs') expect(archive.nativeAdmissionBeforeAllocation).toBe(true);
     expect(archive.continuationSha256).toBe(report.native.continuationSha256);
     expect(archive.postImportGenerations).toHaveLength(3);
     const roots = new Set<string>();
@@ -1014,7 +1059,24 @@ it.each(['windows', 'debian'].flatMap(target =>
     expect(report.hostRssMeasurement).toBe('os-high-water-and-100ms-samples');
     expect(report.peakHostRssBytes).toBeGreaterThan(0); expect(archive.peakRssBytes).toBeGreaterThan(0);
     expect(archive.peakRssBytes).toBeLessThan(full);
+    if (kind === 'library-inspector') {
+      const loaded = report as LibraryInspectorCapacityEvidence;
+      expect(loaded.coexistence).toBe('library-inspector');
+      expect(loaded.library).toMatchObject({recordCount: 100, overflowRejected: true,
+        overflowPublishedFiles: false, importedPages: 4, deletedRecords: 100,
+        finalCatalogEmpty: true, populationCheckpointPreserved: true});
+      expect(loaded.library.deletedLibraryWeights + loaded.library.preservedSharedWeights).toBe(100);
+      expect(new Set(loaded.library.brainIds).size).toBe(100);
+      expect(loaded.library.originalBytes).toBeGreaterThan(100 * 494306 * 4);
+      expect(loaded.archive.coexistence.savedBrainCount).toBe(100);
+      expect(loaded.archive.coexistence.selectedOriginalBytes).toBe(loaded.library.originalBytes);
+      verifyCapacityInspector(loaded.archive.coexistence.sourceInspector, 3);
+      verifyCapacityInspector(loaded.archive.coexistence.replacementInspector, 3);
+      loaded.archive.postImportGenerations.forEach((generation, ordinal) => verifyCapacityInspector(generation.inspector, 5 + ordinal * 2));
+    }
   }
+  if (kind === 'library-inspector') expect((reports[0] as LibraryInspectorCapacityEvidence).library.brainIds)
+    .toEqual((reports[1] as LibraryInspectorCapacityEvidence).library.brainIds);
   for (let ordinal = 0; ordinal < 3; ordinal++) {
     const compressed = reports[0]!.archive.postImportGenerations[ordinal]!;
     const raw = reports[1]!.archive.postImportGenerations[ordinal]!;

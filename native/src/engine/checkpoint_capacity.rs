@@ -111,12 +111,16 @@ pub fn run_checkpoint_capacity(
     policy: CheckpointCapacityPolicy,
     memory_ceiling_bytes: usize,
     allocate: bool,
+    coexistence: bool,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     use super::checkpoint::{restore_checkpoint, CheckpointOperationId};
     use super::run_start::PendingRunStartTransition;
     use super::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
     use std::time::Instant;
     let started = Instant::now();
+    if coexistence && !allocate {
+        return Err("coexistence requires an allocated population".into());
+    }
     let run_id = "checkpoint-capacity-qualified".to_owned();
     let prepared = super::fresh_run::prepare_checkpoint_capacity_run(
         super::fresh_run::Stage6aP0FreshRunRequest {
@@ -135,6 +139,14 @@ pub fn run_checkpoint_capacity(
         return Ok(report);
     };
     let operation = |value: u128| CheckpointOperationId::parse(format!("{value:032x}"));
+    if coexistence {
+        report["libraryFixture"] = super::coexistence_capacity::write_library_fixtures(
+            pending.qualification_authority(),
+            options,
+            &prepared.graph_limits,
+            workspace,
+        )?;
+    }
     report["populationAllocated"] = true.into();
     let descriptor = pending.publish_checkpoint(workspace, operation(1)?)?;
     report["runStart"] = serde_json::to_value(crate::napi_engine::checkpoint_descriptor_to_napi(
@@ -280,10 +292,17 @@ pub fn run_checkpoint_archive_capacity(
     lease_json: &str,
     policy: CheckpointCapacityPolicy,
     memory_ceiling_bytes: usize,
+    saved_brains: &[super::saved_brain_archive::SavedBrainArchiveEntryV1],
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     use super::export_archive::{
-        compose_export_archive, prepare_import_archive, ExportInventoryDescriptor,
+        compose_export_archive_with_saved_brains, prepare_import_archive, ExportInventoryDescriptor,
     };
+    let coexistence = !saved_brains.is_empty();
+    if coexistence && saved_brains.len() != super::coexistence_capacity::LIBRARY_RECORDS {
+        return Err(
+            "library/inspector qualification requires the complete 100-record selection".into(),
+        );
+    }
     use super::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
     let started = std::time::Instant::now();
     if lease_json.len() > 64 * 1024 {
@@ -312,7 +331,7 @@ pub fn run_checkpoint_archive_capacity(
         policy,
         false,
     )?;
-    let archive = compose_export_archive(
+    let archive = compose_export_archive_with_saved_brains(
         source_directory,
         &lease.operation_id,
         &descriptor,
@@ -320,6 +339,7 @@ pub fn run_checkpoint_archive_capacity(
         &prepared.limits,
         &prepared.graph_limits,
         &prepared.admission_policy,
+        saved_brains,
     )?;
     let archive_path = source_directory.join(&archive.relative_filename);
     let estimate = super::export_archive::estimate_import_disk_bytes(&archive_path)?;
@@ -351,7 +371,19 @@ pub fn run_checkpoint_archive_capacity(
     let mut running = first
         .transition
         .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)?;
+    let inspector = if coexistence {
+        super::coexistence_capacity::enable_inspector(&mut running, &descriptor.run_id)?;
+        Some(super::display::RunningDisplayCache::new(
+            running.admitted_frame_bytes(),
+        )?)
+    } else {
+        None
+    };
     running.service_after_command_drain(17, SchedulerServiceMode::Background, None)?;
+    let source_inspector = inspector
+        .as_ref()
+        .map(|cache| super::coexistence_capacity::inspector_receipt(&running, cache, 0))
+        .transpose()?;
     let retired_source_bytes = running.authoritative_memory_bytes();
     let slot = super::contract::PreparedImportSlot::new();
     running.stage_prepared_import(&slot)?;
@@ -395,7 +427,14 @@ pub fn run_checkpoint_archive_capacity(
         .map_err(|_| "capacity import slot already occupied")?;
     drop(work);
     running.publish_prepared_import(&slot, &second.descriptor, None, 17)?;
+    if coexistence {
+        super::coexistence_capacity::enable_inspector(&mut running, &descriptor.run_id)?;
+    }
     running.service_after_command_drain(34, SchedulerServiceMode::Background, None)?;
+    let replacement_inspector = inspector
+        .as_ref()
+        .map(|cache| super::coexistence_capacity::inspector_receipt(&running, cache, 100))
+        .transpose()?;
     let initial_continuation = running.qualification_restored_continuation_sha256();
     let generations = exercise_imported_generations(
         &mut running,
@@ -403,6 +442,7 @@ pub fn run_checkpoint_archive_capacity(
         &imported_directory,
         &descriptor.run_id,
         34,
+        inspector.as_ref(),
     )?;
     let import_inventory = second.inventory;
     Ok(
@@ -415,10 +455,11 @@ pub fn run_checkpoint_archive_capacity(
         "retiredSourceStateBytes":retired_source_bytes,"overlapCombinedStateBytes":overlap_combined_bytes,
         "stagingMemoryCeilingBytes":overlap_policy.memory_ceiling_bytes,"runningMemoryCeilingBytes":memory_ceiling_bytes,
         "postImportGenerations":generations,
+        "coexistence":if coexistence {Some(serde_json::json!({"savedBrainCount":saved_brains.len(),
+            "selectedOriginalBytes":super::saved_brain_archive::validate_selection(saved_brains)?,
+            "sourceInspector":source_inspector,"replacementInspector":replacement_inspector}))} else {None},
         "descriptor":crate::napi_engine::checkpoint_descriptor_to_napi(second.descriptor),
-        "inventory":{"version":import_inventory.version,"relativeFilename":import_inventory.relative_filename,
-            "sha256":import_inventory.sha256,"storedByteCount":import_inventory.stored_byte_count_hex,
-            "historyCount":import_inventory.history_count_hex,"hallOfFameCount":import_inventory.hall_of_fame_count_hex},
+        "inventory":crate::napi_running_engine::import_inventory_to_napi(import_inventory)?,
         "peakRssBytes":super::sensor_qualification::process_peak_rss_bytes(),"totalSeconds":started.elapsed().as_secs_f64()}),
     )
 }
@@ -431,6 +472,7 @@ fn exercise_imported_generations(
     managed: &std::path::Path,
     run_id: &str,
     mut wall_ms: u64,
+    inspector: Option<&super::display::RunningDisplayCache>,
 ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>> {
     use super::checkpoint::CheckpointOperationId;
     use super::run_start::PendingRunStartTransition;
@@ -460,8 +502,16 @@ fn exercise_imported_generations(
         running.acknowledge_pending_generation_persistence(&publication.descriptor)?;
         running.prepare_acknowledged_generation_reassignments()?;
         running.publish_acknowledged_generation_start(wall_ms, None)?;
+        if inspector.is_some() {
+            super::coexistence_capacity::enable_inspector(running, run_id)?;
+        }
         wall_ms += 17;
         running.service_after_command_drain(wall_ms, SchedulerServiceMode::Background, None)?;
+        let inspector_receipt = inspector
+            .map(|cache| {
+                super::coexistence_capacity::inspector_receipt(running, cache, (ordinal + 2) * 100)
+            })
+            .transpose()?;
         let expected = running.qualification_restored_continuation_sha256();
         let mut restore_policy = prepared.admission_policy.clone();
         restore_policy.memory_ceiling_bytes = restore_policy
@@ -488,7 +538,7 @@ fn exercise_imported_generations(
         reports.push(serde_json::json!({"descriptor":crate::napi_engine::checkpoint_descriptor_to_napi(publication.descriptor),
             "hallOfFameWeights":crate::napi_engine::hall_of_fame_weights_descriptor_to_napi(publication.hall_of_fame_weights),
             "generationCommit":crate::napi_engine::generation_commit_to_napi(publication.commit_record),
-            "combinedStateBytes":combined,"continuationSha256":expected,"independentRestoreExact":true}));
+            "combinedStateBytes":combined,"continuationSha256":expected,"independentRestoreExact":true,"inspector":inspector_receipt}));
     }
     Ok(reports)
 }

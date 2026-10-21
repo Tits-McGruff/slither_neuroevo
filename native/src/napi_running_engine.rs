@@ -387,6 +387,8 @@ pub struct PreparedImportArchiveResult {
 }
 
 /// Trusted fixed-width import inventory consumed only by the SQLite worker.
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 #[napi(object)]
 pub struct PreparedImportInventoryResult {
     pub version: u32,
@@ -395,7 +397,30 @@ pub struct PreparedImportInventoryResult {
     pub stored_byte_count: String,
     pub history_count: String,
     pub hall_of_fame_count: String,
+    #[cfg_attr(
+        feature = "engine-test-hooks",
+        serde(skip_serializing_if = "Option::is_none")
+    )]
     pub saved_brains_json: Option<String>,
+}
+
+/// Convert the complete trusted inventory once for both production and qualification hosts.
+pub(crate) fn import_inventory_to_napi(
+    inventory: crate::engine::export_archive::ImportInventoryDescriptor,
+) -> std::result::Result<PreparedImportInventoryResult, serde_json::Error> {
+    Ok(PreparedImportInventoryResult {
+        version: inventory.version,
+        relative_filename: inventory.relative_filename,
+        sha256: inventory.sha256,
+        stored_byte_count: inventory.stored_byte_count_hex,
+        history_count: inventory.history_count_hex,
+        hall_of_fame_count: inventory.hall_of_fame_count_hex,
+        saved_brains_json: if inventory.saved_brains.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&inventory.saved_brains)?)
+        },
+    })
 }
 
 /// Small fresh replacement facts. The complete candidate remains in Rust.
@@ -700,23 +725,8 @@ impl Task for PrepareImportArchiveTask {
             hall_of_fame_count: facts.hall_of_fame_count_hex,
             stored_byte_count: facts.stored_byte_count_hex,
             descriptor: checkpoint_descriptor_to_napi(descriptor),
-            inventory: PreparedImportInventoryResult {
-                version: inventory.version,
-                relative_filename: inventory.relative_filename,
-                sha256: inventory.sha256,
-                stored_byte_count: inventory.stored_byte_count_hex,
-                history_count: inventory.history_count_hex,
-                hall_of_fame_count: inventory.hall_of_fame_count_hex,
-                saved_brains_json: if inventory.saved_brains.is_empty() {
-                    None
-                } else {
-                    Some(
-                        serde_json::to_string(&inventory.saved_brains).map_err(|error| {
-                            Error::new(Status::GenericFailure, error.to_string())
-                        })?,
-                    )
-                },
-            },
+            inventory: import_inventory_to_napi(inventory)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?,
             startup_metadata,
         })
     }
@@ -2915,5 +2925,44 @@ mod task_panic_tests {
         let ordinary_error = ordinary_result.expect_err("ordinary errors must survive");
         assert_eq!(ordinary_error.status, Status::InvalidArg);
         assert_eq!(ordinary_error.reason, "bad archive");
+    }
+}
+
+#[cfg(all(test, feature = "engine-test-hooks"))]
+mod inventory_wire_tests {
+    use super::*;
+    #[test]
+    fn qualification_and_production_inventory_include_library_membership_and_omit_absence() {
+        let mut inventory = crate::engine::export_archive::ImportInventoryDescriptor {
+            version: 3,
+            relative_filename: ".operation.import-inventory-v3".into(),
+            sha256: "a".repeat(64),
+            stored_byte_count_hex: "0000000000000400".into(),
+            history_count_hex: "0000000000000001".into(),
+            hall_of_fame_count_hex: "0000000000000001".into(),
+            saved_brains: vec![],
+        };
+        let empty =
+            serde_json::to_value(import_inventory_to_napi(inventory.clone()).unwrap()).unwrap();
+        assert_eq!(
+            empty,
+            serde_json::json!({"version":3,"relativeFilename":".operation.import-inventory-v3",
+            "sha256":"a".repeat(64),"storedByteCount":"0000000000000400",
+            "historyCount":"0000000000000001","hallOfFameCount":"0000000000000001"})
+        );
+        inventory.saved_brains.push(
+            crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1 {
+                brain_id: "b".repeat(64),
+                name: "Manual brain".into(),
+                created_at_ms: 42,
+                artifact_byte_count: "0000000000001000".into(),
+            },
+        );
+        let actual =
+            serde_json::to_value(import_inventory_to_napi(inventory.clone()).unwrap()).unwrap();
+        let selected: Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1> =
+            serde_json::from_str(actual["savedBrainsJson"].as_str().unwrap()).unwrap();
+        assert_eq!(selected, inventory.saved_brains);
+        assert_eq!(actual["historyCount"], empty["historyCount"]);
     }
 }

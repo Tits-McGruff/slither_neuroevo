@@ -1,0 +1,884 @@
+diff --git a/.github/workflows/CI.yml b/.github/workflows/CI.yml
+index 956760f..56c5ae4 100644
+--- a/.github/workflows/CI.yml
++++ b/.github/workflows/CI.yml
+@@ -76,8 +76,8 @@ jobs:
+       - name: Native checkpoint capacity with SQLite and archive smoke
+         if: matrix.node-version == '24.x'
+         run: |
+-          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-compressed" --output "${{ runner.temp }}/capacity-compressed.json" --population 55 --graph small --mode compressed --envelope-mib 768
+-          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-raw" --output "${{ runner.temp }}/capacity-raw.json" --population 55 --graph small --mode raw --envelope-mib 768
++          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-compressed" --output "${{ runner.temp }}/capacity-compressed.json" --population 55 --graph small --mode compressed --envelope-mib 768 --coexistence library-inspector
++          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-raw" --output "${{ runner.temp }}/capacity-raw.json" --population 55 --graph small --mode raw --envelope-mib 768 --coexistence library-inspector
+       - name: Retain checkpoint capacity smoke
+         if: always() && matrix.node-version == '24.x'
+         uses: actions/upload-artifact@v4
+diff --git a/native/src/bin/checkpoint_capacity_qualification.rs b/native/src/bin/checkpoint_capacity_qualification.rs
+index 7743ccd..65668eb 100644
+--- a/native/src/bin/checkpoint_capacity_qualification.rs
++++ b/native/src/bin/checkpoint_capacity_qualification.rs
+@@ -53,6 +53,8 @@ fn run() -> Result<(), Box<dyn Error>> {
+             "--memory-gib",
+             "--source",
+             "--lease",
++            "--coexistence",
++            "--saved-brains",
+         ]
+         .contains(&flag.as_str())
+         {
+@@ -75,6 +77,18 @@ fn run() -> Result<(), Box<dyn Error>> {
+     if !["audit", "compressed", "raw", "archive", "archive-raw"].contains(&mode) {
+         return Err("mode must be audit/compressed/raw/archive/archive-raw".into());
+     }
++    let coexistence = match values
++        .get("--coexistence")
++        .map(String::as_str)
++        .unwrap_or("none")
++    {
++        "none" => false,
++        "library-inspector" => true,
++        _ => return Err("coexistence must be none/library-inspector".into()),
++    };
++    if coexistence && mode == "audit" {
++        return Err("coexistence requires an allocated workload".into());
++    }
+     let population: usize = get("--population")?.parse()?;
+     if ![55, 300].contains(&population) {
+         return Err("population must be 55 or 300".into());
+@@ -94,7 +108,12 @@ fn run() -> Result<(), Box<dyn Error>> {
+     fs::create_dir(&workspace)?;
+     let workspace = workspace.canonicalize()?;
+     let available = available_bytes(&workspace)?;
+-    let reserve = (6 * envelope as u64 + 1024) * 1024 * 1024;
++    let reserve = (6 * envelope as u64 + 1024) * 1024 * 1024
++        + if coexistence {
++            slither_native::engine::coexistence_capacity::additional_disk_reserve_bytes()
++        } else {
++            0
++        };
+     if available < reserve {
+         return Err(format!(
+             "insufficient disk: {available} available, {reserve} required including reserve"
+@@ -110,6 +129,20 @@ fn run() -> Result<(), Box<dyn Error>> {
+         }
+         let mut lease = String::new();
+         std::io::Read::read_to_string(&mut std::io::Read::take(file, 64 * 1024 + 1), &mut lease)?;
++        let saved_brains = if coexistence {
++            let path = PathBuf::from(get("--saved-brains")?);
++            let file = std::fs::File::open(path)?;
++            if file.metadata()?.len() > 128 * 1024 {
++                return Err("saved brain selection exceeds 128 KiB".into());
++            }
++            let entries: Vec<_> = serde_json::from_reader(file)?;
++            if entries.len() != slither_native::engine::coexistence_capacity::LIBRARY_RECORDS {
++                return Err("coexistence requires 100 selected saved brains".into());
++            }
++            entries
++        } else {
++            Vec::new()
++        };
+         run_checkpoint_archive_capacity(
+             &options,
+             Path::new(get("--source")?),
+@@ -117,6 +150,7 @@ fn run() -> Result<(), Box<dyn Error>> {
+             &lease,
+             policy,
+             memory_gib * 1024 * 1024 * 1024,
++            &saved_brains,
+         )?
+     } else {
+         run_checkpoint_capacity(
+@@ -125,6 +159,7 @@ fn run() -> Result<(), Box<dyn Error>> {
+             policy,
+             memory_gib * 1024 * 1024 * 1024,
+             mode != "audit",
++            coexistence,
+         )?
+     };
+     report["diskAvailableBeforeBytes"] = available.into();
+diff --git a/native/src/engine/checkpoint_capacity.rs b/native/src/engine/checkpoint_capacity.rs
+index 43f2fe8..714c4fd 100644
+--- a/native/src/engine/checkpoint_capacity.rs
++++ b/native/src/engine/checkpoint_capacity.rs
+@@ -111,12 +111,16 @@ pub fn run_checkpoint_capacity(
+     policy: CheckpointCapacityPolicy,
+     memory_ceiling_bytes: usize,
+     allocate: bool,
++    coexistence: bool,
+ ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+     use super::checkpoint::{restore_checkpoint, CheckpointOperationId};
+     use super::run_start::PendingRunStartTransition;
+     use super::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
+     use std::time::Instant;
+     let started = Instant::now();
++    if coexistence && !allocate {
++        return Err("coexistence requires an allocated population".into());
++    }
+     let run_id = "checkpoint-capacity-qualified".to_owned();
+     let prepared = super::fresh_run::prepare_checkpoint_capacity_run(
+         super::fresh_run::Stage6aP0FreshRunRequest {
+@@ -135,6 +139,14 @@ pub fn run_checkpoint_capacity(
+         return Ok(report);
+     };
+     let operation = |value: u128| CheckpointOperationId::parse(format!("{value:032x}"));
++    if coexistence {
++        report["libraryFixture"] = super::coexistence_capacity::write_library_fixtures(
++            pending.qualification_authority(),
++            options,
++            &prepared.graph_limits,
++            workspace,
++        )?;
++    }
+     report["populationAllocated"] = true.into();
+     let descriptor = pending.publish_checkpoint(workspace, operation(1)?)?;
+     report["runStart"] = serde_json::to_value(crate::napi_engine::checkpoint_descriptor_to_napi(
+@@ -280,10 +292,17 @@ pub fn run_checkpoint_archive_capacity(
+     lease_json: &str,
+     policy: CheckpointCapacityPolicy,
+     memory_ceiling_bytes: usize,
++    saved_brains: &[super::saved_brain_archive::SavedBrainArchiveEntryV1],
+ ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+     use super::export_archive::{
+-        compose_export_archive, prepare_import_archive, ExportInventoryDescriptor,
++        compose_export_archive_with_saved_brains, prepare_import_archive, ExportInventoryDescriptor,
+     };
++    let coexistence = !saved_brains.is_empty();
++    if coexistence && saved_brains.len() != super::coexistence_capacity::LIBRARY_RECORDS {
++        return Err(
++            "library/inspector qualification requires the complete 100-record selection".into(),
++        );
++    }
+     use super::scheduler::{FixedStepSchedulerPolicy, SchedulerServiceMode};
+     let started = std::time::Instant::now();
+     if lease_json.len() > 64 * 1024 {
+@@ -312,7 +331,7 @@ pub fn run_checkpoint_archive_capacity(
+         policy,
+         false,
+     )?;
+-    let archive = compose_export_archive(
++    let archive = compose_export_archive_with_saved_brains(
+         source_directory,
+         &lease.operation_id,
+         &descriptor,
+@@ -320,6 +339,7 @@ pub fn run_checkpoint_archive_capacity(
+         &prepared.limits,
+         &prepared.graph_limits,
+         &prepared.admission_policy,
++        saved_brains,
+     )?;
+     let archive_path = source_directory.join(&archive.relative_filename);
+     let estimate = super::export_archive::estimate_import_disk_bytes(&archive_path)?;
+@@ -351,7 +371,19 @@ pub fn run_checkpoint_archive_capacity(
+     let mut running = first
+         .transition
+         .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)?;
++    let inspector = if coexistence {
++        super::coexistence_capacity::enable_inspector(&mut running, &descriptor.run_id)?;
++        Some(super::display::RunningDisplayCache::new(
++            running.admitted_frame_bytes(),
++        )?)
++    } else {
++        None
++    };
+     running.service_after_command_drain(17, SchedulerServiceMode::Background, None)?;
++    let source_inspector = inspector
++        .as_ref()
++        .map(|cache| super::coexistence_capacity::inspector_receipt(&running, cache, 0))
++        .transpose()?;
+     let retired_source_bytes = running.authoritative_memory_bytes();
+     let slot = super::contract::PreparedImportSlot::new();
+     running.stage_prepared_import(&slot)?;
+@@ -395,7 +427,14 @@ pub fn run_checkpoint_archive_capacity(
+         .map_err(|_| "capacity import slot already occupied")?;
+     drop(work);
+     running.publish_prepared_import(&slot, &second.descriptor, None, 17)?;
++    if coexistence {
++        super::coexistence_capacity::enable_inspector(&mut running, &descriptor.run_id)?;
++    }
+     running.service_after_command_drain(34, SchedulerServiceMode::Background, None)?;
++    let replacement_inspector = inspector
++        .as_ref()
++        .map(|cache| super::coexistence_capacity::inspector_receipt(&running, cache, 100))
++        .transpose()?;
+     let initial_continuation = running.qualification_restored_continuation_sha256();
+     let generations = exercise_imported_generations(
+         &mut running,
+@@ -403,6 +442,7 @@ pub fn run_checkpoint_archive_capacity(
+         &imported_directory,
+         &descriptor.run_id,
+         34,
++        inspector.as_ref(),
+     )?;
+     let import_inventory = second.inventory;
+     Ok(
+@@ -415,10 +455,11 @@ pub fn run_checkpoint_archive_capacity(
+         "retiredSourceStateBytes":retired_source_bytes,"overlapCombinedStateBytes":overlap_combined_bytes,
+         "stagingMemoryCeilingBytes":overlap_policy.memory_ceiling_bytes,"runningMemoryCeilingBytes":memory_ceiling_bytes,
+         "postImportGenerations":generations,
++        "coexistence":if coexistence {Some(serde_json::json!({"savedBrainCount":saved_brains.len(),
++            "selectedOriginalBytes":super::saved_brain_archive::validate_selection(saved_brains)?,
++            "sourceInspector":source_inspector,"replacementInspector":replacement_inspector}))} else {None},
+         "descriptor":crate::napi_engine::checkpoint_descriptor_to_napi(second.descriptor),
+-        "inventory":{"version":import_inventory.version,"relativeFilename":import_inventory.relative_filename,
+-            "sha256":import_inventory.sha256,"storedByteCount":import_inventory.stored_byte_count_hex,
+-            "historyCount":import_inventory.history_count_hex,"hallOfFameCount":import_inventory.hall_of_fame_count_hex},
++        "inventory":crate::napi_running_engine::import_inventory_to_napi(import_inventory)?,
+         "peakRssBytes":super::sensor_qualification::process_peak_rss_bytes(),"totalSeconds":started.elapsed().as_secs_f64()}),
+     )
+ }
+@@ -431,6 +472,7 @@ fn exercise_imported_generations(
+     managed: &std::path::Path,
+     run_id: &str,
+     mut wall_ms: u64,
++    inspector: Option<&super::display::RunningDisplayCache>,
+ ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error>> {
+     use super::checkpoint::CheckpointOperationId;
+     use super::run_start::PendingRunStartTransition;
+@@ -460,8 +502,16 @@ fn exercise_imported_generations(
+         running.acknowledge_pending_generation_persistence(&publication.descriptor)?;
+         running.prepare_acknowledged_generation_reassignments()?;
+         running.publish_acknowledged_generation_start(wall_ms, None)?;
++        if inspector.is_some() {
++            super::coexistence_capacity::enable_inspector(running, run_id)?;
++        }
+         wall_ms += 17;
+         running.service_after_command_drain(wall_ms, SchedulerServiceMode::Background, None)?;
++        let inspector_receipt = inspector
++            .map(|cache| {
++                super::coexistence_capacity::inspector_receipt(running, cache, (ordinal + 2) * 100)
++            })
++            .transpose()?;
+         let expected = running.qualification_restored_continuation_sha256();
+         let mut restore_policy = prepared.admission_policy.clone();
+         restore_policy.memory_ceiling_bytes = restore_policy
+@@ -488,7 +538,7 @@ fn exercise_imported_generations(
+         reports.push(serde_json::json!({"descriptor":crate::napi_engine::checkpoint_descriptor_to_napi(publication.descriptor),
+             "hallOfFameWeights":crate::napi_engine::hall_of_fame_weights_descriptor_to_napi(publication.hall_of_fame_weights),
+             "generationCommit":crate::napi_engine::generation_commit_to_napi(publication.commit_record),
+-            "combinedStateBytes":combined,"continuationSha256":expected,"independentRestoreExact":true}));
++            "combinedStateBytes":combined,"continuationSha256":expected,"independentRestoreExact":true,"inspector":inspector_receipt}));
+     }
+     Ok(reports)
+ }
+diff --git a/native/src/engine/coexistence_capacity.rs b/native/src/engine/coexistence_capacity.rs
+new file mode 100644
+index 0000000..82783c0
+--- /dev/null
++++ b/native/src/engine/coexistence_capacity.rs
+@@ -0,0 +1,278 @@
++//! Offline full-catalog fixtures and actual inspector publication for capacity qualification.
++use super::brain_artifact::BRAIN_ARTIFACT_HEADER_BYTES;
++use super::graph::GraphBundle;
++use super::running_loop::RunningAuthorityLoop;
++use super::sensor_layout::SensorLayout;
++use super::state::AuthoritativeState;
++use super::training_graph::{
++    CanonicalTrainingGraphManifestV1, TrainingDeployment, TrainingLifeStateRule,
++};
++use serde::Serialize;
++use sha2::{Digest, Sha256};
++use std::fs::{self, OpenOptions};
++use std::io::{BufWriter, Write};
++use std::path::Path;
++
++pub const LIBRARY_RECORDS: usize = super::saved_brain_archive::MAX_SAVED_BRAINS;
++
++/// Inputs, managed originals/shared weights, archive, and overlapping import staging.
++/// The fixture always writes raw originals; one million weights plus the admitted
++/// manifest/header bounds each original and its shared weight object.
++pub fn additional_disk_reserve_bytes() -> u64 {
++    8 * (LIBRARY_RECORDS as u64 + 1)
++        * (4_000_000 + 1024 * 1024 + BRAIN_ARTIFACT_HEADER_BYTES as u64)
++}
++
++#[derive(Serialize)]
++#[serde(rename_all = "camelCase")]
++struct FixtureRecord {
++    brain_id: String,
++    weights_sha256: String,
++    name: String,
++    relative_filename: String,
++    artifact_byte_count: String,
++    parameter_count: usize,
++}
++
++/// Emit canonical packed bytes with bounded scratch, never another population.
++fn raw_chunks(
++    weights: &[f32],
++    ordinal: usize,
++    mut consume: impl FnMut(&[u8]) -> std::io::Result<()>,
++) -> std::io::Result<()> {
++    let mut scratch = [0u8; 64 * 1024];
++    for (chunk_index, chunk) in weights.chunks(scratch.len() / 4).enumerate() {
++        for (index, original) in chunk.iter().enumerate() {
++            let value = if chunk_index == 0 && index == 0 {
++                ordinal as f32 / 128.0
++            } else {
++                *original
++            };
++            scratch[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
++        }
++        consume(&scratch[..chunk.len() * 4])?;
++    }
++    Ok(())
++}
++
++/// Fixture envelope only. Rust's production reader/compiler independently validates
++/// every original again during catalog save and archive export/import.
++fn write_fixture(
++    directory: &Path,
++    manifest: &CanonicalTrainingGraphManifestV1,
++    weights: &[f32],
++    ordinal: usize,
++) -> Result<FixtureRecord, Box<dyn std::error::Error>> {
++    let graph_manifest: serde_json::Value = serde_json::from_slice(&manifest.canonical_bytes()?)?;
++    let metadata = serde_json::to_vec(&serde_json::json!({
++        "schemaVersion": 1, "graphManifest": graph_manifest,
++        "provenance": {"schemaVersion":1,"sourceKind":"manual",
++            "details":{"qualification":"checkpoint-library-inspector-v1","ordinal":ordinal,"learned":false}}
++    }))?;
++    let mut raw_hash = Sha256::new();
++    raw_chunks(weights, ordinal, |bytes| {
++        raw_hash.update(bytes);
++        Ok(())
++    })?;
++    let raw_digest = raw_hash.finalize();
++    let raw_bytes = weights
++        .len()
++        .checked_mul(4)
++        .ok_or("fixture weight byte overflow")?;
++    let mut header = [0u8; BRAIN_ARTIFACT_HEADER_BYTES];
++    header[..8].copy_from_slice(b"SLTHBRN1");
++    header[8..12].copy_from_slice(&u32::try_from(metadata.len())?.to_le_bytes());
++    header[16..20].copy_from_slice(&u32::try_from(weights.len())?.to_le_bytes());
++    header[20..24].copy_from_slice(&u32::try_from(raw_bytes)?.to_le_bytes());
++    header[24..56].copy_from_slice(&raw_digest);
++    header[56..88].copy_from_slice(&raw_digest);
++    let relative_filename = format!("library-inputs/{ordinal:03}.slither-brain");
++    let file = OpenOptions::new()
++        .write(true)
++        .create_new(true)
++        .open(directory.join(&relative_filename))?;
++    let mut writer = BufWriter::new(file);
++    writer.write_all(&header)?;
++    writer.write_all(&metadata)?;
++    let mut hash = Sha256::new();
++    hash.update(header);
++    hash.update(&metadata);
++    raw_chunks(weights, ordinal, |bytes| {
++        hash.update(bytes);
++        writer.write_all(bytes)
++    })?;
++    writer.flush()?;
++    writer.get_ref().sync_all()?;
++    Ok(FixtureRecord {
++        brain_id: format!("{:x}", hash.finalize()),
++        weights_sha256: format!("{raw_digest:x}"),
++        name: format!("Capacity manual brain {ordinal:03}"),
++        relative_filename,
++        artifact_byte_count: format!("{:016x}", header.len() + metadata.len() + raw_bytes),
++        parameter_count: weights.len(),
++    })
++}
++
++/// Produce the complete catalog plus one valid overflow probe before any metadata save.
++/// Only the first 100 are retained; the host must prove the 101st save rejects.
++pub(crate) fn write_library_fixtures(
++    authority: &AuthoritativeState,
++    options: &super::sensor_qualification::SensorQualificationOptions,
++    graph_limits: &super::graph::GraphLimits,
++    directory: &Path,
++) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
++    let graph = GraphBundle::compile(authority.graph_spec().clone(), graph_limits)?;
++    let sensors = SensorLayout::for_profile(options.profile, options.bins)?;
++    let manifest = CanonicalTrainingGraphManifestV1::build(
++        &graph,
++        &sensors,
++        TrainingDeployment {
++            control_interval_seconds: 0.06,
++            life_state_rule: TrainingLifeStateRule::Reset,
++            initialization: super::genome::GenomeInitializationConfig::default(),
++        },
++    )?;
++    fs::create_dir(directory.join("library-inputs"))?;
++    let mut records = Vec::with_capacity(LIBRARY_RECORDS + 1);
++    for ordinal in 0..=LIBRARY_RECORDS {
++        let weights =
++            &authority.state().population[ordinal % authority.state().population.len()].weights;
++        records.push(write_fixture(directory, &manifest, weights, ordinal)?);
++    }
++    let original_bytes: u64 = records
++        .iter()
++        .map(|entry| u64::from_str_radix(&entry.artifact_byte_count, 16))
++        .collect::<Result<Vec<_>, _>>()?
++        .into_iter()
++        .sum();
++    let index_path = directory.join("library-inputs/index.json");
++    let mut index = OpenOptions::new()
++        .write(true)
++        .create_new(true)
++        .open(index_path)?;
++    serde_json::to_writer(
++        &mut index,
++        &serde_json::json!({"schemaVersion":1,"records":records}),
++    )?;
++    index.write_all(b"\n")?;
++    index.sync_all()?;
++    Ok(
++        serde_json::json!({"recordCount":LIBRARY_RECORDS,"overflowProbes":1,
++        "originalInputBytes":original_bytes,"indexRelativeFilename":"library-inputs/index.json"}),
++    )
++}
++
++/// Select the real delivered population observation; this performs no probe or inference.
++pub(crate) fn enable_inspector(
++    running: &mut RunningAuthorityLoop,
++    run_id: &str,
++) -> Result<(), String> {
++    let selected = running
++        .select_entity(
++            super::state::EntitySelectionTarget::PopulationSlot(0),
++            run_id,
++            running.generation(),
++        )?
++        .ok_or("capacity inspector population target missing")?;
++    running.configure_inspector_subscription(
++        run_id,
++        Some((selected.token, selected.frame_v1_id)),
++        super::inspector::MAX_INSPECTOR_BYTES,
++        running.generation(),
++        false,
++    )
++}
++
++/// Exercise the production replaceable mailbox and complete wire encoding beside
++/// retained population state. Caller keeps one cache alive through import work;
++/// the explicit presentation clock is independent of the fixed-step simulation clock.
++pub(crate) fn inspector_receipt(
++    running: &RunningAuthorityLoop,
++    display: &super::display::RunningDisplayCache,
++    presentation_ms: u64,
++) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
++    display.publish_inspector(running, presentation_ms)?;
++    let snapshot = display
++        .latest_inspector(0)?
++        .ok_or("capacity inspector did not publish")?;
++    let observation = snapshot
++        .observation
++        .as_ref()
++        .ok_or("capacity inspector observation absent")?;
++    if observation.pure_probe
++        || observation.normalized_inputs().is_empty()
++        || observation.trace.is_none()
++    {
++        return Err("capacity inspector did not retain the real delivered trace".into());
++    }
++    if snapshot.world_epoch != running.world_epoch()
++        || snapshot.completed_step != running.completed_step()
++    {
++        return Err("capacity inspector retained a foreign publication".into());
++    }
++    display.publish_inspector(running, presentation_ms + 99)?;
++    if display.latest_inspector(snapshot.sequence)?.is_some() {
++        return Err("capacity inspector did not suppress a duplicate publication".into());
++    }
++    let wire = super::inspector_wire::encode(&snapshot)?;
++    let receipt = serde_json::json!({"completedStep":running.completed_step(),
++        "inputSize":observation.normalized_inputs().len(),"sampleStep":observation.sample_step(),
++        "wireBytes":wire.len(),"pureProbe":false,"tracePresent":true,"duplicatePublicationSuppressed":true});
++    Ok(receipt)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn full_catalog_reserve_prices_originals_and_all_staging_copies() {
++        assert_eq!(LIBRARY_RECORDS, 100);
++        assert!(additional_disk_reserve_bytes() > 4_000_000 * 101 * 8);
++    }
++
++    #[test]
++    fn fixture_uses_canonical_native_layout_and_distinct_valid_float_weights() {
++        let directory = std::env::temp_dir().join(format!(
++            "slither-library-capacity-{}-{}",
++            std::process::id(),
++            std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .unwrap()
++                .as_nanos()
++        ));
++        fs::create_dir(&directory).unwrap();
++        fs::create_dir(directory.join("library-inputs")).unwrap();
++        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
++            let old = fs::read(
++                Path::new(env!("CARGO_MANIFEST_DIR"))
++                    .join("fixtures/portable-dense-basic8-v1.slither-brain"),
++            )?;
++            let source = super::super::brain_artifact::validate_brain_artifact(&old)?;
++            let a = write_fixture(&directory, &source.canonical_manifest, &source.weights, 0)?;
++            let b = write_fixture(&directory, &source.canonical_manifest, &source.weights, 1)?;
++            assert_ne!(a.brain_id, b.brain_id);
++            assert_ne!(a.weights_sha256, b.weights_sha256);
++            for record in [a, b] {
++                let bytes = fs::read(directory.join(record.relative_filename))?;
++                let validated = super::super::brain_artifact::validate_brain_artifact(&bytes)?;
++                assert_eq!(validated.artifact_sha256, record.brain_id);
++                assert_eq!(validated.weights_sha256, record.weights_sha256);
++                assert_eq!(validated.weights.len(), source.weights.len());
++                assert_eq!(validated.weights[1..], source.weights[1..]);
++            }
++            Ok(())
++        })();
++        let root = std::env::temp_dir().canonicalize().unwrap();
++        let owned = directory.canonicalize().unwrap();
++        assert!(
++            owned.starts_with(root)
++                && owned
++                    .file_name()
++                    .unwrap()
++                    .to_string_lossy()
++                    .starts_with("slither-library-capacity-")
++        );
++        fs::remove_dir_all(owned).unwrap();
++        result.unwrap();
++    }
++}
+diff --git a/native/src/engine/mod.rs b/native/src/engine/mod.rs
+index ab68e8a..f0f2b5a 100644
+--- a/native/src/engine/mod.rs
++++ b/native/src/engine/mod.rs
+@@ -217,6 +217,10 @@ mod tactical_corpus;
+ #[cfg(feature = "engine-test-hooks")]
+ pub mod checkpoint_capacity;
+ 
++/// Offline full-library and inspector coexistence qualification.
++#[cfg(feature = "engine-test-hooks")]
++pub mod coexistence_capacity;
++
+ /// Shared native admission for background population ownership.
+ pub(crate) mod population_work;
+ 
+diff --git a/native/src/napi_running_engine.rs b/native/src/napi_running_engine.rs
+index ddcd861..f99b39a 100644
+--- a/native/src/napi_running_engine.rs
++++ b/native/src/napi_running_engine.rs
+@@ -387,6 +387,8 @@ pub struct PreparedImportArchiveResult {
+ }
+ 
+ /// Trusted fixed-width import inventory consumed only by the SQLite worker.
++#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
++#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
+ #[napi(object)]
+ pub struct PreparedImportInventoryResult {
+     pub version: u32,
+@@ -395,9 +397,32 @@ pub struct PreparedImportInventoryResult {
+     pub stored_byte_count: String,
+     pub history_count: String,
+     pub hall_of_fame_count: String,
++    #[cfg_attr(
++        feature = "engine-test-hooks",
++        serde(skip_serializing_if = "Option::is_none")
++    )]
+     pub saved_brains_json: Option<String>,
+ }
+ 
++/// Convert the complete trusted inventory once for both production and qualification hosts.
++pub(crate) fn import_inventory_to_napi(
++    inventory: crate::engine::export_archive::ImportInventoryDescriptor,
++) -> std::result::Result<PreparedImportInventoryResult, serde_json::Error> {
++    Ok(PreparedImportInventoryResult {
++        version: inventory.version,
++        relative_filename: inventory.relative_filename,
++        sha256: inventory.sha256,
++        stored_byte_count: inventory.stored_byte_count_hex,
++        history_count: inventory.history_count_hex,
++        hall_of_fame_count: inventory.hall_of_fame_count_hex,
++        saved_brains_json: if inventory.saved_brains.is_empty() {
++            None
++        } else {
++            Some(serde_json::to_string(&inventory.saved_brains)?)
++        },
++    })
++}
++
+ /// Small fresh replacement facts. The complete candidate remains in Rust.
+ #[napi(object)]
+ pub struct PreparedFreshRunResult {
+@@ -700,23 +725,8 @@ impl Task for PrepareImportArchiveTask {
+             hall_of_fame_count: facts.hall_of_fame_count_hex,
+             stored_byte_count: facts.stored_byte_count_hex,
+             descriptor: checkpoint_descriptor_to_napi(descriptor),
+-            inventory: PreparedImportInventoryResult {
+-                version: inventory.version,
+-                relative_filename: inventory.relative_filename,
+-                sha256: inventory.sha256,
+-                stored_byte_count: inventory.stored_byte_count_hex,
+-                history_count: inventory.history_count_hex,
+-                hall_of_fame_count: inventory.hall_of_fame_count_hex,
+-                saved_brains_json: if inventory.saved_brains.is_empty() {
+-                    None
+-                } else {
+-                    Some(
+-                        serde_json::to_string(&inventory.saved_brains).map_err(|error| {
+-                            Error::new(Status::GenericFailure, error.to_string())
+-                        })?,
+-                    )
+-                },
+-            },
++            inventory: import_inventory_to_napi(inventory)
++                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?,
+             startup_metadata,
+         })
+     }
+@@ -2917,3 +2927,42 @@ mod task_panic_tests {
+         assert_eq!(ordinary_error.reason, "bad archive");
+     }
+ }
++
++#[cfg(all(test, feature = "engine-test-hooks"))]
++mod inventory_wire_tests {
++    use super::*;
++    #[test]
++    fn qualification_and_production_inventory_include_library_membership_and_omit_absence() {
++        let mut inventory = crate::engine::export_archive::ImportInventoryDescriptor {
++            version: 3,
++            relative_filename: ".operation.import-inventory-v3".into(),
++            sha256: "a".repeat(64),
++            stored_byte_count_hex: "0000000000000400".into(),
++            history_count_hex: "0000000000000001".into(),
++            hall_of_fame_count_hex: "0000000000000001".into(),
++            saved_brains: vec![],
++        };
++        let empty =
++            serde_json::to_value(import_inventory_to_napi(inventory.clone()).unwrap()).unwrap();
++        assert_eq!(
++            empty,
++            serde_json::json!({"version":3,"relativeFilename":".operation.import-inventory-v3",
++            "sha256":"a".repeat(64),"storedByteCount":"0000000000000400",
++            "historyCount":"0000000000000001","hallOfFameCount":"0000000000000001"})
++        );
++        inventory.saved_brains.push(
++            crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1 {
++                brain_id: "b".repeat(64),
++                name: "Manual brain".into(),
++                created_at_ms: 42,
++                artifact_byte_count: "0000000000001000".into(),
++            },
++        );
++        let actual =
++            serde_json::to_value(import_inventory_to_napi(inventory.clone()).unwrap()).unwrap();
++        let selected: Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1> =
++            serde_json::from_str(actual["savedBrainsJson"].as_str().unwrap()).unwrap();
++        assert_eq!(selected, inventory.saved_brains);
++        assert_eq!(actual["historyCount"], empty["historyCount"]);
++    }
++}
+diff --git a/scripts/qualification/checkpoint-capacity.ts b/scripts/qualification/checkpoint-capacity.ts
+index 0598b7d..cec2399 100644
+--- a/scripts/qualification/checkpoint-capacity.ts
++++ b/scripts/qualification/checkpoint-capacity.ts
+@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+ import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointPersistenceClient.ts';
+ import { parseManagedCheckpointDescriptor, parseManagedGenerationCommit } from '../../server/rustEngine/checkpointPersistenceProtocol.ts';
+ import { admitDiskOperation, checkpointDiskAdmissionRequest } from '../../server/rustEngine/diskAdmission.ts';
++import type { SavedBrainSummaryV1 } from '../../server/protocol.ts';
+ 
+ /** Parse a bounded scalar report; never read population or archive bytes in Node. */
+ async function report(path: string): Promise<Record<string, unknown>> {
+@@ -30,10 +31,80 @@ function outside(root: string, output: string): boolean {
+   return path.startsWith('..') || isAbsolute(path);
+ }
+ 
++/** Scalars from one Rust-written portable input; parameter bytes remain in native files. */
++interface LibraryFixtureRecord {
++  /** Exact original identity independently checked by the production codec. */
++  brainId: string;
++  /** Exact canonical packed Float32 identity. */
++  weightsSha256: string;
++  /** Controlled input path below the exclusive managed fixture. */
++  relativeFilename: string;
++  /** Explicit synthetic/manual display label. */
++  name: string;
++  /** Exact original length as u64 hex. */
++  artifactByteCount: string;
++  /** Native canonical parameter count. */
++  parameterCount: number;
++}
++
++/** Compare complete archive membership without retaining full graph metadata in the host. */
++function libraryProjection(record: SavedBrainSummaryV1): Record<string, unknown> {
++  return {brainId: record.brainId, name: record.name, createdAtMs: record.createdAtMs,
++    artifactByteCount: record.artifactByteCount, weights: record.weights,
++    weightsSha256: record.artifact.weightsSha256, sensorSha256: record.artifact.sensorSha256,
++    parameterCount: record.artifact.parameterCount, sourceKind: record.artifact.sourceKind};
++}
++
++/** Fill the actual production catalog and prove its 101st distinct valid save rejects. */
++async function populateLibrary(client: CheckpointPersistenceClient, managed: string): Promise<Record<string, unknown>[]> {
++  const index = await report(join(managed, 'library-inputs/index.json'));
++  assert.equal(index['schemaVersion'], 1);
++  const records = index['records']; assert(Array.isArray(records) && records.length === 101);
++  const expected = [];
++  for (const [ordinal, value] of records.entries()) {
++    assert(value && typeof value === 'object'); const record = value as LibraryFixtureRecord;
++    assert.match(record.brainId, /^[0-9a-f]{64}$/u); assert.match(record.weightsSha256, /^[0-9a-f]{64}$/u);
++    assert.equal(record.relativeFilename, `library-inputs/${String(ordinal).padStart(3, '0')}.slither-brain`);
++    const path = join(managed, record.relativeFilename); assert(!outside(managed, path));
++    const request = {action: 'save' as const, path, name: record.name};
++    if (ordinal === 100) {
++      await assert.rejects(client.savedBrainCatalog(request), /record quota/u);
++      await assert.rejects(stat(join(managed, `${record.brainId}.slither-brain`)), {code: 'ENOENT'});
++      await assert.rejects(stat(join(managed, `${record.weightsSha256}.hof-weights-v1`)), {code: 'ENOENT'});
++      continue;
++    }
++    const result = await client.savedBrainCatalog(request); assert(result.action === 'save');
++    assert.equal(result.record.brainId, record.brainId);
++    assert.equal(result.record.artifact.weightsSha256, record.weightsSha256);
++    assert.equal(result.record.artifact.parameterCount, record.parameterCount);
++    assert.equal(result.record.artifactByteCount, record.artifactByteCount);
++    assert.equal(result.record.provenance.sourceKind, 'manual');
++    assert.deepEqual(result.record.provenance.details,
++      {qualification: 'checkpoint-library-inspector-v1', ordinal, learned: false});
++    expected.push(libraryProjection(result.record));
++  }
++  assert.equal(new Set(expected.map(value => value['brainId'])).size, 100);
++  assert.equal(new Set(expected.map(value => value['weightsSha256'])).size, 100);
++  return expected.sort((a, b) => String(a['brainId']).localeCompare(String(b['brainId'])));
++}
++
++/** Exercise metadata pagination and exact imported membership after all population handoffs. */
++async function verifyLibrary(client: CheckpointPersistenceClient, expected: Record<string, unknown>[]): Promise<number> {
++  const actual = []; let after: string | null = null; let pages = 0;
++  do {
++    const response = await client.savedBrainCatalog({action: 'list', after, limit: 25});
++    assert(response.action === 'list'); actual.push(...response.page.entries.map(libraryProjection));
++    after = response.page.next; pages++;
++    assert(pages <= 4 && actual.length <= 100, 'bounded full catalog pagination');
++  } while (after !== null);
++  assert.equal(pages, 4); assert.deepEqual(actual, expected);
++  return pages;
++}
++
+ /** Qualify one full selected population/codec policy and retain compact evidence. */
+ async function main(): Promise<void> {
+   const args = new Map<string, string>();
+-  const allowed = ['--binary', '--workspace', '--output', '--population', '--graph', '--mode', '--envelope-mib'];
++  const allowed = ['--binary', '--workspace', '--output', '--population', '--graph', '--mode', '--envelope-mib', '--coexistence'];
+   for (let index = 2; index < process.argv.length; index += 2) {
+     const flag = process.argv[index]; const value = process.argv[index + 1];
+     assert(flag && allowed.includes(flag) && value !== undefined && !args.has(flag), 'unique known flag/value');
+@@ -46,6 +117,9 @@ async function main(): Promise<void> {
+   const population = get('--population'); const graph = get('--graph'); const mode = get('--mode'); const envelope = get('--envelope-mib');
+   assert(['55', '300'].includes(population)); assert(['small', 'large'].includes(graph));
+   assert(['compressed', 'raw'].includes(mode)); assert(['512', '768'].includes(envelope));
++  const coexistence = args.get('--coexistence') ?? 'none';
++  assert(['none', 'library-inspector'].includes(coexistence));
++  const libraryEnabled = coexistence === 'library-inspector';
+   assert(outside(root, output), 'retained report outside fixture root');
+   await realpath(dirname(output));
+   await mkdir(root); const owned = await realpath(root);
+@@ -55,9 +129,12 @@ async function main(): Promise<void> {
+   const timer = setInterval(() => {peakHostRssBytes = Math.max(peakHostRssBytes, process.memoryUsage.rss());}, 100);
+   const started = performance.now();
+   /** Share only admitted scalar dimensions between the two native subprocesses. */
+-  const common = ['--population', population, '--graph', graph, '--envelope-mib', envelope, '--memory-gib', '4'];
++  const common = ['--population', population, '--graph', graph, '--envelope-mib', envelope, '--memory-gib', '4', '--coexistence', coexistence];
+   try {
+-    const disk = await admitDiskOperation(owned, checkpointDiskAdmissionRequest(BigInt(envelope) * 1024n ** 2n));
++    const request = checkpointDiskAdmissionRequest(BigInt(envelope) * 1024n ** 2n);
++    // Original inputs, native originals/shared weights, archive and overlapping import copies.
++    const libraryReserve = libraryEnabled ? 8n * 101n * (4_000_000n + 1024n ** 2n + 88n) : 0n;
++    const disk = await admitDiskOperation(owned, {...request, sourceSpoolBytes: request.sourceSpoolBytes + libraryReserve});
+     const savePath = join(owned, 'save.json');
+     await nativePhase(binary, [...common, '--mode', mode, '--workspace', managed, '--report', savePath]);
+     const save = await report(savePath);
+@@ -68,15 +145,29 @@ async function main(): Promise<void> {
+     assert(commit);
+     source = new CheckpointPersistenceClient({databasePath: join(owned, 'source.sqlite'), managedRootPath: managed});
+     await source.commit(initial, null, true); await source.commit(generation, commit);
++    const expectedLibrary = libraryEnabled ? await populateLibrary(source, managed) : [];
++    if (libraryEnabled) await verifyLibrary(source, expectedLibrary);
+     const lease = await source.acquireCurrentExportLease();
++    const savedBrainsPath = join(owned, 'saved-brains.json');
++    if (libraryEnabled) {
++      const selected = await source.savedBrainCatalog({action: 'acquireArchive',
++        brainIds: expectedLibrary.map(value => String(value['brainId'])), leaseId: lease.operationId});
++      assert(selected.action === 'acquireArchive' && selected.entries.length === 100);
++      await writeFile(savedBrainsPath, JSON.stringify(selected.entries.map(entry => ({brainId: entry.brainId,
++        name: entry.name, createdAtMs: entry.createdAtMs, artifactByteCount: entry.artifactByteCount}))), {flag: 'wx'});
++    }
+     const leasePath = join(owned, 'lease.json'); await writeFile(leasePath, JSON.stringify(lease), {flag: 'wx'});
+     const archivePath = join(owned, 'archive.json');
+     let archive: Record<string, unknown>;
+     try {
+       await nativePhase(binary, [...common, '--mode', mode === 'raw' ? 'archive-raw' : 'archive', '--workspace', imported,
+-        '--source', managed, '--lease', leasePath, '--report', archivePath]);
++        '--source', managed, '--lease', leasePath, '--report', archivePath,
++        ...(libraryEnabled ? ['--saved-brains', savedBrainsPath] : [])]);
+       archive = await report(archivePath);
+-    } finally {await source.releaseExportLease(lease.operationId);}
++    } finally {
++      if (libraryEnabled) await source.savedBrainCatalog({action: 'release', leaseId: lease.operationId});
++      await source.releaseExportLease(lease.operationId);
++    }
+     assert.equal(archive['sourceSha256'], save['sourceSha256']);
+     assert.equal(archive['continuationSha256'], save['continuationSha256']);
+     assert.equal(archive['importLimitsPreserved'], true); assert.equal(archive['idempotentImportExact'], true);
+@@ -102,11 +193,56 @@ async function main(): Promise<void> {
+     }
+     const final = await destination.selectCurrent();
+     assert(final); assert.equal(final.logicalRootSha256, latest.logicalRootSha256);
++    const libraryPages = libraryEnabled ? await verifyLibrary(destination, expectedLibrary) : 0;
++    if (libraryEnabled) {
++      const receipt = archive['coexistence'] as Record<string, unknown>;
++      assert.equal(receipt['savedBrainCount'], 100);
++      for (const key of ['sourceInspector', 'replacementInspector']) {
++        const inspector = receipt[key] as Record<string, unknown>;
++        assert(inspector['wireBytes'] as number > 0); assert.equal(inspector['pureProbe'], false);
++        assert.equal(inspector['tracePresent'], true);
++      }
++      for (const value of handoffs) {
++        const inspector = (value as Record<string, unknown>)['inspector'] as Record<string, unknown>;
++        assert(inspector['wireBytes'] as number > 0); assert.equal(inspector['pureProbe'], false);
++      }
++    }
++    let deletedLibraryWeights = 0; let preservedSharedWeights = 0;
++    if (libraryEnabled) {
++      const retainedWeights = new Set<string>();
++      for (const value of [save['hallOfFameWeights'], ...handoffs.map(value => (value as Record<string, unknown>)['hallOfFameWeights'])]) {
++        if (value && typeof value === 'object') {
++          const filename = (value as Record<string, unknown>)['relativeFilename'];
++          assert(typeof filename === 'string'); retainedWeights.add(filename);
++        }
++      }
++      for (const entry of expectedLibrary) {
++        const deleted = await destination.savedBrainCatalog({action: 'delete', brainId: String(entry['brainId'])});
++        assert(deleted.action === 'delete' && deleted.deleted);
++        await assert.rejects(stat(join(imported, 'managed', `${String(entry['brainId'])}.slither-brain`)), {code: 'ENOENT'});
++        const weights = entry['weights'] as {relativeFilename: string};
++        assert.match(weights.relativeFilename, /^[0-9a-f]{64}\.hof-weights-v1$/u);
++        const weightPath = join(imported, 'managed', weights.relativeFilename);
++        if (retainedWeights.has(weights.relativeFilename)) { assert((await stat(weightPath)).isFile()); preservedSharedWeights++; }
++        else { await assert.rejects(stat(weightPath), {code: 'ENOENT'}); deletedLibraryWeights++; }
++      }
++      for (const filename of retainedWeights) assert((await stat(join(imported, 'managed', filename))).isFile());
++      const empty = await destination.savedBrainCatalog({action: 'list', after: null, limit: 25});
++      assert(empty.action === 'list'); assert.deepEqual(empty.page, {entries: [], next: null});
++      const retained = await destination.selectCurrent(); assert(retained);
++      assert.equal(retained.logicalRootSha256, final.logicalRootSha256);
++      assert((await stat(join(imported, 'managed', retained.relativeFilename))).isFile());
++    }
+     const hostHighWaterBytes = process.resourceUsage().maxRSS * 1024;
+     assert(Number.isSafeInteger(hostHighWaterBytes) && hostHighWaterBytes > 0, 'OS host RSS high-water counter');
+     peakHostRssBytes = Math.max(peakHostRssBytes, hostHighWaterBytes);
+     const evidence = {schemaVersion: 2, population: Number(population), graph, mode, envelopeMiB: Number(envelope),
+       sqlitePostImportGenerations: handoffs.length, finalCheckpointId: final.logicalRootSha256,
++      coexistence, library: libraryEnabled ? {recordCount: 100, overflowRejected: true, overflowPublishedFiles: false,
++        importedPages: libraryPages, deletedRecords: 100, deletedLibraryWeights, preservedSharedWeights,
++        finalCatalogEmpty: true, populationCheckpointPreserved: true,
++        brainIds: expectedLibrary.map(value => value['brainId']),
++        originalBytes: expectedLibrary.reduce((sum, value) => sum + Number(BigInt(`0x${String(value['artifactByteCount'])}`)), 0)} : null,
+       hostRssMeasurement: 'os-high-water-and-100ms-samples',
+ 
+       native: save, archive, sqliteCommitted: true, sqliteImported: true, peakHostRssBytes,
