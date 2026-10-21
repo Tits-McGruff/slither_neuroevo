@@ -5676,7 +5676,7 @@ fn add_candidate_text(
     Ok(())
 }
 
-fn estimate_graph_memory(bundle: &GraphBundle) -> Result<usize, StateError> {
+pub(crate) fn estimate_graph_memory(bundle: &GraphBundle) -> Result<usize, StateError> {
     let spec = bundle.spec();
     let graph = bundle.compiled();
     // The bundle stores both structs inline. Charge each source-spec dynamic

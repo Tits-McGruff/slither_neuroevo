@@ -1062,7 +1062,7 @@ reduce sensing work or close representative-population/native-performance/soak
 acceptance. Both positive and negative model outcomes remain available.
 
 
-## Learned clone population workloads
+## Learned population workloads
 
 `sensor-v4-qualification --trained-artifact FILE` admits an ordinary portable
 brain into the existing qualification-only P0/P1 constructor. Explicit sensor
@@ -1083,7 +1083,38 @@ fractions and native timings without turning diagnostic results into admission
 or production-default decisions. CI exercises all eight combinations for 12
 steps on Ubuntu/Windows Node 24 using the existing native build.
 
-These cohorts clone one learned policy at every population slot. They do not
+`--trained-cohort INDEX.json` extends the same native constructor to 2..16
+compatible policy families. The bounded index contains `schemaVersion: 1` and
+an ordered `artifacts` array of `{ "file": "seed-1.slither-brain", "sha256":
+"LOWERCASE_SHA256" }` entries. Each file must be an ordinary sibling file with
+a unique basename; Rust checks the file digest, independently validates the
+portable artifact and requires distinct packed-weight digests. Every family
+must share the exact canonical graph, sensor, cadence and recurrent life rule.
+Supply the matching profile/bins and explicit ray limits; omit `--graph`,
+`--trained-artifact` and soak-shadow overrides.
+
+Population slot modulo family count selects the source in index order. All
+sources are validated before copying into the already admitted parameter
+boxes, preserving initialization RNG, lineage, brain owners and zero recurrent
+state. Schema 7 reports include each artifact identity, slot count, index digest
+and conservative source reservation. Combined encoded input is at most 64 MiB;
+source ownership plus validation headroom is capped at 512 MiB and subtracted
+from the existing construction ceiling. This leaves the native/checkpoint
+scratch limits unchanged. Family count demonstrates distinct policies; maturity,
+representative coverage and production-default selection still require their
+own evidence. This remains a qualification-only constructor.
+
+`trained-sensor-cohorts.py --replicated` with `--study` pointing to
+`replicated-ablation-windows-v1/` restores checksummed
+Full and Core artifacts from initialization seeds 1/2/3, held-out fold 2. Each
+graph runs as its own mixed population through P0/P1 worker pairs. The driver
+checks ordered family identities/counts, exact authority continuation, sensor
+histograms and capture bytes, and records descriptive timings. CI runs all eight
+combinations for 12 measured steps on Ubuntu/Windows Node 24. The retained
+1,000-update policies establish real learned-family execution, not maturity.
+
+The retained single-artifact cohorts below clone one learned policy at every
+population slot. They do not
 represent mature genetic diversity or broad trained population coverage. The
 policies learned short baseline-teacher tactics; evolved life/economic inputs
 remain authoritative and differ from that training domain. Both graph variants
