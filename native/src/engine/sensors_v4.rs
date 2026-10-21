@@ -457,9 +457,10 @@ impl SensorV4Evaluator {
         )?;
         let mut incomplete_rays = 0;
         for bin in 0..bins {
-            let angle = snake.direction - PI + bin as f64 * TAU / bins as f64;
-            let ray = SensorRay::new(snake.position, angle, radii.near)
-                .map_err(|_| V4SensorError::Geometry)?;
+            // Body tracing only borrows this already validated packet. Reuse its
+            // identical direction bits for walls instead of repeating sin/cos and
+            // validation for every bin.
+            let ray = packet[bin];
             output[24 + bin] = saturate(scratch.near_food[bin], cfg.food_saturation);
             output[24 + bins + bin] = saturate(scratch.far_food[bin], cfg.food_saturation);
             output[24 + 2 * bins + bin] = bipolar(scratch.body_clearance[bin] / radii.near);

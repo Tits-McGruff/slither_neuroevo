@@ -278,3 +278,47 @@ jobs:
         run: cargo fmt --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml -- --check
       - name: Replay fixture harness Clippy
         run: cargo clippy --locked --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml --target-dir target -- -D warnings
+
+
+  ray_reuse_comparison:
+    name: Paired native ray reuse comparison
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'evolved-lives-sensor-ray-reuse'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: candidate
+      - uses: actions/checkout@v4
+        with:
+          ref: 8353902e0c71b67cc23ece05ebadee694905ad37
+          path: baseline
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            baseline/native -> target
+            candidate/native -> target
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build both identified standalone release runners
+        run: |
+          cargo build --manifest-path baseline/native/Cargo.toml --release --features engine-test-hooks --bin sensor-v4-qualification
+          cargo build --manifest-path candidate/native/Cargo.toml --release --features engine-test-hooks --bin sensor-v4-qualification
+      - name: Compare adjacent baseline-candidate-candidate-baseline runs
+        run: >-
+          python candidate/scripts/qualification/compare-sensor-workloads.py
+          --baseline baseline/native/target/release/sensor-v4-qualification
+          --candidate candidate/native/target/release/sensor-v4-qualification
+          --baseline-source 00c6adb838af9ddff8fa706a23f5854bff7905587bf40a730023a15ab0675689
+          --directory "${{ runner.temp }}/ray-reuse-comparison"
+          --scenario P1 --workers 3 --ray-cap 512 --ray-batch 131072
+          --warmup 600 --steps 1200 --environment development --deadline-seconds 900
+      - name: Retain exact comparison and workload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ray-reuse-paired-native
+          path: ${{ runner.temp }}/ray-reuse-comparison/*.json
+          if-no-files-found: warn
