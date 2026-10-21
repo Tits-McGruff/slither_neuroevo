@@ -1479,7 +1479,7 @@ An explicit `--soak-hours 6 --workspace /absolute/persistent/new-run` extends th
 same P0/P1 command to 21,600 active trainer seconds. Its parent directory must
 already exist outside temporary storage; the new workspace is exclusive and
 retained on success or failure. The default is 72 manual generation boundaries,
-with an explicit range of 2..128 in this mode. Ordinary commands keep their
+with an explicit range of 2..120 in this mode. Ordinary commands keep their
 60..300-second limits and disposable cleanup.
 
 The long mode uses a fixed 21,900-second outer trainer deadline, bounded health

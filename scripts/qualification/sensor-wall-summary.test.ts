@@ -122,6 +122,7 @@ describe('explicit six-hour wall admission', () => {
     expect(() => sensorWallTiming(21_600)).toThrow(/60..600/);
     expect(() => sensorWallTiming(60, true)).toThrow(/six-hour/);
     const policy = sensorWallTiming(21_600, true);
+    expect(policy.generationBoundaryLimit).toBe(120);
     expect(Math.ceil(policy.maxWallSeconds * 1000 / policy.readIntervalMs) +
       2 * policy.generationBoundaryLimit + 2).toBeLessThan(4096);
     expect(policy.processDeadlineMs).toBe((policy.maxWallSeconds + 30) * 1000);
