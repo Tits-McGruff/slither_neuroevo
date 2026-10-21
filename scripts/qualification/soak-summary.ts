@@ -7,8 +7,12 @@ interface Storage {
   snakes: number; snakeCapacity: number; snakeLimit: number;
   bodyPoints: number; bodyCapacity: number; bodyLimit: number;
   pellets: number; pelletCapacity: number; pelletLimit: number;
-  lifeSlots: number; lifeSlotCapacity: number; recentLifeEnds: number;
-  deaths: number; respawns: number; currentRssBytes: number;
+  brains: number; brainCapacity: number;
+  lifeSlots: number; lifeSlotCapacity: number; recentLifeEnds: number; recentLifeEndCapacity: number;
+  transactionLifeEnds: number; transactionLifeEndCapacity: number;
+  lives: number; deaths: number; respawns: number; failedPlacements: number; pendingSeconds: number;
+  recurrentElements: number; weightElements: number; admittedStateBytes: number;
+  placementCandidates: number; placementGeometryChecks: number; currentRssBytes: number;
 }
 /** Independent report checks bind duration, diagnostic ownership and resource snapshots. */
 export interface NativeSoakReceipt {
@@ -21,7 +25,7 @@ export interface NativeSoakReceipt {
   capture: {observed: number[]; drained: number[]; droppedSamples: number; droppedChunks: number;
     chunks: number; productionWatermark: number; releasedThrough: number; ownershipReconciled: boolean;
     countLimitedDroppedChunks: number; byteLimitedDroppedChunks: number;
-    queuePeakChunks: number; queueChunkLimit: number};
+    queuePeakChunks: number; queueChunkLimit: number; queuePeakBytes: number; drainEverySteps: number};
 }
 
 /** Preserve failed or partial coverage; a short smoke can never establish six-hour acceptance. */
@@ -46,14 +50,16 @@ export function summarizeNativeSoak(report: NativeSoakReceipt) {
   const drained = capture.drained.reduce((sum, value) => sum + count(value), 0);
   for (const value of [capture.droppedSamples, capture.droppedChunks, capture.chunks, capture.productionWatermark,
     capture.releasedThrough, capture.countLimitedDroppedChunks, capture.byteLimitedDroppedChunks,
-    capture.queuePeakChunks, capture.queueChunkLimit]) count(value);
+    capture.queuePeakChunks, capture.queueChunkLimit, capture.queuePeakBytes, capture.drainEverySteps]) count(value);
   assert(observed > 0); assert.equal(capture.ownershipReconciled, true);
   assert.equal(observed, drained + capture.droppedSamples);
   assert.equal(capture.productionWatermark, capture.chunks + capture.droppedChunks);
   assert(capture.productionWatermark <= observed);
   assert.equal(capture.releasedThrough, capture.productionWatermark);
   assert.equal(capture.countLimitedDroppedChunks + capture.byteLimitedDroppedChunks, capture.droppedChunks);
-  assert(capture.queuePeakChunks <= capture.queueChunkLimit && capture.queueChunkLimit > 0);
+  assert(capture.queuePeakChunks <= capture.queueChunkLimit && capture.queueChunkLimit > 0 && capture.queueChunkLimit <= 65_536);
+  assert(capture.queuePeakBytes <= 16 * 1024 * 1024);
+  assert(capture.drainEverySteps > 0 && capture.drainEverySteps <= 60_000);
   assert.equal(report.shadows.length, 4); assert(capture.observed[0]! > 0);
   for (const [index, shadow] of report.shadows.entries()) {
     assert.equal(shadow.activationSequence, index + 1); assert.equal(shadow.samples, capture.observed[0]);
@@ -65,18 +71,32 @@ export function summarizeNativeSoak(report: NativeSoakReceipt) {
   for (const snapshot of report.snapshots) {
     for (const value of [snapshot.completedStep, snapshot.snakes, snapshot.snakeCapacity, snapshot.snakeLimit,
       snapshot.bodyPoints, snapshot.bodyCapacity, snapshot.bodyLimit, snapshot.pellets, snapshot.pelletCapacity,
-      snapshot.pelletLimit, snapshot.lifeSlots, snapshot.lifeSlotCapacity, snapshot.recentLifeEnds,
-      snapshot.deaths, snapshot.respawns, snapshot.currentRssBytes]) count(value);
+      snapshot.pelletLimit, snapshot.brains, snapshot.brainCapacity, snapshot.lifeSlots, snapshot.lifeSlotCapacity,
+      snapshot.recentLifeEnds, snapshot.recentLifeEndCapacity, snapshot.transactionLifeEnds, snapshot.transactionLifeEndCapacity,
+      snapshot.lives, snapshot.deaths, snapshot.respawns, snapshot.failedPlacements,
+      snapshot.recurrentElements, snapshot.weightElements, snapshot.admittedStateBytes,
+      snapshot.placementCandidates, snapshot.placementGeometryChecks, snapshot.currentRssBytes]) count(value);
     assert(snapshot.lifeSlots > 0 && snapshot.lifeSlots <= 300 && snapshot.lifeSlotCapacity >= snapshot.lifeSlots);
-    assert(snapshot.recentLifeEnds <= 256 && snapshot.currentRssBytes > 0);
+    assert(snapshot.recentLifeEnds <= snapshot.recentLifeEndCapacity && snapshot.recentLifeEndCapacity <= 256);
+    assert(snapshot.transactionLifeEnds <= snapshot.transactionLifeEndCapacity && snapshot.transactionLifeEnds <= snapshot.lifeSlots);
+    assert.equal(snapshot.brains, snapshot.lifeSlots); assert(snapshot.brainCapacity >= snapshot.brains);
+    assert(snapshot.currentRssBytes > 0 && snapshot.admittedStateBytes > 0 && snapshot.weightElements > 0);
+    assert(Number.isFinite(snapshot.pendingSeconds) && snapshot.pendingSeconds >= 0);
+    assert.equal(snapshot.lives, snapshot.lifeSlots + snapshot.respawns);
+    assert(snapshot.respawns <= snapshot.deaths && snapshot.deaths <= snapshot.lives);
     for (const [used, capacity, limit] of [[snapshot.snakes, snapshot.snakeCapacity, snapshot.snakeLimit],
       [snapshot.bodyPoints, snapshot.bodyCapacity, snapshot.bodyLimit], [snapshot.pellets, snapshot.pelletCapacity, snapshot.pelletLimit]] as const) {
       assert(used <= capacity && used <= limit);
     }
     if (previous) {
       assert(snapshot.completedStep > previous.completedStep && snapshot.completedStep - previous.completedStep <= 3600);
-      assert(snapshot.deaths >= previous.deaths && snapshot.respawns >= previous.respawns);
-      assert.equal(snapshot.lifeSlots, previous.lifeSlots); assert.equal(snapshot.lifeSlotCapacity, previous.lifeSlotCapacity);
+      assert(snapshot.deaths >= previous.deaths && snapshot.respawns >= previous.respawns &&
+        snapshot.failedPlacements >= previous.failedPlacements && snapshot.pendingSeconds >= previous.pendingSeconds);
+      // This harness never changes generation, population, graph or retained brains. Those
+      // buffers and admitted bounds must stay fixed even while physical lives are replaced.
+      for (const key of ['lifeSlots', 'lifeSlotCapacity', 'brains', 'brainCapacity', 'recentLifeEndCapacity',
+        'transactionLifeEndCapacity', 'recurrentElements', 'weightElements', 'admittedStateBytes',
+        'snakeLimit', 'bodyLimit', 'pelletLimit'] as const) assert.equal(snapshot[key], previous[key], key);
     }
     previous = snapshot;
   }

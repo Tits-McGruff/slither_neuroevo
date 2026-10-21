@@ -1456,7 +1456,7 @@ use the following explicit arguments (with separate new workspace/report paths):
 ```text
 --scenario P0 --profile motion --bins 16 --graph modest --respawn on
 --seed 42 --workers 3 --math-backend sse2 --minimum 1 --cap 512 --batch 131072
---baseline v2-stochastic --baseline-cadence 0.016666666666666666
+--baseline v2-stochastic --baseline-cadence "0.016666666666666666"
 --teacher-respawn-delay 0.5 --capture on --capture-drain-steps 600
 --capture-queue-chunks 8 --warmup 0 --steps 1296000
 --soak-shadow-artifact PATH --workspace NEW_DIRECTORY --output REPORT.json
