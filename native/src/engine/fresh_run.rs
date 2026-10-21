@@ -371,7 +371,7 @@ pub(crate) fn prepare_sensor_qualification_run(
     limits: RunningStepWorkLimits,
     math: InferenceMathBackend,
     baseline: Option<super::baseline_v2::BaselineV2Settings>,
-    trained: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+    trained: &[super::brain_artifact::ValidatedBrainArtifact],
 ) -> Result<PendingRunStartTransition, FreshRunError> {
     let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
@@ -397,8 +397,8 @@ pub(crate) fn prepare_sensor_qualification_run(
         limits,
         baseline,
     )?;
-    if let Some(artifact) = trained {
-        install_qualified_population_artifact(&mut prepared, artifact)?;
+    if !trained.is_empty() {
+        install_qualified_population_artifacts(&mut prepared, trained)?;
     }
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();
@@ -415,8 +415,8 @@ pub(crate) fn prepare_sensor_qualification_run(
 
 /// Cold qualification-only population values; ordinary fresh-run construction stays random.
 #[cfg(feature = "engine-test-hooks")]
-fn install_qualified_population_artifact(
-    prepared: &mut PreparedStage6aP0Boundary,
+fn validate_qualified_population_artifact(
+    prepared: &PreparedStage6aP0Boundary,
     artifact: &super::brain_artifact::ValidatedBrainArtifact,
 ) -> Result<(), FreshRunError> {
     let contract = super::sensor_contract::SensorContractIdentity::from_settings(
@@ -445,12 +445,50 @@ fn install_qualified_population_artifact(
             "trained qualification artifact graph/sensors/deployment mismatch".into(),
         ));
     }
-    // Shape, checkpoint and peak-memory preflight already admitted these boxes.
-    // Keep the ordinary initialization RNG continuation and replace values in place.
+    Ok(())
+}
+
+/// Validate every source before copying; stable population slots select families, never snake IDs.
+#[cfg(feature = "engine-test-hooks")]
+fn install_qualified_population_artifacts(
+    prepared: &mut PreparedStage6aP0Boundary,
+    artifacts: &[super::brain_artifact::ValidatedBrainArtifact],
+) -> Result<(), FreshRunError> {
+    if artifacts.is_empty() || artifacts.len() > 16 {
+        return Err(FreshRunError::Settings(
+            "qualification requires 1..16 policy families".into(),
+        ));
+    }
+    for artifact in artifacts {
+        validate_qualified_population_artifact(prepared, artifact)?;
+    }
+    if prepared
+        .candidate
+        .population
+        .iter()
+        .enumerate()
+        .any(|(index, genome)| genome.slot as usize != index)
+    {
+        return Err(FreshRunError::Settings(
+            "qualification population slots are not dense".into(),
+        ));
+    }
+    // All parameter boxes and recurrent owners were admitted by ordinary fresh construction.
+    // Preserve their pointers, lineages and initialization RNG continuation.
     for genome in &mut prepared.candidate.population {
-        genome.weights.copy_from_slice(&artifact.weights);
+        genome
+            .weights
+            .copy_from_slice(&artifacts[genome.slot as usize % artifacts.len()].weights);
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "engine-test-hooks"))]
+fn install_qualified_population_artifact(
+    prepared: &mut PreparedStage6aP0Boundary,
+    artifact: &super::brain_artifact::ValidatedBrainArtifact,
+) -> Result<(), FreshRunError> {
+    install_qualified_population_artifacts(prepared, std::slice::from_ref(artifact))
 }
 
 fn prepare_fresh_boundary_with_sensor(
@@ -2289,6 +2327,40 @@ mod tests {
             .brains
             .iter()
             .all(|brain| brain.recurrent.iter().all(|value| *value == 0.0)));
+        let mut families = vec![
+            artifact,
+            super::super::brain_artifact::validate_brain_artifact(
+                &super::super::trained_cohort::fixture_bytes(0.125, 0.06),
+            )
+            .unwrap(),
+        ];
+        // A bad later source must reject atomically before touching even slot zero.
+        let original = prepared.candidate.population[0].weights.to_vec();
+        families[1].deployment.control_interval_seconds = 0.03;
+        assert!(install_qualified_population_artifacts(&mut prepared, &families).is_err());
+        assert_eq!(
+            &*prepared.candidate.population[0].weights,
+            original.as_slice()
+        );
+        families[1].deployment.control_interval_seconds = 0.06;
+        install_qualified_population_artifacts(&mut prepared, &families).unwrap();
+        assert_eq!(prepared.candidate.rng, rng);
+        for (index, genome) in prepared.candidate.population.iter().enumerate() {
+            assert_eq!(
+                &*genome.weights,
+                families[genome.slot as usize % 2].weights.as_slice()
+            );
+            assert_eq!(genome.weights.as_ptr(), pointers[index]);
+            assert_eq!(
+                (genome.slot, genome.brain, genome.lineage.clone()),
+                ids[index]
+            );
+        }
+        assert!(prepared
+            .candidate
+            .brains
+            .iter()
+            .all(|brain| brain.recurrent.iter().all(|value| *value == 0.0)));
         prepared
             .candidate
             .config
@@ -2297,7 +2369,7 @@ mod tests {
             .find(|entry| entry.path == "brain.controlDt")
             .unwrap()
             .value = NormalizedSettingValue::Float(0.03);
-        assert!(install_qualified_population_artifact(&mut prepared, &artifact).is_err());
+        assert!(install_qualified_population_artifacts(&mut prepared, &families).is_err());
     }
 
     fn request(seed: u32) -> Stage6aP0FreshRunRequest {

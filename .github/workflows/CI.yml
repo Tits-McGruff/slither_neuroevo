@@ -165,6 +165,23 @@ jobs:
           name: trained-sensor-cohorts-${{ matrix.os }}
           path: ${{ runner.temp }}/trained-sensor-cohorts/*.json
           if-no-files-found: warn
+      - name: Retained learned-family restore boundary tests
+        if: matrix.node-version == '24.x'
+        run: python -B -m unittest discover -s scripts/qualification -p test_trained_sensor_cohorts.py
+      - name: Native mixed learned-family P0/P1 worker continuation
+        if: matrix.node-version == '24.x'
+        run: >-
+          python -B scripts/qualification/trained-sensor-cohorts.py --replicated
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --study docs/performance/sensor-v4/replicated-ablation-windows-v1
+          --directory "${{ runner.temp }}/mixed-sensor-cohorts" --workers 3 --warmup 0 --steps 12
+      - name: Retain native mixed-family outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixed-sensor-cohorts-${{ matrix.os }}
+          path: ${{ runner.temp }}/mixed-sensor-cohorts/*.json
+          if-no-files-found: warn
       - name: Native capture byte-pressure and authority cohort
         if: matrix.node-version == '24.x'
         run: >-

@@ -234,3 +234,7 @@ pub mod soak_qualification;
 /// Synthetic in-arena v4 sensing pressure; separate from complete gameplay qualification.
 #[cfg(feature = "engine-test-hooks")]
 pub mod crowded_sensor_qualification;
+
+/// Bounded same-graph learned families for native qualification, never a production founder API.
+#[cfg(feature = "engine-test-hooks")]
+pub mod trained_cohort;

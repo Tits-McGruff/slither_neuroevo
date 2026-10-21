@@ -276,6 +276,9 @@ pub struct SensorQualificationReport {
     /// Omitted for the frozen random-cohort report schema.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trained_artifact: Option<super::brain_artifact::BrainArtifactDescriptorV1>,
+    /// Version-seven qualification source families; absent from earlier report schemas.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trained_cohort: Option<super::trained_cohort::CohortDescriptor>,
     pub authoritative_memory_reservation_bytes: Option<usize>,
     pub population: usize,
     pub baseline_count: usize,
@@ -422,7 +425,7 @@ fn prepare_sensor_workload_with_artifact(
         },
         options.math,
         options.baseline,
-        trained,
+        trained.map(std::slice::from_ref).unwrap_or_default(),
     )
 }
 
@@ -680,6 +683,32 @@ fn run_with_observer(
     workspace: &Path,
     observer_enabled: bool,
 ) -> Result<SensorQualificationReport, String> {
+    run_with_sources(options, workspace, observer_enabled, None)
+}
+
+/// Construct a native mixed learned cohort; ordinary production fresh runs remain unchanged.
+pub fn run_sensor_cohort_qualification(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    index: &Path,
+) -> Result<SensorQualificationReport, String> {
+    if options.trained_artifact.is_some() || options.large_graph {
+        return Err("cohort supplies its graph; omit single-artifact and graph overrides".into());
+    }
+    run_with_sources(
+        options,
+        workspace,
+        true,
+        Some(super::trained_cohort::load(index)?),
+    )
+}
+
+fn run_with_sources(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    observer_enabled: bool,
+    cohort: Option<super::trained_cohort::TrainedCohort>,
+) -> Result<SensorQualificationReport, String> {
     if !options.teacher_respawn_delay_seconds.is_finite()
         || !(0.5..=60.0).contains(&options.teacher_respawn_delay_seconds)
     {
@@ -718,10 +747,14 @@ fn run_with_observer(
         .as_deref()
         .map(load_trained_artifact)
         .transpose()?;
+    let selected = cohort
+        .as_ref()
+        .and_then(|family| family.artifacts.first())
+        .or(trained.as_ref());
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        version:if trained.is_some() {6}else{5},trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
+        version:if cohort.is_some() {7}else if trained.is_some() {6}else{5},trained_cohort:cohort.as_ref().map(|value|value.descriptor(options.population)),trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
@@ -733,7 +766,7 @@ fn run_with_observer(
         teacher_respawn_delay_seconds:options.teacher_respawn_delay_seconds,
         consumer_work:[ConsumerSensorWork::default();3],minimum_due_consumers:None,maximum_due_consumers:0,
         all_consumer_ray_incomplete_fraction:None,all_consumer_ray_incomplete_below_one_percent:None,shared_batch_budget_held:None,
-        graph_size:if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
+        graph_size:if cohort.is_some() {"trained-cohort"}else if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
         sensor_sha256:contract.sha256_hex().map_err(|error|error.to_string())?,
         ray_minimum:options.ray_limits.map(RayWorkLimits::minimum),ray_cap:options.ray_limits.map(RayWorkLimits::cap),
         ray_batch:options.ray_limits.map(RayWorkLimits::batch),normalized:contract.order().iter().map(|label|BoundedHistogram::new(label,-1.0,1.0)).collect(),
@@ -748,18 +781,44 @@ fn run_with_observer(
     if trained.is_some() {
         report.caveat = "Actual native trained-clone qualification cohort, initialized cold from one independently validated portable graph/weights artifact before the durable run-start boundary. Random initialization RNG draws are retained; no runtime founder/import command is introduced. This is one cloned learned policy, not a genetically diverse mature population. Evolved-life/economic sensor values are authoritative and can differ from the baseline teacher domain. Artifact cadence/life-state rules are recorded settings. Complete steps, frame packing, sensor distributions and optional committed teacher capture are measured; wall-debt scheduling, representative coverage, integrated contention and production defaults are separate gates.";
     }
-    let pending = prepare_sensor_workload_with_artifact(
-        options,
-        Stage6aP0FreshRunRequest {
-            run_id: format!(
-                "sensor-qualification-{}-{}",
-                options.population, options.seed
-            ),
-            seed: options.seed,
-            memory_ceiling_bytes: 4 * 1024 * 1024 * 1024usize,
-        },
-        trained.as_ref(),
-    );
+    if cohort.is_some() {
+        report.caveat = "Actual native same-graph learned policy families, assigned by stable populationSlot modulo declared family count before the durable run-start boundary. Distinct validated packed weights are measured; maturity and representative coverage are not inferred from family count. Cold source bytes are reserved against the existing construction ceiling. No production founder command, alternate simulator or default selection is introduced.";
+    }
+    let request = Stage6aP0FreshRunRequest {
+        run_id: format!(
+            "sensor-qualification-{}-{}",
+            options.population, options.seed
+        ),
+        seed: options.seed,
+        memory_ceiling_bytes: (4 * 1024 * 1024 * 1024usize)
+            .checked_sub(
+                cohort
+                    .as_ref()
+                    .map_or(0, |value| value.source_reservation_bytes),
+            )
+            .ok_or("cohort exhausted construction admission")?,
+    };
+    let pending = if let Some(cohort) = &cohort {
+        sensor_workload_spec(options, selected).and_then(|(updates, spec)| {
+            prepare_sensor_qualification_run(
+                request,
+                &updates,
+                spec,
+                options.profile,
+                options.bins,
+                RunningStepWorkLimits {
+                    calculation_workers: options.workers,
+                    ray_work: options.ray_limits,
+                    ..RunningStepWorkLimits::provisional_defaults()
+                },
+                options.math,
+                options.baseline,
+                &cohort.artifacts,
+            )
+        })
+    } else {
+        prepare_sensor_workload_with_artifact(options, request, selected)
+    };
     let mut pending = match pending {
         Ok(pending) => pending,
         Err(error) => {
@@ -896,6 +955,7 @@ fn run_with_observer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::Digest;
 
     /// Exclusive native-only scratch; never a user database or retained archive.
     struct Scratch(std::path::PathBuf);
@@ -1087,6 +1147,72 @@ mod tests {
         assert_eq!(
             single.capture.as_ref().unwrap().exact_samples_match,
             Some(true)
+        );
+        let family_scratch = Scratch::new();
+        let mut entries = Vec::new();
+        for (index, delta) in [0.0, 0.125].into_iter().enumerate() {
+            let bytes = super::super::trained_cohort::fixture_bytes(delta, 0.06);
+            let file = format!("family-{index}.slither-brain");
+            std::fs::write(family_scratch.0.join(&file), &bytes).unwrap();
+            entries.push(serde_json::json!({"file":file,"sha256":format!("{:x}",sha2::Sha256::digest(&bytes))}));
+        }
+        let index = family_scratch.0.join("cohort.json");
+        std::fs::write(
+            &index,
+            serde_json::to_vec(&serde_json::json!({"schemaVersion":1,"artifacts":entries}))
+                .unwrap(),
+        )
+        .unwrap();
+        options.trained_artifact = None;
+        options.workers = 1;
+        let mixed = run_sensor_cohort_qualification(&options, &Scratch::new().0, &index).unwrap();
+        options.workers = 3.min(std::thread::available_parallelism().unwrap().get());
+        let mixed_parallel =
+            run_sensor_cohort_qualification(&options, &Scratch::new().0, &index).unwrap();
+        let unobserved = run_with_sources(
+            &options,
+            &Scratch::new().0,
+            false,
+            Some(super::super::trained_cohort::load(&index).unwrap()),
+        )
+        .unwrap();
+        assert_eq!(unobserved.observations, 0);
+        assert_eq!(mixed.continuation_sha256, unobserved.continuation_sha256);
+        assert!(mixed.admitted && mixed_parallel.admitted);
+        assert_eq!(mixed.version, 7);
+        assert_eq!(mixed.graph_size, "trained-cohort");
+        assert!(mixed.trained_artifact.is_none());
+        let descriptor = mixed.trained_cohort.as_ref().unwrap();
+        assert_eq!(descriptor.families[0].population_slots, 28);
+        assert_eq!(descriptor.families[1].population_slots, 27);
+        assert_eq!(
+            mixed.continuation_sha256,
+            mixed_parallel.continuation_sha256
+        );
+        assert_eq!(mixed.consumer_work, mixed_parallel.consumer_work);
+        assert_eq!(
+            serde_json::to_value(&mixed.normalized).unwrap(),
+            serde_json::to_value(&mixed_parallel.normalized).unwrap()
+        );
+        assert_eq!(
+            mixed.capture.as_ref().unwrap().source_sample_sha256,
+            mixed_parallel
+                .capture
+                .as_ref()
+                .unwrap()
+                .source_sample_sha256
+        );
+        assert_eq!(
+            mixed.capture.as_ref().unwrap().exact_samples_match,
+            Some(true)
+        );
+        options.profile = SensorProfile::Motion;
+        let wrong_profile =
+            run_sensor_cohort_qualification(&options, &Scratch::new().0, &index).unwrap();
+        assert!(!wrong_profile.admitted && wrong_profile.completed_steps == 0);
+        options.profile = SensorProfile::Basic;
+        options.trained_artifact = Some(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/portable-brain-v1.slither-brain"),
         );
         options.profile = SensorProfile::Motion;
         let mismatch = run_sensor_qualification(&options, &Scratch::new().0).unwrap();

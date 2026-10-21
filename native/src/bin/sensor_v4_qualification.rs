@@ -72,6 +72,7 @@ struct Arguments {
     path: PathBuf,
     output: PathBuf,
     soak_shadow: Option<PathBuf>,
+    cohort: Option<PathBuf>,
 }
 
 fn parse() -> Result<Arguments, Box<dyn Error>> {
@@ -80,6 +81,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     while let Some(flag) = arguments.next() {
         if ![
             "--soak-shadow-artifact",
+            "--trained-cohort",
             "--capture",
             "--capture-drain-steps",
             "--capture-queue-chunks",
@@ -200,6 +202,15 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     if values.contains_key("--trained-artifact") && values.contains_key("--graph") {
         return Err("--trained-artifact supplies the graph; omit --graph".into());
     }
+    if values.contains_key("--trained-cohort")
+        && ["--trained-artifact", "--graph", "--soak-shadow-artifact"]
+            .iter()
+            .any(|key| values.contains_key(*key))
+    {
+        return Err(
+            "--trained-cohort supplies its graph; omit artifact, graph and soak overrides".into(),
+        );
+    }
     let options = SensorQualificationOptions {
         trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
         population: match required("--scenario")? {
@@ -261,6 +272,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         path: PathBuf::from(required("--workspace")?),
         output: PathBuf::from(required("--output")?),
         soak_shadow: values.get("--soak-shadow-artifact").map(PathBuf::from),
+        cohort: values.get("--trained-cohort").map(PathBuf::from),
     })
 }
 
@@ -270,6 +282,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         path,
         output,
         soak_shadow,
+        cohort,
     } = parse()?;
     let workspace = Workspace::create(&path)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
@@ -313,6 +326,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
             )
             .map_err(std::io::Error::other)?
+        } else if let Some(index) = &cohort {
+            serde_json::to_value(
+                slither_native::engine::sensor_qualification::run_sensor_cohort_qualification(
+                    &options,
+                    &workspace.path,
+                    index,
+                )
+                .map_err(std::io::Error::other)?,
+            )?
         } else {
             serde_json::to_value(
                 run_sensor_qualification(&options, &workspace.path)
