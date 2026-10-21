@@ -1475,6 +1475,29 @@ This bounded functional mode exercises trainer intake, four shadows and durable
 generation handoffs together. A short run does not establish the six-hour
 integrated soak, maximum library/spool overlap or production-default selection.
 
+An explicit `--soak-hours 6 --workspace /absolute/persistent/new-run` extends the
+same P0/P1 command to 21,600 active trainer seconds. Its parent directory must
+already exist outside temporary storage; the new workspace is exclusive and
+retained on success or failure. The default is 72 manual generation boundaries,
+with an explicit range of 2..128 in this mode. Ordinary commands keep their
+60..300-second limits and disposable cleanup.
+
+The long mode uses a fixed 21,900-second outer trainer deadline, bounded health
+reads every seven seconds, and the existing 30-second generation barrier. Every
+minute the trainer must show both new intake and optimizer progress; observation
+gaps over 120 seconds fail. It saves ordinary durable job snapshots every ten
+minutes using the existing three-file rotation. Atomic progress receipts are
+observations, not job checkpoints. Host errors or interruption cancel its own
+Python process before cleanup. Persistent `host-completion.json` identifies the
+terminal host outcome.
+
+A complete wall-window result requires six actual hours and at least 1,296,000
+committed native steps, alongside the existing progress/debt/step-timing gates.
+Health gaps over 35 seconds reject the evidence. This is a bounded long-window
+harness; a report explicitly leaves `fullCapacitySoakQualified` false. Maximum
+library/spool overlap, representative mature populations and production-default
+selection still require their separate measured qualification.
+
 
 ## Continuous native soak harness
 

@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile, rename, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { loadPanicBinding } from '../../server/test/panicRuntime.ts';
@@ -25,6 +25,7 @@ import { SavedBrainLibrary } from '../../server/rustEngine/savedBrainLibrary.ts'
 import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1 } from '../../server/protocol.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from '../../server/rustEngine/startupMetadata.ts';
+import { sensorWallTiming } from './sensorWallTiming.ts';
 import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../server/rustEngine/diskAdmission.ts';
@@ -46,7 +47,7 @@ const INIT: ExperimentalEngineInit = {contractVersion: 1, maxInboundBatches: 16,
   maxOutputEventOwnedBytes: 1024 ** 2, maxOutputFrameConnections: 4};
 
 /** Run only the explicitly supplied Python interpreter, bounded in output and wall time. */
-async function python(pythonPath: string, checkout: string, args: string[]): Promise<void> {
+async function python(pythonPath: string, checkout: string, args: string[], deadlineMs = 630_000, signal?: AbortSignal): Promise<void> {
   await new Promise<void>((done, reject) => {
     const child = spawn(pythonPath, ['-m', 'pyrl_trainer.live_distillation_gate', ...args], {cwd: checkout,
       windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']});
@@ -59,14 +60,16 @@ async function python(pythonPath: string, checkout: string, args: string[]): Pro
         catch {child.kill();}
       } else child.kill('SIGKILL');
     };
-    const timer = setTimeout(() => terminate(new Error('qualification Python process deadline')), 630_000);
+    const abort = (): void => terminate(new Error('qualification Python process cancelled'));
+    if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, {once: true});
+    const timer = setTimeout(() => terminate(new Error('qualification Python process deadline')), deadlineMs);
     for (const stream of [child.stdout, child.stderr]) stream.on('data', (bytes: Buffer) => {
       output += bytes.toString();
       if (Buffer.byteLength(output) > 256 * 1024) terminate(new Error('qualification Python output admission'));
     });
-    child.once('error', error => {clearTimeout(timer); failure = error; reject(error);});
+    child.once('error', error => {clearTimeout(timer); signal?.removeEventListener('abort', abort); failure = error; reject(error);});
     child.once('close', code => {
-      clearTimeout(timer); if (failure) {reject(failure); return;}
+      clearTimeout(timer); signal?.removeEventListener('abort', abort); if (failure) {reject(failure); return;}
       if (code !== 0) reject(new Error('Python qualification failed: ' + output.slice(-16_384)));
       else {console.info(output.trim()); done();}
     });
@@ -136,7 +139,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -147,17 +150,33 @@ async function run(): Promise<void> {
   assert(['cpu', 'cuda:0'].includes(device)); assert([1, 3].includes(workers));
   const workload = args.get('--workload');
   assert(workload === undefined || workload === 'P0' || workload === 'P1');
-  const boundaries = Number(args.get('--generation-boundaries') ?? '0');
-  assert(Number.isSafeInteger(boundaries) && (boundaries === 0 || (boundaries >= 2 && boundaries <= 8 && workload !== undefined)));
-  const seconds = Number(args.get('--contention-seconds') ?? '60');
-  assert(Number.isSafeInteger(seconds) && seconds >= 60 && seconds <= 300);
+  const sixHour = args.has('--soak-hours');
+  assert(!sixHour || args.get('--soak-hours') === '6');
+  assert(sixHour === args.has('--workspace'), 'six-hour measurement requires an exclusive persistent workspace');
+  const seconds = Number(args.get('--contention-seconds') ?? (sixHour ? '21600' : '60'));
+  const timing = sensorWallTiming(seconds, sixHour);
+  assert(sixHour || seconds <= 300);
+  const boundaries = Number(args.get('--generation-boundaries') ?? (sixHour ? '72' : '0'));
+  assert(Number.isSafeInteger(boundaries) && (boundaries === 0 ||
+    (boundaries >= 2 && boundaries <= timing.generationBoundaryLimit && workload !== undefined)));
+  assert(!sixHour || workload !== undefined && boundaries >= 2);
   assert(workload ? args.has('--student-artifact') : !args.has('--student-artifact') && !args.has('--contention-seconds'));
   const studentArtifact = resolve(args.get('--student-artifact') ?? 'native/fixtures/portable-brain-v1.slither-brain');
   const studentArtifactSha256 = await digest(studentArtifact);
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
   const trainerGateSha256 = await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py'));
-  const root = await mkdtemp(join(tmpdir(), 'slither-live-distillation-'));
+  let root: string;
+  if (sixHour) {
+    root = resolve(args.get('--workspace')!);
+    const parent = await realpath(dirname(root)); const temporary = await realpath(tmpdir());
+    const fromTemporary = relative(temporary, parent);
+    assert(isAbsolute(fromTemporary) || fromTemporary === '..' || fromTemporary.startsWith('..' + sep),
+      'six-hour workspace must be outside disposable temporary storage');
+    assert.equal(parent, dirname(root), 'workspace parent must resolve without symlinks');
+    await mkdir(root); // Exclusive: an existing directory must never become this gate's workspace.
+  } else root = await mkdtemp(join(tmpdir(), 'slither-live-distillation-'));
+  let measured = false;
   const managed = join(root, 'managed'); await mkdir(managed);
   let runtime: ExperimentalRunningAuthorityNativeHandle | undefined;
   let persistence: CheckpointPersistenceClient | undefined; let capture: DistillationCapture | undefined;
@@ -260,12 +279,13 @@ async function run(): Promise<void> {
     const jobDirectory = join(root, 'job');
     const common = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
       '--artifact', studentArtifact, '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB),
-      '--max-wall-seconds', workload ? '600' : '180'];
+      ];
+    const trainingCommon = [...common, '--max-wall-seconds', workload ? '600' : '180'];
     const before = native.health();
     console.info('[live-distillation] training', device, 'workers=' + workers);
-    await python(pythonPath, checkout, ['--phase', 'train', ...common]);
+    await python(pythonPath, checkout, ['--phase', 'train', ...trainingCommon]);
     if (pumpError) throw pumpError;
-    await python(pythonPath, checkout, ['--phase', 'resume', ...common]);
+    await python(pythonPath, checkout, ['--phase', 'resume', ...trainingCommon]);
     if (pumpError) throw pumpError;
     const train = JSON.parse(await readFile(join(jobDirectory, 'train-report.json'), 'utf8')) as Record<string, unknown>;
     const resume = JSON.parse(await readFile(join(jobDirectory, 'resume-report.json'), 'utf8')) as Record<string, unknown>;
@@ -294,9 +314,14 @@ async function run(): Promise<void> {
       const frame = new Uint8Array(metadata.maximumFrameBytes);
       let frameSequence = '0'.repeat(16); let frameCopies = 0; let frameBytes = 0;
       let finished = false; let trainerError: unknown;
-      const training = python(pythonPath, checkout, ['--phase', 'sustain', ...common, '--seconds', String(seconds)])
+      const trainingAbort = new AbortController();
+      const stopTraining = (): void => trainingAbort.abort();
+      process.once('SIGINT', stopTraining); process.once('SIGTERM', stopTraining);
+      const training = python(pythonPath, checkout, ['--phase', 'sustain', ...common, '--seconds', String(seconds),
+        '--max-wall-seconds', String(timing.maxWallSeconds), ...(sixHour ? ['--soak-hours', '6'] : [])], timing.processDeadlineMs, trainingAbort.signal)
         .catch(error => {trainerError = error;}).finally(() => {finished = true;});
-      let nextRead = first.afterMs + 200;
+      let nextRead = first.afterMs + timing.readIntervalMs;
+      let nextProgress = first.afterMs + 60_000;
       try {
         while (!finished) {
           if (pumpError) throw pumpError;
@@ -333,15 +358,28 @@ async function run(): Promise<void> {
             console.info('[live-distillation] durable generation', nextGeneration);
           }
           if (performance.now() >= nextRead) {
-            assert(reads.length < 4095); reads.push(await wallRead(native)); nextRead = performance.now() + 200;
+            assert(reads.length < 4095); reads.push(await wallRead(native)); nextRead = performance.now() + timing.readIntervalMs;
+          }
+          if (sixHour && performance.now() >= nextProgress) {
+            const latest = reads.at(-1)!;
+            await writeFile(join(root, 'live-progress.tmp'), JSON.stringify({schemaVersion: 1,
+              status: 'running', hostPid: process.pid, activeWallSeconds: (performance.now() - first.afterMs) / 1000,
+              health: latest.health, reads: reads.length, committedGenerations: generationBarriers.length,
+              frameCopies, hostPeakRssBytes}) + '\n');
+            await rename(join(root, 'live-progress.tmp'), join(root, 'live-progress.json'));
+            nextProgress = performance.now() + 60_000;
           }
           await new Promise(done => setTimeout(done, 34));
         }
-      } finally {await training;}
+      } catch (error) {trainingAbort.abort(); throw error;}
+      finally {
+        await training;
+        process.removeListener('SIGINT', stopTraining); process.removeListener('SIGTERM', stopTraining);
+      }
       if (trainerError) throw trainerError;
       reads.push(await wallRead(native));
       assert.equal(generationBarriers.length, boundaries, 'all requested generations must commit during the trainer window');
-      const summary = summarizeSensorWall(reads, seconds, boundaries ? {runId, barriers: generationBarriers} : undefined);
+      const summary = summarizeSensorWall(reads, seconds, boundaries ? {runId, barriers: generationBarriers} : undefined, sixHour);
       const sustain = JSON.parse(await readFile(join(jobDirectory, 'sustain-report.json'), 'utf8')) as Record<string, unknown>;
       assert.equal(sustain['requestedSeconds'], seconds); assert(Number(sustain['activeWallSeconds']) >= seconds);
       assert(Number(sustain['optimizerUpdates']) > 0 && Number(sustain['fetches']) > 0);
@@ -402,9 +440,10 @@ async function run(): Promise<void> {
           restoredGeneration: restoredSnapshot.generation as string, restoredCompletedStep: restoredSnapshot.completedStep as string,
           restoredSourceSha256: binding.nativeAddonSourceSha256(), invalidRestoreAdmissionsRejected: rejectedAdmissions.length};
       }
-      const contentionReport = {schemaVersion: 1, gate: boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
-        device, workers, seed: 42, seconds, ...(durability ? {durability} : {}),
-        scope: 'Real background scheduler, seeded modest population starting from random weights with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity, six-hour soak and production-default selection.',
+      const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
+        device, workers, seed: 42, seconds, ...(sixHour ? {sixHourWindow: true, persistentWorkspace: root,
+          fullCapacitySoakQualified: false} : {}), ...(durability ? {durability} : {}),
+        scope: 'Real background scheduler, seeded modest population starting from random weights with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
           hostSha256, trainerGateSha256, studentArtifactSha256,
@@ -423,7 +462,7 @@ async function run(): Promise<void> {
         queueDiagnostics, http: {forbiddenRequests, routes: Object.fromEntries(routes)}};
       await mkdir(dirname(output), {recursive: true});
       await writeFile(output, JSON.stringify(contentionReport, null, 2) + '\n', {flag: 'wx'});
-      console.info('[live-distillation] contention measured', output); return;
+      measured = true; console.info('[live-distillation] contention measured', output); return;
     }
     // Train an active-graph-compatible student too. Differing architectures may
     // be retained, while the single-graph runtime must reject their deployment.
@@ -518,7 +557,12 @@ async function run(): Promise<void> {
     if (runtime) {runtime.requestStop(); await runtime.join();}
     await library?.close();
     if (capture) await capture.close(); else await spool?.close(); await persistence?.close();
-    await removeRoot(root);
+    if (!sixHour) await removeRoot(root);
+    else {
+      await writeFile(join(root, 'host-completion.json'), JSON.stringify({schemaVersion: 1,
+        status: measured ? 'measured' : 'failed', hostPid: process.pid, report: output}) + '\n', {flag: 'wx'});
+      console.info('[live-distillation] persistent evidence workspace', root);
+    }
   }
 }
 
