@@ -246,6 +246,41 @@ pub fn prepare_stage6a_p0_checkpoint_restore(
     .map_err(FreshRunError::from)
 }
 
+/// Restore a candidate v4 boundary with explicit environment admission and unchanged exact build checks.
+/// This test-only entry does not select a production inference or ray-work default.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) fn prepare_sensor_qualification_checkpoint_restore(
+    managed_directory: &std::path::Path,
+    descriptor: &super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    math: InferenceMathBackend,
+    limits: RunningStepWorkLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if profile == super::sensor_contract::SensorProfile::V3 || limits.ray_work.is_none() {
+        return Err(FreshRunError::Settings(
+            "qualified restore requires v4 and explicit ray limits".into(),
+        ));
+    }
+    let contract = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let mut policy = production_restore_policy(memory_ceiling_bytes, true)?;
+    policy.expected_math_backend = math.label().into();
+    let pending = PendingRunStartTransition::restore_committed(
+        managed_directory,
+        descriptor,
+        policy,
+        production_checkpoint_limits(),
+        stage6a_p0_graph_limits(),
+        limits,
+    )?;
+    pending
+        .validate_qualification_sensor_contract(&contract)
+        .map_err(FreshRunError::Settings)?;
+    Ok(pending)
+}
+
 /// Restore one version/target/math-compatible checkpoint from another exact
 /// build before immediately rebinding it to a durable recovery branch.
 pub fn prepare_stage6a_p0_compatible_checkpoint_restore(
@@ -3460,6 +3495,124 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn qualified_checkpoint_restore_preserves_exact_sse2_contract_and_worker_continuation() {
+        use super::super::checkpoint::CheckpointOperationId;
+        use super::super::ray_work::RayWorkLimits;
+        use super::super::sensor_contract::SensorProfile;
+        let artifact = super::super::brain_artifact::validate_brain_artifact(
+            &super::super::trained_cohort::fixture_bytes(0.0, 0.06),
+        )
+        .unwrap();
+        let limits = RunningStepWorkLimits {
+            ray_work: Some(RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+            calculation_workers: 1,
+            ..RunningStepWorkLimits::provisional_defaults()
+        };
+        let mut pending = prepare_sensor_qualification_run(
+            request(42),
+            &numeric_settings(production_default_settings(12, 2)),
+            artifact.graph.spec().clone(),
+            SensorProfile::Basic,
+            8,
+            limits,
+            InferenceMathBackend::Sse2,
+            Some(super::super::baseline_v2::BaselineV2Settings {
+                mode: super::super::baseline_v2::BaselineV2Mode::Stochastic,
+                control_interval_seconds: 0.06,
+            }),
+            &[],
+        )
+        .unwrap();
+        let metadata = pending.startup_metadata_json().unwrap();
+        let managed = TestDirectory::create("qualified-sse2-restore");
+        let descriptor = pending
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("112233445566778899aabbccddeeff00").unwrap(),
+            )
+            .unwrap();
+        let original = std::fs::read(managed.path().join(&descriptor.relative_filename)).unwrap();
+        // Ordinary scalar admission remains strict; explicit qualification never disables exact build checks.
+        assert!(prepare_stage6a_p0_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING
+        )
+        .is_err());
+        assert!(prepare_sensor_qualification_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Basic,
+            8,
+            InferenceMathBackend::Scalar,
+            limits
+        )
+        .is_err());
+        assert!(prepare_sensor_qualification_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Motion,
+            8,
+            InferenceMathBackend::Sse2,
+            limits
+        )
+        .is_err());
+        let missing = prepare_sensor_qualification_checkpoint_restore(
+            std::path::Path::new("unused-no-ray-admission"),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Basic,
+            8,
+            InferenceMathBackend::Sse2,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .err()
+        .unwrap();
+        assert!(missing.to_string().contains("explicit ray limits"));
+        let mut restored = prepare_sensor_qualification_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Basic,
+            8,
+            InferenceMathBackend::Sse2,
+            limits,
+        )
+        .unwrap();
+        assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+        restored.configure_calculation_workers(3).unwrap();
+        let mut expected_frame = None;
+        for transition in [&mut pending, &mut restored] {
+            transition.acknowledge_persistence(&descriptor).unwrap();
+            transition.publish_running_authority().unwrap();
+            let mut frame = Vec::new();
+            assert_eq!(
+                transition
+                    .pack_initial_frame_v1(&mut frame)
+                    .unwrap()
+                    .alive_snakes,
+                14
+            );
+            transition
+                .publish_first_scheduled_frame_v1(&mut frame)
+                .unwrap();
+            assert_eq!(transition.completed_step(), 1);
+            if let Some(expected) = &expected_frame {
+                assert_eq!(&frame, expected);
+            } else {
+                expected_frame = Some(frame);
+            }
+        }
+        assert_eq!(
+            std::fs::read(managed.path().join(&descriptor.relative_filename)).unwrap(),
+            original
+        );
     }
 
     #[test]

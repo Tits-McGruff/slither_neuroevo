@@ -82,6 +82,22 @@ pub struct PendingRunStartTransition {
 }
 
 impl PendingRunStartTransition {
+    /// Require the explicitly admitted qualification sensor identity after independent file validation.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn validate_qualification_sensor_contract(
+        &self,
+        expected: &super::sensor_contract::SensorContractIdentity,
+    ) -> Result<(), String> {
+        let actual = super::sensor_contract::SensorContractIdentity::from_settings(
+            &self.authority.state().config.settings,
+        )
+        .map_err(|error| error.to_string())?;
+        if actual != *expected {
+            return Err("qualified restore sensor contract mismatch".into());
+        }
+        Ok(())
+    }
+
     /// Select non-gameplay calculation threads before this authority becomes runnable.
     pub(crate) fn configure_calculation_workers(&mut self, workers: usize) -> Result<(), String> {
         if self.authority_published {

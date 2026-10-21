@@ -1453,6 +1453,29 @@ failure remains open, along with representative crowded geometry, sustained
 teacher-throughput coverage beyond this bounded window and the six-hour soak.
 
 
+## Live trainer and generation durability
+
+The existing `live-distillation.ts` workload mode accepts
+`--generation-boundaries 2` (2..8) alongside `--workload P0|P1` and the ordinary
+60..300-second contention window. Each run-scoped manual finish joins its native
+effective step, published descriptor, SQLite current pointer and experiment
+sidecar. Every observed authority change must match one ordered barrier. The
+wall summary includes checkpoint/publication/fsync waits and keeps performance
+failures explicit.
+
+After capture settlement, the host stops its own runtime, restarts the real
+persistence worker, verifies the latest pointer and completed-generation records,
+and independently restores the selected file through Rust. The qualification-only
+restore entry requires an explicit Basic/Motion contract, inference backend and
+ray limits; source/build checks remain exact. Ordinary scalar production restore
+admission is unchanged. Seven malformed admission requests must reject without
+poisoning the valid restore on the same owner.
+
+This bounded functional mode exercises trainer intake, four shadows and durable
+generation handoffs together. A short run does not establish the six-hour
+integrated soak, maximum library/spool overlap or production-default selection.
+
+
 ## Continuous native soak harness
 
 The existing native sensor qualifier now has an explicit
