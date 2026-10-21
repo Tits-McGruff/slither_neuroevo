@@ -1477,3 +1477,29 @@ deaths and observed slow-consumer pressure. The verifier independently reconcile
 sample/chunk/drop ownership, all four shadow counts, timing samples and snapshot
 chronology/resource bounds. It does not turn these native diagnostics into an
 integrated trainer, storage-durability or real-time performance claim.
+
+
+## Crowded native sensing stress
+
+The test-hook `crowded-sensor-qualification` runner reuses the existing native
+`dense-body` and `dense-pellet` fixtures. It rejects any body point or pellet
+outside the 3,500-radius arena; dense-body must retain over 200,000 in-arena
+segments after a conservative 30-point head skip. These are immutable synthetic
+boundaries. They do not establish mature population behavior or complete-step,
+trainer, capture, scheduling or real-time performance.
+
+The runner uses native v4 evaluators, head facts, spatial indexes and stable-owner
+fair ray grants. It retains one row block and scratch allocation per calculation
+worker. Warmed scratch capacities must remain fixed, all complete passes must
+report identical work, and output rows must be finite normalized values. The
+report records actual process allocation operations per pass rather than assuming
+that stable scratch proves zero allocation. Index construction is one separate
+cold measurement; dispatch and diagnostic work counters remain inside sensing cost.
+
+`crowded-sensors.ts --runner PATH --directory NEW_DIRECTORY` runs 16 cells:
+both fixtures, Basic/B8 and Motion/B32, ray caps 1 and 512, and one/three workers.
+The shared batch remains an explicit 131,072-unit candidate. Each cell has two
+warmup and ten measured sensing passes. The one-unit cap must expose conservative
+incomplete observations. Matching worker pairs require exact observation hashes,
+work and geometry; their timings are descriptive. Windows/Ubuntu Node 24 CI retains
+all reports and the compact matrix. Production sensor/ray defaults stay unchanged.
