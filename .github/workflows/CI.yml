@@ -223,7 +223,9 @@ jobs:
         continue-on-error: true
         run: npm run test:performance -- --reporter=dot
       - name: Typecheck
-        run: npm run typecheck
+        run: |
+          npm run typecheck
+          node node_modules/typescript/bin/tsc -p scripts/qualification/tsconfig.json --pretty false
       - name: Lint
         run: npm run lint
 

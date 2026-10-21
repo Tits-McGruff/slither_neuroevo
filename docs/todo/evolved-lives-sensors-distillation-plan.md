@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-20)
+## Implementation progress (2026-10-21)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -1174,6 +1174,20 @@ pass on each target. Quotas, production 512-MiB limits and the 4-GiB state ceili
 are unchanged; 768 MiB stays an offline candidate. Crowded geometry, sustained
 teacher throughput, integrated trainer/shadow contention, soak and final default
 selection remain open.
+
+The live distillation host now qualifies a bounded integrated P0/P1 contention
+window using one actual default TBPTT/Adam trainer with fresh HTTP capture intake,
+four learned native shadows and reused frame copying. Windows CPU/CUDA and Debian
+CPU each complete 60 active trainer seconds, exact initial process restart, fresh
+source-cursor progress, all four shadow evaluations and drop-free capture settlement.
+The 300-individual random modest workload fails the real-time/step-time gate on all
+three runs (minimum simulated/wall ratios 0.9193/0.8230/0.3783). These failures remain
+explicit in checksummed reports and recomputed summaries; no defaults or limits are
+promoted. This closes the bounded functional contention slice, not the integrated
+performance, representative-throughput or six-hour-soak acceptance. The measured
+sources/reports are retained in `docs/performance/sensor-v4/trainer-contention-v1/`.
+The unchanged native source reuses the preceding cross-platform 787-test gate;
+PyRL's full suite passes 315 tests with two existing skips.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
