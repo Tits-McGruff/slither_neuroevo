@@ -1,3 +1,4 @@
+import { summarizeNativeSoak, type NativeSoakReceipt } from './soak-summary.ts';
 import { summarizeSensorWall, type SensorWallRead } from './sensorWallSummary.ts';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
 import { createHash } from 'node:crypto';
@@ -1164,4 +1165,88 @@ it('retains real trainer/four-shadow progress and honest measured performance fa
     expect(report.capture.after.error).toBe(null); expect(report.http.forbiddenRequests).toBe(0);
     expect(report.frames.copies).toBeGreaterThan(0); expect(report.frames.bytes).toBeGreaterThan(0);
   }
+});
+
+
+it.each(['windows', 'debian'])('retains %s uninterrupted six-hour native pressure and bounded lifecycle storage', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/sensor-v4/continuous-soak-${platform}-v1`);
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    status: string; sourceSha256: string; target: string; report: string; originalReportBytes: number;
+    originalReportSha256: string; gzipSha256: string; shadowArtifactSha256: string;
+  };
+  expect(manifest.status).toBe('measured'); expect(manifest.report).toBe('P0.json.gz');
+  const encoded = readFileSync(resolve(root, manifest.report)); expect(sha256(encoded)).toBe(manifest.gzipSha256);
+  const bytes = gunzipSync(encoded, {maxOutputLength: 1024 * 1024});
+  expect(bytes.length).toBe(manifest.originalReportBytes); expect(sha256(bytes)).toBe(manifest.originalReportSha256);
+  const report = JSON.parse(bytes.toString('utf8')) as NativeSoakReceipt & {
+    target: string; buildProfile: string; buildClass: string; workers: number; seed: number;
+    metadata: {parameterCount: number; sensorVersion: number; sensorContract: {canonicalJson: string; sha256: string}};
+    shadowArtifact: {artifactSha256: string; parameterCount: number};
+  };
+  expect(report.sourceSha256).toBe(manifest.sourceSha256); expect(report.target).toBe(manifest.target);
+  expect(report.buildProfile).toBe('release'); expect(report.buildClass).toBe('test-hooks');
+  expect(report.workers).toBe(3); expect(report.seed).toBe(42); expect(report.warmupSteps).toBe(0);
+  expect(report.metadata.parameterCount).toBe(25042); expect(report.metadata.sensorVersion).toBe(4);
+  const contract = report.metadata.sensorContract;
+  expect(sha256(Buffer.concat([Buffer.from('slither.sensor-contract.v1\0'), Buffer.from(contract.canonicalJson)]))).toBe(contract.sha256);
+  expect(JSON.parse(contract.canonicalJson) as unknown).toMatchObject({profile: 'motion', bins: 16, inputSize: 264});
+  expect(report.shadowArtifact.artifactSha256).toBe(manifest.shadowArtifactSha256);
+  expect(report.shadowArtifact.parameterCount).toBe(25042);
+  const summary = summarizeNativeSoak(report);
+  expect(summary.measuredSimulatedHours).toBe(6); expect(summary.sixHourPressureSoak).toBe(true);
+  expect(summary.observed).toBeGreaterThan(12_000_000); expect(summary.drained).toBeGreaterThan(1_000_000);
+  expect(report.snapshots).toHaveLength(361);
+});
+
+it('retains exact P2 fast-respawn authority across worker counts and slow capture losses', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/fast-respawn-pressure-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    nativeSourceSha256: string; files: Record<string, {bytes: number; sha256: string; gzipSha256: string}>;
+  };
+  const files = new Map<string, Buffer>();
+  for (const [name, receipt] of Object.entries(manifest.files)) {
+    expect(name).toMatch(/^(fast-w[13]\.json|slow-w3\.json|summary\.json|run-pressure\.py)$/u);
+    const encoded = readFileSync(resolve(root, name + '.gz')); expect(sha256(encoded)).toBe(receipt.gzipSha256);
+    const bytes = gunzipSync(encoded, {maxOutputLength: 4 * 1024 * 1024});
+    expect(bytes.length).toBe(receipt.bytes); expect(sha256(bytes)).toBe(receipt.sha256); files.set(name, bytes);
+  }
+  const summary = JSON.parse(files.get('summary.json')!.toString('utf8')) as {
+    measurementComplete: boolean; releaseQualified: boolean; workerAndPressureContinuationExact: boolean;
+    nativeSourceSha256: string; scriptSha256: string; reports: Array<{case: string; report: string; sha256: string}>;
+  };
+  expect(summary).toMatchObject({measurementComplete: true, releaseQualified: false, workerAndPressureContinuationExact: true});
+  expect(summary.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
+  expect(summary.scriptSha256).toBe(sha256(files.get('run-pressure.py')!));
+  const reports: Record<string, unknown>[] = [];
+  for (const [index, receipt] of summary.reports.entries()) {
+    expect(receipt.case).toBe(['fast-w1', 'fast-w3', 'slow-w3'][index]);
+    const bytes = files.get(receipt.report)!; expect(sha256(bytes)).toBe(receipt.sha256);
+    const report = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    expect(report).toMatchObject({sourceSha256: manifest.nativeSourceSha256, target: 'x86_64-unknown-linux-gnu',
+      admitted: true, population: 55, graphSize: 'large', parameterCount: 494306, warmupSteps: 600, measuredSteps: 3600,
+      completedSteps: 4200, baselineCadenceSeconds: 1 / 60, teacherRespawnDelaySeconds: 0.5,
+      rayMinimum: 1, rayCap: 512, rayBatch: 131072, sharedBatchBudgetHeld: true});
+    expect(report['workers']).toBe(index === 0 ? 1 : 3);
+    const capture = report['capture'] as {samplesObserved: number[]; samplesDrained: number[]; droppedSamples: number;
+      droppedChunks: number; chunksDrained: number; productionWatermark: number; releasedThrough: number;
+      countLimitedDroppedChunks: number; byteLimitedDroppedChunks: number; exactSamplesMatch: boolean | null; queueAccountingMatches: boolean};
+    expect(capture.queueAccountingMatches).toBe(true);
+    expect(capture.samplesObserved.reduce((a, b) => a + b, 0)).toBe(35640);
+    expect(capture.samplesObserved.reduce((a, b) => a + b, 0)).toBe(capture.samplesDrained.reduce((a, b) => a + b, 0) + capture.droppedSamples);
+    expect(capture.productionWatermark).toBe(capture.chunksDrained + capture.droppedChunks);
+    expect(capture.releasedThrough).toBe(capture.productionWatermark);
+    expect(capture.countLimitedDroppedChunks + capture.byteLimitedDroppedChunks).toBe(capture.droppedChunks);
+    if (index < 2) {expect(capture.exactSamplesMatch).toBe(true); expect(capture.droppedChunks).toBe(0);}
+    else {expect(capture.exactSamplesMatch).toBeNull(); expect(capture.droppedChunks).toBeGreaterThan(0);}
+    if (reports.length) {
+      for (const field of ['continuationSha256', 'consumerWork', 'raw', 'normalized']) expect(report[field]).toEqual(reports[0]![field]);
+      for (const field of ['sourceSampleSha256', 'samplesObserved', 'dueTeacherHistogram', 'productionWatermark']) {
+        expect((report['capture'] as Record<string, unknown>)[field]).toEqual((reports[0]!['capture'] as Record<string, unknown>)[field]);
+      }
+    }
+    if (index === 1) expect((report['capture'] as Record<string, unknown>)['drainedSampleSha256'])
+      .toEqual((reports[0]!['capture'] as Record<string, unknown>)['drainedSampleSha256']);
+    reports.push(report);
+  }
+  expect(reports).toHaveLength(3);
 });
