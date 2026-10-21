@@ -84,3 +84,8 @@ required-features = ["engine-test-hooks"]
 name = "checkpoint-capacity-qualification"
 path = "src/bin/checkpoint_capacity_qualification.rs"
 required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "crowded-sensor-qualification"
+path = "src/bin/crowded_sensor_qualification.rs"
+required-features = ["engine-test-hooks"]
