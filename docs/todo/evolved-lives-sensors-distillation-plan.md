@@ -1224,6 +1224,23 @@ curves still improve in the final 500 updates; maturity and profile selection
 remain unqualified. Sources, models, corpus, traces, learning curves and gameplay
 receipts are retained in `docs/performance/sensor-v4/heldout-curves-windows-v1/`.
 
+PyRL's optional bounded whole-window CUDA acceleration is implemented in
+`canonical-graph-distillation` at `9107b85`. All 32 paired real windows matched
+eager CUDA loss, gradients, weights, recurrent state and Adam moments exactly;
+warmed updates averaged 26.86 versus 278.42 ms on the RTX 4080, while compilation
+made the complete short run slower. A 100-update compiled run passed native
+256-delivery parity. The compact [qualification capsule](https://github.com/Tits-McGruff/PyRL-trainer/tree/9107b851953de90e2d6a2f3d6612973fd475084a/docs/performance/canonical_graph/cuda-window-windows-v1)
+retains measured sources, receipts and the trained parity fixture. Ordinary live
+jobs remain eager; maturity, integrated throughput and soak gates remain open.
+
+The live qualification host and PyRL sustain helper now admit an explicit bounded
+six-hour mode with persistent workspaces, bounded health/progress observations,
+periodic ordinary job snapshots and up to 128 durable generation barriers.
+Focused duration/continuation checks and the unchanged 60-second Debian live
+path pass; no six-hour live-window acceptance is claimed. The latest short run
+still fails timing/debt gates, so the integrated performance requirement remains
+open. Maximum-capacity overlap is explicitly outside this new window harness.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

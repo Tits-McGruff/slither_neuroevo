@@ -1,3 +1,4 @@
+import { sensorWallTiming } from './sensorWallTiming.ts';
 import { describe, expect, it } from 'vitest';
 import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 
@@ -112,5 +113,32 @@ describe('durable generation wall-window accounting', () => {
     reads[3]!.health.generation = hex(2); reads[3]!.health.worldEpoch = hex(3);
     reads[3]!.health.schedulerCompletedSteps = hex(1000);
     expect(() => summarizeSensorWall(reads, 60, {runId: 'qualified-run', barriers})).toThrow(/regressed/);
+  });
+});
+
+
+describe('explicit six-hour wall admission', () => {
+  it('preserves short limits and bounds long health reads including all generation barriers', () => {
+    expect(() => sensorWallTiming(21_600)).toThrow(/60..600/);
+    expect(() => sensorWallTiming(60, true)).toThrow(/six-hour/);
+    const policy = sensorWallTiming(21_600, true);
+    expect(Math.ceil(policy.maxWallSeconds * 1000 / policy.readIntervalMs) +
+      2 * policy.generationBoundaryLimit + 2).toBeLessThan(4096);
+    expect(policy.processDeadlineMs).toBe((policy.maxWallSeconds + 30) * 1000);
+  });
+  it('requires real duration, a full completed-step floor and continuous health coverage', () => {
+    const reads: SensorWallRead[] = [];
+    for (let at = 1000; at < 21_601_002; at += 7000) reads.push(read(at, Math.floor(at * 0.06)));
+    reads.push(read(21_601_002, 1_296_060));
+    const result = summarizeSensorWall(reads, 21_600, undefined, true);
+    expect(result.sixHourWall?.workComplete).toBe(true);
+    expect(result.meetsMeasuredGates).toBe(true);
+    const short = [read(1000, 60), read(31_001, 1860), read(61_002, 3660)];
+    expect(summarizeSensorWall(short, 21_600, undefined, true).meetsMeasuredGates).toBe(false);
+    const last = reads.at(-1)!;
+    last.health.completedStep = hex(1_296_059); last.health.schedulerCompletedSteps = hex(1_296_059);
+    expect(summarizeSensorWall(reads, 21_600, undefined, true).sixHourWall?.workComplete).toBe(false);
+    reads.splice(10, 8);
+    expect(() => summarizeSensorWall(reads, 21_600, undefined, true)).toThrow(/coverage gap/);
   });
 });

@@ -1,3 +1,4 @@
+import { sensorWallTiming } from './sensorWallTiming.ts';
 import type { ManagedCheckpointDescriptor } from '../../server/rustEngine/checkpointPersistenceProtocol.ts';
 import type { RustBackgroundHealth } from '../../src/protocol/rustBackground.ts';
 import { counterWindow } from '../stage7/archive-overlap-summary.ts';
@@ -78,9 +79,9 @@ function counter(value: string): bigint {
  * Scheduler/identity failures reject the evidence; measured performance failures
  * remain explicit results so the report never hides a failed configuration.
  */
-export function summarizeSensorWall(reads: readonly SensorWallRead[], requestedSeconds: number, durability?: SensorWallDurability) {
-  if (!Number.isSafeInteger(requestedSeconds) || requestedSeconds < 60 || requestedSeconds > 600 ||
-      reads.length < 2 || reads.length > 4096) throw new Error('bounded 60..600-second wall window required');
+export function summarizeSensorWall(reads: readonly SensorWallRead[], requestedSeconds: number, durability?: SensorWallDurability, sixHour = false) {
+  sensorWallTiming(requestedSeconds, sixHour);
+  if (reads.length < 2 || reads.length > 4096) throw new Error('bounded 60..600-second wall window required');
   const targets = durabilityTargets(reads, durability);
   const initial = reads[0]!; const final = reads.at(-1)!;
   const first = initial.health;
@@ -89,6 +90,7 @@ export function summarizeSensorWall(reads: readonly SensorWallRead[], requestedS
     const h = read.health;
     if (![read.beforeMs, read.afterMs].every(value => Number.isFinite(value) && value >= 0) || read.afterMs < read.beforeMs ||
         (previous && read.beforeMs <= previous.afterMs)) throw new Error('invalid or overlapping wall clock brackets');
+    if (sixHour && previous && read.beforeMs - previous.afterMs > 35_000) throw new Error('six-hour health coverage gap');
     counter(h.worldEpoch); counter(h.generation);
     if (typeof h.schedulerOverloaded !== 'boolean' || h.stepTimingHistogramConsistent !== true) throw new Error('inconsistent wall health observation');
     const changed = previous && (h.worldEpoch !== previous.health.worldEpoch || h.generation !== previous.health.generation);
@@ -109,8 +111,10 @@ export function summarizeSensorWall(reads: readonly SensorWallRead[], requestedS
   const dropped = counter(final.health.schedulerDroppedWallMicros) - counter(first.schedulerDroppedWallMicros);
   const meetsRealtimeGate = progress.minimumWallSeconds >= requestedSeconds &&
     progress.minimumSimulatedWallRatio >= 0.98 && dropped === 0n && !overloaded;
-  return {progress, stepTiming, droppedWallMicros: dropped.toString(), overloadedObserved: overloaded,
+  const sixHourWorkComplete = progress.minimumWallSeconds >= 21_600 && BigInt(progress.deltaSteps) >= 1_296_000n;
+  return {...(sixHour ? {sixHourWall: {requiredSteps: '1296000', workComplete: sixHourWorkComplete}} : {}),
+    progress, stepTiming, droppedWallMicros: dropped.toString(), overloadedObserved: overloaded,
     schedulerCompletedSteps: (counter(final.health.schedulerCompletedSteps) - counter(first.schedulerCompletedSteps)).toString(),
     meetsRealtimeGate, meetsExistingStepTimingGate: stepTiming.meetsP0P1StepGate,
-    meetsMeasuredGates: meetsRealtimeGate && stepTiming.meetsP0P1StepGate};
+    meetsMeasuredGates: meetsRealtimeGate && stepTiming.meetsP0P1StepGate && (!sixHour || sixHourWorkComplete)};
 }
