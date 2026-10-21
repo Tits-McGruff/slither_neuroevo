@@ -1310,3 +1310,58 @@ ordering is tested with actual source-identified addons and HTTP routes under th
 ordinary production limits. Full saved-library/inspector coexistence, diverse crowded
 geometry, trainer/shadow contention, sustained teacher throughput and soak remain
 open. These receipts do not promote the checkpoint candidate or select v4 defaults.
+
+
+## Full saved catalog and selected inspector
+
+The capacity driver now fills the production catalog with 100 distinct portable
+originals using the approved 494,306-parameter Motion/B32 graph. These are explicitly
+manual/synthetic fixtures, generated with bounded 64-KiB streaming scratch; they
+carry no learned-quality claim. Original files total 190.87 MiB. Native validation,
+immutable original/shared-weight publication and real SQLite saves all run through
+the ordinary catalog. A valid 101st distinct original rejects at the record quota
+without publishing either managed object. Additional disk admission prices the
+original/shared-weight/archive/import copies and preserves the operating reserve.
+
+All 100 records are leased into the opaque archive. Both native imports validate
+the originals and their canonical graph/weights/provenance. The host commits the
+complete trusted inventory, then verifies exact catalog membership and scalar
+metadata across four 25-record pages after three further generation commits.
+Qualification and production now use the same import-inventory DTO converter,
+including optional saved-brain membership; a regression checks both populated and
+absent metadata. The prior qualifier's hand-written DTO omitted that field.
+
+The actual native inspector is enabled on a population individual before the
+first imported step, retained through overlapping preparation, and reacquired on
+the replacement and each successor. One production mailbox is reused; every
+receipt has all 504 delivered inputs, a real trace, exact sample-step identity,
+complete wire encoding and duplicate-publication suppression. These are delivered
+observations, not pure probes. Three independently restored continuations still
+match, as do compressed/raw logical checkpoint roots and portable-original IDs
+within each target.
+
+After verification, deleting the imported catalog reclaims all 100 originals and
+100 unshared weight objects. The current population checkpoint and every retained
+Hall-of-Fame object remain present. This is stored-library/inspector capacity;
+short live-deployment/deletion and heterogeneous-library semantics retain their
+existing native/HTTP tests.
+
+| Target and codec | Archive/handoff native peak RSS MiB | Node-host peak RSS MiB | Whole capacity case seconds |
+|---|---:|---:|---:|
+| Windows compressed | 1155.87 | 182.50 | 71.76 |
+| Windows raw fallback | 1155.58 | 184.06 | 62.77 |
+| Debian compressed | 1157.54 | 303.72 | 126.91 |
+| Debian raw fallback | 1157.24 | 291.98 | 106.25 |
+
+Native qualifier and Node metadata/codec host are separate measured processes.
+Reports and measured source patches are in `library-inspector-windows-v1/` and
+`library-inspector-debian-v1/`. All 787 release native tests pass on both targets.
+CI's existing Windows/Ubuntu capacity smoke now includes the full catalog and
+inspector for both codecs. Select `--coexistence library-inspector` in the existing
+capacity command to reproduce this gate; omission retains ordinary capacity mode.
+
+The state-admission ceiling remains 4 GiB, production checkpoint/scratch limits
+remain 512 MiB, and 768 MiB remains an offline candidate. The catalog's record/object
+quotas are unchanged. Diverse crowded geometry, sustained teacher throughput,
+trainer/four-shadow contention and six-hour-equivalent soak remain open. This gate
+does not select production v4 defaults or qualify integrated P3 real-clock speed.

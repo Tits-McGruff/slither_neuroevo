@@ -1158,6 +1158,23 @@ Shared admission for production libuv archive/fresh preparation concurrent with
 live generation transitions, full library/inspector overlap and integrated soak
 remain open.
 
+Shared native population-work admission now precedes import/export/fresh-run
+allocation and holds the source through computation, publication and finalization.
+Export resumes before HTTP body streaming; failed preparation preserves the old
+world and its controller input. Windows/Debian loaded receipts are retained under
+`docs/performance/sensor-v4/population-admission-*-v1/`.
+
+Full stored-library/inspector capacity now also passes on both targets with 300
+large Motion/B32 genomes and both codecs: 100 distinct manual originals, real
+catalog saves, 101st-record rejection, complete archive/import membership and
+pagination, inspector delivery across replacement/three exact successors, and
+reference-aware catalog reclamation. Reports/source patches are retained under
+`docs/performance/sensor-v4/library-inspector-*-v1/`; all 787 release native tests
+pass on each target. Quotas, production 512-MiB limits and the 4-GiB state ceiling
+are unchanged; 768 MiB stays an offline candidate. Crowded geometry, sustained
+teacher throughput, integrated trainer/shadow contention, soak and final default
+selection remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
