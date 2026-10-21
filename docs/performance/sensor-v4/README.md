@@ -1663,8 +1663,9 @@ python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/pe
 ```
 
 Windows/Ubuntu Node 24 CI restores the full capsule, recomputes its matrix, and
-checks the training-prefix witness against the retained predecessor. Eight
-boundary regressions cover bounded restore and altered predecessor identities,
+checks the training-prefix witness against the retained predecessor. Its versioned
+UTF-8/LF manifest identity survives Git checkout line endings while every original
+payload and compressed object retains its exact byte digest. Nine boundary regressions cover bounded restore and altered predecessor identities,
 weights, configurations and witness rows.
 
 ## Crowded native sensing stress

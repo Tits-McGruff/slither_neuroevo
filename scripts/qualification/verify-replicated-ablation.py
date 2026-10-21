@@ -42,6 +42,12 @@ def confined(root, name):
     return path
 
 
+def manifest_text_identity(data):
+    """Bind tracked UTF-8 metadata across Git LF/CRLF checkouts; payloads remain byte-exact."""
+    data.decode("utf-8")
+    return hashlib.sha256(b"slither-evidence-manifest-utf8-lf-v1\0" + data.replace(b"\r\n", b"\n")).hexdigest()
+
+
 def original_json(evidence, record):
     """Read one small content-addressed JSON receipt without restoring an older population/corpus."""
     size = record["bytes"]
@@ -60,10 +66,13 @@ def original_json(evidence, record):
 def verify_prefix(root, prior, matrix):
     """Recompute observed initial/1,000-update equality from both immutable study receipts."""
     prefix = json.loads((root / "prefix-replay.json").read_bytes())
+    require(prefix["schemaVersion"] == 2 and prefix["previousEvidenceHashPolicy"] == "utf8-lf-v1", "versioned prefix manifest identity required")
     prior = prior.resolve(strict=True)
     path = prior / "evidence.json"
-    require(path.stat().st_size <= 1024**2 and digest(path) == prefix["previousEvidenceSha256"], "prior evidence identity changed")
-    manifest = json.loads(path.read_bytes())
+    require(path.stat().st_size <= 1024**2, "bounded prior evidence manifest required")
+    manifest_bytes = path.read_bytes()
+    require(manifest_text_identity(manifest_bytes) == prefix["previousEvidenceSha256"], "prior evidence identity changed")
+    manifest = json.loads(manifest_bytes)
     require(manifest["kind"] == "replicated-ablation-evidence-v1" and manifest["status"] == "measured", "prior measured study required")
     files = manifest["files"]
     require(isinstance(files, list) and len(files) <= 2048, "bounded prior inventory required")
@@ -75,7 +84,7 @@ def verify_prefix(root, prior, matrix):
     for item in old_corpus["objects"]:
         old_record = records["corpus/" + item["file"]]
         require(old_record["bytes"] == item["bytes"] and old_record["sha256"] == item["sha256"], "prior packed input receipt differs")
-    require(prefix["schemaVersion"] == 1 and prefix["update"] == 1000
+    require(prefix["schemaVersion"] == 2 and prefix["update"] == 1000
             and prefix["allPackedInputsAndSequenceReceiptsExact"] is True
             and prefix["allInitialAndPrefixWeightsExact"] is True, "exact prefix witness required")
     expected = []

@@ -113,10 +113,10 @@ class PrefixBoundaryTests(unittest.TestCase):
                  self.object("corpus/labels.f32", labels),
                  self.object("seed-1-fold-2/summary.json", json.dumps(old).encode())]
         manifest = {"kind": "replicated-ablation-evidence-v1", "status": "measured", "files": files}
-        (self.prior / "evidence.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (self.prior / "evidence.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         (self.root / "corpus/corpus.json").write_text(json.dumps(corpus), encoding="utf-8")
-        self.prefix = {"schemaVersion": 1, "update": 1000,
-                       "previousEvidenceSha256": READER.digest(self.prior / "evidence.json"),
+        self.prefix = {"schemaVersion": 2, "update": 1000, "previousEvidenceHashPolicy": "utf8-lf-v1",
+                       "previousEvidenceSha256": READER.manifest_text_identity((self.prior / "evidence.json").read_bytes()),
                        "allPackedInputsAndSequenceReceiptsExact": True,
                        "allInitialAndPrefixWeightsExact": True,
                        "comparisons": [{"seed": 1, "validationSeed": 2, "variant": "full",
@@ -151,6 +151,21 @@ class PrefixBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "witness differs"):
             READER.verify_prefix(self.root, self.prior, self.matrix)
 
+    def test_predecessor_identity_survives_git_checkout_line_endings(self):
+        """LF and CRLF metadata bind identically without relaxing any opaque payload digest."""
+        path = self.prior / "evidence.json"
+        original = path.read_bytes().replace(b"\r\n", b"\n")
+        crlf = original.replace(b"\n", b"\r\n")
+        self.assertNotEqual(original, crlf)
+        path.write_bytes(crlf)
+        self.assertEqual(READER.verify_prefix(self.root, self.prior, self.matrix), 1)
+        path.write_bytes(original)
+        self.assertEqual(READER.verify_prefix(self.root, self.prior, self.matrix), 1)
+        changed = json.loads(original); changed["status"] = "changed"
+        path.write_text(json.dumps(changed, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "prior evidence identity"):
+            READER.verify_prefix(self.root, self.prior, self.matrix)
+
     def test_rejects_changed_packed_weights_and_training_configuration(self):
         """Matching witness text cannot conceal a changed training path."""
         self.current["config"]["gradient_clip"] = 2
@@ -169,7 +184,7 @@ class PrefixBoundaryTests(unittest.TestCase):
         self.publish()
         with self.assertRaisesRegex(ValueError, "prior evidence identity"):
             READER.verify_prefix(self.root, self.prior, self.matrix)
-        self.prefix["previousEvidenceSha256"] = READER.digest(self.prior / "evidence.json")
+        self.prefix["previousEvidenceSha256"] = READER.manifest_text_identity((self.prior / "evidence.json").read_bytes())
         self.publish()
         manifest = json.loads((self.prior / "evidence.json").read_bytes())
         (self.prior / manifest["files"][0]["archive"]).write_bytes(b"damaged")

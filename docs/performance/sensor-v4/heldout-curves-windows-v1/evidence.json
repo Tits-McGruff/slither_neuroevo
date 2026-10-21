@@ -9256,10 +9256,10 @@
     },
     {
       "path": "prefix-replay.json",
-      "archive": "objects/a7737b4ba88ceaf8650596f34ffe407f2c01fc8636b92327a1dcd5e62d3b3583.gz",
-      "bytes": 18106,
-      "sha256": "a7737b4ba88ceaf8650596f34ffe407f2c01fc8636b92327a1dcd5e62d3b3583",
-      "gzipSha256": "0029f1fb18276d2a58ece17afdab09e10df2f80f9ad5b5c0e6bdec2141049347"
+      "archive": "objects/bb8bc3df444bb04ae43d3436ad3a38de04e7c0a50aa694343ee93bab5b55e66a.gz",
+      "bytes": 18152,
+      "sha256": "bb8bc3df444bb04ae43d3436ad3a38de04e7c0a50aa694343ee93bab5b55e66a",
+      "gzipSha256": "7325e03b352cc054202c3f32a8b98b49c715a9aba6b7d13146e771a3ccd92e96"
     },
     {
       "path": "pyrl_trainer/__init__.py",
