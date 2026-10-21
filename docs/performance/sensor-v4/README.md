@@ -1509,3 +1509,58 @@ The fast cases drain exact samples with no losses; the slow case loses 542 compl
 chunks and correctly withholds an exact-capture pass. Step p95 is 34.47/26.58/27.29 ms,
 so this controlled-step evidence does not establish 60-Hz performance. Receipts and
 the executed recorder are retained under `fast-respawn-pressure-debian-v1/`.
+
+
+## Replicated ablation study
+
+`replicated-ablation-windows-v1/` retains a completed CPU study with initialization
+seeds 1/2/3 and held-out geometry seeds 2/4/6. Each of the nine cells trains all
+seven ablations for 1,000 actual updates, with matched sampled windows, batch 32,
+burn-in 32 and BPTT 64. The eight-seed native corpus contains 117,652 delivered
+rows over the existing 14 synthetic tactics and deterministic/stochastic v2
+teacher strata. Corpus collection and gameplay evaluation use the same frozen
+native source as the completed pressure runs; the measured trainer is PyRL commit
+`df2de6c`, Python 3.12.10, Torch 2.14.0+cu126 on CPU with two threads.
+
+The following are macro means across paired cells, not independent replicates or
+confidence intervals. Each final native gameplay evaluation has 14 trials.
+
+| Variant | Parameters | Turn MAE | Boost disagreement | Surviving trials | Food earned |
+|---|---:|---:|---:|---:|---:|
+| Full | 25,042 | 0.07715 | 0.00767 | 9.44 | 31.59 |
+| No bearing | 24,018 | 0.08175 | 0.00698 | 8.78 | 12.35 |
+| No heading | 22,994 | 0.07033 | 0.00721 | 8.56 | 10.90 |
+| No velocity | 22,994 | 0.07794 | 0.00777 | 9.56 | 13.10 |
+| No urgency | 24,018 | 0.09071 | 0.00757 | 8.11 | 9.47 |
+| No density | 24,018 | 0.09089 | 0.00757 | 8.00 | 8.98 |
+| Core-only | 15,826 | 0.06402 | 0.00714 | 9.89 | 12.16 |
+
+Core-only has lower mean held-out turn error, while Full earns more food in these
+trials. Teacher strata, cell ranges and paired differences remain explicit in the
+readable `matrix.json`; these mixed outcomes do not establish a winning production
+profile. Core-only is a graph ablation under the recorded Motion contract, not an
+automatic portable conversion to a Basic deployment contract. The study has no
+held-out learning-curve plateau proof or representative mature population, and
+retains `maturityQualified: false`, `releaseQualified: false`, `profileChoice: null`.
+
+All 63 final students pass actual Rust/PyTorch held-out-prefix parity over 256
+observations. Observed maximum absolute differences are 4.48e-7 for outputs and
+8.05e-7 for recurrent state, within the existing frozen tolerances. Exact original
+corpus, initial/final portable artifacts, before/after native gameplay reports,
+training traces, parity arrays, executed driver and measured sources are retained
+in content-addressed gzip objects. Deduplication reduces 1,324 logical files to
+691 objects (about 23.9 MiB), with original and compressed hashes in `evidence.json`.
+
+Reproduce the retained-study verification with:
+
+```text
+python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
+```
+
+The verifier streams bounded originals into exclusive temporary scratch, verifies
+every corpus/object receipt, then runs
+the archived stdlib-only matrix reader and requires an exactly recomputed summary.
+It needs Python, no Torch installation, training process or simulator. Five boundary
+regressions reject traversal/aliases, duplicate or invalid lengths, changed gzip
+bytes, excess expansion and original-byte mismatches before any archived reader
+runs. Windows/Ubuntu Node 24 CI verifies the complete retained study.
