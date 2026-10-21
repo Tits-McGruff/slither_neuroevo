@@ -1588,3 +1588,26 @@ warmup and ten measured sensing passes. The one-unit cap must expose conservativ
 incomplete observations. Matching worker pairs require exact observation hashes,
 work and geometry; their timings are descriptive. Windows/Ubuntu Node 24 CI retains
 all reports and the compact matrix. Production sensor/ray defaults stay unchanged.
+
+
+The complete matrix also passes on the development Ryzen 7 5800X (16 logical CPUs,
+64-GiB class) and Oxygen Ryzen 7 2700 VM (8 CPUs, 16-GiB class). Every one of the
+320 measured population passes records zero allocation operations, and all worker
+pairs have identical observations, work and geometry. The CI matrix now rejects a
+warmed allocation rather than merely reporting it. Exact reports and host receipts
+are retained under `crowded-sensing-{windows,debian}-v1/`.
+
+| Host | Dense-body Motion/B32 p95 ms, one worker | Dense-body Motion/B32 p95 ms, three workers | Dense-pellet Motion/B32 p95 ms, three workers |
+|---|---:|---:|---:|
+| Windows development | 71.59 | 29.15 | 2.47 |
+| Oxygen Debian | 179.05 | 74.07 | 4.16 |
+
+These are descriptive shared-host timings from ten repeated immutable sensing
+passes per cell. They exclude repeated index rebuilding, inference and physics.
+The dense-body audit retains 217,000 actual body points and more than 200,000
+in-arena segments after the head skip. Every dense-body sample hits the existing
+2,200-body/900-pellet candidate caps; each Motion/B32 cap-512 pass has three of 310
+observations with incomplete rays. All dense-pellet samples hit the pellet cap.
+The conservative saturation flags remain explicit. This pressure coverage does
+not establish sensor quality in mature gameplay, full-step 60-Hz acceptance or
+production default ray/detail limits.
