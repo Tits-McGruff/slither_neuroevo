@@ -14,6 +14,7 @@ import type { ExperimentalFreshRunNativeHandle } from '../../server/rustEngine/e
 import type { ExperimentalRunningAuthorityNativeHandle } from '../../server/rustEngine/backgroundRuntime.ts';
 import type { ExperimentalEngineInit } from '../../server/rustEngine/experimentalNativeBridge.ts';
 import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointPersistenceClient.ts';
+import type { ManagedCheckpointDescriptor } from '../../server/rustEngine/checkpointPersistenceProtocol.ts';
 import { parseManagedCheckpointDescriptor } from '../../server/rustEngine/checkpointPersistenceProtocol.ts';
 import { BackgroundCommandAdmission } from '../../server/rustEngine/commandAdmission.ts';
 import { BackgroundGenerationRouter } from '../../server/rustEngine/backgroundGeneration.ts';
@@ -24,12 +25,15 @@ import { SavedBrainLibrary } from '../../server/rustEngine/savedBrainLibrary.ts'
 import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1 } from '../../server/protocol.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from '../../server/rustEngine/startupMetadata.ts';
-import { summarizeSensorWall, type SensorWallRead } from './sensorWallSummary.ts';
+import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../server/rustEngine/diskAdmission.ts';
 
 /** Explicit candidate-only constructor, absent from normal production startup. */
 interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
+  /** Independently restore an exact qualification boundary with its declared environment. */
+  initializeSensorCheckpointForTest(directory: string, descriptor: ManagedCheckpointDescriptor,
+    admission: {profile: string; bins: number; mathBackend: string; rayMinimum: number; rayCap: number; rayBatch: number}): Promise<unknown>;
   /** Delegate all state construction to the real Rust qualification constructor. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
     rayMinimum: number; rayCap: number; rayBatch: number; workload?: string}): Promise<unknown>;
@@ -132,7 +136,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -143,6 +147,8 @@ async function run(): Promise<void> {
   assert(['cpu', 'cuda:0'].includes(device)); assert([1, 3].includes(workers));
   const workload = args.get('--workload');
   assert(workload === undefined || workload === 'P0' || workload === 'P1');
+  const boundaries = Number(args.get('--generation-boundaries') ?? '0');
+  assert(Number.isSafeInteger(boundaries) && (boundaries === 0 || (boundaries >= 2 && boundaries <= 8 && workload !== undefined)));
   const seconds = Number(args.get('--contention-seconds') ?? '60');
   assert(Number.isSafeInteger(seconds) && seconds >= 60 && seconds <= 300);
   assert(workload ? args.has('--student-artifact') : !args.has('--student-artifact') && !args.has('--contention-seconds'));
@@ -192,6 +198,7 @@ async function run(): Promise<void> {
     persistence = new CheckpointPersistenceClient({databasePath: join(root, 'game.sqlite'), managedRootPath: managed});
     const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({managedDirectory: managed, operationId: randomBytes(16).toString('hex')}));
     await persistence.commit(descriptor); session.acknowledgeRunStartPersistence(descriptor);
+    let latestNativeCheckpoint = descriptor;
     await session.activateRunningAuthority(); runtime = await session.createBackgroundRuntime(INIT, () => {}) as ExperimentalRunningAuthorityNativeHandle;
     const native = runtime; const admission = new BackgroundCommandAdmission(native);
     let configRevision = '0000000000000001';
@@ -235,6 +242,9 @@ async function run(): Promise<void> {
           if (event.kind.startsWith('controller') || event.kind === 'externalObservations') throw new Error('unexpected controller traffic');
           savedLibrary.event(event); diagnostics.event(event);
           if (event.commandSequence) {const receive = receipts.get(event.commandSequence); receipts.delete(event.commandSequence); receive?.(event);}
+          if (event.kind === 'generationCheckpointPublished') {
+            latestNativeCheckpoint = parseManagedCheckpointDescriptor((event.checkpoint as {descriptor: unknown}).descriptor);
+          }
           await generation.handle(event);
         }
       })().catch(error => {pumpError = error;}).finally(() => {activePump = undefined;});
@@ -279,6 +289,8 @@ async function run(): Promise<void> {
       const shadowsBefore = metrics.slots;
       const captureBefore = await storage.dataset(dataset.contract.captureEpoch);
       const first = await wallRead(native); const reads = [first];
+      const generationBarriers: SensorGenerationBarrier[] = [];
+      const barrierIntervalMs = seconds * 1000 / (boundaries + 1);
       const frame = new Uint8Array(metadata.maximumFrameBytes);
       let frameSequence = '0'.repeat(16); let frameCopies = 0; let frameBytes = 0;
       let finished = false; let trainerError: unknown;
@@ -294,6 +306,32 @@ async function run(): Promise<void> {
             assert(copied.display.sequence > frameSequence); frameSequence = copied.display.sequence;
             frameCopies++; frameBytes += copied.display.frameByteLength;
           }
+          if (generationBarriers.length < boundaries &&
+              performance.now() >= first.afterMs + barrierIntervalMs * (generationBarriers.length + 1)) {
+            const source = await wallRead(native); const beforeReadIndex = reads.length; reads.push(source);
+            const nextGeneration = (BigInt('0x' + source.health.generation) + 1n).toString(16).padStart(16, '0');
+            const accepted = await command(sequence => native.submitFinishGeneration(sequence, randomBytes(16).toString('hex'), runId, source.health.generation));
+            assert.equal(accepted.kind, 'finishGenerationAccepted'); assert(accepted.finishGenerationEffectiveStep);
+            // A fresh deadline bounds the actual native publication, SQLite fsync and resume barrier.
+            const barrierDeadline = performance.now() + 30_000;
+            while (native.health().generation !== nextGeneration || generation.active) {
+              if (pumpError) throw pumpError;
+              assert(performance.now() < barrierDeadline, 'generation durability barrier deadline');
+              await new Promise(done => setTimeout(done, 10));
+            }
+            const target = await wallRead(native); const afterReadIndex = reads.length; reads.push(target);
+            const selected: ManagedCheckpointDescriptor | null = await persistence!.selectCurrent(runId); assert(selected);
+            assert.deepEqual(selected, latestNativeCheckpoint, 'SQLite pointer must equal the actual native publication');
+            const history = await persistence!.readBrowserHistory(runId);
+            const terminal = history.find(row => BigInt(row.gen) === BigInt('0x' + source.health.generation));
+            assert(terminal?.experiment, 'modern generation must durably retain its experiment sidecar');
+            generationBarriers.push({beforeReadIndex, afterReadIndex, effectiveStep: accepted.finishGenerationEffectiveStep,
+              checkpoint: {runId: selected.runId, boundaryKind: selected.boundaryKind, generation: selected.generation,
+                completedStep: selected.completedStep, logicalRootSha256: selected.logicalRootSha256},
+              terminal: {generation: source.health.generation, completedStep: terminal.experiment.completedStep,
+                reason: terminal.experiment.reason, population: terminal.experiment.population, actualSeconds: terminal.experiment.actualSeconds}});
+            console.info('[live-distillation] durable generation', nextGeneration);
+          }
           if (performance.now() >= nextRead) {
             assert(reads.length < 4095); reads.push(await wallRead(native)); nextRead = performance.now() + 200;
           }
@@ -302,7 +340,8 @@ async function run(): Promise<void> {
       } finally {await training;}
       if (trainerError) throw trainerError;
       reads.push(await wallRead(native));
-      const summary = summarizeSensorWall(reads, seconds);
+      assert.equal(generationBarriers.length, boundaries, 'all requested generations must commit during the trainer window');
+      const summary = summarizeSensorWall(reads, seconds, boundaries ? {runId, barriers: generationBarriers} : undefined);
       const sustain = JSON.parse(await readFile(join(jobDirectory, 'sustain-report.json'), 'utf8')) as Record<string, unknown>;
       assert.equal(sustain['requestedSeconds'], seconds); assert(Number(sustain['activeWallSeconds']) >= seconds);
       assert(Number(sustain['optimizerUpdates']) > 0 && Number(sustain['fetches']) > 0);
@@ -327,9 +366,45 @@ async function run(): Promise<void> {
       assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
       assert.equal(studentArtifactSha256, await digest(studentArtifact));
       if (pumpError) throw pumpError;
-      const contentionReport = {schemaVersion: 1, gate: 'live-trainer-four-shadow-contention-v1',
-        device, workers, seed: 42, seconds,
-        scope: 'Real background scheduler, seeded random modest population with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Excludes crowded geometry, diverse mature policies, full library/spool capacity, six-hour soak and production-default selection.',
+      let durability: {requestedBoundaries: number; barriers: SensorGenerationBarrier[]; persistenceRestartExact: boolean;
+        restoredGeneration: string; restoredCompletedStep: string; restoredSourceSha256: string; invalidRestoreAdmissionsRejected: number} | undefined;
+      if (boundaries) {
+        // Stop only this gate's authority before restarting its metadata worker and validating a cold restore.
+        clearInterval(timer); await activePump;
+        native.requestStop(); await native.join();
+        await library.close(); await persistence.close();
+        persistence = new CheckpointPersistenceClient({databasePath: join(root, 'game.sqlite'), managedRootPath: managed});
+        const recovered = await persistence.selectCurrent(runId); assert(recovered);
+        assert.deepEqual(recovered, latestNativeCheckpoint);
+        const recoveredHistory = await persistence.readBrowserHistory(runId);
+        for (const barrier of generationBarriers) {
+          const row = recoveredHistory.find(entry => BigInt(entry.gen) === BigInt('0x' + barrier.terminal.generation));
+          assert(row?.experiment); assert.equal(row.experiment.completedStep, barrier.terminal.completedStep);
+          assert.equal(row.experiment.reason, 'manual');
+        }
+        const restored = new Constructor(runId, '0000002a', '0000000100000000', workers);
+        const restoreAdmission = {profile: request.profile, bins: request.bins, mathBackend: 'sse2',
+          rayMinimum: request.rayMinimum, rayCap: request.rayCap, rayBatch: request.rayBatch};
+        const rejectedAdmissions = [{bins: 7}, {bins: 16.5}, {mathBackend: 'js'}, {profile: 'v3'},
+          {rayMinimum: Number.NaN}, {rayCap: 0}, {unexpected: true}];
+        for (const invalid of rejectedAdmissions) {
+          await assert.rejects(async () => restored.initializeSensorCheckpointForTest(managed, recovered,
+            {...restoreAdmission, ...invalid}), /qualified restore/u);
+        }
+        const restoredSnapshot = await restored.initializeSensorCheckpointForTest(managed, recovered,
+          restoreAdmission) as {generation: unknown; completedStep: unknown};
+        assert.equal(restoredSnapshot.generation, recovered.generation);
+        assert.equal(restoredSnapshot.completedStep, recovered.completedStep);
+        const restoredMetadata = parseRustStartupMetadata(restored.startupMetadata());
+        assert.equal(restoredMetadata.parameterCount, metadata.parameterCount);
+        assert.equal(restoredMetadata.sensorVersion, 4);
+        durability = {requestedBoundaries: boundaries, barriers: generationBarriers, persistenceRestartExact: true,
+          restoredGeneration: restoredSnapshot.generation as string, restoredCompletedStep: restoredSnapshot.completedStep as string,
+          restoredSourceSha256: binding.nativeAddonSourceSha256(), invalidRestoreAdmissionsRejected: rejectedAdmissions.length};
+      }
+      const contentionReport = {schemaVersion: 1, gate: boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
+        device, workers, seed: 42, seconds, ...(durability ? {durability} : {}),
+        scope: 'Real background scheduler, seeded modest population starting from random weights with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity, six-hour soak and production-default selection.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
           hostSha256, trainerGateSha256, studentArtifactSha256,

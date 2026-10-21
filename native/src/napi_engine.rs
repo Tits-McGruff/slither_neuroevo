@@ -1182,6 +1182,122 @@ impl ExperimentalStage6aFreshRunSession {
 #[cfg(feature = "engine-test-hooks")]
 #[napi]
 impl ExperimentalStage6aFreshRunSession {
+    /// Restore an exact candidate boundary only with explicit sensor/math/ray admission.
+    #[napi(catch_unwind)]
+    pub fn initialize_sensor_checkpoint_for_test(
+        &self,
+        managed_directory: JsString<'_>,
+        descriptor: Object<'_>,
+        admission: Object<'_>,
+    ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+        let keys = [
+            "profile",
+            "bins",
+            "mathBackend",
+            "rayMinimum",
+            "rayCap",
+            "rayBatch",
+        ];
+        let names = admission.get_property_names()?;
+        if names.get_array_length()? != keys.len() as u32 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "qualified restore requires exact fields",
+            ));
+        }
+        for index in 0..names.get_array_length()? {
+            let key = bounded_js_string(
+                names.get_element::<JsString<'_>>(index)?,
+                "restore key",
+                32,
+                false,
+            )?;
+            if !keys.contains(&key.as_str()) || !admission.has_own_property(&key)? {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore requires exact own fields",
+                ));
+            }
+        }
+        let profile = match bounded_object_string(&admission, "profile", 6)?.as_str() {
+            "basic" => crate::engine::sensor_contract::SensorProfile::Basic,
+            "motion" => crate::engine::sensor_contract::SensorProfile::Motion,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore requires Basic/Motion",
+                ))
+            }
+        };
+        let math = match bounded_object_string(&admission, "mathBackend", 6)?.as_str() {
+            "scalar" => crate::engine::inference::InferenceMathBackend::Scalar,
+            "sse2" => crate::engine::inference::InferenceMathBackend::Sse2,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore math backend",
+                ))
+            }
+        };
+        let integer = |key, low: f64, high: f64| -> Result<usize> {
+            let value = admission
+                .get::<f64>(key)?
+                .ok_or_else(|| Error::new(Status::InvalidArg, "restore value missing"))?;
+            if !value.is_finite() || value.fract() != 0.0 || value < low || value > high {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore integer range",
+                ));
+            }
+            Ok(value as usize)
+        };
+        let bins = integer("bins", 8.0, 32.0)?;
+        crate::engine::sensor_contract::SensorContractIdentity::new(profile, bins)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let ray_work = crate::engine::ray_work::RayWorkLimits::new(
+            integer("rayMinimum", 0.0, 1_000_000.0)? as u32,
+            integer("rayCap", 1.0, 1_000_000.0)? as u32,
+            integer("rayBatch", 1.0, 10_000_000.0)? as u32,
+            512,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32_768,
+            false,
+        )?)?;
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        if descriptor.run_id != self.request.run_id {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "qualified restore run differs from session",
+            ));
+        }
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            request: self.request.clone(),
+            calculation_workers: self.calculation_workers,
+            source: FreshRunInitialization::QualifiedCheckpoint(Box::new(
+                QualifiedCheckpointInitialization {
+                    directory,
+                    descriptor,
+                    profile,
+                    bins,
+                    math,
+                    ray_work,
+                },
+            )),
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
     /// Construct an explicitly admitted v4/v2 qualification fixture; absent from production builds.
     #[napi(catch_unwind)]
     pub fn initialize_baseline_v2_for_test(
@@ -1483,6 +1599,17 @@ impl Task for AdoptRecoveryBranchTask {
     }
 }
 
+/// Exact qualification-only environment accompanying a selected immutable checkpoint.
+#[cfg(feature = "engine-test-hooks")]
+struct QualifiedCheckpointInitialization {
+    directory: PathBuf,
+    descriptor: CheckpointDescriptor,
+    profile: crate::engine::sensor_contract::SensorProfile,
+    bins: usize,
+    math: crate::engine::inference::InferenceMathBackend,
+    ray_work: crate::engine::ray_work::RayWorkLimits,
+}
+
 /// Async complete fixed-profile construction for one experimental lineage.
 enum FreshRunInitialization {
     Fresh,
@@ -1494,6 +1621,8 @@ enum FreshRunInitialization {
         crate::engine::ray_work::RayWorkLimits,
         Option<usize>,
     ),
+    #[cfg(feature = "engine-test-hooks")]
+    QualifiedCheckpoint(Box<QualifiedCheckpointInitialization>),
     Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
 }
@@ -1539,6 +1668,16 @@ impl Task for InitializeExperimentalFreshRunTask {
                             }
                         })
                         .map_err(|error| error.to_string())?
+                }
+                #[cfg(feature = "engine-test-hooks")]
+                FreshRunInitialization::QualifiedCheckpoint(inputs) => {
+                    crate::engine::fresh_run::prepare_sensor_qualification_checkpoint_restore(
+                        &inputs.directory, &inputs.descriptor, self.request.memory_ceiling_bytes, inputs.profile, inputs.bins, inputs.math,
+                        crate::engine::step_config::RunningStepWorkLimits {
+                            calculation_workers: self.calculation_workers, ray_work: Some(inputs.ray_work),
+                            ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
+                        },
+                    ).map_err(|error| error.to_string())?
                 }
                 FreshRunInitialization::LegacySqlite((database_path, snapshot_id)) => {
                     prepare_legacy_sqlite_population_import(
