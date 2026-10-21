@@ -230,3 +230,7 @@ pub(crate) mod legacy_json_resources;
 /// Continuous native long-run pressure qualification.
 #[cfg(feature = "engine-test-hooks")]
 pub mod soak_qualification;
+
+/// Synthetic in-arena v4 sensing pressure; separate from complete gameplay qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod crowded_sensor_qualification;
