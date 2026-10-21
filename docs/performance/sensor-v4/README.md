@@ -1469,7 +1469,7 @@ completed final report establish completion. `sixHourEquivalent` is true only fo
 1,296,000 measured steps. Short smokes cannot qualify duration. This is a native
 state/lifecycle/diagnostic-pressure soak; trainer/HTTP/spool contention, repeated
 generation-boundary durability, crowded mature geometry and real-clock performance
-remain separate acceptance requirements. Long-run results are still pending.
+remain separate acceptance requirements. Completed native pressure receipts follow below.
 
 Verify a completed report with `scripts/qualification/verify-soak.ts --report PATH`.
 Add `--require-six-hours` to require the full measured duration, repeated population
@@ -1477,3 +1477,35 @@ deaths and observed slow-consumer pressure. The verifier independently reconcile
 sample/chunk/drop ownership, all four shadow counts, timing samples and snapshot
 chronology/resource bounds. It does not turn these native diagnostics into an
 integrated trainer, storage-durability or real-time performance claim.
+
+
+Both P0 runs completed all 1,296,000 measured steps in one uninterrupted authority.
+Windows recorded 97,416 evolved deaths and 12,815,580 teacher observations; Debian
+recorded 97,852 deaths and 12,814,020 observations. Four shadows retained exact
+coverage of their teacher. Deliberate 600-step draining with an eight-chunk queue
+dropped 11,771,987/11,769,219 samples respectively; every observation reconciles as
+drained or dropped, and all final production watermarks are released. Population,
+brain, recurrent/weight and lifecycle buffer bounds remain fixed across 361 snapshots.
+
+| Target | Actual run seconds | Mean native step ms | Step p95 upper bucket ms | Process peak RSS MiB |
+|---|---:|---:|---:|---:|
+| Windows | 6,269.0 | 4.833 | 6 | 23.39 |
+| Debian | 14,377.2 | 11.084 | 16 | 24.12 |
+
+Exact compressed reports and original-byte hashes are retained under
+`continuous-soak-{windows,debian}-v1/`. Their source is the native soak harness
+checkpoint `8353902`; the stronger independent verifier additionally checks fixed
+buffer/admission identities, accumulated life arithmetic and queue byte limits.
+These native P0 duration/storage/diagnostic-pressure gates pass. Integrated trainer,
+spool/library capacity, generation-boundary durability, mature crowded gameplay and
+real-clock scheduling remain open; this result does not promote v4 defaults.
+
+The same frozen Debian build also completed a P2 extension: 55 large Motion/B32
+brains (494,306 parameters), ten v2 stochastic teachers and 0.5-second teacher
+respawn. Three 600-warmup/3,600-measured-step cases compare one/three workers with
+fast drain, and three workers with a 600-step drain/eight-chunk queue. All produce
+35,640 actual teacher samples and identical continuation, work and sensor histograms.
+The fast cases drain exact samples with no losses; the slow case loses 542 complete
+chunks and correctly withholds an exact-capture pass. Step p95 is 34.47/26.58/27.29 ms,
+so this controlled-step evidence does not establish 60-Hz performance. Receipts and
+the executed recorder are retained under `fast-respawn-pressure-debian-v1/`.

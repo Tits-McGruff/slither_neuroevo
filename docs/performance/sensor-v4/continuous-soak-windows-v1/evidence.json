@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "implementationCommit": "8353902e0c71b67cc23ece05ebadee694905ad37",
+  "sourceSha256": "00c6adb838af9ddff8fa706a23f5854bff7905587bf40a730023a15ab0675689",
+  "binarySha256": "1ef0ccdb122f97b409b545ace21fd9a69fad36ffb788c126a4a6858c9808a125",
+  "shadowArtifactSha256": "d19a7f2df7a4c2edccfe3c0f214f1936a483332b273d53b70089b64cccaffe52",
+  "requestedMeasuredSteps": 1296000,
+  "status": "measured",
+  "report": "P0.json.gz",
+  "originalReportBytes": 338797,
+  "originalReportSha256": "a69b5709f0dd3d9cd9eca7c25474e8b9f90a6aa1fad8adcc9b19d7f846b8d118",
+  "gzipSha256": "c941db7662538848184b9d73be2b20733125bddd86289801a85ea70e12eb97da",
+  "target": "x86_64-pc-windows-msvc",
+  "scope": "One uninterrupted native fixed-step authority with four identical validated candidate shadows and explicit slow capture drain. Complete-step timing includes native capture and shadows; observers/drain/encoding checks are outside that timing. Run-start checkpoint uses native acknowledgement without SQLite. No trainer, HTTP/spool, wall-debt performance, crowded mature population, generation-transition soak or production-default qualification."
+}
