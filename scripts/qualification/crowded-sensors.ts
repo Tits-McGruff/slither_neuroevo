@@ -60,7 +60,7 @@ function main(): void {
           assert.equal(report.proofPassWork.observations, scenario === 'dense-body' ? 310 : 65);
           if (cap === 1) assert(report.proofPassWork.incompleteObservations > 0);
           assert.equal(report.allocationOperationsPerPass.length, 10);
-          for (const count of report.allocationOperationsPerPass) assert(Number.isSafeInteger(count) && count >= 0);
+          for (const count of report.allocationOperationsPerPass) assert.equal(count, 0, 'warmed sensing allocated');
           if (reference) {
             for (const key of ['geometry', 'sensorSha256', 'grantedWork', 'proofPassWork', 'observationsSha256'] as const) {
               assert.deepEqual(report[key], reference[key], `worker count changed ${key}`);

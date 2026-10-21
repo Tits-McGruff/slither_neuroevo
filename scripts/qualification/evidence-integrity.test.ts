@@ -1303,3 +1303,48 @@ it('retains the readable nine-cell ablation matrix and all 63 trained/parity rec
   }
   expect(models).toBe(63);
 });
+
+
+it.each(['windows', 'debian'])('retains %s crowded geometry with zero warmed allocation and exact worker pairs', platform => {
+  const root = resolve(import.meta.dirname, `../../docs/performance/sensor-v4/crowded-sensing-${platform}-v1`);
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    nativeSourceSha256: string; files: Record<string, {bytes: number; sha256: string; gzipSha256: string}>;
+  };
+  const files = new Map<string, Buffer>();
+  for (const [filename, receipt] of Object.entries(manifest.files)) {
+    expect(filename).toMatch(/^(matrix|host|dense-(body|pellet)-(basic-B8|motion-B32)-cap(1|512)-w[13])\.json$/u);
+    const encoded = readFileSync(resolve(root, filename + '.gz')); expect(sha256(encoded)).toBe(receipt.gzipSha256);
+    const original = gunzipSync(encoded, {maxOutputLength: 1024 * 1024});
+    expect(original.length).toBe(receipt.bytes); expect(sha256(original)).toBe(receipt.sha256); files.set(filename, original);
+  }
+  const matrix = JSON.parse(files.get('matrix.json')!.toString('utf8')) as {
+    sourceSha256: string; target: string; releaseQualified: boolean; cells: Array<{filename: string; sha256: string}>;
+  };
+  expect(matrix.sourceSha256).toBe(manifest.nativeSourceSha256); expect(matrix.releaseQualified).toBe(false);
+  expect(matrix.target).toBe(platform === 'windows' ? 'x86_64-pc-windows-msvc' : 'x86_64-unknown-linux-gnu');
+  const host = JSON.parse(files.get('host.json')!.toString('utf8')) as {cpuModel: string; availableParallelism: number; totalMemoryBytes: number};
+  expect(host.cpuModel).toContain(platform === 'windows' ? '5800X' : '2700');
+  expect(host.availableParallelism).toBe(platform === 'windows' ? 16 : 8); expect(host.totalMemoryBytes).toBeGreaterThan(15 * 1024 ** 3);
+  const references = new Map<string, Record<string, unknown>>();
+  for (const cell of matrix.cells) {
+    const bytes = files.get(cell.filename)!; expect(sha256(bytes)).toBe(cell.sha256);
+    const report = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+    expect(report).toMatchObject({gate: 'crowded-v4-sensing-v1', schemaVersion: 1, sourceSha256: manifest.nativeSourceSha256,
+      target: matrix.target, buildProfile: 'release', buildClass: 'test-hooks', warmupPasses: 2, measuredPasses: 10,
+      worldUnchanged: true, scratchStable: true, rayMinimum: 1, rayBatch: 131072});
+    expect(report['allocationOperationsPerPass']).toEqual(Array<number>(10).fill(0));
+    const geometry = report['geometry'] as {bodyPoints: number; inArenaCollisionSegments: number; pellets: number};
+    expect(geometry).toMatchObject({outsideArenaPoints: 0, outsideArenaPellets: 0, arenaRadius: 3500, headSkipPoints: 30});
+    if (report['scenario'] === 'dense-body') {expect(geometry.bodyPoints).toBe(217000); expect(geometry.inArenaCollisionSegments).toBeGreaterThan(200000);}
+    else {expect(report['scenario']).toBe('dense-pellet'); expect(geometry.pellets).toBe(25000);}
+    const key = cell.filename.replace(/-w[13]\.json$/u, '');
+    const reference = references.get(key);
+    if (reference) {
+      for (const field of ['worldSha256', 'geometry', 'sensorSha256', 'grantedWork', 'proofPassWork', 'observationsSha256']) {
+        expect(report[field]).toEqual(reference[field]);
+      }
+      expect(report['workers']).toBe(3);
+    } else {expect(report['workers']).toBe(1); references.set(key, report);}
+  }
+  expect(matrix.cells).toHaveLength(16); expect(references.size).toBe(8); expect(files.size).toBe(18);
+});

@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "implementationCommit": "aa34c767c6dbb5d9b77f3b2eab03fe8158593815",
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "files": {
+    "dense-body-basic-B8-cap1-w1.json": {
+      "bytes": 9393,
+      "sha256": "32e0b6f1f6a769dde8fedffd651fecdb83991325498271b3e54be2c6fa64e866",
+      "gzipSha256": "f72d2bce573d1f0d837757b5a58c62e6559a7b2780813cd4495157a2aee5199c"
+    },
+    "dense-body-basic-B8-cap1-w3.json": {
+      "bytes": 9816,
+      "sha256": "11bdb937d1958190579031346bc85cef786dd81f66da429291c67b7f87ceafa8",
+      "gzipSha256": "5a8d3dd347239abed1e3b01990b6ca5b8b1500084e58744f4d8e98b8f7636c9a"
+    },
+    "dense-body-basic-B8-cap512-w1.json": {
+      "bytes": 9397,
+      "sha256": "b5d867a7ac1fb8355ac6cfccac4f4541cfc9922c76e4257acac69649767c62ea",
+      "gzipSha256": "e032ddd65a8326edd1e8c0bfc12a749803f8eb1519cac54f6049bc2d24a4783f"
+    },
+    "dense-body-basic-B8-cap512-w3.json": {
+      "bytes": 9844,
+      "sha256": "1ef30931dc1634a651340a390a5eeb9b4ed70279e0a86a5dd4d79fd60d771f7d",
+      "gzipSha256": "2c520fce4b4a5f76ae29b0a024d48e6f9ebe45ae335e9898294c695601899361"
+    },
+    "dense-body-motion-B32-cap1-w1.json": {
+      "bytes": 23312,
+      "sha256": "151812900bf6bbcba0c12d0b310ee93cc73a7fc3c7822eb1b425f8c7b67dfa49",
+      "gzipSha256": "b60a00724c2e1f4514d2380d84274bf2e948e55a8707901101dc2bcb2ffb14d8"
+    },
+    "dense-body-motion-B32-cap1-w3.json": {
+      "bytes": 23768,
+      "sha256": "754275408e5269bbfb8730d02da89e84b327eff35b21b0e67b9e7f6c28b4d231",
+      "gzipSha256": "23dbce8309474c5ee935f74e56269e3e609a15083a4b8a18681ad4f912bd926e"
+    },
+    "dense-body-motion-B32-cap512-w1.json": {
+      "bytes": 23327,
+      "sha256": "729456a0bc208d3b74950462324bfcf8ae3535cebfbf4b08d593e7b1520e4083",
+      "gzipSha256": "54f178f00b0916e49010d01fbe89e60f55fca05aaf98d77b35bc5531160450c1"
+    },
+    "dense-body-motion-B32-cap512-w3.json": {
+      "bytes": 23794,
+      "sha256": "3b809a7e84c8846eb4f10b337305407cc0402798d581c72bcbfc1a288bf34269",
+      "gzipSha256": "89765149b908ecb7eb4ec878640eb1b97fb38745b598944d007e8f2ca0215850"
+    },
+    "dense-pellet-basic-B8-cap1-w1.json": {
+      "bytes": 9369,
+      "sha256": "8d00b961ae42096f401664c62413e58e1d856b7ac400ff9af42c7f09a2af1799",
+      "gzipSha256": "af4c9107e57d23d347001e9b07d1732af922f28b18419348a90d46a1ec2c05bb"
+    },
+    "dense-pellet-basic-B8-cap1-w3.json": {
+      "bytes": 9810,
+      "sha256": "5b64672fbe175b3ab021a635578751a63eda36860eb2dfa02dee4735168ad6ff",
+      "gzipSha256": "4a20876aa6d3bec73da9da5ae83c9a6fa55e132dc0897c5259a351c91c181d05"
+    },
+    "dense-pellet-basic-B8-cap512-w1.json": {
+      "bytes": 9366,
+      "sha256": "70df827bc8287a6f03a9f89a996b7597e1fdc6291bcb4db7fbabfda3b2bfd944",
+      "gzipSha256": "222cc5bb7a359b1398d0ef2a515dc61767c9f7b07ab4898421224c5c88d42fa6"
+    },
+    "dense-pellet-basic-B8-cap512-w3.json": {
+      "bytes": 9815,
+      "sha256": "99779267695c9f46fa71a247f9ec9fee77b0312b3d1a0948da6c5d68a00374a3",
+      "gzipSha256": "90e5ba562efad7b34f26ff1d2372f616e71ea94c5188abb016ac6f3a85784158"
+    },
+    "dense-pellet-motion-B32-cap1-w1.json": {
+      "bytes": 23278,
+      "sha256": "359ef554f493e7141bf5a9b17b2d61343a2bc26d9476cc91ac0459f4c58e68f7",
+      "gzipSha256": "e7be7a82d9e4e55122b80f81bb4245503899543a9a8a83ae20d27c8174d9f598"
+    },
+    "dense-pellet-motion-B32-cap1-w3.json": {
+      "bytes": 23729,
+      "sha256": "3902e729ae41f348bc0449aa321cf2d7fd4832b0a43a9fabc72bd47e2cb9f067",
+      "gzipSha256": "f205cc9d4516fea982be93dd37848f08523f2ae981931f2086998b08289a9e94"
+    },
+    "dense-pellet-motion-B32-cap512-w1.json": {
+      "bytes": 23317,
+      "sha256": "c99c29cc12bb3297d724089e6aad988d492008c49c09b2be371aa64d86b05ef3",
+      "gzipSha256": "ddc09d64336e8d10ae50331554864156327166f1960889748571beea9efde6f3"
+    },
+    "dense-pellet-motion-B32-cap512-w3.json": {
+      "bytes": 23743,
+      "sha256": "b85ddc23ca4a6172ba7d70ee32fce8e17d1278def798c3d264b4a94f983a4b09",
+      "gzipSha256": "c391d2def7b31b32c6c423c499462f0deb87293ab17f0bd61635b5b7b9f8090a"
+    },
+    "matrix.json": {
+      "bytes": 2876,
+      "sha256": "d71adfccb0a588a99237f0fc1c713ac2e19cb40aa29171d1ec135007ff8d9959",
+      "gzipSha256": "8fe0cd44033f58127d6722f9fb01036e5094d8387f13b6f5b1eca61aef9f9d1a"
+    },
+    "host.json": {
+      "bytes": 296,
+      "sha256": "78be65abdc465f9bb39a9a57eade92855627dc1f689bb1eff9e770cacff20963",
+      "gzipSha256": "76f305c356a601f8f7a7300ef7420d72b38906ad27e75889cb01ea955c338f27"
+    }
+  }
+}
