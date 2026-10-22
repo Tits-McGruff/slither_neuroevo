@@ -141,13 +141,15 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
   const checkout = resolve(args.get('--pyrl-root')!); const pythonPath = resolve(args.get('--python')!);
   const device = args.get('--device')!; const workers = validateRustCalculationWorkers(Number(args.get('--workers')));
   const spoolGiB = Number(args.get('--spool-gib') ?? '4');
+  const replayMiB = Number(args.get('--replay-mib') ?? '256');
+  assert(Number.isSafeInteger(replayMiB) && replayMiB >= 64 && replayMiB <= 2048, 'replay budget must be 64..2048 MiB');
   const spoolLimits = distillationSpoolLimitsForGiB(spoolGiB);
   assert(['cpu', 'cuda:0'].includes(device));
   const workload = args.get('--workload');
@@ -294,7 +296,7 @@ async function run(): Promise<void> {
     assert.equal(BigInt('0x' + producerStoragePolicy.maxBytes), BigInt(spoolGiB) * 1024n ** 3n);
     const jobDirectory = join(root, 'job');
     const common = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
-      '--artifact', studentArtifact, '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB),
+      '--artifact', studentArtifact, '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB), '--replay-mib', String(replayMiB),
       ];
     const trainingCommon = [...common, '--max-wall-seconds', workload ? '600' : '180'];
     const before = native.health();
@@ -306,6 +308,10 @@ async function run(): Promise<void> {
     const train = JSON.parse(await readFile(join(jobDirectory, 'train-report.json'), 'utf8')) as Record<string, unknown>;
     const resume = JSON.parse(await readFile(join(jobDirectory, 'resume-report.json'), 'utf8')) as Record<string, unknown>;
     assert.equal(resume['updates'], 250); assert.equal(resume['restartExact'], true);
+    for (const phase of [train, resume]) {
+      assert.equal(phase['replayCapacityBytes'], replayMiB * 1024 ** 2);
+      assert(Number(phase['replayBytes']) <= replayMiB * 1024 ** 2);
+    }
     const identity = resume['candidateSha256']; assert.equal(typeof identity, 'string'); assert(/^[0-9a-f]{64}$/u.test(identity as string));
     const receipt = resume['receipt'] as {processEpoch: string; baselineSlot: number};
     for (let slot = 1; slot < 4; slot++) {
@@ -411,6 +417,8 @@ async function run(): Promise<void> {
         assert(nativeCompletion, 'native six-hour completion must precede trainer exit');
         assert.deepEqual(sustain['nativeWorkCompletion'], nativeCompletion);
       }
+      assert.equal(sustain['replayCapacityBytes'], replayMiB * 1024 ** 2);
+      assert(Number(sustain['peakReplayBytes']) <= replayMiB * 1024 ** 2);
       assert.equal(sustain['requestedSeconds'], seconds); assert(Number(sustain['activeWallSeconds']) >= seconds);
       assert(Number(sustain['optimizerUpdates']) > 0 && Number(sustain['fetches']) > 0);
       assert(BigInt(String(sustain['finalCursor'])) > BigInt(String(sustain['initialCursor'])));
@@ -479,7 +487,7 @@ async function run(): Promise<void> {
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
           hostSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
-        workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {})}, spoolGiB, producerStoragePolicy,
+        workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {})}, spoolGiB, replayMiB, producerStoragePolicy,
         hostPeakRssBytes, train, resume: {...resume, candidatePath: undefined}, sustain, summary,
         reads: reads.map((read, index) => {
           const health = {...read.health};
@@ -499,7 +507,7 @@ async function run(): Promise<void> {
     // be retained, while the single-graph runtime must reject their deployment.
     const denseDirectory = join(root, 'dense-job');
     const denseCommon = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
-      '--artifact', resolve('native/fixtures/portable-dense-basic8-v1.slither-brain'), '--directory', denseDirectory, '--device', device, '--spool-gib', String(spoolGiB)];
+      '--artifact', resolve('native/fixtures/portable-dense-basic8-v1.slither-brain'), '--directory', denseDirectory, '--device', device, '--spool-gib', String(spoolGiB), '--replay-mib', String(replayMiB)];
     await python(pythonPath, checkout, ['--phase', 'train', ...denseCommon]);
     await python(pythonPath, checkout, ['--phase', 'resume', ...denseCommon]);
     if (pumpError) throw pumpError;
