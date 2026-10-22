@@ -1,0 +1,174 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-v4-sensing-profile-and-rejected-candidates-v1",
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "baseCommit": "de0ce7016ad2ff463d45aa6befa380db97c286ee",
+  "baseNativeSourceSha256": "d12574cfb9c9d59fe53dcf1b91b95461fec6cf990f70dad7211e05ee2eae76ad",
+  "profileNativeSourceSha256": "220a3de43cccef9ecb523e06aa4e56cb7d0fd7353a341ab2f094daa6fbbfb83a",
+  "candidateNativeSourceSha256": {
+    "octant": "46c234e6b4542e5dca5ab1963abcabbe64468ac86e0c2204610bd60610e16b00",
+    "heap": "d273fb74014254aa941f2d385ed328b0717c98d7a9cfe03d238d466e10aa2cd5"
+  },
+  "sourceReproduction": "Profile replaces the three named Rust files over baseCommit; each candidate patch applies independently to uninstrumented baseCommit. Recursive native source identities reproduced before retention.",
+  "inputs": "../live-cohort-debian-v1/evidence.json",
+  "trainedCohortSha256": "905873584d29015e8a8a895866e08772c08c902867b381accd730d630f8a939b",
+  "sampledEvaluations": 8538,
+  "sampledPhases": [
+    {
+      "name": "setup",
+      "nanoseconds": 13102702,
+      "fraction": 0.0068984596272233184
+    },
+    {
+      "name": "pelletQuery",
+      "nanoseconds": 531361509,
+      "fraction": 0.27975725291599857
+    },
+    {
+      "name": "pelletEncoding",
+      "nanoseconds": 494336623,
+      "fraction": 0.2602639696776599
+    },
+    {
+      "name": "bodyQuery",
+      "nanoseconds": 201647065,
+      "fraction": 0.10616544105563695
+    },
+    {
+      "name": "bodyEncoding",
+      "nanoseconds": 70821882,
+      "fraction": 0.037287110223599214
+    },
+    {
+      "name": "raysAndRingEncoding",
+      "nanoseconds": 351015533,
+      "fraction": 0.18480665155391418
+    },
+    {
+      "name": "heads",
+      "nanoseconds": 198985495,
+      "fraction": 0.1047641473995629
+    },
+    {
+      "name": "headEncodingAndValidation",
+      "nanoseconds": 38095529,
+      "fraction": 0.02005696754640494
+    }
+  ],
+  "scope": "Debian P1, four distinct learned Full families, eight native workers, SSE2, seed 42, Motion B16, ray cap 512/batch 131072; ten actual stochastic teachers and capture. Shared host with no contemporaneous system-wide resource sidecar.",
+  "conclusion": "Pellet query plus encoding account for about 54% of sampled sensing time. Neither octant classification nor Copy heap-hole sifting produced a meaningful aggregate gain in the adjacent ABBA comparisons. Both candidates were rejected; production Native source remains unchanged.",
+  "caveats": "Sampled every 64th evaluation per native thread; phase fractions are diagnostic, not complete observation totals. Baseline ABBA executable retains disabled instrumentation; candidates are uninstrumented. All measured comparisons preserve exact continuation, sensor distributions and work for the same workload. No general statistical confidence or release qualification is claimed.",
+  "files": {
+    "heap/0-baseline.json": {
+      "bytes": 222446,
+      "sha256": "c2167f94a161575eb24e91ab2c1970c7d88354c705704aacfa3e9bb515c0b3e1",
+      "gzipSha256": "f9a460aa9cf2022b5293117caeb46926aa2c6c3f2791a841cf6abb31e74cedab"
+    },
+    "heap/1-candidate.json": {
+      "bytes": 222435,
+      "sha256": "410f1df8556e0eb5e62aade766798379324115a1cae230452936124213663803",
+      "gzipSha256": "bf3a9eb5de7171b06a1fd2c41fc78e96bc34fb6201acfb67b085954b20fc1687"
+    },
+    "heap/2-candidate.json": {
+      "bytes": 222436,
+      "sha256": "9b1dbc3db4489cba6edefa5f56a96a6762b61ddab111b79f92d518683dcad8ed",
+      "gzipSha256": "7bf9122e607929022de71f72ace37a361b681ff920a3abe76281ada321886f58"
+    },
+    "heap/3-baseline.json": {
+      "bytes": 222382,
+      "sha256": "2f39918b38f2e777e41ad007efaa2a99e24ff636ad13ac7685f1ec8444a3409b",
+      "gzipSha256": "157bd6347ff9158d33c4cbe7bb99466926db2030f8a565a732de1299b4846e1b"
+    },
+    "heap/candidate.patch": {
+      "bytes": 2491,
+      "sha256": "0878008304899720e67dfeff1a40d7dc0ae0325160de203424bd3055d834a505",
+      "gzipSha256": "8ae6013f96cc9ee38b780cb59d001bbc5b6c631e2a9dc011c608ba555cb179c6"
+    },
+    "heap/compare-driver.py": {
+      "bytes": 14219,
+      "sha256": "73bd72b4ca7d9d6a31337684364eb8c0a24c75b587853d76299cefd6d088994b",
+      "gzipSha256": "346c136608cf1ec18fb20464e9ae9296ccf783dddcc91ff82a5d5252234744fe"
+    },
+    "heap/comparison.json": {
+      "bytes": 4229,
+      "sha256": "10ca88e3f39a0f9afe4de356e91f6d8eda2cc7e2292cdc33ac5b515b2ce798ec",
+      "gzipSha256": "9ef6f7e395f22262384660f835274397af801747461242df7579bed6136d1e9a"
+    },
+    "octant/0-baseline.json": {
+      "bytes": 222428,
+      "sha256": "e769ab3b2764269d64b41cc5c08d1d60d4d49d08e908aab1dc37ec0ce822d260",
+      "gzipSha256": "be3f216dc69e6a5f26a1565beee85677be20937c8fe55ac68eea933fdc57c501"
+    },
+    "octant/1-candidate.json": {
+      "bytes": 222406,
+      "sha256": "39dbb885110d5a99fe27f4e7dad4ed8a41e6627aa331ad9d2e46345631d33d42",
+      "gzipSha256": "2df4c4ca79ddcf59c45ec4c31820771f20824d9181f8c4f5b13e937d08ea811d"
+    },
+    "octant/2-candidate.json": {
+      "bytes": 222393,
+      "sha256": "86d3fd23e5d066bca1dd8568e21d6ac3eace8e15c09eb0556124c7d306dfa694",
+      "gzipSha256": "50b2bde2c5fd58d55731bbf21689b072864eeb57c49f634e696e342d272ab398"
+    },
+    "octant/3-baseline.json": {
+      "bytes": 222434,
+      "sha256": "ad691e1e0519638ae05ca865132e7fad129a8dca198d426f2133ecda50b38b13",
+      "gzipSha256": "eee212c1cc71a6adf93113ad910175b82dd6f156826e0103c55e1cb9170c7496"
+    },
+    "octant/candidate.patch": {
+      "bytes": 4357,
+      "sha256": "9d18e9b1699e06f192c98971c85713955f0e6d6632b5988d80e311d3e6710b55",
+      "gzipSha256": "a3aea5faab4d76a87033bfa19d9e02b5328e81ba310c06ae10f9299d69f2516c"
+    },
+    "octant/compare-driver.py": {
+      "bytes": 14163,
+      "sha256": "b001a687a48eafb1344d6c91bda1799f4badf4933af0568e3f4694e0a707cce3",
+      "gzipSha256": "61a6b2b483686c54129957860d1ff607c88a8e6e5d5df035aea939fae96e7895"
+    },
+    "octant/comparison.json": {
+      "bytes": 4208,
+      "sha256": "6c19826aeb2c349b500e81b3485198cb42bd42e7000c8082071e256efc699940",
+      "gzipSha256": "c45333ea0baf9e0dfcc9e7864c2461466d4a9467f0661e5912767274ad8eefce"
+    },
+    "profile/0-unsampled.json": {
+      "bytes": 223475,
+      "sha256": "8b97d18601f5f32679196dfea7606bbdb7382ad27631d5369387c218090335b0",
+      "gzipSha256": "9376efc0d3a93676e22ed2ec1165a8e848ceee41db3be79e0d1a72ba7847c858"
+    },
+    "profile/1-sampled.json": {
+      "bytes": 223978,
+      "sha256": "7a3baefbada1c63851be55c41b92481ac0db2a115e0733f88aa35ae22cb8463b",
+      "gzipSha256": "db0499e9d2f0ee4f552b5a43f973f95bf5a63262177da82fd4f4c6f50865ea52"
+    },
+    "profile/2-unsampled.json": {
+      "bytes": 223495,
+      "sha256": "8c7ff6aee6f7e9760ed420bbb321c6140442304d7f367fd8ce8f93d649a0ba1e",
+      "gzipSha256": "7b832ad33a1e144e48824c32fb30f92cc68a2d9e8f116d7bdff6d3b06dd3a1b5"
+    },
+    "profile/profile-sources/sensor_qualification.rs": {
+      "bytes": 63987,
+      "sha256": "944949b50a88fc5aae8d1ec3d705ddf37c5a84fa6ba526f4c0b0284992c6cd50",
+      "gzipSha256": "0b1691884e4500e0a29ac4c6439acf031a7fd0d4b8f592aee5f046483201ff2e"
+    },
+    "profile/profile-sources/sensor_v4_qualification.rs": {
+      "bytes": 13531,
+      "sha256": "9814526141e8a941dc013a17d467f8822bd05acbef0e2d3d582ac9b1b2678be3",
+      "gzipSha256": "9f7619bd03c72d37c72be89e5cbbd9206cc10e3a28b79104f68659e8495ea5a6"
+    },
+    "profile/profile-sources/sensors_v4.rs": {
+      "bytes": 98531,
+      "sha256": "21ecdbef4c4c01441b5258a5df160a321982825074ebc8de1ecec6fe18a41393",
+      "gzipSha256": "4280926ebfc5c62882edd544814969d1efd10c24d17ad1091876b6630a0e80f2"
+    },
+    "profile/run-profile.py": {
+      "bytes": 2387,
+      "sha256": "3e069b53c60f3574e03eed15605295c6cb9756ba3187ec8f407ce592e02610f9",
+      "gzipSha256": "b504a5610012b0725f4919a54891cdffc8c197a5dd864e21391249aa51faff1b"
+    },
+    "profile/runs.json": {
+      "bytes": 312,
+      "sha256": "3dc1afbb85f4301211865bcd681eb71cc0392d00ca07d9a473e7c98a895938ac",
+      "gzipSha256": "c0efdb8cd382e5b200dee9ee8f37028786a2c2fe59148914701e72172945085d"
+    }
+  }
+}

@@ -1232,7 +1232,11 @@ made the complete short run slower. A 100-update compiled run passed native
 256-delivery parity. The compact [qualification capsule](https://github.com/Tits-McGruff/PyRL-trainer/tree/9107b851953de90e2d6a2f3d6612973fd475084a/docs/performance/canonical_graph/cuda-window-windows-v1)
 retains measured sources, receipts and the trained parity fixture. Durable CUDA jobs now select the bounded path automatically in PyRL `3759acd`;
 actual separate-process restart and native candidate/shadow handoff pass on the
-RTX 4080. The best-effort standalone process policy in `b9da734` yields one passing
+RTX 4080. Windows timing reports lack complete contemporaneous Windows/WSL
+resource coverage and represent shared-host measurements, not isolated speed
+estimates. New qualification sidecars observe both Windows and already-running
+WSL distributions alongside GPU totals; unavailable per-process GPU attribution
+remains explicit. The best-effort standalone process policy in `b9da734` yields one passing
 short Windows P0 window (6-ms p99, no wall debt), while P1 still fails. Maturity,
 integrated throughput and soak gates remain open.
 
@@ -1260,6 +1264,14 @@ eight workers passes actual capture/training, two generation handoffs and cold
 restore. Its 96-ms p99 and 0.431 simulated/wall ratio fail performance; the report,
 inputs and measured sources are retained under `live-cohort-debian-v1/`.
 Mature-policy and integrated performance gates remain open.
+
+Native phase sampling of the same four-family P1 workload attributes about 54%
+of sampled sensing time to pellet queries and encoding. Adjacent ABBA trials of
+an octant classifier and heap-hole sifting preserve exact continuation, sensor
+distributions and captured samples, but produce no meaningful aggregate gain.
+Both candidates were rejected. The compact measured reports, diagnostic source
+overlays and rejected patches are retained under `sensing-profile-debian-v1/`;
+the automated verifier recomputes report hashes, equivalence and timing medians.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
