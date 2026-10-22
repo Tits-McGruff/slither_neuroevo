@@ -1800,3 +1800,9 @@ capture. Performance fails: 1,692 steps over 65.434 observed seconds, 96-ms p99,
 The capsule retains the exact report, four opaque policies, input receipts and
 measured host/trainer sources. Diverse learned initial weights are exercised;
 replicated maturity, real-time performance and full-capacity acceptance remain open.
+
+The live host accepts `--replay-mib 64..2048` with default 256, forwarding one
+ceiling through initial training, cold resume and sustain. A restored owner with
+another ceiling rejects before optimizer work. Reports record `replayMiB` and
+each phase's `replayCapacityBytes` separately from occupied/peak replay bytes.
+An admitted large ceiling alone is not a loaded-replay or full-capacity pass.
