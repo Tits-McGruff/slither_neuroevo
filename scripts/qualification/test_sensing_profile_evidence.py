@@ -122,7 +122,7 @@ class SensingProfileEvidenceTests(unittest.TestCase):
         self.assertLess(sort / (travel + sort), 0.45)
         self.assertLess(travel + sort, profile["nanoseconds"][1])
         observer_sha = hashlib.sha256(self.data["query/system-resource-observer.py"]).hexdigest()
-        rows = [json.loads(line) for line in self.data["query/system-resources.jsonl"].splitlines()]
+        rows = [json.loads(line) for line in self.data["query/system-resources-aggregate.jsonl"].splitlines()]
         self.assertGreaterEqual(len(rows), 2)
         for row in rows:
             self.assertEqual(row["observerSourceSha256"], observer_sha)
@@ -130,6 +130,12 @@ class SensingProfileEvidenceTests(unittest.TestCase):
             self.assertTrue(row["host"]["available"])
             self.assertGreaterEqual(row["collectionSeconds"], 0)
             self.assertIn("attribution", row)
+            self.assertEqual(row["aggregateProjectionVersion"], 1)
+            self.assertFalse(row["processDetailsIncluded"])
+            self.assertNotIn("gpuProcesses", row)
+            self.assertNotIn("text", row["host"])
+            self.assertNotIn("processes", row["host"])
+            self.assertTrue(set(row["host"]) <= {"available", "cpuTicks", "loadAverage", "memoryKiB"})
 
     def test_scope_and_input_provenance_do_not_claim_a_gate_pass(self):
         self.assertFalse(self.manifest["performanceQualified"])

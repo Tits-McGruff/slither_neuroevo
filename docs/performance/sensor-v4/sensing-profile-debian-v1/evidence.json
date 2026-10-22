@@ -210,12 +210,12 @@
       "sha256": "57161930559900312537676a45e40026bdc27350ec5f550b09cbf13c4b32f5c4",
       "gzipSha256": "dc3937c6b93d05212eccb9a3818c4f956733def974be958cb44c809c6aad0ed6"
     },
-    "query/system-resources.jsonl": {
-      "bytes": 6178,
-      "sha256": "049ca504473af32853f4f8cd78ff828a5df9aba4666597f6d8c5f5621f299ec1",
-      "gzipSha256": "61152a6a9e8bb65a96f1634ede5778232986f6257e74ba554e13aa6613e860b6"
+    "query/system-resources-aggregate.jsonl": {
+      "bytes": 1872,
+      "sha256": "967614af85ef2a00f4fcafdd5a6dc65c0995d73e159d0e48d2c24a0c43c5c79c",
+      "gzipSha256": "d4ab472b0fac91486a43791602d7c6eb19eff2049723600ec28ff8b446909c31"
     }
   },
   "queryProfileNativeSourceSha256": "60ddd20d9471036ff33bd031f4f4c3568950325d3ad5f05eca01bc52dd8181fc",
-  "queryProfileConclusion": "A subsequent 8,539-sample subdivision preserves the exact 1,800-step reference workload: 58.0% of inner query time is traversal/retention and 42.0% final sorting. System-wide Linux observations accompany the timed run; Linux GPU counters are unavailable. The four retained Rust overlay files reproduce the recorded native source identity over baseCommit."
+  "queryProfileConclusion": "A subsequent 8,539-sample subdivision preserves the exact 1,800-step reference workload: 58.0% of inner query time is traversal/retention and 42.0% final sorting. System-wide Linux observations accompany the timed run; Linux GPU counters are unavailable. The four retained Rust overlay files reproduce the recorded native source identity over baseCommit. Published resource observations are aggregate projections; raw process inventories remain local."
 }
