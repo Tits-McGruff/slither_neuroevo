@@ -1786,3 +1786,17 @@ initial population. This changes qualification construction only; diverse learne
 initial weights do not by themselves qualify mature gameplay or performance.
 The explicit `--workers` count uses the ordinary available-CPU validator;
 native construction still independently enforces CPU and scratch admission.
+
+
+The [Debian live-cohort window](live-cohort-debian-v1/evidence.json) uses four
+distinct Full-graph policies (two retained 2,000-update models, one verified
+8,000-update CUDA model and the 27,532-update recovered live student). Rust
+admits 75 initial slots per family and reserves 307,093,320 source bytes before
+construction. With eight native workers and a two-thread CPU trainer at nice 5,
+the short window completes 250 optimizer updates, two durable generation
+handoffs, exact metadata/native restore, four-shadow progress and drop-free
+capture. Performance fails: 1,692 steps over 65.434 observed seconds, 96-ms p99,
+36.310 seconds of dropped wall debt and a 0.431 minimum simulated/wall ratio.
+The capsule retains the exact report, four opaque policies, input receipts and
+measured host/trainer sources. Diverse learned initial weights are exercised;
+replicated maturity, real-time performance and full-capacity acceptance remain open.

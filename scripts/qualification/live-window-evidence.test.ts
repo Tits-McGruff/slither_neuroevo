@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
+import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.ts';
 import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 
 /** Exact checksums for one losslessly retained, bounded file. */
@@ -222,5 +223,87 @@ it('preserves compiled CUDA job restart, observed scheduling policy and both pas
       const delta = BigInt('0x' + after.totals.samples) - BigInt('0x' + before.totals.samples);
       expect(delta).toBeGreaterThan(0n); expect(delta.toString()).toBe(report.shadows.sampleProgress[slot]);
     }
+  }
+});
+
+
+/** Exact initial families accompany a short live window; they do not imply policy maturity. */
+type LearnedCohortEvidence = TrainerContentionEvidence & {
+  durability: LiveSixHourEvidenceReport['durability'];
+  workload: TrainerContentionEvidence['workload'] & {trainedCohort: {
+    indexSha256: string; sourceReservationBytes: number;
+    families: {artifact: BrainArtifactDescriptor; populationSlots: number}[];
+  }};
+  source: TrainerContentionEvidence['source'] & {slitherRevision: string; pyrlRevision: string};
+  sustain: TrainerContentionEvidence['sustain'] & {trainerSourceSha256: string;
+    environment: {device: string; threads: number; sequenceExecution: string};
+    processPriority: {platform: string; nice: number}; windowExecution: WindowDispatch};
+};
+
+it('preserves exact learned initial families and cold generation durability without hiding failed throughput', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-cohort-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    kind: string; performanceQualified: boolean; maturityQualified: boolean; slitherCommit: string; pyrlCommit: string;
+    nativeSourceSha256: string; trainerSourceSha256: string; trainerSourceFiles: string[];
+    files: Record<string, FrozenFileReceipt>};
+  expect(manifest.kind).toBe('live-learned-cohort-window-evidence-v1');
+  expect(manifest.performanceQualified).toBe(false); expect(manifest.maturityQualified).toBe(false);
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as LearnedCohortEvidence;
+  expect(report.source.slitherRevision).toBe(manifest.slitherCommit);
+  expect(report.source.pyrlRevision).toBe(manifest.pyrlCommit);
+  expect(report.source.nativeSourceSha256).toBe(manifest.nativeSourceSha256);
+  expect(report.source.hostSha256).toBe(sha256(files.get('host/live-distillation.ts')!));
+  expect(report.source.trainerGateSha256).toBe(sha256(files.get('pyrl/live_distillation_gate.py')!));
+  expect(frozenTrainerSource(files, 'pyrl/')).toEqual({
+    names: manifest.trainerSourceFiles, sha256: manifest.trainerSourceSha256,
+  });
+  expect(report.sustain.trainerSourceSha256).toBe(manifest.trainerSourceSha256);
+  expect(report).toMatchObject({device: 'cpu', workers: 8, seconds: 60,
+    workload: {scenario: 'P1', metadata: {parameterCount: 25042, sensorVersion: 4}}});
+  const cohort = report.workload.trainedCohort;
+  const indexBytes = files.get('cohort.json')!;
+  const index = JSON.parse(indexBytes.toString('utf8')) as {schemaVersion: number; artifacts: {file: string; sha256: string}[]};
+  expect(index.schemaVersion).toBe(1); expect(cohort.indexSha256).toBe(sha256(indexBytes));
+  expect(cohort.sourceReservationBytes).toBeGreaterThan(0);
+  expect(cohort.sourceReservationBytes).toBeLessThanOrEqual(512 * 1024 ** 2);
+  expect(index.artifacts).toHaveLength(4); expect(cohort.families).toHaveLength(4);
+  expect(new Set(cohort.families.map(family => family.artifact.weightsSha256)).size).toBe(4);
+  for (const [ordinal, family] of cohort.families.entries()) {
+    const member = index.artifacts[ordinal]!;
+    expect(member.file).toMatch(/^[a-zA-Z0-9-]+\.slither-brain$/u);
+    expect(sha256(files.get(member.file)!)).toBe(member.sha256);
+    expect(family.artifact.artifactSha256).toBe(member.sha256);
+    expect(family.populationSlots).toBe(75);
+    expect(family.artifact).toMatchObject({parameterCount: 25042, inputSize: 264, stateSize: 16,
+      controlIntervalSeconds: 1 / 60, lifeStateRule: 'reset', sourceKind: 'distilled'});
+  }
+  expect(report.resume).toMatchObject({restartExact: true, updates: 250});
+  expect(report.sustain.initialUpdates).toBe(250);
+  expect(report.sustain.updates - report.sustain.initialUpdates).toBe(report.sustain.optimizerUpdates);
+  expect(report.sustain.optimizerUpdates).toBe(250);
+  expect(report.sustain.peakReplayBytes).toBeLessThanOrEqual(256 * 1024 ** 2);
+  expect(report.sustain.environment).toMatchObject({device: 'cpu', threads: 2, sequenceExecution: 'eager-v1'});
+  expect(report.sustain.processPriority).toEqual({platform: 'posix', nice: 5});
+  expect(report.sustain.windowExecution).toEqual({
+    compiledSignatures: 0, compiledWindowCalls: 0, eagerWindowCalls: 250, requested: 'eager',
+  });
+  expect(report.durability).toMatchObject({requestedBoundaries: 2, persistenceRestartExact: true,
+    restoredSourceSha256: manifest.nativeSourceSha256, invalidRestoreAdmissionsRejected: 7});
+  expect(report.durability.barriers).toHaveLength(2);
+  const last = report.durability.barriers.at(-1)!;
+  expect(report.durability.restoredGeneration).toBe(last.checkpoint.generation);
+  expect(report.durability.restoredCompletedStep).toBe(last.checkpoint.completedStep);
+  expect(report.summary).toEqual(summarizeSensorWall(report.reads, report.seconds,
+    {runId: last.checkpoint.runId, barriers: report.durability.barriers}));
+  expect(report.summary.progress.deltaSteps).toBe('1692');
+  expect(report.summary.stepTiming.p99UpperMs).toBe(96); expect(report.summary.meetsMeasuredGates).toBe(false);
+  expect(report.capture.noDrops).toBe(true); expect(report.capture.after.state).toBe('stopped');
+  expect(report.capture.after.resolvedThrough).toBe(report.capture.after.productionWatermark);
+  expect(report.shadows.after).toHaveLength(4);
+  for (const [slot, after] of report.shadows.after.entries()) {
+    const before = report.shadows.before[slot]!;
+    const delta = BigInt('0x' + after.totals.samples) - BigInt('0x' + before.totals.samples);
+    expect(delta).toBeGreaterThan(0n); expect(delta.toString()).toBe(report.shadows.sampleProgress[slot]);
   }
 });
