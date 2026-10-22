@@ -278,11 +278,15 @@ every slow or flaky matrix job.
   credentials or connection commands, in tracked repository files.
 - Resource measurements must account for unrelated host workloads. Windows
   qualification includes all already-running WSL distributions, system CPU/RAM,
-  overall GPU utilization/VRAM and available process counters. The bounded
+  overall GPU utilization/VRAM and aggregate kernel counters. The bounded
   `scripts/qualification/system-resource-observer.py` writes a separate JSONL
   sidecar without starting stopped distributions or changing other workloads.
   Keep unavailable GPU process attribution explicit; measurements without
   contemporaneous coverage cannot establish an otherwise idle host.
+  Publish only aggregate resource counters. Windows/WSL process inventories,
+  distribution names and unrelated host process lists stay local in ignored
+  scratch; never attach them to GitHub logs, reports, artifacts or commits.
+  Detailed collection requires the observer's explicit local-debug flag.
 - Reuse fresh evidence from the immediately preceding checkpoint when the
   current change cannot invalidate it. State the dependency instead of
   reproducing the same benchmark or compatibility run.

@@ -1,6 +1,7 @@
 """Bounded system-wide resource observations beside a qualification run.
 
-Windows observations include every already-running WSL distribution. GPU totals
+Default observations contain only aggregate counters, including running WSL.
+Process inventories require explicit local debugging and must never be published. GPU totals
 are system-wide; process memory unavailable under WDDM stays unavailable. Process
 names and resource counters are collected without command lines or environments.
 This observer does not start stopped distributions or change process priorities.
@@ -14,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import time
 
@@ -48,30 +50,38 @@ def csv_observation(command, process_names=False):
     return {"available": True, "rows": rows}
 
 
-def windows_resources():
+def windows_resources(include_processes=False):
     """Read system CPU/memory and the busiest process counters, without private arguments."""
-    script = r"""
-$taskCpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"
-$taskMemory = Get-CimInstance Win32_OperatingSystem
+    process_query = r"""
 $taskProcesses = @(Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
     Where-Object { $_.Name -ne '_Total' -and $_.Name -ne 'Idle' } |
     Sort-Object PercentProcessorTime -Descending |
     Select-Object -First 32 Name,IDProcess,PercentProcessorTime,WorkingSetPrivate)
+""" if include_processes else ""
+    process_field = "; processes=$taskProcesses" if include_processes else ""
+    script = (r"""
+$taskCpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"
+$taskMemory = Get-CimInstance Win32_OperatingSystem
+""" + process_query + r"""
 [pscustomobject]@{cpuPercent=$taskCpu.PercentProcessorTime;
     totalMemoryKiB=$taskMemory.TotalVisibleMemorySize;
-    freeMemoryKiB=$taskMemory.FreePhysicalMemory; processes=$taskProcesses} |
+    freeMemoryKiB=$taskMemory.FreePhysicalMemory""" + process_field + r"""} |
     ConvertTo-Json -Depth 4 -Compress
-"""
+""")
     result = command_output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script])
     if not result["available"]:
         return result
     try:
-        return {"available": True, **json.loads(result["text"])}
+        decoded = json.loads(result["text"])
+        fields = ("cpuPercent", "totalMemoryKiB", "freeMemoryKiB")
+        if include_processes:
+            fields += ("processes",)
+        return {"available": True, **{key: decoded[key] for key in fields if key in decoded}}
     except (ValueError, TypeError):
         return {"available": False, "error": "invalid Windows counter response"}
 
 
-def running_wsl_resources():
+def running_wsl_resources(include_processes=False):
     """Observe only running distributions; querying resources never boots a stopped one."""
     inventory = command_output(["wsl.exe", "--list", "--running", "--quiet"])
     if not inventory["available"]:
@@ -81,24 +91,51 @@ def running_wsl_resources():
         name = name.strip()
         if not name:
             continue
-        # COMM contains only executable names. %CPU is ps lifetime CPU, not an interval sample.
         result = command_output(["wsl.exe", "--distribution", name, "--exec", "sh", "-c",
-                                 "LC_ALL=C; export LC_ALL; cat /proc/loadavg; "
-                                 "head -5 /proc/meminfo; "
-                                 "ps -eo pid,comm,pcpu,pmem,rss --sort=-pcpu | head -33"])
-        observations.append({"distribution": name, **result})
+                                 linux_command(include_processes)])
+        if include_processes:
+            observations.append({"distribution": name, **result})
+        else:
+            observations.append(aggregate_linux(result))
     return {"available": True, "distributions": observations}
 
 
-def linux_resources():
-    """Read kernel load/memory and named processes on the native Linux qualification host."""
-    result = command_output(["sh", "-c", "LC_ALL=C; export LC_ALL; cat /proc/loadavg; "
-                             "head -5 /proc/meminfo; "
-                             "ps -eo pid,comm,pcpu,pmem,rss --sort=-pcpu | head -33"])
-    return result
+def linux_command(include_processes=False):
+    """Keep the default command free of process inventory collection."""
+    command = ("LC_ALL=C; export LC_ALL; head -1 /proc/stat; cat /proc/loadavg; "
+               "head -5 /proc/meminfo")
+    if include_processes:
+        command += "; ps -eo pid,comm,pcpu,pmem,rss --sort=-pcpu | head -33"
+    return command
 
 
-def snapshot():
+def aggregate_linux(result):
+    """Allowlist kernel CPU/load/memory counters; never retain arbitrary command output."""
+    if not result.get("available"):
+        return {key: result[key] for key in ("available", "error", "exitCode", "oversized")
+                if key in result}
+    aggregate = {"available": True}
+    memory = {}
+    for line in result["text"].splitlines():
+        if re.fullmatch(r"cpu(?:\s+\d+){4,10}\s*", line):
+            aggregate["cpuTicks"] = [int(value) for value in line.split()[1:]]
+        match = re.fullmatch(r"(MemTotal|MemFree|MemAvailable|Buffers|Cached):\s+(\d+) kB", line)
+        if match:
+            memory[match[1]] = int(match[2])
+        if re.fullmatch(r"(?:\d+\.\d+\s+){3}\d+/\d+\s+\d+", line):
+            aggregate["loadAverage"] = [float(value) for value in line.split()[:3]]
+    if memory:
+        aggregate["memoryKiB"] = memory
+    return aggregate
+
+
+def linux_resources(include_processes=False):
+    """Read aggregate kernel counters; process lists require explicit local debugging."""
+    result = command_output(["sh", "-c", linux_command(include_processes)])
+    return result if include_processes else aggregate_linux(result)
+
+
+def snapshot(include_processes=False):
     """Bracket collection wall time and keep attribution limits visible in every observation."""
     started = time.monotonic()
     result = {"schemaVersion": 1, "utc": datetime.now(timezone.utc).isoformat(),
@@ -106,14 +143,17 @@ def snapshot():
               "gpu": csv_observation([
                   "nvidia-smi", "--query-gpu=name,utilization.gpu,utilization.memory,"
                   "memory.used,memory.total,power.draw,temperature.gpu", "--format=csv"]),
-              "gpuProcesses": csv_observation([
-                  "nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory",
-                  "--format=csv"], process_names=True),
-              "attribution": "GPU totals include all workloads; unavailable per-process "
-                             "GPU memory is unknown. Linux ps CPU is a lifetime average."}
-    result["host"] = windows_resources() if os.name == "nt" else linux_resources()
+              "processDetailsIncluded": include_processes,
+              "attribution": "GPU totals include all workloads; per-process ownership "
+                             "is not inferred from aggregate counters."}
+    if include_processes:
+        result["gpuProcesses"] = csv_observation([
+            "nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory",
+            "--format=csv"], process_names=True)
+    result["host"] = (windows_resources(include_processes) if os.name == "nt"
+                      else linux_resources(include_processes))
     if os.name == "nt":
-        result["wsl"] = running_wsl_resources()
+        result["wsl"] = running_wsl_resources(include_processes)
     result["collectionSeconds"] = time.monotonic() - started
     return result
 
@@ -157,6 +197,8 @@ def main():
     parser.add_argument("--interval-seconds", type=int, default=60)
     parser.add_argument("--samples", type=int, default=1)
     parser.add_argument("--watch-pid", type=int)
+    parser.add_argument("--include-processes", action="store_true",
+                        help="local debugging only; never publish process inventories")
     args = parser.parse_args()
     if not 30 <= args.interval_seconds <= 300 or not 1 <= args.samples <= 1440:
         parser.error("interval must be 30..300 seconds and samples 1..1440")
@@ -168,7 +210,7 @@ def main():
             if args.watch_pid is not None and not process_alive(args.watch_pid):
                 break
             started = time.monotonic()
-            stream.write(json.dumps({**snapshot(), "sample": index,
+            stream.write(json.dumps({**snapshot(args.include_processes), "sample": index,
                                      "observerSourceSha256": source_sha}, allow_nan=False) + "\n")
             stream.flush()
             if index + 1 < args.samples:
