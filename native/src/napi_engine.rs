@@ -869,6 +869,8 @@ impl ExperimentalStage6aFreshRunSession {
             return Err(error);
         }
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Fresh,
@@ -915,6 +917,8 @@ impl ExperimentalStage6aFreshRunSession {
             }
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Checkpoint(Box::new(restore)),
@@ -961,6 +965,8 @@ impl ExperimentalStage6aFreshRunSession {
             }
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::LegacySqlite(legacy),
@@ -1281,6 +1287,8 @@ impl ExperimentalStage6aFreshRunSession {
             return Err(error);
         }
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::QualifiedCheckpoint(Box::new(
@@ -1303,7 +1311,7 @@ impl ExperimentalStage6aFreshRunSession {
     pub fn initialize_baseline_v2_for_test(
         &self,
         request: Object<'_>,
-    ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+    ) -> Result<AsyncTask<InitializeQualifiedFreshRunTask>> {
         let keys = [
             "profile",
             "bins",
@@ -1313,9 +1321,10 @@ impl ExperimentalStage6aFreshRunSession {
             "rayCap",
             "rayBatch",
             "workload",
+            "trainedCohort",
         ];
         let names = request.get_property_names()?;
-        if !matches!(names.get_array_length()?, 7 | 8) {
+        if !matches!(names.get_array_length()?, 7..=9) {
             return Err(Error::new(
                 Status::InvalidArg,
                 "qualification requires exact fields",
@@ -1396,25 +1405,80 @@ impl ExperimentalStage6aFreshRunSession {
         } else {
             None
         };
+        let trained_cohort = if request.has_own_property("trainedCohort")? {
+            if workload_population.is_none() {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "trained cohort requires P0/P1 workload",
+                ));
+            }
+            Some(PathBuf::from(bounded_object_string(
+                &request,
+                "trainedCohort",
+                32_768,
+            )?))
+        } else {
+            None
+        };
         self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
         if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
             self.active_operation
                 .store(FRESH_OPERATION_IDLE, Ordering::Release);
             return Err(error);
         }
-        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
-            request: self.request.clone(),
-            calculation_workers: self.calculation_workers,
-            source: FreshRunInitialization::Qualification(
-                profile,
-                bins,
-                baseline,
-                ray_work,
-                workload_population,
-            ),
-            inner: Arc::clone(&self.inner),
-            active_operation: Arc::clone(&self.active_operation),
+        Ok(AsyncTask::new(InitializeQualifiedFreshRunTask {
+            inner: InitializeExperimentalFreshRunTask {
+                #[cfg(feature = "engine-test-hooks")]
+                trained_cohort_json: None,
+                request: self.request.clone(),
+                calculation_workers: self.calculation_workers,
+                source: FreshRunInitialization::Qualification(
+                    profile,
+                    bins,
+                    baseline,
+                    ray_work,
+                    workload_population,
+                    trained_cohort,
+                ),
+                inner: Arc::clone(&self.inner),
+                active_operation: Arc::clone(&self.active_operation),
+            },
         }))
+    }
+}
+
+/// Test-only constructor receipt, separate from the production snapshot contract.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct QualifiedFreshRunInitialization {
+    pub snapshot: ExperimentalFreshRunSnapshot,
+    pub trained_cohort_json: Option<String>,
+}
+
+/// Wrap the ordinary complete construction task without introducing a second authority.
+#[cfg(feature = "engine-test-hooks")]
+pub struct InitializeQualifiedFreshRunTask {
+    inner: InitializeExperimentalFreshRunTask,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for InitializeQualifiedFreshRunTask {
+    type Output = FreshRunScalarSnapshot;
+    type JsValue = QualifiedFreshRunInitialization;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        self.inner.compute()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(QualifiedFreshRunInitialization {
+            snapshot: fresh_run_snapshot_to_napi(output)?,
+            trained_cohort_json: self.inner.trained_cohort_json.take(),
+        })
+    }
+
+    fn finally(self, env: Env) -> Result<()> {
+        self.inner.finally(env)
     }
 }
 
@@ -1620,6 +1684,7 @@ enum FreshRunInitialization {
         crate::engine::baseline_v2::BaselineV2Settings,
         crate::engine::ray_work::RayWorkLimits,
         Option<usize>,
+        Option<PathBuf>,
     ),
     #[cfg(feature = "engine-test-hooks")]
     QualifiedCheckpoint(Box<QualifiedCheckpointInitialization>),
@@ -1628,6 +1693,8 @@ enum FreshRunInitialization {
 }
 
 pub struct InitializeExperimentalFreshRunTask {
+    #[cfg(feature = "engine-test-hooks")]
+    trained_cohort_json: Option<String>,
     request: Stage6aP0FreshRunRequest,
     calculation_workers: usize,
     source: FreshRunInitialization,
@@ -1696,6 +1763,7 @@ impl Task for InitializeExperimentalFreshRunTask {
                     baseline,
                     ray_work,
                     workload_population,
+                    trained_cohort,
                 ) => {
                     if let Some(population) = workload_population {
                         let options =
@@ -1717,11 +1785,20 @@ impl Task for InitializeExperimentalFreshRunTask {
                                 measured_steps: 1,
                                 environment: "development".into(),
                             };
-                        crate::engine::sensor_qualification::prepare_sensor_workload(
-                            &options,
-                            self.request.clone(),
-                        )
-                        .map_err(|error| error.to_string())?
+                        if let Some(index) = trained_cohort {
+                            let cohort = crate::engine::trained_cohort::load(index)?;
+                            let transition = crate::engine::sensor_qualification::prepare_sensor_cohort_workload(
+                                &options, self.request.clone(), &cohort,
+                            ).map_err(|error| error.to_string())?;
+                            self.trained_cohort_json = Some(serde_json::to_string(
+                                &cohort.descriptor(*population),
+                            ).map_err(|error| error.to_string())?);
+                            transition
+                        } else {
+                            crate::engine::sensor_qualification::prepare_sensor_workload(
+                                &options, self.request.clone(),
+                            ).map_err(|error| error.to_string())?
+                        }
                     } else {
                         use crate::engine::graph::{
                             GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,

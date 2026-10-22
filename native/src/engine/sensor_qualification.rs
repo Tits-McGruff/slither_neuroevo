@@ -406,6 +406,41 @@ pub(crate) fn prepare_sensor_workload(
     prepare_sensor_workload_with_artifact(options, request, trained.as_ref())
 }
 
+/// Reserve all validated source families before any population allocation. The source owner
+/// remains alive until construction returns; the running budget stays conservatively reduced.
+pub(crate) fn prepare_sensor_cohort_workload(
+    options: &SensorQualificationOptions,
+    mut request: Stage6aP0FreshRunRequest,
+    cohort: &super::trained_cohort::TrainedCohort,
+) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
+    use super::fresh_run::FreshRunError;
+    if options.trained_artifact.is_some() || options.large_graph {
+        return Err(FreshRunError::Settings(
+            "cohort supplies its graph; omit single-artifact and graph overrides".into(),
+        ));
+    }
+    request.memory_ceiling_bytes = request
+        .memory_ceiling_bytes
+        .checked_sub(cohort.source_reservation_bytes)
+        .ok_or_else(|| FreshRunError::Settings("cohort exhausted construction admission".into()))?;
+    let (updates, spec) = sensor_workload_spec(options, cohort.artifacts.first())?;
+    prepare_sensor_qualification_run(
+        request,
+        &updates,
+        spec,
+        options.profile,
+        options.bins,
+        RunningStepWorkLimits {
+            calculation_workers: options.workers,
+            ray_work: options.ray_limits,
+            ..RunningStepWorkLimits::provisional_defaults()
+        },
+        options.math,
+        options.baseline,
+        &cohort.artifacts,
+    )
+}
+
 fn prepare_sensor_workload_with_artifact(
     options: &SensorQualificationOptions,
     request: Stage6aP0FreshRunRequest,
@@ -790,32 +825,10 @@ fn run_with_sources(
             options.population, options.seed
         ),
         seed: options.seed,
-        memory_ceiling_bytes: (4 * 1024 * 1024 * 1024usize)
-            .checked_sub(
-                cohort
-                    .as_ref()
-                    .map_or(0, |value| value.source_reservation_bytes),
-            )
-            .ok_or("cohort exhausted construction admission")?,
+        memory_ceiling_bytes: 4 * 1024 * 1024 * 1024usize,
     };
     let pending = if let Some(cohort) = &cohort {
-        sensor_workload_spec(options, selected).and_then(|(updates, spec)| {
-            prepare_sensor_qualification_run(
-                request,
-                &updates,
-                spec,
-                options.profile,
-                options.bins,
-                RunningStepWorkLimits {
-                    calculation_workers: options.workers,
-                    ray_work: options.ray_limits,
-                    ..RunningStepWorkLimits::provisional_defaults()
-                },
-                options.math,
-                options.baseline,
-                &cohort.artifacts,
-            )
-        })
+        prepare_sensor_cohort_workload(options, request, cohort)
     } else {
         prepare_sensor_workload_with_artifact(options, request, selected)
     };
@@ -1206,6 +1219,21 @@ mod tests {
             mixed.capture.as_ref().unwrap().exact_samples_match,
             Some(true)
         );
+        let cohort = super::super::trained_cohort::load(&index).unwrap();
+        let insufficient = prepare_sensor_cohort_workload(
+            &options,
+            Stage6aP0FreshRunRequest {
+                run_id: "cohort-source-admission".into(),
+                seed: 42,
+                memory_ceiling_bytes: cohort.source_reservation_bytes - 1,
+            },
+            &cohort,
+        );
+        assert!(insufficient
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("construction admission"));
         options.profile = SensorProfile::Motion;
         let wrong_profile =
             run_sensor_cohort_qualification(&options, &Scratch::new().0, &index).unwrap();

@@ -1773,3 +1773,16 @@ Its P1 window still fails: 32-ms p99, 11.576 seconds of debt and a 0.8228 minimu
 simulated/wall ratio. These are short shared-host observations, not a causal
 timing estimate or qualification of diverse mature populations, maximum capacity,
 a six-hour GPU run or production defaults.
+
+
+The live host additionally accepts `--trained-cohort PATH` with explicit P0/P1
+workloads. The bounded index has the same schema as the native controlled-step
+cohort runner: 2..16 confined, checksummed, distinct learned artifacts sharing
+graph, sensors and deployment rules. Rust loads and reserves the sources before
+allocating the population, assigns families by `populationSlot % familyCount`,
+and returns the exact index digest, artifact descriptors, source reservation and
+slot counts in `workload.trainedCohort`. Omit the option for the existing random
+initial population. This changes qualification construction only; diverse learned
+initial weights do not by themselves qualify mature gameplay or performance.
+The explicit `--workers` count uses the ordinary available-CPU validator;
+native construction still independently enforces CPU and scratch admission.

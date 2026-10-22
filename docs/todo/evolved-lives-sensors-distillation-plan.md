@@ -1246,6 +1246,13 @@ under `docs/performance/sensor-v4/live-six-hour-debian-v1/`; CUDA job reports ar
 under `cuda-job-windows-v1/`. Full-capacity overlap and performance acceptance
 remain open.
 
+The live qualification host also accepts an explicit learned-cohort index for
+P0/P1. Its hooks-only coarse constructor uses the existing bounded Rust loader,
+reserves all source families before population construction, installs by stable
+population slot, and returns exact source/family counts for the report. Controlled
+and live hosts share this admission path. This enables diverse learned initial
+populations; it does not establish mature-policy or integrated performance gates.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
