@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-learned-cohort-window-evidence-v1",
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "scope": "Four distinct learned Full-graph initial families, CPU trainer and eight native workers; short functional and performance measurement, excluding maximum capacity and maturity.",
+  "slitherCommit": "de0ce7016ad2ff463d45aa6befa380db97c286ee",
+  "pyrlCommit": "b9da734b6fef963c2d10b27f78e440575134e1f6",
+  "nativeSourceSha256": "d12574cfb9c9d59fe53dcf1b91b95461fec6cf990f70dad7211e05ee2eae76ad",
+  "trainerSourceSha256": "169905f384ce2312b7700baab4e8c60945e6f623c2b54fcea8957d0eeb24ac26",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "files": {
+    "report.json": {
+      "bytes": 298135,
+      "sha256": "a8acb21dd3b3f6f598a3c9d747994f94bbe69a4e23cadbe5f080812f3c426736",
+      "gzipSha256": "1e28a501c382f9c9c6c348f78cae462109c7c992ab448384e634405e63b5cc4c"
+    },
+    "host/live-distillation.ts": {
+      "bytes": 46056,
+      "sha256": "a14fd3a6b94f01520af6ca40e383525f00944b7321186475a408a5d79c452294",
+      "gzipSha256": "20f5e539fbff4498b7eac4a1c393d7c3149d42b173efbf7780aae16ed7363831"
+    },
+    "host/sensorWallTiming.ts": {
+      "bytes": 869,
+      "sha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
+      "gzipSha256": "deffb6ea4bc391f2e19d934d66d4020873ca09690f39f5f196bdfb1567c7fe7f"
+    },
+    "host/sensorWallSummary.ts": {
+      "bytes": 7847,
+      "sha256": "675fcf78fd6e1eeaf8f6a6f99d90021a9509be2d57b234e34c6b07be1f728c06",
+      "gzipSha256": "2b3d14a754509c88ece16c03e0ccb9c424b89241b92204fbe3b850064181a79b"
+    },
+    "pyrl/canonical_graph.py": {
+      "bytes": 25104,
+      "sha256": "72a80c648ff8058377aaf65f1870b29d9ca20f05e41e9f6a9513574272eb3129",
+      "gzipSha256": "c3700d809b7a62a6b72aeb5d849eaf773f66c7bc7d24cf1cc16235812fb9f8fb"
+    },
+    "pyrl/sensor_contract.py": {
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "205320f4e85f9c812f9b200c03d2fe015494bc89e37eab23075d56afd4fdbb33"
+    },
+    "pyrl/sequence_distillation.py": {
+      "bytes": 16992,
+      "sha256": "034f2120f7e07399db19a2930faa3924448ff2b6e267f95fca5cd46123484446",
+      "gzipSha256": "510081e66316156f185d2bc40b6de86bd08060a2bcdffc5f00fbb6e1c404f9f9"
+    },
+    "pyrl/distillation_transport.py": {
+      "bytes": 19816,
+      "sha256": "f2a410854fc0b909f0c31cc3f03ce1470c45947c2dd91c3098622e8cf416af79",
+      "gzipSha256": "55ba56db3e03c07728e994dee70f3daf87fbca76ee8e651878da1bd59edd7d3b"
+    },
+    "pyrl/distillation_client.py": {
+      "bytes": 22177,
+      "sha256": "40c24ea83648dd6de713ff42106e1f256cdad9e4874516ef93435624f7fe3a07",
+      "gzipSha256": "0d2451cacaa8d0a5bfe159230a772fa43363541529a6ae8dabb5c9261b17a1d8"
+    },
+    "pyrl/distillation_storage.py": {
+      "bytes": 2290,
+      "sha256": "3b91f99eac3eecf97a15a241438df60600c1a5734ea94312671f465a102a060e",
+      "gzipSha256": "3cd43b5776722bad880d90f7aa3bf597bcb2db156d6377a70b1880a03dd7cbb8"
+    },
+    "pyrl/distillation_replay.py": {
+      "bytes": 14752,
+      "sha256": "c39890ffa2d4511f9481960d543c6f388613e6a5b029c0736f2677d8a92e53be",
+      "gzipSha256": "e2e2653040d6c333acb043a7e435100a451a2204f47ec4e4e276789d0701b3f7"
+    },
+    "pyrl/distillation_sampling.py": {
+      "bytes": 12631,
+      "sha256": "5eef4b95bccb0e84090053b64fb415e72986da97f255ef0cd83b1222b67626ac",
+      "gzipSha256": "cd456197ffc212c786e67379f1f6fb22fcde48c8f7a7a31d1cff90f3bcf6807a"
+    },
+    "pyrl/distillation_job.py": {
+      "bytes": 25815,
+      "sha256": "9bb767d62ac49fdd3da1d41ed0ce2057cc8bb34844b2834e2627245bbcfe3f97",
+      "gzipSha256": "19d4dcc9d23a3cf7d31b1db557f4515e71a1ad548dd604a8ae7fdb9c77d0fcb7"
+    },
+    "pyrl/distillation_process.py": {
+      "bytes": 2284,
+      "sha256": "0a725ee4c3ef2dfde7a96b605e939bf2c7e3ef85dbcd16700bcbaf603ee94351",
+      "gzipSha256": "5a23a91568279abf175b0ce2ab4d98ef7e5d98735e952f307a2fe5fa74cb6729"
+    },
+    "pyrl/distillation_checkpoint.py": {
+      "bytes": 33797,
+      "sha256": "f40b78dd1c078163967dcea2cfccf31676c149859837f96178d6174355e579ac",
+      "gzipSha256": "3011278afc4ec2cf2424376be49588a4704dda2b29d74ea2a011d1405475d1a6"
+    },
+    "pyrl/distillation_run.py": {
+      "bytes": 13394,
+      "sha256": "5ed9786127612f5a49dc3cc577a33e31ca4aae6d458ef2b79ccbfbd98a8d32c7",
+      "gzipSha256": "317a6066c17931a87969f5de69d2a13c9d305b5caec55eee441a6cd432094ff6"
+    },
+    "pyrl/brain_artifact.py": {
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "866b2d4640c9fb8e49e5f6d3d55acf05791c3372cfecc26a1f817250f3e030b7"
+    },
+    "pyrl/distillation_shadows.py": {
+      "bytes": 7510,
+      "sha256": "74865d9cb88022b3a1091c8c3b880009f50c2669cee28c479b574f554c76243d",
+      "gzipSha256": "f4a6ba5f47037008d6e531dd71d6dd0bcbd62dcb2b493183e83e225e1179ddc7"
+    },
+    "pyrl/live_distillation_gate.py": {
+      "bytes": 19084,
+      "sha256": "10cc089d433ee9ab0ebc2e7c9e4dc8d848d53b6b5a76c375508146780c04328b",
+      "gzipSha256": "105df4627533494077ba7618376a3596bb6dc72d6377ed67e59249949a1eb54e"
+    },
+    "cohort.json": {
+      "bytes": 652,
+      "sha256": "905873584d29015e8a8a895866e08772c08c902867b381accd730d630f8a939b",
+      "gzipSha256": "e28e2d04cda29738b099be6a292f87b186e6189ce7e5fb2a3dab25436ded105e"
+    },
+    "full-cpu2000-seed2.slither-brain": {
+      "bytes": 118580,
+      "sha256": "822db500bf2366abdac9105b62a23c8d99096bb7e83f76c952cbf510411b1950",
+      "gzipSha256": "5678ba18005a61f983f482e9ab17ddefa78e9153b1e024387495e60323b90fb2"
+    },
+    "full-cpu2000-seed3.slither-brain": {
+      "bytes": 118580,
+      "sha256": "66c22e6225606d3ad28965a32b6e5745552ac4fd2a0f573e70c7408a77441ece",
+      "gzipSha256": "7a01c2a40da16c4b68674c88de990acba782d469d1085b8202ea6b21e3438d0e"
+    },
+    "full-cuda8000-seed1.slither-brain": {
+      "bytes": 118580,
+      "sha256": "23ccfc9cc71c263419913a8f020eafdfe6e714be4968fc5ec7aef094f81aa769",
+      "gzipSha256": "4df14446e45bd09c72f9b5943adc27fce423c968117ff090b1dcdd9d127d4f27"
+    },
+    "full-live-cpu27532.slither-brain": {
+      "bytes": 118695,
+      "sha256": "e264c6681ade2e13790176fe7243179768af53c423992c59e80461b8dd99f35e",
+      "gzipSha256": "1eea0208463667884ab4e8019c20195c701290988f95dfc4c901a7080c60ae8e"
+    },
+    "inputs.json": {
+      "bytes": 1180,
+      "sha256": "fc6d006f1ba9b9fedf5caf55dd7884bd2263f79e445035c3542b70d76de44fc0",
+      "gzipSha256": "43b4319466d988a9e14617e966349a11472d0fd6e44e3851f5ee1f634dfc5392"
+    }
+  }
+}

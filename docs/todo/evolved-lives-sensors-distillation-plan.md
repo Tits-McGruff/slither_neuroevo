@@ -1251,7 +1251,11 @@ P0/P1. Its hooks-only coarse constructor uses the existing bounded Rust loader,
 reserves all source families before population construction, installs by stable
 population slot, and returns exact source/family counts for the report. Controlled
 and live hosts share this admission path. This enables diverse learned initial
-populations; it does not establish mature-policy or integrated performance gates.
+populations. A short Debian P1 window with four distinct learned families and
+eight workers passes actual capture/training, two generation handoffs and cold
+restore. Its 96-ms p99 and 0.431 simulated/wall ratio fail performance; the report,
+inputs and measured sources are retained under `live-cohort-debian-v1/`.
+Mature-policy and integrated performance gates remain open.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
