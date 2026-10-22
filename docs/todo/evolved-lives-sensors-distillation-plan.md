@@ -1271,7 +1271,9 @@ an octant classifier and heap-hole sifting preserve exact continuation, sensor
 distributions and captured samples, but produce no meaningful aggregate gain.
 Both candidates were rejected. The compact measured reports, diagnostic source
 overlays and rejected patches are retained under `sensing-profile-debian-v1/`;
-the automated verifier recomputes report hashes, equivalence and timing medians.
+the automated verifier recomputes report hashes, equivalence and timing medians. A subsequent exact-work subdivision records 58% traversal/retention and 42%
+sorting within sampled pellet-query time, with Linux resource observations
+alongside the timed process.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 

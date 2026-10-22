@@ -169,6 +169,53 @@
       "bytes": 312,
       "sha256": "3dc1afbb85f4301211865bcd681eb71cc0392d00ca07d9a473e7c98a895938ac",
       "gzipSha256": "c0efdb8cd382e5b200dee9ee8f37028786a2c2fe59148914701e72172945085d"
+    },
+    "query/run-profile.py": {
+      "bytes": 3360,
+      "sha256": "3a935041eef18a6563e493f6d2bae4f684ec4bdbdb288ab169ff551e8f4fc1de",
+      "gzipSha256": "093e2d480a9c509931619bd7e48f760d8d941b12a056dfa135700dcd6f721d6a"
+    },
+    "query/sampled.json": {
+      "bytes": 224316,
+      "sha256": "f8ca1dca5174364253af9bf8c5fe2843366abe27b61f98dd677dac9fa76268f7",
+      "gzipSha256": "c99c8e06504d15d2244f39053a2f11bdb315e5d45b67902322375ed3071689c7"
+    },
+    "query/sources/sensor_qualification.rs": {
+      "bytes": 63987,
+      "sha256": "944949b50a88fc5aae8d1ec3d705ddf37c5a84fa6ba526f4c0b0284992c6cd50",
+      "gzipSha256": "0b1691884e4500e0a29ac4c6439acf031a7fd0d4b8f592aee5f046483201ff2e"
+    },
+    "query/sources/sensor_v4_qualification.rs": {
+      "bytes": 13531,
+      "sha256": "9814526141e8a941dc013a17d467f8822bd05acbef0e2d3d582ac9b1b2678be3",
+      "gzipSha256": "9f7619bd03c72d37c72be89e5cbbd9206cc10e3a28b79104f68659e8495ea5a6"
+    },
+    "query/sources/sensors_v4.rs": {
+      "bytes": 100137,
+      "sha256": "ffdf6a1aa1206b3cea2879c6ce1d90babe8d7a49049e20ec967c74317d5d55f0",
+      "gzipSha256": "946ad52fd3f55ed7f7c9282bf376f143e08b7e3f04feb1f1f4b4d86d109246f7"
+    },
+    "query/sources/spatial.rs": {
+      "bytes": 90448,
+      "sha256": "dc299ba17db0cfbc460a623747f0a7c085c1679330ad431a01babf87d182e11f",
+      "gzipSha256": "11256a300ef1b2e08d16cc28447405d871a3fc2f00f24a71fee50ed902d267c9"
+    },
+    "query/summary.json": {
+      "bytes": 1041,
+      "sha256": "627553dc01e81ca9b5af2947d7e6b97c5e3d643a218da2424b0d202264067142",
+      "gzipSha256": "cc3d8835f26fd10579158d0d0a79bf6b807883bcfaa18b268bc70c7b52033e11"
+    },
+    "query/system-resource-observer.py": {
+      "bytes": 8289,
+      "sha256": "57161930559900312537676a45e40026bdc27350ec5f550b09cbf13c4b32f5c4",
+      "gzipSha256": "dc3937c6b93d05212eccb9a3818c4f956733def974be958cb44c809c6aad0ed6"
+    },
+    "query/system-resources.jsonl": {
+      "bytes": 6178,
+      "sha256": "049ca504473af32853f4f8cd78ff828a5df9aba4666597f6d8c5f5621f299ec1",
+      "gzipSha256": "61152a6a9e8bb65a96f1634ede5778232986f6257e74ba554e13aa6613e860b6"
     }
-  }
+  },
+  "queryProfileNativeSourceSha256": "60ddd20d9471036ff33bd031f4f4c3568950325d3ad5f05eca01bc52dd8181fc",
+  "queryProfileConclusion": "A subsequent 8,539-sample subdivision preserves the exact 1,800-step reference workload: 58.0% of inner query time is traversal/retention and 42.0% final sorting. System-wide Linux observations accompany the timed run; Linux GPU counters are unavailable. The four retained Rust overlay files reproduce the recorded native source identity over baseCommit."
 }
