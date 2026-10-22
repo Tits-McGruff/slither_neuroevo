@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "kind": "durable-cuda-job-contention-evidence-v1",
+  "releaseQualified": false,
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "slitherCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
+  "scope": "Actual default CUDA jobs, exact process restart, opaque candidate admission and four native shadows. Shared-host short P0/P1 windows include process startup/restore/shutdown. The observed P0 best-effort window passes; P1 still fails. No causal timing estimate, mature-population, full-capacity, six-hour GPU or default-selection claim.",
+  "sources": {
+    "compiled": {
+      "trainerSourceSha256": "08aef592435816311e734cef6aedee550b6915f042608e245febb4ebf5cdf486",
+      "trainerSourceFiles": [
+        "canonical_graph.py",
+        "sensor_contract.py",
+        "sequence_distillation.py",
+        "distillation_transport.py",
+        "distillation_client.py",
+        "distillation_storage.py",
+        "distillation_replay.py",
+        "distillation_sampling.py",
+        "distillation_job.py",
+        "distillation_checkpoint.py",
+        "distillation_run.py",
+        "brain_artifact.py",
+        "distillation_shadows.py"
+      ]
+    },
+    "best-effort": {
+      "trainerSourceSha256": "05d1901dce46a872f117fa3da2f90e39dab37e13e7ac3eca7e7ecf13b96532be",
+      "trainerSourceFiles": [
+        "canonical_graph.py",
+        "sensor_contract.py",
+        "sequence_distillation.py",
+        "distillation_transport.py",
+        "distillation_client.py",
+        "distillation_storage.py",
+        "distillation_replay.py",
+        "distillation_sampling.py",
+        "distillation_job.py",
+        "distillation_process.py",
+        "distillation_checkpoint.py",
+        "distillation_run.py",
+        "brain_artifact.py",
+        "distillation_shadows.py"
+      ]
+    }
+  },
+  "reports": {
+    "compiled-P0.json": {
+      "sourceVariant": "compiled",
+      "scenario": "P0",
+      "meetsMeasuredGates": false,
+      "pyrlCommit": "3759acde79c331c68518ccac7e0d62c15cddbab0"
+    },
+    "best-effort-P0.json": {
+      "sourceVariant": "best-effort",
+      "scenario": "P0",
+      "meetsMeasuredGates": true,
+      "pyrlCommit": "b9da734b6fef963c2d10b27f78e440575134e1f6"
+    },
+    "best-effort-P1.json": {
+      "sourceVariant": "best-effort",
+      "scenario": "P1",
+      "meetsMeasuredGates": false,
+      "pyrlCommit": "b9da734b6fef963c2d10b27f78e440575134e1f6"
+    }
+  },
+  "files": {
+    "compiled/pyrl/canonical_graph.py": {
+      "bytes": 25104,
+      "sha256": "72a80c648ff8058377aaf65f1870b29d9ca20f05e41e9f6a9513574272eb3129",
+      "gzipSha256": "fbbcaa3b0d276a7d400e34bc26cad40a333d05e43938efd2a27f6282d88ad630"
+    },
+    "compiled/pyrl/sensor_contract.py": {
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "7b24856553f2fd3900b755ba5276c9b2cc8152509dc3bb0845f5b3b39c55d68f"
+    },
+    "compiled/pyrl/sequence_distillation.py": {
+      "bytes": 17366,
+      "sha256": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+      "gzipSha256": "1febf12ada20ff41bb3fec830bb1292d93650cc3ad41dd7c1c87ea0ec1afd373"
+    },
+    "compiled/pyrl/distillation_transport.py": {
+      "bytes": 20337,
+      "sha256": "0498343d66408ddc1896ffad48777859e3ddac98406885ab25aaa4518f61d0ce",
+      "gzipSha256": "cb651105cff8c8ec2e1b99a1cf7c24caed6522ba7fe3347bc11689e048fe59e1"
+    },
+    "compiled/pyrl/distillation_client.py": {
+      "bytes": 22665,
+      "sha256": "91de1bb80cb00ed961758d079a051c662e3c2ae538a546b11731ba00f39b54c6",
+      "gzipSha256": "ef73dd3d7790abd2f751e50ad918e180ed9d29dcaf10fed33372b8a0ea75e2ba"
+    },
+    "compiled/pyrl/distillation_storage.py": {
+      "bytes": 2342,
+      "sha256": "05fe9f442c004e6a5c131e44d92b7a285293b7738f28736de07a3519db005f96",
+      "gzipSha256": "ff1ff040fa8048daa7cea7c83cc2b2910d9c8da11fee849c42fbd876754732cd"
+    },
+    "compiled/pyrl/distillation_replay.py": {
+      "bytes": 15074,
+      "sha256": "4538ca541528c6f550afb41ed3eaa4ff6f0e7640f0f9deb19ac95e3ca7bb85f6",
+      "gzipSha256": "80c03438fa0e9fd096f5330ea318a4c855e390b89c911eee556186a3d0f990e8"
+    },
+    "compiled/pyrl/distillation_sampling.py": {
+      "bytes": 12631,
+      "sha256": "5eef4b95bccb0e84090053b64fb415e72986da97f255ef0cd83b1222b67626ac",
+      "gzipSha256": "7a89366bd384851a5877254696be615fb4f2a0948d45b64c87d76daa83dc87ce"
+    },
+    "compiled/pyrl/distillation_job.py": {
+      "bytes": 26359,
+      "sha256": "af36845759d087cad1bf6591ce8917512c4ae0482805544d0c73d4d4da66d931",
+      "gzipSha256": "76855603110f1d709492df7720bc10d918891e6887d716263b3c94d6eca12c8a"
+    },
+    "compiled/pyrl/distillation_checkpoint.py": {
+      "bytes": 34525,
+      "sha256": "beaa2c7a8cfc43af7bad01e97b2ee502f7e92d3b5548b679e60504627dbac9ae",
+      "gzipSha256": "d3b8c185716eccb4879cb577f1c2c02505e4570ea2265c81734023b299710132"
+    },
+    "compiled/pyrl/distillation_run.py": {
+      "bytes": 13236,
+      "sha256": "55efb3fd0f1eb5ed3fad8ce09fc61345899ac9ac49f2897e1f2755161dba6600",
+      "gzipSha256": "974d2bff64b0d4b82f224191c1aaa7f22222f2425a19f99defa9a4444fdb9207"
+    },
+    "compiled/pyrl/brain_artifact.py": {
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "a486c6db878a108da0b96b07babbfcec174597f1023a392afebab14939442a51"
+    },
+    "compiled/pyrl/distillation_shadows.py": {
+      "bytes": 7684,
+      "sha256": "6663d2edbecf8c8ce6e36dc46382e9de28a4ad184750e6a19c8b4dd2171f5277",
+      "gzipSha256": "bb3a114f3ae8c8bce291546c4532bacc1a4beb1388d4254e26cf17ba184b4175"
+    },
+    "compiled/pyrl/live_distillation_gate.py": {
+      "bytes": 19041,
+      "sha256": "3073cb1a26d2a99aa8f174e73fb2d2d4d7953fdd1fa7a277551beb586148ad26",
+      "gzipSha256": "10e54b88e9ede273b292e6cad77fa28fe90ff394e36ff7df578196a8b54bf84a"
+    },
+    "best-effort/pyrl/canonical_graph.py": {
+      "bytes": 25104,
+      "sha256": "72a80c648ff8058377aaf65f1870b29d9ca20f05e41e9f6a9513574272eb3129",
+      "gzipSha256": "fbbcaa3b0d276a7d400e34bc26cad40a333d05e43938efd2a27f6282d88ad630"
+    },
+    "best-effort/pyrl/sensor_contract.py": {
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "7b24856553f2fd3900b755ba5276c9b2cc8152509dc3bb0845f5b3b39c55d68f"
+    },
+    "best-effort/pyrl/sequence_distillation.py": {
+      "bytes": 17366,
+      "sha256": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+      "gzipSha256": "1febf12ada20ff41bb3fec830bb1292d93650cc3ad41dd7c1c87ea0ec1afd373"
+    },
+    "best-effort/pyrl/distillation_transport.py": {
+      "bytes": 20337,
+      "sha256": "0498343d66408ddc1896ffad48777859e3ddac98406885ab25aaa4518f61d0ce",
+      "gzipSha256": "cb651105cff8c8ec2e1b99a1cf7c24caed6522ba7fe3347bc11689e048fe59e1"
+    },
+    "best-effort/pyrl/distillation_client.py": {
+      "bytes": 22665,
+      "sha256": "91de1bb80cb00ed961758d079a051c662e3c2ae538a546b11731ba00f39b54c6",
+      "gzipSha256": "ef73dd3d7790abd2f751e50ad918e180ed9d29dcaf10fed33372b8a0ea75e2ba"
+    },
+    "best-effort/pyrl/distillation_storage.py": {
+      "bytes": 2342,
+      "sha256": "05fe9f442c004e6a5c131e44d92b7a285293b7738f28736de07a3519db005f96",
+      "gzipSha256": "ff1ff040fa8048daa7cea7c83cc2b2910d9c8da11fee849c42fbd876754732cd"
+    },
+    "best-effort/pyrl/distillation_replay.py": {
+      "bytes": 15074,
+      "sha256": "4538ca541528c6f550afb41ed3eaa4ff6f0e7640f0f9deb19ac95e3ca7bb85f6",
+      "gzipSha256": "80c03438fa0e9fd096f5330ea318a4c855e390b89c911eee556186a3d0f990e8"
+    },
+    "best-effort/pyrl/distillation_sampling.py": {
+      "bytes": 12631,
+      "sha256": "5eef4b95bccb0e84090053b64fb415e72986da97f255ef0cd83b1222b67626ac",
+      "gzipSha256": "7a89366bd384851a5877254696be615fb4f2a0948d45b64c87d76daa83dc87ce"
+    },
+    "best-effort/pyrl/distillation_job.py": {
+      "bytes": 26391,
+      "sha256": "8b384f4ae1364e8fc84ecbf3825c1c8cf0249586aef43438b2e0cbefdf2d531a",
+      "gzipSha256": "32bd658bdbfd3d9c38dd59c6d684454401c73991d54b7234239ca0dd27adca81"
+    },
+    "best-effort/pyrl/distillation_process.py": {
+      "bytes": 2337,
+      "sha256": "41b62b59e0dd79c1d9d62a0ccf485f8ddbba5e7ae69d76c5d94c19d6832a513f",
+      "gzipSha256": "0b83217bd6c3754654ebe2992af017d2acf4fb239712ed738615f6dc654ec8d2"
+    },
+    "best-effort/pyrl/distillation_checkpoint.py": {
+      "bytes": 34525,
+      "sha256": "beaa2c7a8cfc43af7bad01e97b2ee502f7e92d3b5548b679e60504627dbac9ae",
+      "gzipSha256": "d3b8c185716eccb4879cb577f1c2c02505e4570ea2265c81734023b299710132"
+    },
+    "best-effort/pyrl/distillation_run.py": {
+      "bytes": 13699,
+      "sha256": "178296a3b26d8a9190d5c42b928ae569252a855d0c266fd6acfdad52f82a1e4c",
+      "gzipSha256": "dc1fc4fee3b414c1f1cc662b776edf819c6d53a499620e76148396818be8a4f5"
+    },
+    "best-effort/pyrl/brain_artifact.py": {
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "a486c6db878a108da0b96b07babbfcec174597f1023a392afebab14939442a51"
+    },
+    "best-effort/pyrl/distillation_shadows.py": {
+      "bytes": 7684,
+      "sha256": "6663d2edbecf8c8ce6e36dc46382e9de28a4ad184750e6a19c8b4dd2171f5277",
+      "gzipSha256": "bb3a114f3ae8c8bce291546c4532bacc1a4beb1388d4254e26cf17ba184b4175"
+    },
+    "best-effort/pyrl/live_distillation_gate.py": {
+      "bytes": 19455,
+      "sha256": "0d52f603ca117ad245a3ce74f98f34ee4f943743d4c3ee56eefe5f4229cc610c",
+      "gzipSha256": "16f4fc58d8bf0ed45fccef6fba1c4a85dbcae93f6d710bbe96202193ef9d09d9"
+    },
+    "host.ts": {
+      "bytes": 34724,
+      "sha256": "effc7567dc0e09525927156b0666ada724c1eea982e2e52338d9b6e48455b22e",
+      "gzipSha256": "dcffda2e2f1ed752d6761f6ba5502f213fd70b2382b1443d114be592057209c6"
+    },
+    "student.slither-brain": {
+      "bytes": 118580,
+      "sha256": "fb192b82b1e552222fad885095487d62aa85892c4f72cff555314be022b7c359",
+      "gzipSha256": "a2279bf690e7a53a9329d5382ab6009b7974321a5e5c1c5878bd3f40a4e5c5cf"
+    },
+    "compiled-P0.json": {
+      "bytes": 281093,
+      "sha256": "347cf6bc84480ddd09b730f40c66f19ca5830bd87116fde093e2b8df2c353986",
+      "gzipSha256": "4a33dd7c2102a4b7eb4cbb90ad770ace40c23234c87a676fafd454555f65781e"
+    },
+    "best-effort-P0.json": {
+      "bytes": 282019,
+      "sha256": "104cd1fcf1293ea980b68d2de1117a54866062fd1f1ae1e1e3aba0249b0ab16a",
+      "gzipSha256": "5b2f190d3e41548251a6d1a327b624fb10da26daa6c9d3021e9f75869c1a6f27"
+    },
+    "best-effort-P1.json": {
+      "bytes": 284166,
+      "sha256": "aa8eeaf4a6eb2ac248269557507911e9feb924364619da5f484b7cc45669792e",
+      "gzipSha256": "7d1c63a6ecf42e95f3c27bc681b9bad3a0d3a1061f09e55d94ae29a32b6d2a3b"
+    }
+  }
+}

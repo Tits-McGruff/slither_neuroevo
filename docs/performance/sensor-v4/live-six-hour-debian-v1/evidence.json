@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-six-hour-window-evidence-v1",
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "scope": "Real background scheduler, seeded modest population starting from random weights with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.",
+  "slitherCommit": "9afcf6f7ddbadae7d8b5d9ca1288c67625d26637",
+  "pyrlCommit": "c415fb0a0eb0d53655ca49ccb8e7ee6039638513",
+  "nativeSourceSha256": "29283dfa571d2ab738e07492820c3fd8ae349206f2ba10c9a589ed64201d6770",
+  "trainerSourceSha256": "49c5344093d2339cf80c027860c997d1d5ab7092471b9729ac4d7d130a00de1a",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "files": {
+    "report.json": {
+      "bytes": 2015291,
+      "sha256": "05f3425ddd71ab1ca827574fa8369115c0539a3d490ed5cebe6e4a7a42615a93",
+      "gzipSha256": "7077fa1694ea2e299d9e1a0613890c48c3a90a6cf5ba6f45084484bbc7c05a43"
+    },
+    "checkpoint-restore.json": {
+      "bytes": 1930,
+      "sha256": "c501f58c324afc44a1db94fc84172226a39292bd162d4aead4551428a8715a56",
+      "gzipSha256": "c7436dd3fe4d9e3d75aced1e3e5cc016efc0d7453fb556695a10d5608ff1d47a"
+    },
+    "periodic-student.slither-brain": {
+      "bytes": 118695,
+      "sha256": "e264c6681ade2e13790176fe7243179768af53c423992c59e80461b8dd99f35e",
+      "gzipSha256": "1eea0208463667884ab4e8019c20195c701290988f95dfc4c901a7080c60ae8e"
+    },
+    "periodic-student-native.json": {
+      "bytes": 1679,
+      "sha256": "533833610a3ceb4df7fef1fd489f5b5cfdb1f30ef8c64c4d374e6c40bafe74ec",
+      "gzipSha256": "6e930f3959f00d06927e9003c2400630aa69cd479e4b79cf58b6e213c0ba8ab6"
+    },
+    "verify-checkpoint.py": {
+      "bytes": 2653,
+      "sha256": "dc4562ae1473f88a45e1ca61c8283ff039741d5c6f2030628346956b6da29301",
+      "gzipSha256": "b5595c839fb331ecc737a884bc3c859e7a5c27b36475dd114a65dfe211cea82d"
+    },
+    "pyrl/canonical_graph.py": {
+      "bytes": 25104,
+      "sha256": "72a80c648ff8058377aaf65f1870b29d9ca20f05e41e9f6a9513574272eb3129",
+      "gzipSha256": "c3700d809b7a62a6b72aeb5d849eaf773f66c7bc7d24cf1cc16235812fb9f8fb"
+    },
+    "pyrl/sensor_contract.py": {
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "205320f4e85f9c812f9b200c03d2fe015494bc89e37eab23075d56afd4fdbb33"
+    },
+    "pyrl/sequence_distillation.py": {
+      "bytes": 16992,
+      "sha256": "034f2120f7e07399db19a2930faa3924448ff2b6e267f95fca5cd46123484446",
+      "gzipSha256": "510081e66316156f185d2bc40b6de86bd08060a2bcdffc5f00fbb6e1c404f9f9"
+    },
+    "pyrl/distillation_transport.py": {
+      "bytes": 19816,
+      "sha256": "f2a410854fc0b909f0c31cc3f03ce1470c45947c2dd91c3098622e8cf416af79",
+      "gzipSha256": "55ba56db3e03c07728e994dee70f3daf87fbca76ee8e651878da1bd59edd7d3b"
+    },
+    "pyrl/distillation_client.py": {
+      "bytes": 22177,
+      "sha256": "40c24ea83648dd6de713ff42106e1f256cdad9e4874516ef93435624f7fe3a07",
+      "gzipSha256": "0d2451cacaa8d0a5bfe159230a772fa43363541529a6ae8dabb5c9261b17a1d8"
+    },
+    "pyrl/distillation_storage.py": {
+      "bytes": 2290,
+      "sha256": "3b91f99eac3eecf97a15a241438df60600c1a5734ea94312671f465a102a060e",
+      "gzipSha256": "3cd43b5776722bad880d90f7aa3bf597bcb2db156d6377a70b1880a03dd7cbb8"
+    },
+    "pyrl/distillation_replay.py": {
+      "bytes": 14752,
+      "sha256": "c39890ffa2d4511f9481960d543c6f388613e6a5b029c0736f2677d8a92e53be",
+      "gzipSha256": "e2e2653040d6c333acb043a7e435100a451a2204f47ec4e4e276789d0701b3f7"
+    },
+    "pyrl/distillation_sampling.py": {
+      "bytes": 12631,
+      "sha256": "5eef4b95bccb0e84090053b64fb415e72986da97f255ef0cd83b1222b67626ac",
+      "gzipSha256": "cd456197ffc212c786e67379f1f6fb22fcde48c8f7a7a31d1cff90f3bcf6807a"
+    },
+    "pyrl/distillation_job.py": {
+      "bytes": 25253,
+      "sha256": "27aab7db3575c429acab2102a516d800bfc531e0728d23682f78c27b953ca27e",
+      "gzipSha256": "3c12a1adcacaaccb32bac75a1d120ca3666e5c7df078aa3bf57c5819879df368"
+    },
+    "pyrl/distillation_checkpoint.py": {
+      "bytes": 33797,
+      "sha256": "f40b78dd1c078163967dcea2cfccf31676c149859837f96178d6174355e579ac",
+      "gzipSha256": "3011278afc4ec2cf2424376be49588a4704dda2b29d74ea2a011d1405475d1a6"
+    },
+    "pyrl/distillation_run.py": {
+      "bytes": 12796,
+      "sha256": "0bcb7f639b84458b6dca236cead2bc0774530b096e574a3b42771337d20e8275",
+      "gzipSha256": "491526c06eb5e0b68bf10ab541c87471b0d091847c5ef3fc90b93a5d56ee50c7"
+    },
+    "pyrl/brain_artifact.py": {
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "866b2d4640c9fb8e49e5f6d3d55acf05791c3372cfecc26a1f817250f3e030b7"
+    },
+    "pyrl/distillation_shadows.py": {
+      "bytes": 7510,
+      "sha256": "74865d9cb88022b3a1091c8c3b880009f50c2669cee28c479b574f554c76243d",
+      "gzipSha256": "f4a6ba5f47037008d6e531dd71d6dd0bcbd62dcb2b493183e83e225e1179ddc7"
+    },
+    "pyrl/live_distillation_gate.py": {
+      "bytes": 18597,
+      "sha256": "28652a28a36ed16ecfc2e7a7eac0eb10cfe4f5563afa85c4290b941fe67bb21e",
+      "gzipSha256": "7ce3be28dc15c37c810cb73422003f825ca0b1ade8cfb664753ce9d1f5a29048"
+    },
+    "slither/live-distillation.ts": {
+      "bytes": 44487,
+      "sha256": "96bbcae7222c0e49ed705ec0b07847d0ef5b2f53a13d0ddef03d0acd67c7b335",
+      "gzipSha256": "f86baf99fc1bc47222762f1a32c6fd74a57febdae2754a75e2db6e3933749e02"
+    },
+    "slither/sensorWallSummary.ts": {
+      "bytes": 7847,
+      "sha256": "675fcf78fd6e1eeaf8f6a6f99d90021a9509be2d57b234e34c6b07be1f728c06",
+      "gzipSha256": "2b3d14a754509c88ece16c03e0ccb9c424b89241b92204fbe3b850064181a79b"
+    },
+    "slither/sensorWallTiming.ts": {
+      "bytes": 869,
+      "sha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
+      "gzipSha256": "deffb6ea4bc391f2e19d934d66d4020873ca09690f39f5f196bdfb1567c7fe7f"
+    }
+  }
+}

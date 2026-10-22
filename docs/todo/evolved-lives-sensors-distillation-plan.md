@@ -1230,16 +1230,21 @@ eager CUDA loss, gradients, weights, recurrent state and Adam moments exactly;
 warmed updates averaged 26.86 versus 278.42 ms on the RTX 4080, while compilation
 made the complete short run slower. A 100-update compiled run passed native
 256-delivery parity. The compact [qualification capsule](https://github.com/Tits-McGruff/PyRL-trainer/tree/9107b851953de90e2d6a2f3d6612973fd475084a/docs/performance/canonical_graph/cuda-window-windows-v1)
-retains measured sources, receipts and the trained parity fixture. Ordinary live
-jobs remain eager; maturity, integrated throughput and soak gates remain open.
+retains measured sources, receipts and the trained parity fixture. Durable CUDA jobs now select the bounded path automatically in PyRL `3759acd`;
+actual separate-process restart and native candidate/shadow handoff pass on the
+RTX 4080. The best-effort standalone process policy in `b9da734` yields one passing
+short Windows P0 window (6-ms p99, no wall debt), while P1 still fails. Maturity,
+integrated throughput and soak gates remain open.
 
-The live qualification host and PyRL sustain helper now admit an explicit bounded
-six-hour mode with persistent workspaces, bounded health/progress observations,
-periodic ordinary job snapshots and up to 120 durable generation barriers.
-Focused duration/continuation checks and the unchanged 60-second Debian live
-path pass; no six-hour live-window acceptance is claimed. The latest short run
-still fails timing/debt gates, so the integrated performance requirement remains
-open. Maximum-capacity overlap is explicitly outside this new window harness.
+The bounded live harness completed six actual Debian hours with 72 durable
+generation barriers, 35 trainer snapshots, drop-free capture and bounded replay.
+Metadata restart, cold Rust boundary restore and cold admission of the latest
+periodic trainer snapshot pass. It still fails performance: 1,294,095 window
+steps are 1,905 below the required floor, p99 is 48 ms and wall debt is 21.679
+seconds. Exact reports, sources and the admitted periodic student are retained
+under `docs/performance/sensor-v4/live-six-hour-debian-v1/`; CUDA job reports are
+under `cuda-job-windows-v1/`. Full-capacity overlap and performance acceptance
+remain open.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
