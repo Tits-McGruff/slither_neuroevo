@@ -1738,3 +1738,38 @@ observations with incomplete rays. All dense-pellet samples hit the pellet cap.
 The conservative saturation flags remain explicit. This pressure coverage does
 not establish sensor quality in mature gameplay, full-step 60-Hz acceptance or
 production default ray/detail limits.
+
+
+
+## Retained six-hour live window and durable CUDA jobs
+
+The [Debian six-hour window](live-six-hour-debian-v1/evidence.json) completed
+21,600 active trainer seconds, 27,688 optimizer updates, 72 native/SQLite
+generation handoffs and 35 ordinary trainer snapshots. Four learned shadows
+each delivered 846,958 evaluations, capture was drop-free, and replay ownership
+stayed within 256 MiB. The final native boundary survived metadata restart and
+cold Rust restore. A fresh Python process admitted the latest periodic trainer
+snapshot at update 27,532; its exported student independently passed Rust
+artifact validation. That snapshot is an earlier periodic boundary, not final
+running-world or final-optimizer recovery.
+
+This measurement fails performance acceptance: 1,294,095 committed window steps
+are 1,905 short of the 1,296,000 floor, native p99 is 48 ms, and dropped wall debt
+is 21.679 seconds. The capsule retains the exact report, frozen sources, cold
+admission receipt and periodic student. Bounded continuous operation is observed;
+the six-hour performance and full-capacity integrated soak remain unqualified.
+
+The [Windows durable CUDA job measurements](cuda-job-windows-v1/evidence.json)
+use the frozen native `e8673ff` build and real Motion/B16 default jobs. Automatic
+whole-window CUDA execution passes exact process restart, opaque candidate
+admission and four-shadow progress. All recorded training forwards use the
+compiled path, with allocator peaks below the unchanged 8-GiB budget.
+
+The compiled P0 window before explicit process scheduling records 8-ms p99 but
+104-ms wall debt, so it fails. The standalone best-effort scheduling policy
+records Windows Below Normal in every trainer phase. Its P0 window passes the
+existing clock/debt/timing gates with 6-ms p99, zero debt and 715 optimizer updates.
+Its P1 window still fails: 32-ms p99, 11.576 seconds of debt and a 0.8228 minimum
+simulated/wall ratio. These are short shared-host observations, not a causal
+timing estimate or qualification of diverse mature populations, maximum capacity,
+a six-hour GPU run or production defaults.
