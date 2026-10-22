@@ -167,7 +167,9 @@ jobs:
           if-no-files-found: warn
       - name: Retained learned-family restore boundary tests
         if: matrix.node-version == '24.x'
-        run: python -B -m unittest discover -s scripts/qualification -p test_trained_sensor_cohorts.py
+        run: |
+          python -B -m unittest discover -s scripts/qualification -p test_trained_sensor_cohorts.py
+          python -B -m unittest discover -s scripts/qualification -p test_compare_sensor_workloads.py
       - name: Native mixed learned-family P0/P1 worker continuation
         if: matrix.node-version == '24.x'
         run: >-

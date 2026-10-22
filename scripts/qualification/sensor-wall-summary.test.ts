@@ -1,6 +1,6 @@
 import { sensorWallTiming } from './sensorWallTiming.ts';
 import { describe, expect, it } from 'vitest';
-import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
+import { sixHourNativeWork, summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 
 /** Exact counters for an independently specified 60-second native window. */
 const hex = (value: number | bigint): string => BigInt(value).toString(16).padStart(16, '0');
@@ -141,5 +141,17 @@ describe('explicit six-hour wall admission', () => {
     expect(summarizeSensorWall(reads, 21_600, undefined, true).sixHourWall?.workComplete).toBe(false);
     reads.splice(10, 8);
     expect(() => summarizeSensorWall(reads, 21_600, undefined, true)).toThrow(/coverage gap/);
+  });
+});
+
+describe('six-hour native completion handshake', () => {
+  it('requires elapsed time and completed steps independently, then admits recovery after a hold', () => {
+    const first = read(1000, 60);
+    expect(sixHourNativeWork(first, read(21_600_999, 1_296_060)).workComplete).toBe(false);
+    expect(sixHourNativeWork(first, read(21_601_002, 1_296_059)).workComplete).toBe(false);
+    const recovered = sixHourNativeWork(first, read(21_620_000, 1_296_060));
+    expect(recovered).toEqual({requiredSteps: '1296000', completedSteps: '1296000', workComplete: true});
+    expect(() => sixHourNativeWork(first, read(1000, 1_296_060))).toThrow(/overlap/);
+    expect(() => sixHourNativeWork(first, read(21_620_000, 59))).toThrow(/regressed/);
   });
 });

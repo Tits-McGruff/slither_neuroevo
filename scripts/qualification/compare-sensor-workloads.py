@@ -25,6 +25,42 @@ def digest(path):
     return value.hexdigest()
 
 
+def cohort_sources(path):
+    """Bind only bounded confined opaque inputs; Rust still admits every policy."""
+    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 64 * 1024,
+            "bounded ordinary cohort index required")
+    document = json.loads(path.read_bytes())
+    require(isinstance(document, dict) and type(document.get("schemaVersion")) is int
+            and document["schemaVersion"] == 1,
+            "cohort index schema required")
+    entries = document.get("artifacts")
+    require(isinstance(entries, list) and 2 <= len(entries) <= 16, "2..16 cohort inputs required")
+    sources = {path: digest(path)}
+    total = 0
+    for entry in entries:
+        require(isinstance(entry, dict) and isinstance(entry.get("file"), str),
+                "cohort filename required")
+        name = entry["file"]
+        require(Path(name).name == name and not any(char in name for char in ("\\", "/", ":", "\0"))
+                and name.endswith(".slither-brain"), "confined cohort filename required")
+        member = path.parent / name
+        require(member.is_file() and not member.is_symlink() and member not in sources,
+                "unique ordinary cohort artifact required")
+        total += member.stat().st_size
+        require(total <= 64 * 1024**2, "combined cohort encoded byte admission")
+        source_sha = digest(member)
+        require(source_sha == entry.get("sha256"), "cohort artifact digest mismatch")
+        sources[member] = source_sha
+    return sources
+
+
+def require_unchanged(sources):
+    """Retain one exact input family through every adjacent measured process."""
+    for path, expected in sources.items():
+        require(path.is_file() and not path.is_symlink() and digest(path) == expected,
+                "cohort input changed during comparison")
+
+
 def child_cpu_before():
     """Snapshot cumulative completed-child CPU time on Unix."""
     if os.name == "nt":
@@ -58,7 +94,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
-    parser.add_argument("--trained-artifact", type=Path)
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--trained-artifact", type=Path)
+    inputs.add_argument("--trained-cohort", type=Path)
     parser.add_argument("--baseline-source", required=True)
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--scenario", choices=["P0", "P1"], default="P1")
@@ -85,6 +123,11 @@ def parse_args():
         args.trained_artifact = args.trained_artifact.resolve(strict=True)
         if not args.trained_artifact.is_file() or not 0 < args.trained_artifact.stat().st_size <= 64 * 1024**2:
             parser.error("bounded regular trained artifact required")
+    if args.trained_cohort is not None:
+        args.trained_cohort = args.trained_cohort.absolute()
+        args.cohort_sources = cohort_sources(args.trained_cohort)
+    else:
+        args.cohort_sources = {}
     args.directory = args.directory.resolve()
     args.directory.mkdir()  # Exclusive; never reuse or remove owner files.
     return args
@@ -103,12 +146,17 @@ def main():
               "--baseline-cadence", "0.016666666666666666", "--capture", "on", "--warmup", str(args.warmup),
               "--steps", str(args.steps), "--environment", args.environment]
     artifact_sha = None if args.trained_artifact is None else digest(args.trained_artifact)
-    common.extend(["--graph", "modest"] if args.trained_artifact is None else
-                  ["--trained-artifact", str(args.trained_artifact)])
+    cohort_sha = args.cohort_sources.get(args.trained_cohort)
+    if args.trained_cohort is not None:
+        common.extend(["--trained-cohort", str(args.trained_cohort)])
+    else:
+        common.extend(["--graph", "modest"] if args.trained_artifact is None else
+                      ["--trained-artifact", str(args.trained_artifact)])
     records = []
     reference = None
     for index, role in enumerate(["baseline", "candidate", "candidate", "baseline"]):
         require(digest(binaries[role]) == binary_sha[role], "executable changed during comparison")
+        require_unchanged(args.cohort_sources)
         if args.trained_artifact is not None:
             require(digest(args.trained_artifact) == artifact_sha, "trained artifact changed during comparison")
         stem = f"{index}-{role}"
@@ -129,8 +177,16 @@ def main():
         require(code == 0, f"native comparison case failed: {stem} exit {code}")
         require(output.stat().st_size <= 4 * 1024 * 1024, "native report exceeds admission")
         report = json.loads(output.read_bytes())
-        require(report["admitted"] and report["version"] in ((4, 5) if artifact_sha is None else (6,)),
-                "admitted random or trained workload required")
+        versions = (7,) if cohort_sha is not None else ((4, 5) if artifact_sha is None else (6,))
+        require(report["admitted"] and report["version"] in versions,
+                "admitted random, trained or cohort workload required")
+        if cohort_sha is not None:
+            require_unchanged(args.cohort_sources)
+            descriptor = report["trainedCohort"]
+            require(descriptor["indexSha256"] == cohort_sha
+                    and [family["artifact"]["artifactSha256"] for family in descriptor["families"]]
+                    == [sha for path, sha in args.cohort_sources.items() if path != args.trained_cohort],
+                    "wrong learned family")
         if artifact_sha is not None:
             require(report["trainedArtifact"]["artifactSha256"] == artifact_sha, "wrong learned policy")
             require(digest(args.trained_artifact) == artifact_sha, "trained artifact changed during run")
@@ -149,6 +205,8 @@ def main():
             require(reference[key] == report[key], f"comparison changed {key}")
         if artifact_sha is not None:
             require(reference["trainedArtifact"] == report["trainedArtifact"], "trained deployment changed")
+        if cohort_sha is not None:
+            require(reference["trainedCohort"] == report["trainedCohort"], "trained family deployment changed")
         for key in ["sourceSampleSha256", "drainedSampleSha256"]:
             require(reference["capture"][key] == report["capture"][key], f"comparison changed {key}")
         phases = report["nativePhaseCosts"]
@@ -163,7 +221,9 @@ def main():
     medians = {role: {key: statistics.median(row[key] for row in records if row["role"] == role)
                       for key in ["nativeMeanMs", "sensingMeanMs", "nativeP95Ms"]} for role in binaries}
     require(digest(Path(__file__)) == script_sha, "comparison script changed during run")
-    result = {"version": 1, "scriptSha256": script_sha, "trainedArtifactSha256": artifact_sha, "arguments": common, "order": [row["role"] for row in records],
+    require_unchanged(args.cohort_sources)
+    result = {"version": 1, "scriptSha256": script_sha, "trainedArtifactSha256": artifact_sha,
+              **({"trainedCohortSha256": cohort_sha} if cohort_sha is not None else {}), "arguments": common, "order": [row["role"] for row in records],
               "equivalent": True, "records": records, "medians": medians,
               "caveat": "Adjacent ABBA process runs on a shared host; descriptive timing evidence, not a release pass or statistical confidence claim. Native reports exclude observer/startup from step cost; child CPU/wall includes the entire CLI process. Exact equality is asserted for these same-target workloads only, not promised across revisions/platforms. Reports and executables are immutable during the comparison; no owner database, controller, or runtime defaults change."}
     with (args.directory / "comparison.json").open("x", encoding="utf-8") as stream:

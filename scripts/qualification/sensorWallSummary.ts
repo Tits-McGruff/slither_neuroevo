@@ -75,6 +75,15 @@ function counter(value: string): bigint {
   return BigInt('0x' + value);
 }
 
+/** Require both six elapsed hours and the native completed-step floor, including all holds. */
+export function sixHourNativeWork(first: SensorWallRead, latest: SensorWallRead) {
+  counter(first.health.completedStep); counter(latest.health.completedStep);
+  const progress = counterWindow({...first, completedStep: first.health.completedStep},
+    {...latest, completedStep: latest.health.completedStep});
+  return {requiredSteps: '1296000', completedSteps: progress.deltaSteps,
+    workComplete: progress.minimumWallSeconds >= 21_600 && BigInt(progress.deltaSteps) >= 1_296_000n};
+}
+
 /** Apply the existing 98% progress and P0/P1 timing criteria to a real-clock window.
  * Scheduler/identity failures reject the evidence; measured performance failures
  * remain explicit results so the report never hides a failed configuration.
@@ -111,7 +120,7 @@ export function summarizeSensorWall(reads: readonly SensorWallRead[], requestedS
   const dropped = counter(final.health.schedulerDroppedWallMicros) - counter(first.schedulerDroppedWallMicros);
   const meetsRealtimeGate = progress.minimumWallSeconds >= requestedSeconds &&
     progress.minimumSimulatedWallRatio >= 0.98 && dropped === 0n && !overloaded;
-  const sixHourWorkComplete = progress.minimumWallSeconds >= 21_600 && BigInt(progress.deltaSteps) >= 1_296_000n;
+  const sixHourWorkComplete = sixHourNativeWork(initial, final).workComplete;
   return {...(sixHour ? {sixHourWall: {requiredSteps: '1296000', workComplete: sixHourWorkComplete}} : {}),
     progress, stepTiming, droppedWallMicros: dropped.toString(), overloadedObserved: overloaded,
     schedulerCompletedSteps: (counter(final.health.schedulerCompletedSteps) - counter(first.schedulerCompletedSteps)).toString(),

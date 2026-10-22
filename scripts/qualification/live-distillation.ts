@@ -28,7 +28,7 @@ import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1 } from '../../server/
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from '../../server/rustEngine/startupMetadata.ts';
 import { sensorWallTiming } from './sensorWallTiming.ts';
-import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
+import { sixHourNativeWork, summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../server/rustEngine/diskAdmission.ts';
 
@@ -329,12 +329,12 @@ async function run(): Promise<void> {
       const barrierIntervalMs = seconds * 1000 / (boundaries + 1);
       const frame = new Uint8Array(metadata.maximumFrameBytes);
       let frameSequence = '0'.repeat(16); let frameCopies = 0; let frameBytes = 0;
-      let finished = false; let trainerError: unknown;
+      let finished = false; let trainerError: unknown; let nativeCompletion: Record<string, unknown> | undefined;
       const trainingAbort = new AbortController();
       const stopTraining = (): void => trainingAbort.abort();
       process.once('SIGINT', stopTraining); process.once('SIGTERM', stopTraining);
       const training = python(pythonPath, checkout, ['--phase', 'sustain', ...common, '--seconds', String(seconds),
-        '--max-wall-seconds', String(timing.maxWallSeconds), ...(sixHour ? ['--soak-hours', '6'] : [])], timing.processDeadlineMs, trainingAbort.signal)
+        '--max-wall-seconds', String(timing.maxWallSeconds), ...(sixHour ? ['--soak-hours', '6', '--wait-for-native-work'] : [])], timing.processDeadlineMs, trainingAbort.signal)
         .catch(error => {trainerError = error;}).finally(() => {finished = true;});
       let nextRead = first.afterMs + timing.readIntervalMs;
       let nextProgress = first.afterMs + 60_000;
@@ -376,6 +376,16 @@ async function run(): Promise<void> {
           if (performance.now() >= nextRead) {
             assert(reads.length < 4095); reads.push(await wallRead(native)); nextRead = performance.now() + timing.readIntervalMs;
           }
+          if (sixHour && !nativeCompletion && reads.length > 1 && generationBarriers.length === boundaries) {
+            const work = sixHourNativeWork(first, reads.at(-1)!);
+            if (work.workComplete) {
+              nativeCompletion = {schemaVersion: 1, captureEpoch: dataset.contract.captureEpoch,
+                requiredSteps: work.requiredSteps, completedSteps: work.completedSteps};
+              // Publish complete bytes atomically; the private trainer never observes a partial receipt.
+              await writeFile(join(jobDirectory, 'native-work-complete.tmp'), JSON.stringify(nativeCompletion) + '\n', {flag: 'wx'});
+              await rename(join(jobDirectory, 'native-work-complete.tmp'), join(jobDirectory, 'native-work-complete.json'));
+            }
+          }
           if (sixHour && performance.now() >= nextProgress) {
             const latest = reads.at(-1)!;
             await writeFile(join(root, 'live-progress.tmp'), JSON.stringify({schemaVersion: 1,
@@ -397,6 +407,10 @@ async function run(): Promise<void> {
       assert.equal(generationBarriers.length, boundaries, 'all requested generations must commit during the trainer window');
       const summary = summarizeSensorWall(reads, seconds, boundaries ? {runId, barriers: generationBarriers} : undefined, sixHour);
       const sustain = JSON.parse(await readFile(join(jobDirectory, 'sustain-report.json'), 'utf8')) as Record<string, unknown>;
+      if (sixHour) {
+        assert(nativeCompletion, 'native six-hour completion must precede trainer exit');
+        assert.deepEqual(sustain['nativeWorkCompletion'], nativeCompletion);
+      }
       assert.equal(sustain['requestedSeconds'], seconds); assert(Number(sustain['activeWallSeconds']) >= seconds);
       assert(Number(sustain['optimizerUpdates']) > 0 && Number(sustain['fetches']) > 0);
       assert(BigInt(String(sustain['finalCursor'])) > BigInt(String(sustain['initialCursor'])));

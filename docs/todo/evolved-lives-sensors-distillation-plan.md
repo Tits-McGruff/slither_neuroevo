@@ -1244,7 +1244,11 @@ steps are 1,905 below the required floor, p99 is 48 ms and wall debt is 21.679
 seconds. Exact reports, sources and the admitted periodic student are retained
 under `docs/performance/sensor-v4/live-six-hour-debian-v1/`; CUDA job reports are
 under `cuda-job-windows-v1/`. Full-capacity overlap and performance acceptance
-remain open.
+remain open. Future integrated six-hour windows require both 21,600 trainer
+seconds and a capture-bound receipt for 1,296,000 completed native steps within
+the existing 21,900-second outer deadline. This permits time to complete work
+held for durable generations without subtracting those holds or relaxing any
+performance criterion; the retained failed result above is unchanged.
 
 The live qualification host also accepts an explicit learned-cohort index for
 P0/P1. Its hooks-only coarse constructor uses the existing bounded Rust loader,
