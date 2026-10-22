@@ -100,6 +100,37 @@ class SensingProfileEvidenceTests(unittest.TestCase):
                      comparison["medians"]["baseline"]["nativeMeanMs"])
             self.assertGreater(ratio, 0.99)
 
+    def test_query_subdivision_keeps_reference_outputs_and_records_host_load(self):
+        report = self.document("query/sampled.json")
+        reference = self.document("profile/1-sampled.json")
+        self.equal_work([reference, report])
+        self.assertEqual(report["sourceSha256"], self.manifest["queryProfileNativeSourceSha256"])
+        summary = self.document("query/summary.json")
+        self.assertTrue(summary["exactReferenceWork"])
+        self.assertEqual(summary["v4SensingProfile"], report["v4SensingProfile"])
+        profile = report["v4SensingProfile"]
+        self.assertEqual(profile["version"], 2)
+        self.assertEqual(profile["queryFields"], ["traversalNanos", "sortNanos", "samples",
+                                                 "entriesVisited", "retainedCandidates",
+                                                 "qualifyingCandidates"])
+        travel, sort, samples, entries, retained, qualifying = profile["query"]
+        self.assertEqual(samples, profile["samples"])
+        self.assertGreater(samples, 8000)
+        self.assertGreater(entries, qualifying)
+        self.assertGreaterEqual(qualifying, retained)
+        self.assertGreater(sort / (travel + sort), 0.4)
+        self.assertLess(sort / (travel + sort), 0.45)
+        self.assertLess(travel + sort, profile["nanoseconds"][1])
+        observer_sha = hashlib.sha256(self.data["query/system-resource-observer.py"]).hexdigest()
+        rows = [json.loads(line) for line in self.data["query/system-resources.jsonl"].splitlines()]
+        self.assertGreaterEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row["observerSourceSha256"], observer_sha)
+            self.assertEqual(row["platform"], "Linux")
+            self.assertTrue(row["host"]["available"])
+            self.assertGreaterEqual(row["collectionSeconds"], 0)
+            self.assertIn("attribution", row)
+
     def test_scope_and_input_provenance_do_not_claim_a_gate_pass(self):
         self.assertFalse(self.manifest["performanceQualified"])
         self.assertFalse(self.manifest["maturityQualified"])

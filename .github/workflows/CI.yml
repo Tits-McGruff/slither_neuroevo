@@ -165,13 +165,9 @@ jobs:
           name: trained-sensor-cohorts-${{ matrix.os }}
           path: ${{ runner.temp }}/trained-sensor-cohorts/*.json
           if-no-files-found: warn
-      - name: Retained learned-family restore boundary tests
+      - name: Qualification input and retained evidence checks
         if: matrix.node-version == '24.x'
-        run: |
-          python -B -m unittest discover -s scripts/qualification -p test_trained_sensor_cohorts.py
-          python -B -m unittest discover -s scripts/qualification -p test_compare_sensor_workloads.py
-          python -B -m unittest discover -s scripts/qualification -p test_system_resource_observer.py
-          python -B -m unittest discover -s scripts/qualification -p test_sensing_profile_evidence.py
+        run: python -B -m unittest discover -s scripts/qualification -p "test_*.py"
       - name: Native mixed learned-family P0/P1 worker continuation
         if: matrix.node-version == '24.x'
         run: >-
