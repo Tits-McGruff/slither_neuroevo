@@ -307,3 +307,95 @@ it('preserves exact learned initial families and cold generation durability with
     expect(delta).toBeGreaterThan(0n); expect(delta.toString()).toBe(report.shadows.sampleProgress[slot]);
   }
 });
+
+/** A persisted replay ceiling is distinct from real occupied replay in each trainer process. */
+interface ReplayCapacityReceipt {
+  replayCapacityBytes: number; replayBytes: number; trainerSourceSha256: string;
+  processPriority: {platform: string; nice: number};
+}
+/** Short live capacity receipts retain ordinary generation chronology and explicit occupied bytes. */
+type LiveReplayCeilingEvidence = TrainerContentionEvidence & {
+  replayMiB: number;
+  source: TrainerContentionEvidence['source'] & {slitherRevision: string; pyrlRevision: string};
+  train: TrainerContentionEvidence['train'] & ReplayCapacityReceipt;
+  resume: TrainerContentionEvidence['resume'] & ReplayCapacityReceipt;
+  sustain: TrainerContentionEvidence['sustain'] & ReplayCapacityReceipt;
+  durability: LiveSixHourEvidenceReport['durability'];
+};
+
+it('preserves the max live replay ceiling across cold restart without claiming filled capacity or passing timing', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-replay-ceiling-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    kind: string; replayCeilingRestartQualified: boolean; loadedReplayQualified: boolean;
+    fullCapacitySoakQualified: boolean; performanceQualified: boolean; maturityQualified: boolean;
+    slitherCommit: string; pyrlCommit: string; nativeSourceSha256: string; trainerSourceSha256: string;
+    trainerSourceFiles: string[]; trainerSourcesFrom: string;
+    studentInput: {evidence: string; file: string; sha256: string}; files: Record<string, FrozenFileReceipt>;
+  };
+  expect(manifest.kind).toBe('live-replay-ceiling-window-evidence-v1');
+  expect(manifest.replayCeilingRestartQualified).toBe(true);
+  for (const qualified of [manifest.loadedReplayQualified, manifest.fullCapacitySoakQualified,
+    manifest.performanceQualified, manifest.maturityQualified]) expect(qualified).toBe(false);
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as LiveReplayCeilingEvidence;
+  expect(report.source).toMatchObject({slitherRevision: manifest.slitherCommit, pyrlRevision: manifest.pyrlCommit,
+    nativeSourceSha256: manifest.nativeSourceSha256});
+  expect(report.source.hostSha256).toBe(sha256(files.get('host/live-distillation.ts')!));
+  expect(report.source.trainerGateSha256).toBe(sha256(files.get('pyrl/live_distillation_gate.py')!));
+  expect(manifest.trainerSourcesFrom).toBe('../live-cohort-debian-v1');
+  expect(manifest.studentInput.evidence).toBe(manifest.trainerSourcesFrom);
+  const priorRoot = resolve(root, manifest.trainerSourcesFrom);
+  const prior = JSON.parse(readFileSync(resolve(priorRoot, 'evidence.json'), 'utf8')) as {
+    files: Record<string, FrozenFileReceipt>};
+  const priorFiles = readFrozenFiles(priorRoot, prior.files);
+  expect(frozenTrainerSource(priorFiles, 'pyrl/')).toEqual({
+    names: manifest.trainerSourceFiles, sha256: manifest.trainerSourceSha256});
+  expect(sha256(priorFiles.get(manifest.studentInput.file)!)).toBe(manifest.studentInput.sha256);
+  expect(report.source.studentArtifactSha256).toBe(manifest.studentInput.sha256);
+  expect(report).toMatchObject({device: 'cpu', workers: 4, seconds: 60, replayMiB: 2048,
+    workload: {scenario: 'P0', metadata: {parameterCount: 25042, sensorVersion: 4}}});
+  for (const phase of [report.train, report.resume, report.sustain]) {
+    expect(phase.replayCapacityBytes).toBe(2048 * 1024 ** 2);
+    expect(phase.replayBytes).toBeGreaterThan(0);
+    expect(phase.replayBytes).toBeLessThan(phase.replayCapacityBytes / 10);
+    expect(phase.trainerSourceSha256).toBe(manifest.trainerSourceSha256);
+    expect(phase.processPriority).toEqual({platform: 'posix', nice: 5});
+  }
+  expect(report.train.updates).toBe(126);
+  expect(report.resume).toMatchObject({restartExact: true, updates: 250});
+  expect(report.sustain.initialUpdates).toBe(250);
+  expect(report.sustain.updates - report.sustain.initialUpdates).toBe(report.sustain.optimizerUpdates);
+  expect(report.sustain.optimizerUpdates).toBe(277);
+  expect(report.sustain.peakReplayBytes).toBe(109272776);
+  expect(report.sustain.activeWallSeconds).toBeGreaterThanOrEqual(60);
+  expect(report.sustain.finalCursor).toBeGreaterThan(report.sustain.initialCursor);
+  expect(report.sustain.fetches).toBeGreaterThan(0);
+  expect(report.sustain.sequence).toMatchObject({batch_size: 32, burn_in_steps: 32, bptt_steps: 64});
+  expect(report.durability).toMatchObject({requestedBoundaries: 2, persistenceRestartExact: true,
+    restoredSourceSha256: manifest.nativeSourceSha256, invalidRestoreAdmissionsRejected: 7});
+  expect(report.durability.barriers).toHaveLength(2);
+  const durability = {runId: report.durability.barriers[0]!.checkpoint.runId, barriers: report.durability.barriers};
+  expect(summarizeSensorWall(report.reads, 60, durability)).toEqual(report.summary);
+  expect(report.summary.stepTiming.p99UpperMs).toBe(48);
+  expect(report.summary.droppedWallMicros).toBe('127667');
+  expect(report.summary.meetsMeasuredGates).toBe(false);
+  expect(report.capture.noDrops).toBe(true);
+  expect(report.http.forbiddenRequests).toBe(0);
+  expect(report.shadows.sampleProgress).toHaveLength(4);
+  for (const value of report.shadows.sampleProgress) expect(BigInt(value)).toBeGreaterThan(0n);
+  expect(report.frames.copies).toBeGreaterThan(0);
+  const observerSha = sha256(files.get('host/system-resource-observer.py')!);
+  const resources = JSON.parse(files.get('aggregate-resources.json')!.toString('utf8')) as Array<{
+    platform: string; processDetailsIncluded: boolean; observerSourceSha256: string;
+    host: Record<string, unknown>; [key: string]: unknown}>;
+  expect(resources.length).toBeGreaterThanOrEqual(3);
+  for (const observation of resources) {
+    expect(observation.platform).toBe('Linux');
+    expect(observation.observerSourceSha256).toBe(observerSha);
+    expect(observation.processDetailsIncluded).toBe(false);
+    expect(observation).not.toHaveProperty('gpuProcesses');
+    expect(observation).not.toHaveProperty('wsl');
+    expect(Object.keys(observation.host).every(key =>
+      ['available', 'cpuTicks', 'loadAverage', 'memoryKiB'].includes(key))).toBe(true);
+  }
+});

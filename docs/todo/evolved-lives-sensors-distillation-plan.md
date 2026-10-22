@@ -1275,6 +1275,15 @@ the automated verifier recomputes report hashes, equivalence and timing medians.
 sorting within sampled pellet-query time, with Linux resource observations
 alongside the timed process.
 
+The live harness now accepts the existing 64..2048-MiB replay envelope and
+rejects a cold resume requesting a different persisted ceiling. A real Debian P0
+run at the 2048-MiB ceiling passes cold trainer restart, four shadows, 277 further
+optimizer updates, two durable generation handoffs and cold native restore.
+Actual replay peaks at 104.21 MiB; this does not qualify a loaded replay or full
+capacity. Performance still fails (48-ms p99 and 127,667 microseconds of dropped
+wall debt). Exact reports and aggregate-only resource observations are retained
+under `live-replay-ceiling-debian-v1/`; unrelated process inventories are excluded.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

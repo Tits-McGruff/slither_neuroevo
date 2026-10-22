@@ -1806,3 +1806,10 @@ ceiling through initial training, cold resume and sustain. A restored owner with
 another ceiling rejects before optimizer work. Reports record `replayMiB` and
 each phase's `replayCapacityBytes` separately from occupied/peak replay bytes.
 An admitted large ceiling alone is not a loaded-replay or full-capacity pass.
+
+The [Debian max-ceiling live window](live-replay-ceiling-debian-v1/evidence.json)
+preserves the selected 2048-MiB ceiling through real cold restart and sustain,
+four shadows and two durable generations. It peaks at 104.21 MiB of occupied
+replay and therefore does not qualify a filled buffer or integrated capacity.
+Its 48-ms p99 and 127.667-ms wall debt fail performance. Resource observations
+in the capsule contain aggregate counters only.
