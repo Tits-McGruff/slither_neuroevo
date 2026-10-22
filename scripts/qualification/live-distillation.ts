@@ -1,4 +1,5 @@
 import { distillationSpoolLimitsForGiB } from '../../server/rustEngine/distillationProtocol.ts';
+import { validateRustCalculationWorkers } from '../../server/rustWorkers.ts';
 /** Qualify live committed Rust samples, HTTP, PyTorch restart and four Rust shadows. */
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
@@ -22,6 +23,7 @@ import { DistillationSpoolClient } from '../../server/rustEngine/distillationSpo
 import { DistillationCapture } from '../../server/rustEngine/distillationCapture.ts';
 import { DistillationHttpRouter } from '../../server/rustEngine/distillationHttp.ts';
 import { SavedBrainLibrary } from '../../server/rustEngine/savedBrainLibrary.ts';
+import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.ts';
 import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1 } from '../../server/protocol.ts';
 import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
 import { parseRustStartupMetadata } from '../../server/rustEngine/startupMetadata.ts';
@@ -37,7 +39,7 @@ interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
     admission: {profile: string; bins: number; mathBackend: string; rayMinimum: number; rayCap: number; rayBatch: number}): Promise<unknown>;
   /** Delegate all state construction to the real Rust qualification constructor. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
-    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string}): Promise<unknown>;
+    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string}): Promise<{trainedCohortJson?: string}>;
 }
 /** Production-sized bounded queues, without any external controller. */
 const INIT: ExperimentalEngineInit = {contractVersion: 1, maxInboundBatches: 16, maxInboundCommands: 16,
@@ -139,15 +141,15 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
   const checkout = resolve(args.get('--pyrl-root')!); const pythonPath = resolve(args.get('--python')!);
-  const device = args.get('--device')!; const workers = Number(args.get('--workers'));
+  const device = args.get('--device')!; const workers = validateRustCalculationWorkers(Number(args.get('--workers')));
   const spoolGiB = Number(args.get('--spool-gib') ?? '4');
   const spoolLimits = distillationSpoolLimitsForGiB(spoolGiB);
-  assert(['cpu', 'cuda:0'].includes(device)); assert([1, 3].includes(workers));
+  assert(['cpu', 'cuda:0'].includes(device));
   const workload = args.get('--workload');
   assert(workload === undefined || workload === 'P0' || workload === 'P1');
   const sixHour = args.has('--soak-hours');
@@ -163,6 +165,9 @@ async function run(): Promise<void> {
   assert(workload ? args.has('--student-artifact') : !args.has('--student-artifact') && !args.has('--contention-seconds'));
   const studentArtifact = resolve(args.get('--student-artifact') ?? 'native/fixtures/portable-brain-v1.slither-brain');
   const studentArtifactSha256 = await digest(studentArtifact);
+  assert(!args.has('--trained-cohort') || workload !== undefined, 'trained cohort requires P0/P1 workload');
+  const trainedCohort = args.has('--trained-cohort') ? resolve(args.get('--trained-cohort')!) : undefined;
+  const cohortIndexSha256 = trainedCohort ? await digest(trainedCohort) : undefined;
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
   const trainerGateSha256 = await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py'));
@@ -205,7 +210,18 @@ async function run(): Promise<void> {
     const request = workload
       ? {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 512, rayBatch: 131072, workload}
       : {profile: 'basic', bins: 8, mode: 0, cadence: 0.06, rayMinimum: 1, rayCap: 256, rayBatch: 65536};
-    await session.initializeBaselineV2ForTest(request);
+    const initialized = await session.initializeBaselineV2ForTest({...request, ...(trainedCohort ? {trainedCohort} : {})});
+    const cohort = initialized.trainedCohortJson ? JSON.parse(initialized.trainedCohortJson) as {
+      schemaVersion: number; indexSha256: string; sourceReservationBytes: number; assignment: string;
+      families: {artifact: BrainArtifactDescriptor; populationSlots: number}[];
+    } : undefined;
+    assert.equal(Boolean(cohort), Boolean(trainedCohort));
+    if (cohort) {
+      assert.equal(cohort.schemaVersion, 1); assert.equal(cohort.indexSha256, cohortIndexSha256);
+      assert(cohort.families.length >= 2 && cohort.families.length <= 16);
+      assert(cohort.sourceReservationBytes > 0 && cohort.sourceReservationBytes <= 512 * 1024 ** 2);
+      assert.equal(cohort.families.reduce((sum, family) => sum + family.populationSlots, 0), workload === 'P0' ? 55 : 300);
+    }
     const metadata = parseRustStartupMetadata(session.startupMetadata());
     if (workload) {
       assert.equal(metadata.parameterCount, 25042); assert.equal(metadata.sensorVersion, 4);
@@ -403,6 +419,7 @@ async function run(): Promise<void> {
       assert.equal(hostSha256, await digest(fileURLToPath(import.meta.url)));
       assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
       assert.equal(studentArtifactSha256, await digest(studentArtifact));
+      if (trainedCohort) assert.equal(cohortIndexSha256, await digest(trainedCohort));
       if (pumpError) throw pumpError;
       let durability: {requestedBoundaries: number; barriers: SensorGenerationBarrier[]; persistenceRestartExact: boolean;
         restoredGeneration: string; restoredCompletedStep: string; restoredSourceSha256: string; invalidRestoreAdmissionsRejected: number} | undefined;
@@ -443,12 +460,12 @@ async function run(): Promise<void> {
       const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
         device, workers, seed: 42, seconds, ...(sixHour ? {sixHourWindow: true, persistentWorkspace: root,
           fullCapacitySoakQualified: false} : {}), ...(durability ? {durability} : {}),
-        scope: 'Real background scheduler, seeded modest population starting from random weights with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
+        scope: 'Real background scheduler, seeded modest population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
           hostSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
-        workload: {scenario: workload, request, metadata}, spoolGiB, producerStoragePolicy,
+        workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {})}, spoolGiB, producerStoragePolicy,
         hostPeakRssBytes, train, resume: {...resume, candidatePath: undefined}, sustain, summary,
         reads: reads.map((read, index) => {
           const health = {...read.health};
