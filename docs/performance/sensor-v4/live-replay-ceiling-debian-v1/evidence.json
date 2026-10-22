@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-replay-ceiling-window-evidence-v1",
+  "replayCeilingRestartQualified": true,
+  "loadedReplayQualified": false,
+  "fullCapacitySoakQualified": false,
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "scope": "Real Debian P0, four native workers, CPU trainer with default TBPTT and explicit 2048 MiB replay ceiling. Actual cold restart, four shadows, two durable generations and cold native restore. Replay peaks near 104 MiB, so this is not loaded replay, full capacity or six-hour qualification.",
+  "slitherCommit": "e6ab7519cbcb62de0a32a479d632c4df4b5fe21c",
+  "pyrlCommit": "f504033308fb83dc32e25f98056b650860c02153",
+  "nativeSourceSha256": "d12574cfb9c9d59fe53dcf1b91b95461fec6cf990f70dad7211e05ee2eae76ad",
+  "trainerSourceSha256": "169905f384ce2312b7700baab4e8c60945e6f623c2b54fcea8957d0eeb24ac26",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "trainerSourcesFrom": "../live-cohort-debian-v1",
+  "studentInput": {
+    "evidence": "../live-cohort-debian-v1",
+    "file": "full-cuda8000-seed1.slither-brain",
+    "sha256": "23ccfc9cc71c263419913a8f020eafdfe6e714be4968fc5ec7aef094f81aa769"
+  },
+  "resourcePrivacy": "Only aggregate system counters are retained. No process/application inventory or WSL distribution names.",
+  "files": {
+    "report.json": {
+      "bytes": 295612,
+      "sha256": "55be10cf614403006ca8d27351971ceed9ba99925e2d615ab9f5f2465d76264d",
+      "gzipSha256": "22bccd61c2d3d209f03a08139f75226e900de183cbf8f52bf860b43615e251d4"
+    },
+    "aggregate-resources.json": {
+      "bytes": 4854,
+      "sha256": "add32de834be9e1581c801bac7f4b050241a3903f5e9b845662b0dcc4a652357",
+      "gzipSha256": "a80bc869f8a236a41d5d900b8fa25eca183d8f70a4a6a037ae393d1dbbe0ded3"
+    },
+    "host/live-distillation.ts": {
+      "bytes": 47768,
+      "sha256": "e32b27799d18d8dc34507f57acc5c439abe6a34e150a83e5cc49500f63441972",
+      "gzipSha256": "d0e77a9cddc18882742cc167e89886e500fc7639d82400f44c7e3dbbf0e49190"
+    },
+    "host/sensorWallTiming.ts": {
+      "bytes": 869,
+      "sha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
+      "gzipSha256": "863182efc5f76146ed34bce8f3366f374aadb271d83f73daa16d6dee67231aaa"
+    },
+    "host/sensorWallSummary.ts": {
+      "bytes": 8396,
+      "sha256": "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374",
+      "gzipSha256": "c9fd3cb49c54cfae71d4a1566a14f2fc891524b72ceb1b442e07b43ed2ae87c1"
+    },
+    "host/system-resource-observer.py": {
+      "bytes": 9992,
+      "sha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
+      "gzipSha256": "64aa8b71faeeee2a8840e4aba558fb9b53a5222025a3cbb1a1b1437c39942011"
+    },
+    "pyrl/live_distillation_gate.py": {
+      "bytes": 22852,
+      "sha256": "71533b5d5276704e1ac13657bdbfa7569ec18f3e69f75f778da7cd0aa77a0404",
+      "gzipSha256": "3c9b9573cc2270052107fabb155ef787ee3c490bc91ddc82c177e3aa094d1eff"
+    }
+  }
+}
