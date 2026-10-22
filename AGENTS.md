@@ -276,6 +276,13 @@ every slow or flaky matrix job.
   permission. Use the connection configuration available locally. Do not publish
   private SSH setup details, including addresses, account names, ports, key paths,
   credentials or connection commands, in tracked repository files.
+- Resource measurements must account for unrelated host workloads. Windows
+  qualification includes all already-running WSL distributions, system CPU/RAM,
+  overall GPU utilization/VRAM and available process counters. The bounded
+  `scripts/qualification/system-resource-observer.py` writes a separate JSONL
+  sidecar without starting stopped distributions or changing other workloads.
+  Keep unavailable GPU process attribution explicit; measurements without
+  contemporaneous coverage cannot establish an otherwise idle host.
 - Reuse fresh evidence from the immediately preceding checkpoint when the
   current change cannot invalidate it. State the dependency instead of
   reproducing the same benchmark or compatibility run.
