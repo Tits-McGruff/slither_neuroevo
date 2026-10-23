@@ -8,6 +8,10 @@ compile_error!("Native SIMD kernels require x86_64 (SSE). No non-x86_64 fallback
 
 /// Compute a SIMD-accelerated dot product.
 ///
+/// Long rows use four independent accumulators to hide add latency while reading
+/// contiguous weights. Reduction order is part of the source/build identity;
+/// scalar/SSE2 comparisons use the established numeric tolerances.
+///
 /// # Safety
 ///
 /// Pointers must be valid for `in_size` reads.
@@ -16,9 +20,48 @@ compile_error!("Native SIMD kernels require x86_64 (SSE). No non-x86_64 fallback
 unsafe fn dense_dot(weights_ptr: *const f32, input_ptr: *const f32, in_size: usize) -> f32 {
     let mut i = 0usize;
     // SAFETY: The caller guarantees both pointers are valid for `in_size` reads;
-    // this loop accesses only complete four-element chunks below that bound.
+    // the unrolled loop reads four complete groups only when i + 16 <= in_size,
+    // and the following loop reads only complete four-element chunks. Inputs may
+    // alias because every pointer access is read-only.
     let mut total = unsafe {
         let mut sum = _mm_setzero_ps();
+        if in_size >= 32 {
+            let mut b = sum;
+            let mut c = sum;
+            let mut d = sum;
+            while i + 16 <= in_size {
+                sum = _mm_add_ps(
+                    sum,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i)),
+                        _mm_loadu_ps(input_ptr.add(i)),
+                    ),
+                );
+                b = _mm_add_ps(
+                    b,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i + 4)),
+                        _mm_loadu_ps(input_ptr.add(i + 4)),
+                    ),
+                );
+                c = _mm_add_ps(
+                    c,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i + 8)),
+                        _mm_loadu_ps(input_ptr.add(i + 8)),
+                    ),
+                );
+                d = _mm_add_ps(
+                    d,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i + 12)),
+                        _mm_loadu_ps(input_ptr.add(i + 12)),
+                    ),
+                );
+                i += 16;
+            }
+            sum = _mm_add_ps(_mm_add_ps(_mm_add_ps(sum, b), c), d);
+        }
         while i + 4 <= in_size {
             let w = _mm_loadu_ps(weights_ptr.add(i));
             let x = _mm_loadu_ps(input_ptr.add(i));
@@ -221,5 +264,41 @@ mod distance_tests {
     #[should_panic(expected = "SIMD distance slice length mismatch")]
     fn distance_rejects_unequal_lengths_before_loading() {
         squared_distance_f64_sse2(&[0.0; 9], &[0.0; 8]);
+    }
+}
+
+#[cfg(test)]
+mod dot_tests {
+    use super::dot_product_sse2;
+
+    /// Independent Float64 oracle covers vector boundaries, odd tails and read-only aliasing.
+    #[test]
+    fn independent_accumulators_cover_every_tail_and_admitted_long_row() {
+        for length in (0..=135).chain([248, 256, 264, 504, 512, 1024]) {
+            let left = (0..length)
+                .map(|i| (((i * 3571) % 10007) as f32 - 5003.0) / 16000.0)
+                .collect::<Vec<_>>();
+            let right = (0..length)
+                .map(|i| (((i * 1741 + 193) % 10007) as f32 - 5003.0) / 5003.0)
+                .collect::<Vec<_>>();
+            for input in [&right, &left] {
+                let expected = left
+                    .iter()
+                    .zip(input)
+                    .fold(0.0_f64, |sum, (&a, &b)| sum + f64::from(a) * f64::from(b));
+                let actual = f64::from(dot_product_sse2(&left, input));
+                assert!(actual.is_finite());
+                assert!(
+                    (actual - expected).abs() <= 1e-5 + 1e-4 * expected.abs(),
+                    "length={length}, actual={actual}, expected={expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "SIMD dot-product slice length mismatch")]
+    fn independent_accumulators_reject_mismatch_before_raw_reads() {
+        dot_product_sse2(&[0.0; 33], &[0.0; 32]);
     }
 }
