@@ -1591,21 +1591,27 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(receivedBytes).toBeGreaterThan(0);
           expect(receivedBytes).toBeLessThan(fixture.archive.byteLength);
           expect(actualResponse!.writableFinished).toBe(false);
-          if (boundary === 'while waiting for drain') {
-            await outcome(() => actualResponse!.writableNeedDrain && !actualResponse!.writableFinished,
-              'real download did not wait for socket drain');
-          }
           await heldInput(peers, false);
           await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
             headingChange(baselines[index]!.sample, peer.sample!) < -0.01),
           'simulation did not resume before archive body delivery completed');
-          expect(actualResponse!.writableFinished).toBe(false);
+          // Observe and cancel in one synchronous predicate after the controller
+          // awaits; a socket drain observed before an await is not a stable state.
           if (boundary === 'while waiting for drain') {
-            expect(actualResponse!.writableNeedDrain).toBe(true);
-            expect(actualResponse!.writableLength).toBeGreaterThan(0);
+            await outcome(() => {
+              if (!actualResponse!.writableNeedDrain || actualResponse!.writableFinished) return false;
+              expect(actualResponse!.writableFinished).toBe(false);
+              expect(actualResponse!.writableNeedDrain).toBe(true);
+              expect(actualResponse!.writableLength).toBeGreaterThan(0);
+              clientResponse!.destroy();
+              client.destroy();
+              return true;
+            }, 'real download did not wait for socket drain');
+          } else {
+            expect(actualResponse!.writableFinished).toBe(false);
+            clientResponse!.destroy();
+            client.destroy();
           }
-          clientResponse!.destroy();
-          client.destroy();
           await bounded(disconnected, 'server did not observe mid-body cancellation');
           expect(closedBeforeFinish).toBe(true);
           await noTransferScratch(fixture.managedDirectory);
