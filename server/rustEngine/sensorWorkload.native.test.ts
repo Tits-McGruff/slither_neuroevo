@@ -7,9 +7,17 @@ import { gunzipSync } from 'node:zlib';
 import { loadPanicBinding } from '../test/panicRuntime.ts';
 import { parseRustStartupMetadata } from './startupMetadata.ts';
 import type { ExperimentalFreshRunNativeHandle } from './experimentalFreshRunSession.ts';
+import { parseManagedCheckpointDescriptor, type ManagedCheckpointDescriptor } from './checkpointPersistenceProtocol.ts';
+import { admitDiskOperation, checkpointDiskAdmissionRequest } from './diskAdmission.ts';
 
 /** Test-only admission remains a complete coarse Rust construction request. */
 interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
+  /** Explicit candidate envelope accompanies one complete native population admission. */
+  initializeCapacityForTest(request: CapacityRequest): Promise<{capacityAuditJson: string}>;
+  /** Restore a candidate boundary with exact source, sensor, backend and ray admission. */
+  initializeSensorCheckpointForTest(directory: string, descriptor: ManagedCheckpointDescriptor,
+    admission: {profile: string; bins: number; mathBackend: string; rayMinimum: number; rayCap: number;
+      rayBatch: number; envelopeMiB?: number}): Promise<unknown>;
   /** Explicit P0/P1 select the same modest native graph as the sensor benchmark. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
     rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string}): Promise<{trainedCohortJson?: string}>;
@@ -98,3 +106,80 @@ it('cold constructs a real learned cohort, rejects corrupt sources and retries w
     cleanupCohort(root);
   }
 }, 15000);
+
+/** Fixed offline candidates; this surface cannot alter production startup or scratch limits. */
+interface CapacityRequest {
+  /** Only the two declared workload population sizes are admitted. */
+  population: number;
+  /** Named native graph fixture, never JavaScript graph execution. */
+  graph: string;
+  /** Selected total checkpoint envelope; both scratch limits remain 512 MiB. */
+  envelopeMiB: number;
+  /** Exercise raw checkpoint fallback without changing runtime scratch. */
+  rawFallback: boolean;
+  /** Explicit minimum ray work per due controller. */
+  rayMinimum: number;
+  /** Explicit maximum ray work per due controller. */
+  rayCap: number;
+  /** Explicit aggregate ray work per complete step. */
+  rayBatch: number;
+}
+
+/** Fixed qualification choice, with a full 512-controller maximum-due admission. */
+const capacityRequest: CapacityRequest = {population: 300, graph: 'large', envelopeMiB: 512,
+  rawFallback: false, rayMinimum: 1, rayCap: 256, rayBatch: 65536};
+
+it('rejects a live capacity request before population allocation and allows an admitted retry', async () => {
+  const binding = loadPanicBinding();
+  const Constructor = binding.ExperimentalStage6aFreshRunSession as new (run: string, seed: string, memory: string, workers: number) => QualifiedSession;
+  const session = new Constructor('live-capacity-retry-' + randomBytes(8).toString('hex'), '0000002a', '0000000100000000', 1);
+  for (const invalid of [{population: 56}, {graph: 'other'}, {envelopeMiB: 640}, {rayCap: 0},
+    {rawFallback: 1}, {unexpected: true}]) {
+    expect(() => session.initializeCapacityForTest({...capacityRequest, ...invalid} as CapacityRequest)).toThrow();
+  }
+  await expect(session.initializeCapacityForTest(capacityRequest)).rejects.toThrow(/checkpoint envelope/u);
+  expect(session.snapshot()).toMatchObject({phase: 'created'});
+  const initialized = await session.initializeCapacityForTest({...capacityRequest, population: 55, graph: 'modest'});
+  const audit = JSON.parse(initialized.capacityAuditJson) as {decodedEnvelopeFits: boolean; twoStateBudgetFits: boolean};
+  expect(audit).toMatchObject({population: 55, decodedEnvelopeFits: true, twoStateBudgetFits: true,
+    workerScratchBytes: 512 * 1024 ** 2, checkpointScratchBytes: 512 * 1024 ** 2});
+  expect(session.snapshot()).toMatchObject({completedStep: '0000000000000000', checkpointPublished: false, authorityPublished: false});
+}, 15000);
+
+it('publishes and independently restores the large Motion/B32 candidate without changing production restore admission', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'slither-live-cohort-'));
+  try {
+    await admitDiskOperation(root, checkpointDiskAdmissionRequest(768n * 1024n ** 2n));
+    const binding = loadPanicBinding();
+    const Constructor = binding.ExperimentalStage6aFreshRunSession as new (run: string, seed: string, memory: string, workers: number) => QualifiedSession;
+    const runId = 'live-capacity-large-' + randomBytes(8).toString('hex');
+    const session = new Constructor(runId, '0000002a', '0000000100000000', 1);
+    const initialized = await session.initializeCapacityForTest({...capacityRequest, population: 55, envelopeMiB: 768, rawFallback: true});
+    const audit = JSON.parse(initialized.capacityAuditJson) as {limits: {maxTotalDecodedBytes: number}};
+    expect(audit).toMatchObject({population: 55, parametersPerGenome: 494306,
+      decodedEnvelopeFits: true, twoStateBudgetFits: true, numericPayloadAllocated: false,
+      workerScratchBytes: 512 * 1024 ** 2, checkpointScratchBytes: 512 * 1024 ** 2});
+    expect(audit.limits.maxTotalDecodedBytes).toBe(768 * 1024 ** 2);
+    const metadata = parseRustStartupMetadata(session.startupMetadata());
+    expect(metadata).toMatchObject({parameterCount: 494306, sensorVersion: 4, mathBackend: 'rust-sse2-v1'});
+    expect(metadata.graphSpec.nodes.find(node => node.type === 'Input')?.outputSize).toBe(504);
+    const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({
+      managedDirectory: root, operationId: randomBytes(16).toString('hex'),
+    }));
+    const admission = {profile: 'motion', bins: 32, mathBackend: 'sse2',
+      rayMinimum: 1, rayCap: 256, rayBatch: 65536, envelopeMiB: 768};
+    const restored = new Constructor(runId, '0000002a', '0000000100000000', 1);
+    for (const invalid of [{bins: 16}, {profile: 'basic'}, {envelopeMiB: 640}, {envelopeMiB: 768.5}]) {
+      expect(() => restored.initializeSensorCheckpointForTest(root, descriptor, {...admission, ...invalid})).toThrow();
+    }
+    expect(restored.snapshot()).toMatchObject({phase: 'created'});
+    await restored.initializeSensorCheckpointForTest(root, descriptor, admission);
+    expect(parseRustStartupMetadata(restored.startupMetadata())).toEqual(metadata);
+    expect(restored.snapshot()).toMatchObject({generation: descriptor.generation, completedStep: descriptor.completedStep});
+    const ordinary = new Constructor(runId, '0000002a', '0000000100000000', 1);
+    await expect(ordinary.initializeFromCheckpoint(root, descriptor)).rejects.toThrow();
+    expect(ordinary.snapshot()).toMatchObject({phase: 'created'});
+  } finally {
+    cleanupCohort(root);
+  }
+}, 30000);

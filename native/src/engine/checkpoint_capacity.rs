@@ -71,6 +71,31 @@ pub(crate) struct QualifiedCheckpointRun {
     pub work_limits: super::step_config::RunningStepWorkLimits,
 }
 
+/// Admit both current and successor owners before a live qualification allocates numeric payloads.
+pub(crate) fn prepare_live_capacity_run(
+    request: super::fresh_run::Stage6aP0FreshRunRequest,
+    options: &super::sensor_qualification::SensorQualificationOptions,
+    policy: CheckpointCapacityPolicy,
+) -> Result<QualifiedCheckpointRun, FreshRunError> {
+    let preflight =
+        super::fresh_run::prepare_checkpoint_capacity_run(request.clone(), options, policy, false)?;
+    if !preflight.audit.decoded_envelope_fits {
+        return Err(FreshRunError::Settings(
+            "live capacity checkpoint envelope cannot hold the requested population".into(),
+        ));
+    }
+    if !preflight.audit.two_state_budget_fits
+        || preflight.audit.minimum_successor_numeric_peak_bytes
+            > preflight.audit.process_memory_ceiling_bytes
+    {
+        return Err(FreshRunError::Settings(
+            "live capacity requires admitted source and successor memory".into(),
+        ));
+    }
+    drop(preflight);
+    super::fresh_run::prepare_checkpoint_capacity_run(request, options, policy, true)
+}
+
 /// Fixed P0/P3-style native workload; callers select the full population and graph.
 pub fn capacity_workload_options(
     population: usize,
@@ -546,6 +571,37 @@ fn exercise_imported_generations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_capacity_rejects_inadmissible_envelope_or_successor_before_numeric_allocation() {
+        let options = capacity_workload_options(300, true);
+        for (envelope, memory, message) in [
+            (512, 4usize * 1024 * 1024 * 1024, "checkpoint envelope"),
+            (
+                768,
+                3usize * 1024 * 1024 * 1024,
+                "source and successor memory",
+            ),
+        ] {
+            let result = prepare_live_capacity_run(
+                super::super::fresh_run::Stage6aP0FreshRunRequest {
+                    run_id: "live-capacity-preflight".into(),
+                    seed: 42,
+                    memory_ceiling_bytes: memory,
+                },
+                &options,
+                CheckpointCapacityPolicy::new(envelope, false).unwrap(),
+            );
+            let Err(error) = result else {
+                panic!("inadmissible live capacity unexpectedly allocated a population");
+            };
+            assert!(error.to_string().contains(message), "{error}");
+        }
+        assert_eq!(
+            super::super::fresh_run::production_checkpoint_limits().max_total_decoded_bytes,
+            512 * 1024 * 1024
+        );
+    }
+
     #[test]
     fn p3_resource_audit_uses_metadata_only_and_preserves_production_limits() {
         let options = super::super::sensor_qualification::SensorQualificationOptions {

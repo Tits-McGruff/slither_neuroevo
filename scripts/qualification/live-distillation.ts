@@ -30,16 +30,36 @@ import { parseRustStartupMetadata } from '../../server/rustEngine/startupMetadat
 import { sensorWallTiming } from './sensorWallTiming.ts';
 import { sixHourNativeWork, summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
-import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../server/rustEngine/diskAdmission.ts';
+import { admitDiskOperation, checkpointDiskAdmissionRequest } from '../../server/rustEngine/diskAdmission.ts';
 
 /** Explicit candidate-only constructor, absent from normal production startup. */
 interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
   /** Independently restore an exact qualification boundary with its declared environment. */
   initializeSensorCheckpointForTest(directory: string, descriptor: ManagedCheckpointDescriptor,
-    admission: {profile: string; bins: number; mathBackend: string; rayMinimum: number; rayCap: number; rayBatch: number}): Promise<unknown>;
+    admission: {profile: string; bins: number; mathBackend: string; rayMinimum: number; rayCap: number; rayBatch: number; envelopeMiB?: number}): Promise<unknown>;
+  /** Admit a Motion/B32 capacity candidate without changing production or scratch limits. */
+  initializeCapacityForTest(request: {population: number; graph: string; envelopeMiB: number; rawFallback: boolean;
+    rayMinimum: number; rayCap: number; rayBatch: number}): Promise<{capacityAuditJson: string}>;
   /** Delegate all state construction to the real Rust qualification constructor. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
     rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string}): Promise<{trainedCohortJson?: string}>;
+}
+/** Metadata-only native capacity audit, returned before checkpoint publication. */
+interface CapacityAudit {
+  /** Complete evolved population admitted by Rust. */
+  population: number;
+  /** Exact graph parameter count per population owner. */
+  parametersPerGenome: number;
+  /** Current and successor owners both fit the process memory ceiling. */
+  twoStateBudgetFits: boolean;
+  /** All decoded checkpoint roles fit the selected candidate envelope. */
+  decodedEnvelopeFits: boolean;
+  /** Explicit native limit actually retained by the pending boundary. */
+  limits: {maxArchiveBytes: number; maxTotalDecodedBytes: number};
+  /** Per-worker scratch remains the production 512 MiB allowance. */
+  workerScratchBytes: number;
+  /** Checkpoint scratch remains the production 512 MiB allowance. */
+  checkpointScratchBytes: number;
 }
 /** Production-sized bounded queues, without any external controller. */
 const INIT: ExperimentalEngineInit = {contractVersion: 1, maxInboundBatches: 16, maxInboundCommands: 16,
@@ -141,7 +161,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -154,6 +174,13 @@ async function run(): Promise<void> {
   assert(['cpu', 'cuda:0'].includes(device));
   const workload = args.get('--workload');
   assert(workload === undefined || workload === 'P0' || workload === 'P1');
+  const capacityGraph = args.get('--capacity-graph');
+  assert(capacityGraph === undefined || capacityGraph === 'modest' || capacityGraph === 'large');
+  assert(capacityGraph === undefined || workload !== undefined, 'capacity graph requires P0/P1 workload');
+  assert(!args.has('--checkpoint-envelope-mib') || capacityGraph !== undefined, 'candidate envelope requires explicit capacity graph');
+  const envelopeMiB = Number(args.get('--checkpoint-envelope-mib') ?? '512');
+  assert(envelopeMiB === 512 || envelopeMiB === 768, 'checkpoint envelope must be 512 or 768 MiB');
+  const checkpointDiskRequest = checkpointDiskAdmissionRequest(BigInt(envelopeMiB) * 1024n ** 2n);
   const sixHour = args.has('--soak-hours');
   assert(!sixHour || args.get('--soak-hours') === '6');
   assert(sixHour === args.has('--workspace'), 'six-hour measurement requires an exclusive persistent workspace');
@@ -169,6 +196,7 @@ async function run(): Promise<void> {
   const studentArtifactSha256 = await digest(studentArtifact);
   assert(!args.has('--trained-cohort') || workload !== undefined, 'trained cohort requires P0/P1 workload');
   const trainedCohort = args.has('--trained-cohort') ? resolve(args.get('--trained-cohort')!) : undefined;
+  assert(!capacityGraph || !trainedCohort, 'capacity constructor requires fresh native weights');
   const cohortIndexSha256 = trainedCohort ? await digest(trainedCohort) : undefined;
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
@@ -201,7 +229,7 @@ async function run(): Promise<void> {
   });
   server.on('upgrade', (_request, socket) => {forbiddenRequests++; socket.destroy();});
   try {
-    await admitDiskOperation(managed, CHECKPOINT_DISK_ADMISSION_REQUEST);
+    await admitDiskOperation(managed, checkpointDiskRequest);
     const binding = loadPanicBinding() as ReturnType<typeof loadPanicBinding> & {
       validateBrainArtifactFile(path: string, registerShadow?: boolean): string;
       nativeAddonSourceSha256(): string; nativeAddonBuildTarget(): string;
@@ -210,9 +238,23 @@ async function run(): Promise<void> {
     const runId = 'live-distillation-' + randomBytes(8).toString('hex');
     const session = new Constructor(runId, '0000002a', '0000000100000000', workers);
     const request = workload
-      ? {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 512, rayBatch: 131072, workload}
+      ? {profile: 'motion', bins: capacityGraph ? 32 : 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 512, rayBatch: 131072, workload}
       : {profile: 'basic', bins: 8, mode: 0, cadence: 0.06, rayMinimum: 1, rayCap: 256, rayBatch: 65536};
-    const initialized = await session.initializeBaselineV2ForTest({...request, ...(trainedCohort ? {trainedCohort} : {})});
+    const initialized: {trainedCohortJson?: string; capacityAuditJson?: string} = capacityGraph
+      ? await session.initializeCapacityForTest({population: workload === 'P0' ? 55 : 300, graph: capacityGraph,
+        envelopeMiB, rawFallback: false, rayMinimum: request.rayMinimum, rayCap: request.rayCap, rayBatch: request.rayBatch})
+      : await session.initializeBaselineV2ForTest({...request, ...(trainedCohort ? {trainedCohort} : {})});
+    const capacityAudit = initialized.capacityAuditJson ? JSON.parse(initialized.capacityAuditJson) as CapacityAudit : undefined;
+    assert.equal(Boolean(capacityAudit), Boolean(capacityGraph));
+    if (capacityAudit) {
+      assert.equal(capacityAudit.population, workload === 'P0' ? 55 : 300);
+      assert.equal(capacityAudit.decodedEnvelopeFits, true); assert.equal(capacityAudit.twoStateBudgetFits, true);
+      assert.equal(capacityAudit.limits.maxArchiveBytes, envelopeMiB * 1024 ** 2);
+      assert.equal(capacityAudit.limits.maxTotalDecodedBytes, envelopeMiB * 1024 ** 2);
+      assert.equal(capacityAudit.workerScratchBytes, 512 * 1024 ** 2);
+      assert.equal(capacityAudit.checkpointScratchBytes, 512 * 1024 ** 2);
+      if (capacityGraph === 'large') assert.equal(capacityAudit.parametersPerGenome, 494306);
+    }
     const cohort = initialized.trainedCohortJson ? JSON.parse(initialized.trainedCohortJson) as {
       schemaVersion: number; indexSha256: string; sourceReservationBytes: number; assignment: string;
       families: {artifact: BrainArtifactDescriptor; populationSlots: number}[];
@@ -226,7 +268,10 @@ async function run(): Promise<void> {
     }
     const metadata = parseRustStartupMetadata(session.startupMetadata());
     if (workload) {
-      assert.equal(metadata.parameterCount, 25042); assert.equal(metadata.sensorVersion, 4);
+      assert.equal(metadata.parameterCount, capacityAudit?.parametersPerGenome ?? 25042); assert.equal(metadata.sensorVersion, 4);
+      assert.equal(metadata.graphSpec.nodes.find(node => node.type === 'Input')?.outputSize, capacityGraph ? 504 : 264);
+      const student = JSON.parse(binding.validateBrainArtifactFile(studentArtifact)) as BrainArtifactDescriptor;
+      assert.equal(student.sensorSha256, metadata.sensorContract?.sha256, 'student artifact must match the exact native sensor contract');
       const settings = new Map(metadata.settings.map(entry => [entry.path, entry.value]));
       assert.equal(settings.get('snakeCount'), workload === 'P0' ? 55 : 300);
       assert.equal(settings.get('generationSeconds'), 604800); assert.equal(settings.get('simSpeed'), 1);
@@ -253,7 +298,7 @@ async function run(): Promise<void> {
     capture = new DistillationCapture(() => native, admission, storage, () => ({runId, seed: 42}));
     const generation = new BackgroundGenerationRouter({native, admission, persistence, managedDirectory: managed, maxAssignments: 1,
       send: () => {throw new Error('qualification must not assign controllers');},
-      admitCheckpoint: async () => {await admitDiskOperation(managed, CHECKPOINT_DISK_ADMISSION_REQUEST);}});
+      admitCheckpoint: async () => {await admitDiskOperation(managed, checkpointDiskRequest);}});
     library = new SavedBrainLibrary(persistence, storage, managed, () => native, admission,
       () => ({expectedRunId: runId, expectedConfigRevision: configRevision, expectedWorldEpoch: native.health().worldEpoch}),
       () => !generation.active, () => {});
@@ -461,7 +506,8 @@ async function run(): Promise<void> {
         }
         const restored = new Constructor(runId, '0000002a', '0000000100000000', workers);
         const restoreAdmission = {profile: request.profile, bins: request.bins, mathBackend: 'sse2',
-          rayMinimum: request.rayMinimum, rayCap: request.rayCap, rayBatch: request.rayBatch};
+          rayMinimum: request.rayMinimum, rayCap: request.rayCap, rayBatch: request.rayBatch,
+          ...(capacityGraph ? {envelopeMiB} : {})};
         const rejectedAdmissions = [{bins: 7}, {bins: 16.5}, {mathBackend: 'js'}, {profile: 'v3'},
           {rayMinimum: Number.NaN}, {rayCap: 0}, {unexpected: true}];
         for (const invalid of rejectedAdmissions) {
@@ -480,14 +526,15 @@ async function run(): Promise<void> {
           restoredSourceSha256: binding.nativeAddonSourceSha256(), invalidRestoreAdmissionsRejected: rejectedAdmissions.length};
       }
       const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
-        device, workers, seed: 42, seconds, ...(sixHour ? {sixHourWindow: true, persistentWorkspace: root,
-          fullCapacitySoakQualified: false} : {}), ...(durability ? {durability} : {}),
-        scope: 'Real background scheduler, seeded modest population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
+        device, workers, seed: 42, seconds, ...(sixHour ? {sixHourWindow: true, persistentWorkspace: root} : {}), ...(durability ? {durability} : {}),
+        fullCapacitySoakQualified: false,
+        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
           hostSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
-        workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {})}, spoolGiB, replayMiB, producerStoragePolicy,
+        workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {}),
+          ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, producerStoragePolicy,
         hostPeakRssBytes, train, resume: {...resume, candidatePath: undefined}, sustain, summary,
         reads: reads.map((read, index) => {
           const health = {...read.health};

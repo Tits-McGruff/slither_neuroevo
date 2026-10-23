@@ -1813,3 +1813,15 @@ four shadows and two durable generations. It peaks at 104.21 MiB of occupied
 replay and therefore does not qualify a filled buffer or integrated capacity.
 Its 48-ms p99 and 127.667-ms wall debt fail performance. Resource observations
 in the capsule contain aggregate counters only.
+
+
+For an explicit Motion/B32 capacity window, the live host accepts
+`--capacity-graph modest|large` with `--checkpoint-envelope-mib 512|768` and
+a P0/P1 workload. Supply a student artifact with the exact Motion/B32 sensor
+contract. Rust admits both current and successor owners before allocating
+weights; 300 large genomes exceed the 512-MiB decoded checkpoint envelope.
+The selected envelope accompanies publication disk admission and cold restore.
+These flags are qualification-only, preserve both 512-MiB scratch limits, and
+currently require fresh native population weights. Reports retain the native
+capacity audit and keep `fullCapacitySoakQualified` false: library/spool fills,
+loaded replay, performance and the integrated six-hour gate still need evidence.
