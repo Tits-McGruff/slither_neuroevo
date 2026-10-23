@@ -2035,3 +2035,32 @@ phase percentiles or CPU shares. The exact update-250 student and current
 host/trainer sources are retained with aggregate Windows/running-WSL/GPU coverage.
 This excludes policy maturity, all-consumer saturation statistics, catalog and
 inspector maxima, loaded replay/spool and the full integrated soak.
+
+
+The `live-observation-quality-windows-v1/` capsule adds direct ordinary
+published-observation counts to a shared-host P1 sensor window (300 seeded
+random modest policies, ten stochastic teachers, cap 256/batch 65,536).
+The independent timing window commits 3,529 steps at 0.97699 simulated/wall,
+with a 24-ms p99 bucket and 1.128 seconds dropped debt. Its separately bracketed quality
+prefix contains 1,059,298 neural and 12,078 baseline v4 observations: ray
+incompleteness is 3.11%/2.48%, and pellet detail caps affect 37.23%/35.36%.
+Both active classes fail the strict one-percent quality test. No external
+controller observations are present, so that subgroup has no claimed pass.
+Four counter-only Windows/running-WSL/GPU records bracket the run; total GPU
+utilization reaches 92..95%, without attributing it to applications. The retained
+resource projection admits only scalar/kernel counters and omits GPU model
+names and host/process/distribution identities. Automated checks recompute
+both summaries independently, verify source receipts and reject private inventory
+fields. This seeded random-policy probe excludes maturity, trainer/shadows and
+integrated capacity; it selects no production defaults.
+
+
+The same capsule retains a rejected duplicate-ray-construction experiment.
+Reusing the body packet's validated ray for wall clearance preserves exact
+continuation, sensor work/distributions and captured teacher bytes in four
+Windows P1 ABBA runs (600 warmup plus 1,200 measured steps each). Median native
+service changes from 11.3695 to 11.3502 ms (0.17%), while p95 changes from
+12.5655 to 12.6126 ms. This establishes no meaningful whole-workload gain;
+the candidate is reverted. Both exact source files, raw reports, comparison
+driver and counter-only resource brackets are retained. Current native source
+and defaults remain unchanged.
