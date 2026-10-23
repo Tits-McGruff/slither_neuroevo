@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-loaded-replay-evidence-v1",
+  "largeCatalogOverlapQualified": true,
+  "loadedSpoolQualified": false,
+  "loadedReplayQualified": true,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "maturityQualified": false,
+  "slitherCommit": "3958342f31624774e2c8c2ad4f535087a4103202",
+  "pyrlCommit": "718af48546d66802586343f68f0d0a458fe81392",
+  "nativeSourceSha256": "7e9e22c6afef7fb5258b277575c4aa97220ee63524a4616fb230f7207a02c579",
+  "trainerSourceSha256": "7675d7cbc44076b99106a415015302c89dce934cad3247f224af3de28bfca1eb",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "resourceSamples": 57,
+  "resourcePrivacy": "Aggregate Linux/GPU counters only; no application/process inventory. Shared host includes other task-owned qualification setup; no idle-host performance claim.",
+  "scope": "Actual live P0/55 large genomes with at least 2040 MiB charged active-epoch replay under 2048 MiB, default-window CPU training, exact restart, fresh intake, four shadows, 100 manual originals, inspector and three durable generations. Producer ceiling 4 GiB is not full occupancy. No joint 64-GiB load, representative maturity or six-hour acceptance. Native capture reports 216 chunks/13115 samples dropped during setup; the measured window adds no further capture loss. This proves loaded replay accounting/restart, not loss-free capture under setup contention.",
+  "files": {
+    "host/generate-capacity-student.py": {
+      "bytes": 1472,
+      "sha256": "c9695d43a3fc8cc7e8e2db8d49a652ea283c70eb9bd190830fba5da1309d6f09",
+      "gzipSha256": "199c71a11eb4cd4103127e506628ae76edfe667efcf92f800da1e820a5294401"
+    },
+    "large-motion32-student.slither-brain": {
+      "bytes": 2001680,
+      "sha256": "459f0d28378b3c05f076e807c4da9f37f63a696991971dcdde2557b857a200db",
+      "gzipSha256": "d3d6c64147f1a67b8269a489abdf183f0b9c04a6f7508d726dbe203e49633c43"
+    },
+    "fixture-index.json": {
+      "bytes": 31746,
+      "sha256": "ad0e6fcbaa0338aa4eb687355e7e55b4a4cdbdc7f08c2dff2d92269dea828732",
+      "gzipSha256": "11ceb3760a32bd7a1b8ddb56ee590b1cc7b31a9fb7859f6434f53722a5707bb1"
+    },
+    "native-manual-source.slither-brain": {
+      "bytes": 2001446,
+      "sha256": "ab2c9a425a2ff5bb133e81b9f5643807ef0bd18324931fdad2183c177f7dd495",
+      "gzipSha256": "3f8d115ceee718048cfa57a9d56693a4be0c54ae71438a19ccb54e0ccc5b01e5"
+    },
+    "fixture-generation.json": {
+      "bytes": 7989,
+      "sha256": "1ed67e31cff4bfa3ab9cebbdbc6e761431e3d700538562a63b7a18be72ddbe92",
+      "gzipSha256": "6d9cef974f0d4539a7e9c5887d1d23cde35283a92c39f659cd2f30b4a0c42832"
+    },
+    "report.json": {
+      "bytes": 369751,
+      "sha256": "500a12f762569818481a06fc766e83f3a28c5ccf82e41d2a666e0512f7120bbd",
+      "gzipSha256": "a19d3a498b058a86476afa02a821741137fef97d946e434dc0d5a69d1e60c1ea"
+    },
+    "host/live-distillation.ts": {
+      "bytes": 67767,
+      "sha256": "14a292556ba5e66ab20008783907ce2f6a4a917291855d1749fb32b0878fefde",
+      "gzipSha256": "fc5775c23763e82b4d4e098960d797f26be52ad1affabc2dcdd175920e0c0255"
+    },
+    "host/liveCapacityLibrary.ts": {
+      "bytes": 7026,
+      "sha256": "b4aa756eb9ba96a2f61589d59ee3150cb93d81bc9515d8773758ad4048b3a74e",
+      "gzipSha256": "fe179bb04062bb51a948b207d83c8a45d39f9d480cad07d701a2bad20c0407c4"
+    },
+    "host/liveSpoolPrefill.ts": {
+      "bytes": 10092,
+      "sha256": "9758a3e43711498eccf0b00da8360b689e1ab4d3254781c88bedeb41f0298cbd",
+      "gzipSha256": "b7b9614a1e99f296f3363769296896535bbb760acb0c7872e06abf85f31f22ec"
+    },
+    "host/spoolFixture.ts": {
+      "bytes": 4363,
+      "sha256": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285",
+      "gzipSha256": "e6714c74ecef146f259e27b844c8bbef8e0b43516ab477418e546924bbe6d731"
+    },
+    "host/sensorWallSummary.ts": {
+      "bytes": 8396,
+      "sha256": "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374",
+      "gzipSha256": "67a49e5ef006f6be316fdc2dd1428d100b93ee0aefc9d9c902813b92cc9c9c79"
+    },
+    "host/sensorWallTiming.ts": {
+      "bytes": 869,
+      "sha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
+      "gzipSha256": "deffb6ea4bc391f2e19d934d66d4020873ca09690f39f5f196bdfb1567c7fe7f"
+    },
+    "host/system-resource-observer.py": {
+      "bytes": 9992,
+      "sha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
+      "gzipSha256": "75b32531a646bdf1aa64861b50a6997764c734657ec3aa493f8110bb0b8f04b6"
+    },
+    "pyrl/canonical_graph.py": {
+      "bytes": 25517,
+      "sha256": "d87458abd1f470c633b990b1a24333be72d5c389c2c1f39fd22a0c736342113d",
+      "gzipSha256": "0d59768b5365f68b20ba20b8e3e29f6240a6c7ab01c5386becb5e4c805d4e8b2"
+    },
+    "pyrl/sensor_contract.py": {
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "205320f4e85f9c812f9b200c03d2fe015494bc89e37eab23075d56afd4fdbb33"
+    },
+    "pyrl/sequence_distillation.py": {
+      "bytes": 16992,
+      "sha256": "034f2120f7e07399db19a2930faa3924448ff2b6e267f95fca5cd46123484446",
+      "gzipSha256": "510081e66316156f185d2bc40b6de86bd08060a2bcdffc5f00fbb6e1c404f9f9"
+    },
+    "pyrl/distillation_transport.py": {
+      "bytes": 19816,
+      "sha256": "f2a410854fc0b909f0c31cc3f03ce1470c45947c2dd91c3098622e8cf416af79",
+      "gzipSha256": "55ba56db3e03c07728e994dee70f3daf87fbca76ee8e651878da1bd59edd7d3b"
+    },
+    "pyrl/distillation_client.py": {
+      "bytes": 22177,
+      "sha256": "40c24ea83648dd6de713ff42106e1f256cdad9e4874516ef93435624f7fe3a07",
+      "gzipSha256": "0d2451cacaa8d0a5bfe159230a772fa43363541529a6ae8dabb5c9261b17a1d8"
+    },
+    "pyrl/distillation_storage.py": {
+      "bytes": 2290,
+      "sha256": "3b91f99eac3eecf97a15a241438df60600c1a5734ea94312671f465a102a060e",
+      "gzipSha256": "3cd43b5776722bad880d90f7aa3bf597bcb2db156d6377a70b1880a03dd7cbb8"
+    },
+    "pyrl/distillation_replay.py": {
+      "bytes": 14752,
+      "sha256": "c39890ffa2d4511f9481960d543c6f388613e6a5b029c0736f2677d8a92e53be",
+      "gzipSha256": "e2e2653040d6c333acb043a7e435100a451a2204f47ec4e4e276789d0701b3f7"
+    },
+    "pyrl/distillation_sampling.py": {
+      "bytes": 12631,
+      "sha256": "5eef4b95bccb0e84090053b64fb415e72986da97f255ef0cd83b1222b67626ac",
+      "gzipSha256": "cd456197ffc212c786e67379f1f6fb22fcde48c8f7a7a31d1cff90f3bcf6807a"
+    },
+    "pyrl/distillation_job.py": {
+      "bytes": 25815,
+      "sha256": "9bb767d62ac49fdd3da1d41ed0ce2057cc8bb34844b2834e2627245bbcfe3f97",
+      "gzipSha256": "19d4dcc9d23a3cf7d31b1db557f4515e71a1ad548dd604a8ae7fdb9c77d0fcb7"
+    },
+    "pyrl/distillation_process.py": {
+      "bytes": 2284,
+      "sha256": "0a725ee4c3ef2dfde7a96b605e939bf2c7e3ef85dbcd16700bcbaf603ee94351",
+      "gzipSha256": "5a23a91568279abf175b0ce2ab4d98ef7e5d98735e952f307a2fe5fa74cb6729"
+    },
+    "pyrl/distillation_checkpoint.py": {
+      "bytes": 33797,
+      "sha256": "f40b78dd1c078163967dcea2cfccf31676c149859837f96178d6174355e579ac",
+      "gzipSha256": "3011278afc4ec2cf2424376be49588a4704dda2b29d74ea2a011d1405475d1a6"
+    },
+    "pyrl/distillation_run.py": {
+      "bytes": 13394,
+      "sha256": "5ed9786127612f5a49dc3cc577a33e31ca4aae6d458ef2b79ccbfbd98a8d32c7",
+      "gzipSha256": "317a6066c17931a87969f5de69d2a13c9d305b5caec55eee441a6cd432094ff6"
+    },
+    "pyrl/brain_artifact.py": {
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "866b2d4640c9fb8e49e5f6d3d55acf05791c3372cfecc26a1f817250f3e030b7"
+    },
+    "pyrl/distillation_shadows.py": {
+      "bytes": 7510,
+      "sha256": "74865d9cb88022b3a1091c8c3b880009f50c2669cee28c479b574f554c76243d",
+      "gzipSha256": "f4a6ba5f47037008d6e531dd71d6dd0bcbd62dcb2b493183e83e225e1179ddc7"
+    },
+    "pyrl/live_distillation_gate.py": {
+      "bytes": 25952,
+      "sha256": "768d62b86338714a32384ffd3e57da2a51858098ab691c3b02ec71ce5ba7831d",
+      "gzipSha256": "66285118fe4d3b6a0eea3a867a075e0a3dd6af1b3a165ab06414e7d7faa734a5"
+    },
+    "trained-candidate.slither-brain": {
+      "bytes": 2003355,
+      "sha256": "2303b2c1d46e6279a53d8a9491ea7f74478632a6cb5040b3a305cfb6f1c8d4d1",
+      "gzipSha256": "04f0451a6c2634877121f30c967df119751dff9c654d0dedc56ac53378a60880"
+    },
+    "aggregate-resources.json": {
+      "bytes": 55118,
+      "sha256": "fe4eb6b69d3bdfbb1411bf240210245a6210ddb3298abbc1b5d7dd775356146f",
+      "gzipSha256": "d3fa04ea8ef85ea8e441c3124cbd2fc9734d5a90150bf06b325eea3eea25ea60"
+    }
+  },
+  "captureLifetimeDropFree": false,
+  "captureWindowDropFree": true
+}

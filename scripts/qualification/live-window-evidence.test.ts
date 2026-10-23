@@ -5,6 +5,8 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
+import { distillationRecoveryTimeoutMs } from '../../server/rustEngine/distillationProtocol.ts';
+import type { LiveSpoolPrefillReceipt } from './liveSpoolPrefill.ts';
 import type { LiveCatalogReceipt } from './liveCapacityLibrary.ts';
 import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.ts';
 import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
@@ -510,5 +512,167 @@ it('preserves real large-population/full-catalog/inspector overlap and the faile
     expect(Object.keys(observation).every(key => ['schemaVersion', 'utc', 'platform', 'gpu', 'processDetailsIncluded',
       'attribution', 'host', 'collectionSeconds', 'sample', 'observerSourceSha256'].includes(key))).toBe(true);
     expect(Object.keys(observation.host).every(key => ['available', 'cpuTicks', 'loadAverage', 'memoryKiB'].includes(key))).toBe(true);
+  }
+});
+
+
+/** Loaded cases preserve their distinct population, byte occupancy and cold recovery evidence. */
+type LiveLoadedEvidence = LiveLargeCatalogEvidence & {
+  source: {spoolHelperSha256: string; spoolFixtureSha256: string};
+  replayMinMiB?: number; replayFillSeconds?: number; spoolPrefill?: LiveSpoolPrefillReceipt;
+  capture: {before: DistillationDataset};
+  train: {replayFill?: {minimumOwnedBytes: number; ownedBytes: number; dataBytes: number;
+    encodedBytes: number; retainedChunks: number; cursor: number; elapsedSeconds: number;
+    setupDeadlineSeconds: number; captureEpoch: string}};
+  resume: {candidateSha256: string; candidateWeightsSha256: string};
+  sustain: {minimumReplayBytes?: number; sequence: {learning_rate: number; gradient_clip: number}};
+};
+
+it.each(['spool', 'replay'] as const)('preserves the actual loaded %s gate and its failed shared-host performance', mode => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-loaded-' + mode + '-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    kind: string; largeCatalogOverlapQualified: boolean; loadedSpoolQualified: boolean;
+    loadedReplayQualified: boolean; performanceQualified: boolean; fullCapacitySoakQualified: boolean;
+    maturityQualified: boolean; slitherCommit: string; pyrlCommit: string; nativeSourceSha256: string;
+    trainerSourceSha256: string; trainerSourceFiles: string[]; resourceSamples: number;
+    captureLifetimeDropFree: boolean; captureWindowDropFree: boolean;
+    files: Record<string, FrozenFileReceipt>};
+  expect(manifest).toMatchObject({kind: 'live-loaded-' + mode + '-evidence-v1',
+    largeCatalogOverlapQualified: true, loadedSpoolQualified: mode === 'spool', loadedReplayQualified: mode === 'replay',
+    performanceQualified: false, fullCapacitySoakQualified: false, maturityQualified: false,
+    captureLifetimeDropFree: mode === 'spool', captureWindowDropFree: true});
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as LiveLoadedEvidence;
+  expect(report.source).toMatchObject({slitherRevision: manifest.slitherCommit, pyrlRevision: manifest.pyrlCommit,
+    nativeSourceSha256: manifest.nativeSourceSha256, target: 'x86_64-unknown-linux-gnu',
+    hostSha256: sha256(files.get('host/live-distillation.ts')!),
+    libraryHelperSha256: sha256(files.get('host/liveCapacityLibrary.ts')!),
+    spoolHelperSha256: sha256(files.get('host/liveSpoolPrefill.ts')!),
+    spoolFixtureSha256: sha256(files.get('host/spoolFixture.ts')!),
+    trainerGateSha256: sha256(files.get('pyrl/live_distillation_gate.py')!),
+    studentArtifactSha256: sha256(files.get('large-motion32-student.slither-brain')!)});
+  const trainer = frozenTrainerSource(files, 'pyrl/');
+  expect(trainer.names).toEqual(manifest.trainerSourceFiles);
+  expect(trainer.sha256).toBe(manifest.trainerSourceSha256);
+  expect(report).toMatchObject({device: 'cpu', workers: 4, seconds: 60,
+    workload: {scenario: mode === 'spool' ? 'P1' : 'P0', capacityGraph: 'large',
+      checkpointEnvelopeMiB: mode === 'spool' ? 768 : 512,
+      request: {profile: 'motion', bins: 32}, metadata: {parameterCount: 494306, sensorVersion: 4}}});
+  expect(report.workload.capacityAudit).toMatchObject({population: mode === 'spool' ? 300 : 55,
+    parametersPerGenome: 494306, decodedEnvelopeFits: true, twoStateBudgetFits: true,
+    workerScratchBytes: 512 * 1024 ** 2, checkpointScratchBytes: 512 * 1024 ** 2});
+  const fixture = JSON.parse(files.get('fixture-index.json')!.toString('utf8')) as {
+    records: {brainId: string; artifactByteCount: string}[]};
+  expect(fixture.records).toHaveLength(101);
+  expect(report.catalogOverlap.fixtureIndexSha256).toBe(sha256(files.get('fixture-index.json')!));
+  expect(sha256(files.get('native-manual-source.slither-brain')!)).toBe(fixture.records[0]!.brainId);
+  expect(report.catalogOverlap.before).toMatchObject({pages: 4, recordCount: 100});
+  expect(report.catalogOverlap.before.brainIds).toEqual(fixture.records.slice(0, 100).map(row => row.brainId).sort());
+  expect(report.catalogOverlap.before.originalBytes).toBe(fixture.records.slice(0, 100)
+    .reduce((sum, row) => sum + BigInt('0x' + row.artifactByteCount), 0n).toString());
+  expect(report.catalogOverlap.afterColdRestart).toEqual(report.catalogOverlap.before);
+  expect(report.catalogOverlap.overflowRejected).toBe(true);
+  expect(report.catalogOverlap.overflowPublishedFiles).toBe(false);
+  expect(report.inspectorOverlap.pureProbe).toBe(false); expect(report.inspectorOverlap.inputSize).toBe(504);
+  expect(report.inspectorOverlap.after.deliveredSamples).toBeGreaterThan(report.inspectorOverlap.before.deliveredSamples);
+  expect(report.inspectorOverlap.after.maximumWireBytes).toBeLessThan(1024 ** 2);
+  const candidate = files.get('trained-candidate.slither-brain')!;
+  expect(candidate.subarray(0, 8).toString('ascii')).toBe('SLTHBRN1');
+  expect(sha256(candidate)).toBe(report.resume.candidateSha256);
+  expect(candidate.subarray(24, 56).toString('hex')).toBe(report.resume.candidateWeightsSha256);
+  expect(report.train.updates).toBe(126);
+  expect(report.resume).toMatchObject({restartExact: true, updates: 250});
+  expect(report.sustain.initialUpdates).toBe(250);
+  expect(report.sustain.updates - 250).toBe(report.sustain.optimizerUpdates);
+  expect(report.sustain.optimizerUpdates).toBeGreaterThan(0);
+  expect(report.sustain.finalCursor).toBeGreaterThan(report.sustain.initialCursor);
+  expect(report.sustain.sequence).toEqual({batch_size: 32, burn_in_steps: 32, bptt_steps: 64,
+    learning_rate: 0.0003, gradient_clip: 1});
+  for (const phase of [report.train, report.resume, report.sustain]) {
+    expect(phase.replayCapacityBytes).toBe(2048 * 1024 ** 2);
+    expect(phase.replayBytes).toBeLessThanOrEqual(phase.replayCapacityBytes);
+    expect(phase.trainerSourceSha256).toBe(manifest.trainerSourceSha256);
+    expect(phase.processPriority).toEqual({platform: 'posix', nice: 5});
+  }
+  expect(report.durability).toMatchObject({requestedBoundaries: 3, persistenceRestartExact: true,
+    restoredSourceSha256: manifest.nativeSourceSha256, invalidRestoreAdmissionsRejected: 7});
+  expect(report.durability.barriers).toHaveLength(3);
+  const last = report.durability.barriers.at(-1)!;
+  expect(report.durability.restoredGeneration).toBe(last.checkpoint.generation);
+  expect(report.durability.restoredCompletedStep).toBe(last.checkpoint.completedStep);
+  expect(summarizeSensorWall(report.reads, 60, {runId: last.checkpoint.runId,
+    barriers: report.durability.barriers})).toEqual(report.summary);
+  expect(report.summary.meetsMeasuredGates).toBe(false);
+  expect(report.capture.noDrops).toBe(mode === 'spool'); expect(report.http.forbiddenRequests).toBe(0);
+  for (const counter of ['nativeDroppedChunks', 'nativeDroppedSamples', 'nativeDroppedBytes', 'spoolDroppedChunks'] as const) {
+    expect(report.capture.after[counter]).toBe(report.capture.before[counter]);
+  }
+  expect(report.capture.after.spoolDroppedChunks).toBe('0000000000000000');
+  expect(report.shadows.sampleProgress).toHaveLength(4);
+  for (const [index, value] of report.shadows.sampleProgress.entries()) {
+    expect(BigInt(value)).toBeGreaterThan(0n);
+    expect(report.shadows.after[index]!.artifactSha256).toBe(report.resume.candidateSha256);
+  }
+  const resources = JSON.parse(files.get('aggregate-resources.json')!.toString('utf8')) as Array<{
+    platform: string; processDetailsIncluded: boolean; observerSourceSha256: string;
+    host: Record<string, unknown>; gpu: {rows?: Array<Record<string, unknown>>}}>;
+  expect(resources).toHaveLength(manifest.resourceSamples);
+  expect(resources.length).toBeGreaterThan(50);
+  const observer = sha256(files.get('host/system-resource-observer.py')!);
+  for (const row of resources) {
+    expect(row).toMatchObject({platform: 'Linux', processDetailsIncluded: false, observerSourceSha256: observer});
+    expect(Object.keys(row).every(key => ['schemaVersion', 'utc', 'platform', 'gpu', 'host',
+      'processDetailsIncluded', 'attribution', 'collectionSeconds', 'sample', 'observerSourceSha256'].includes(key))).toBe(true);
+    expect(Object.keys(row.host).every(key => ['available', 'cpuTicks', 'loadAverage', 'memoryKiB',
+      'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+    expect(Object.keys(row.gpu).every(key => ['available', 'rows', 'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+    for (const gpu of row.gpu.rows ?? []) expect(Object.keys(gpu).every(key => ['name',
+      'utilization.gpu [%]', 'utilization.memory [%]', 'memory.used [MiB]', 'memory.total [MiB]',
+      'power.draw [W]', 'temperature.gpu'].includes(key))).toBe(true);
+  }
+  if (mode === 'spool') {
+    expect(report.spoolGiB).toBe(64);
+    const prefill = report.spoolPrefill!;
+    expect(prefill).toMatchObject({kind: 'inactive-synthetic-opaque-spool-v1', targetGiB: 64,
+      objectBytes: 1024 ** 2, objects: 65536, selectedMaxBytes: 64 * 1024 ** 3, selectedMaxChunks: 65536,
+      deadlineMs: 10_800_000, recoveryBudgetMs: 660_000, finalRecoveryBudgetMs: 660_000});
+    expect(BigInt(prefill.initialFreeBytes)).toBeGreaterThanOrEqual(BigInt(prefill.requiredFreeBytes));
+    expect(prefill.elapsedSeconds * 1000).toBeLessThan(prefill.deadlineMs);
+    expect(prefill.ingestion.samples).toBe(65536);
+    expect(prefill.ingestion.counts.reduce((sum, count) => sum + count, 0)).toBe(65536);
+    expect(prefill.beforeRecovery).toEqual({retainedChunks: 65536,
+      retainedBytes: '0000001000000000', resolvedThrough: '0000000000010000'});
+    expect(prefill.afterRecovery).toEqual(prefill.beforeRecovery);
+    expect(prefill.recoveryElapsedMs).toBeLessThan(prefill.recoveryBudgetMs!);
+    expect(prefill.finalRecoveryElapsedMs).toBeLessThan(prefill.finalRecoveryBudgetMs!);
+    expect(prefill.afterFinalRecovery).toEqual(prefill.afterCapture);
+    expect(prefill.afterCapture!.retainedChunks).toBeLessThan(65536);
+    expect(BigInt('0x' + prefill.afterCapture!.retainedBytes))
+      .toBe(BigInt(prefill.afterCapture!.retainedChunks) * 1024n ** 2n);
+    const chunks = prefill.afterCapture!.retainedChunks + report.capture.after.retainedChunks;
+    const bytes = Number(BigInt('0x' + prefill.afterCapture!.retainedBytes) + BigInt('0x' + report.capture.after.retainedBytes));
+    expect(chunks).toBeLessThanOrEqual(65536); expect(bytes).toBeLessThanOrEqual(64 * 1024 ** 3);
+    expect(distillationRecoveryTimeoutMs({chunks, bytes})).toBe(prefill.finalRecoveryBudgetMs);
+    expect(prefill.captureEpoch).not.toBe(report.capture.after.contract.captureEpoch);
+    expect(report.sustain.peakReplayBytes).toBeLessThan(128 * 1024 ** 2);
+    expect(report.summary.stepTiming.p99UpperMs).toBeNull();
+    expect(report.summary.stepTiming.overflowSamples).toBe('3');
+  } else {
+    expect(report.spoolGiB).toBe(4); expect(report).not.toHaveProperty('spoolPrefill');
+    expect(report.replayMinMiB).toBe(2040); expect(report.replayFillSeconds).toBe(7200);
+    expect(BigInt('0x' + report.capture.after.nativeDroppedChunks)).toBe(216n);
+    expect(BigInt('0x' + report.capture.after.nativeDroppedSamples)).toBe(13115n);
+    const fill = report.train.replayFill!;
+    expect(fill).toMatchObject({minimumOwnedBytes: 2040 * 1024 ** 2, setupDeadlineSeconds: 7200,
+      captureEpoch: report.capture.after.contract.captureEpoch});
+    expect(fill.ownedBytes).toBeGreaterThanOrEqual(fill.minimumOwnedBytes);
+    expect(fill.elapsedSeconds).toBeLessThan(fill.setupDeadlineSeconds);
+    expect(fill.ownedBytes).toBe(fill.dataBytes + 256 * 1024 + fill.retainedChunks * 4096);
+    expect(fill.dataBytes).toBeGreaterThan(fill.encodedBytes);
+    expect(fill.ownedBytes).toBe(report.train.replayBytes);
+    expect(report.resume.replayBytes).toBe(fill.ownedBytes);
+    expect(report.sustain.minimumReplayBytes).toBeGreaterThanOrEqual(fill.minimumOwnedBytes);
+    expect(report.sustain.peakReplayBytes).toBeGreaterThanOrEqual(2047 * 1024 ** 2);
+    expect(report.summary.stepTiming.p99UpperMs).toBe(48);
   }
 });

@@ -1350,6 +1350,25 @@ general label noise or bound recurrent accuracy. This closes that bounded
 final-seed agreement measurement, while maturity, representative ecology,
 cost/profile selection and full integrated acceptance remain open.
 
+Two separate loaded Debian overlap gates now complete with compact source/input
+and candidate receipts under `live-loaded-spool-debian-v1/` and
+`live-loaded-replay-debian-v1/`. The P1/300-large-genome case writes the actual
+64-GiB/65,536-object synthetic inactive epoch, cold-verifies every object in
+204.80 seconds, then runs CPU training, 100 manual originals, inspector, four
+shadows and three durable generations with drop-free capture. Final cold
+verification takes 191.18 seconds after ordinary old-fixture eviction; the
+retained-byte allowance remains 660 seconds. Its actual trainer replay stays
+below 128 MiB. The P0/55-large-genome case fills real active-epoch replay to
+2,040.01 MiB, passes exact process restart, maintains at least 2,040 MiB and
+peaks at 2,047.99 MiB while adding 29 optimizer updates and fresh intake. Both
+cases preserve the full catalog and cold native/metadata boundary. The replay
+case records 216 native chunks/13,115 samples lost during setup and no additional
+capture loss during the measured window. These are separate functional loads,
+not joint maximum-capacity acceptance. Both fail timing: the P1 case has p99
+above 256 ms; the loaded P0 replay case has 48-ms p99, 0.933 simulated/wall ratio
+and 663 ms of dropped wall debt. Performance, loss-free setup under contention,
+representative maturity and the integrated six-hour gate remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
