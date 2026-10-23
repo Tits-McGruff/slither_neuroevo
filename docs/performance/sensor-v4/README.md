@@ -1921,3 +1921,23 @@ stochastic-only repetitions cover just eight rows. It makes no recurrent error
 floor claim. CI verifies original model/corpus/source hashes, recomputes all
 scenario/policy aggregates and label-variation statistics, and rejects private
 process/distribution fields in the aggregate resource records.
+
+The `live-loaded-spool-debian-v1/` capsule records real initial occupancy of
+64 GiB/65,536 objects alongside P1/300 large genomes. Complete initial and final
+cold verification take 204.80 and 191.18 seconds under the existing 660-second
+allowance. Real capture evicts old synthetic objects normally; 100 manual
+originals, inspector, four shadows, CPU training and three durable generations
+survive cold native/metadata restore. Capture is drop-free, but replay peaks
+below 128 MiB and performance fails with p99 above 256 ms.
+
+The separate `live-loaded-replay-debian-v1/` case uses P0/55 large genomes and
+actually holds 2,040.01 MiB of charged replay (including 2,006.35 MiB of raw and
+decoded data). Exact restart preserves ownership; sustained work maintains the
+2,040-MiB floor, peaks at 2,047.99 MiB and performs 29 more optimizer updates with
+fresh intake, 100 manual originals, inspector, four shadows and three durable
+generations. Setup loses 216 native capture chunks/13,115 samples; the measured
+window adds no further loss. The 4-GiB producer quota is not filled. Its 48-ms
+p99, 0.933 simulated/wall ratio and 663 ms dropped wall debt fail performance.
+Each capsule preserves the actual update-250 candidate and aggregate resource
+counters. These separate functional loads do not qualify joint maxima,
+loss-free setup, representative maturity or a six-hour integrated soak.
