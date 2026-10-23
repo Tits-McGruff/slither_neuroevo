@@ -18,6 +18,8 @@ export interface LiveSpoolPrefillPlan {
   targetBytes: number;
   /** Minimum free space including future checkpoint publication and normal reserves. */
   requiredFreeBytes: bigint;
+  /** Absolute setup allowance; independent of ordinary worker request deadlines. */
+  deadlineMs: number;
 }
 /** Compact original-fixture state; no per-object inventory is retained. */
 export interface LiveSpoolPrefillState {
@@ -54,6 +56,8 @@ export interface LiveSpoolPrefillReceipt {
   ingestion: Costs;
   /** Elapsed setup time, excluded from the later live measurement window. */
   elapsedSeconds: number;
+  /** Explicit bounded setup allowance used for this physical fill. */
+  deadlineMs: number;
   /** Actual readiness budget selected from retained bytes by the reopened production worker. */
   recoveryBudgetMs?: number;
   /** Measured cold-worker readiness duration. */
@@ -72,8 +76,10 @@ export interface LiveSpoolPrefillReceipt {
 
 /** Reject over-quota or under-reserved fills before allocating payloads or writing files. */
 export function planLiveSpoolPrefill(gib: number, limits: DistillationSpoolLimits,
-  availableBytes: bigint, checkpoint: Readonly<DiskAdmissionRequest>): LiveSpoolPrefillPlan {
+  availableBytes: bigint, checkpoint: Readonly<DiskAdmissionRequest>, deadlineSeconds = 1800): LiveSpoolPrefillPlan {
   limits = parseSpoolLimits(limits);
+  assert(Number.isSafeInteger(deadlineSeconds) && deadlineSeconds >= 1 && deadlineSeconds <= 10_800,
+    'prefill setup deadline must be 1..10800 whole seconds');
   assert([availableBytes, checkpoint.sourceSpoolBytes, checkpoint.candidateSpoolBytes, checkpoint.finalManagedBytes]
     .every(value => typeof value === 'bigint' && value >= 0n), 'prefill disk terms must be nonnegative bytes');
   assert(Number.isSafeInteger(gib) && gib >= 1 && gib <= 64, 'prefill must be 1..64 whole GiB');
@@ -84,7 +90,7 @@ export function planLiveSpoolPrefill(gib: number, limits: DistillationSpoolLimit
   const requiredFreeBytes = BigInt(targetBytes) + reserve + SQLITE_WAL_ALLOWANCE_BYTES
     + checkpoint.sourceSpoolBytes + checkpoint.candidateSpoolBytes + checkpoint.finalManagedBytes;
   assert(availableBytes >= requiredFreeBytes, 'prefill must preserve spool/checkpoint/system disk reserves');
-  return {objectBytes, objects, targetBytes, requiredFreeBytes};
+  return {objectBytes, objects, targetBytes, requiredFreeBytes, deadlineMs: deadlineSeconds * 1000};
 }
 
 /** Read a closed synthetic fixture without interpreting its opaque payload as observations. */
@@ -101,9 +107,9 @@ export async function readLiveSpoolPrefillState(store: Pick<DistillationSpoolCli
 /** Fill one separate inactive epoch before a coordinator starts; all normal worker bounds remain active. */
 export async function prefillLiveSpool(store: DistillationSpoolClient, directory: string,
   sensors: SensorContractEnvelope, gib: number, limits: DistillationSpoolLimits,
-  checkpoint: Readonly<DiskAdmissionRequest>): Promise<LiveSpoolPrefillReceipt> {
+  checkpoint: Readonly<DiskAdmissionRequest>, deadlineSeconds = 1800): Promise<LiveSpoolPrefillReceipt> {
   const initialFreeBytes = await freeBytes(directory);
-  const plan = planLiveSpoolPrefill(gib, limits, initialFreeBytes, checkpoint);
+  const plan = planLiveSpoolPrefill(gib, limits, initialFreeBytes, checkpoint, deadlineSeconds);
   const layout = JSON.parse(sensors.canonicalJson) as {inputSize: number};
   assert.equal(layout.inputSize, 504, 'full-spool live fixture requires admitted Motion/B32 metadata');
   const contract: TeacherCaptureContract = {captureEpoch: randomBytes(16).toString('hex'),
@@ -114,7 +120,7 @@ export async function prefillLiveSpool(store: DistillationSpoolClient, directory
   const batch = Math.floor(TEACHER_BATCH_BYTES / plan.objectBytes);
   assert(batch >= 1);
   for (let first = 1; first <= plan.objects;) {
-    assert(performance.now() - started < 1800_000, 'explicit spool prefill total deadline');
+    assert(performance.now() - started < plan.deadlineMs, 'explicit spool prefill total deadline');
     const count = Math.min(batch, plan.objects - first + 1); const before = performance.now();
     const dataset = await store.ingest(drain(contract, sensors.canonicalJson, first, count, plan.objectBytes), 42);
     settled(dataset, first + count - 1, first + count - 1, plan.objectBytes);
@@ -122,13 +128,13 @@ export async function prefillLiveSpool(store: DistillationSpoolClient, directory
     if ((first - 1) % 1024 === 0 || first > plan.objects) console.info('[live-spool-prefill]', first - 1, '/', plan.objects);
   }
   await store.ingest(drain(contract, sensors.canonicalJson, plan.objects + 1, 0, plan.objectBytes, true), 42);
-  assert(performance.now() - started < 1800_000, 'explicit spool prefill total deadline');
+  assert(performance.now() - started < plan.deadlineMs, 'explicit spool prefill total deadline');
   const receipt: LiveSpoolPrefillReceipt = {kind: 'inactive-synthetic-opaque-spool-v1',
     captureEpoch: contract.captureEpoch, targetGiB: gib, objectBytes: plan.objectBytes, objects: plan.objects,
     beforeRecovery: {retainedChunks: plan.objects, retainedBytes: word(plan.targetBytes), resolvedThrough: word(plan.objects)},
     selectedMaxBytes: limits.maxBytes, selectedMaxChunks: limits.maxChunks,
     initialFreeBytes: initialFreeBytes.toString(), requiredFreeBytes: plan.requiredFreeBytes.toString(),
-    ingestion, elapsedSeconds: (performance.now() - started) / 1000};
+    ingestion, deadlineMs: plan.deadlineMs, elapsedSeconds: (performance.now() - started) / 1000};
   assert.deepEqual(await readLiveSpoolPrefillState(store, receipt), receipt.beforeRecovery);
   return receipt;
 }

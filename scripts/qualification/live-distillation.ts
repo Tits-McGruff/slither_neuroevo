@@ -167,7 +167,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures', '--spool-prefill-gib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures', '--spool-prefill-gib', '--spool-prefill-deadline-seconds'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -196,6 +196,10 @@ async function run(): Promise<void> {
   assert(Number.isSafeInteger(spoolPrefillGiB) && spoolPrefillGiB >= 0 && spoolPrefillGiB <= spoolGiB);
   assert(!args.has('--spool-prefill-gib') || spoolPrefillGiB >= 1 && persistent && capacityGraph === 'large',
     'spool prefill requires an explicit 1..64-GiB target, persistent workspace and large Motion/B32 graph');
+  const spoolPrefillDeadlineSeconds = Number(args.get('--spool-prefill-deadline-seconds') ?? '1800');
+  assert(Number.isSafeInteger(spoolPrefillDeadlineSeconds) && spoolPrefillDeadlineSeconds >= 1
+    && spoolPrefillDeadlineSeconds <= 10_800, 'prefill setup deadline must be 1..10800 whole seconds');
+  assert(!args.has('--spool-prefill-deadline-seconds') || spoolPrefillGiB > 0, 'setup deadline requires explicit spool prefill');
   const seconds = Number(args.get('--contention-seconds') ?? (sixHour ? '21600' : '60'));
   const timing = sensorWallTiming(seconds, sixHour);
   assert(sixHour || seconds <= 300);
@@ -309,7 +313,7 @@ async function run(): Promise<void> {
       assert(metadata.sensorContract);
       // Hold the already durable boundary without constructing/starting a wall-clock coordinator.
       spool = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits); await spool.ready;
-      try {spoolPrefill = await prefillLiveSpool(spool, root, metadata.sensorContract, spoolPrefillGiB, spoolLimits, checkpointDiskRequest);}
+      try {spoolPrefill = await prefillLiveSpool(spool, root, metadata.sensorContract, spoolPrefillGiB, spoolLimits, checkpointDiskRequest, spoolPrefillDeadlineSeconds);}
       finally {await spool.close();}
       const recoveryStarted = performance.now();
       spool = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits);
