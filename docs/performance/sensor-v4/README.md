@@ -1886,7 +1886,11 @@ synthetic opaque storage objects, closes its worker, and cold-verifies every
 retained object. The trainer reads only its distinct real native capture epoch.
 Reports record actual old-fixture eviction and total byte/object occupancy, then
 cold-verify both datasets again after the live window. Ordinary worker/startup
-deadlines remain unchanged. A full prefill is storage pressure evidence and
+deadlines remain unchanged. Physical setup defaults to 1,800 seconds;
+`--spool-prefill-deadline-seconds` explicitly admits 1..10,800 seconds, matching
+the standalone storage gate's bounded setup range. Its receipt records that
+allowance separately from cold recovery and the measured live window. A full
+prefill is storage pressure evidence and
 does not qualify loaded replay or the full integrated soak.
 
 `--workspace` also permits explicit retention of short P0/P1 qualification

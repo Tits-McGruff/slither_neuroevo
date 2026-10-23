@@ -13,7 +13,7 @@ it('admits exactly 64 GiB/65536 objects only when spool and future checkpoint re
   const required = 64n * 1024n ** 3n + OPERATING_DISK_RESERVE_BYTES + SQLITE_WAL_ALLOWANCE_BYTES
     + checkpoint.candidateSpoolBytes + checkpoint.finalManagedBytes;
   const plan = planLiveSpoolPrefill(64, limits, required, checkpoint);
-  expect(plan).toEqual({objectBytes: 1024 ** 2, objects: 65536, targetBytes: 64 * 1024 ** 3, requiredFreeBytes: required});
+  expect(plan).toEqual({objectBytes: 1024 ** 2, objects: 65536, targetBytes: 64 * 1024 ** 3, requiredFreeBytes: required, deadlineMs: 1800_000});
   expect(() => planLiveSpoolPrefill(64, limits, required - 1n, checkpoint)).toThrow(/reserves/u);
 });
 
@@ -58,4 +58,12 @@ it.each([1, 64])('cold-verifies %i GiB using the retained inventory and refuses 
   expect(receipt.recoveryBudgetMs).toBe(recoveryBudgetMs);
   await expect(verifyLiveSpoolPrefillRecovery({...store, recoveryBudgetMs: recoveryBudgetMs + 1},
     {...receipt}, performance.now())).rejects.toThrow();
+});
+
+it('bounds explicit physical-fill setup separately from production request and recovery deadlines', () => {
+  const limits = distillationSpoolLimitsForGiB(64); const free = 128n * 1024n ** 3n;
+  expect(planLiveSpoolPrefill(64, limits, free, checkpoint, 10_800).deadlineMs).toBe(10_800_000);
+  for (const seconds of [0, -1, 1.5, Number.NaN, 10_801]) {
+    expect(() => planLiveSpoolPrefill(64, limits, free, checkpoint, seconds)).toThrow(/setup deadline/u);
+  }
 });
