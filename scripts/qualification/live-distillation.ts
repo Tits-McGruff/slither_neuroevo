@@ -698,7 +698,8 @@ async function run(): Promise<void> {
           assert.equal(actual.retainedChunks, captureAfter.retainedChunks); assert.equal(actual.retainedBytes, captureAfter.retainedBytes);
           assert.equal(actual.resolvedThrough, captureAfter.resolvedThrough);
           const total = Number(BigInt('0x' + actual.retainedBytes) + BigInt('0x' + spoolPrefill.afterFinalRecovery.retainedBytes));
-          assert.equal(audit.recoveryBudgetMs, distillationRecoveryTimeoutMs(total));
+          assert.equal(audit.recoveryBudgetMs, distillationRecoveryTimeoutMs({
+            chunks: actual.retainedChunks + spoolPrefill.afterFinalRecovery.retainedChunks, bytes: total}));
         } finally {await audit.close();}
       }
       const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
