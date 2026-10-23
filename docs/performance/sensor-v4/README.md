@@ -1876,3 +1876,19 @@ simultaneous peak for every process. Actual replay reaches 83.99 MiB under a
 2,048-MiB ceiling. The 64-GiB spool is a selected ceiling, not a filled store.
 The capsule retains aggregate resource counters only. Full storage occupancy,
 real-time performance, maturity and the integrated soak remain open.
+
+For an explicitly loaded spool, `--spool-prefill-gib N` requires a large
+Motion/B32 workload and an exclusive `--workspace` outside temporary storage.
+The target must fit the selected spool byte/object quotas and preserve spool,
+checkpoint-publication and operating-system disk reserves. Before constructing
+the running coordinator, the host fills a separate stopped epoch with labelled
+synthetic opaque storage objects, closes its worker, and cold-verifies every
+retained object. The trainer reads only its distinct real native capture epoch.
+Reports record actual old-fixture eviction and total byte/object occupancy, then
+cold-verify both datasets again after the live window. Ordinary worker/startup
+deadlines remain unchanged. A full prefill is storage pressure evidence and
+does not qualify loaded replay or the full integrated soak.
+
+`--workspace` also permits explicit retention of short P0/P1 qualification
+artifacts and failed-run diagnostics. Existing directories are rejected;
+six-hour windows continue to require an exclusive persistent workspace.

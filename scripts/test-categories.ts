@@ -15,6 +15,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/qualification/evidence-integrity.test.ts',
     'scripts/qualification/live-window-evidence.test.ts',
     'scripts/qualification/liveCapacityLibrary.test.ts',
+    'scripts/qualification/liveSpoolPrefill.test.ts',
     'scripts/stage7/archive-overlap-summary.test.ts',
     'scripts/stage7/generation-window-summary.test.ts',
     'scripts/stage7/dense-world-capacity.test.ts',
