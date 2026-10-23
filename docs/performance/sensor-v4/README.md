@@ -2022,3 +2022,16 @@ rows. Gradient, strided-view, retained-autograd-storage and ambient-autocast
 regressions are checked in PyRL. A source change during qualification rejects
 the report. Continuous and final aggregate snapshots bracket every timing and
 roundtrip run; the privacy verifier checks every retained JSON document.
+
+The `live-precise-cpu-windows-v1/` case returns the optimized CPU trainer to
+actual P1/300 gameplay using four retained learned Full-policy families (75
+slots each). Exact update-250 trainer restart, drop-free capture, four progressing
+shadows, two durable generations and cold native/metadata restore pass. The
+window commits 3,668 steps in 64.43 wall seconds: 0.9489 simulated/wall, 24-ms
+p99 and 2.925 seconds of dropped wall debt still fail timing. The existing
+998-slow-step counters attribute 10.06 seconds to sensing, 1.04 to inference and
+4.86 to physics; atomic observations remain diagnostic and do not establish
+phase percentiles or CPU shares. The exact update-250 student and current
+host/trainer sources are retained with aggregate Windows/running-WSL/GPU coverage.
+This excludes policy maturity, all-consumer saturation statistics, catalog and
+inspector maxima, loaded replay/spool and the full integrated soak.

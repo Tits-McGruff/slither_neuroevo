@@ -1467,6 +1467,20 @@ on Debian, using two Torch CPU threads. These are actual Adam/TBPTT updates on
 shared hosts. They do not establish current game timing, maturity, ray defaults
 or the combined-capacity soak.
 
+The current Windows P1 learned-cohort CPU window now also completes with
+PyRL `7499f29`: four retained Full-policy families occupy 75 slots each,
+250-update exact trainer restart passes, capture remains drop-free, all four
+shadows progress, and two real generation handoffs survive cold restore.
+`live-precise-cpu-windows-v1/` retains the exact update-250 student and original
+sources with aggregate Windows/running-WSL/GPU coverage. The measured window
+commits 3,668 steps over 64.43 wall seconds (0.9489 simulated/wall), has 24-ms
+p99 and drops 2.925 seconds of wall debt, so timing remains failed. Across 998
+slow steps, existing counters total 10.06 seconds of sensing, 1.04 seconds of
+inference and 4.86 seconds of physics; these are coarse independent observations,
+not per-step percentiles or CPU shares. The four initial families do not
+establish representative maturity, and this live host does not yet report
+all-consumer saturation statistics. Defaults and integrated capacity remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

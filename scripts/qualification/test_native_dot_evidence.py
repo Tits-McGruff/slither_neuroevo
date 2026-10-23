@@ -606,6 +606,52 @@ class CanonicalCpuRuntimeEvidenceTests(unittest.TestCase):
                     aggregate_only(self, rows, observer)
 
 
+class CurrentCpuLiveEvidenceTests(unittest.TestCase):
+    """Keep the current CPU live workload's functional and failed timing evidence."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Load bounded current source, report and exact update-250 candidate."""
+        cls.manifest, cls.files = capsule("live-precise-cpu-windows-v1")
+        cls.report = json.loads(cls.files["report.json"])
+
+    def test_actual_trainer_candidate_and_counter_sources_are_bound(self):
+        """Recompute the loaded 14-file owner and native phase deltas."""
+        report = self.report
+        digest = hashlib.sha256(b"slither.distillation-trainer-source.v1\0")
+        for name in self.manifest["trainerSourceFiles"]:
+            digest.update(name.encode() + b"\0")
+            digest.update(self.files["pyrl/" + name])
+        self.assertEqual(digest.hexdigest(), self.manifest["trainerSourceSha256"])
+        for phase in ["train", "resume", "sustain"]:
+            self.assertEqual(report[phase]["trainerSourceSha256"], digest.hexdigest())
+            self.assertNotIn("candidatePath", report[phase])
+        self.assertNotIn("persistentWorkspace", report)
+        self.assertEqual(report["source"]["hostSha256"], sha(self.files["host/live-distillation.ts"]))
+        self.assertEqual(report["source"]["costHelperSha256"], sha(self.files["host/nativeStepCosts.ts"]))
+        self.assertEqual(report["source"]["trainerGateSha256"], sha(self.files["pyrl/live_distillation_gate.py"]))
+        self.assertEqual(sha(self.files["student.slither-brain"]), self.manifest["studentSha256"])
+        metadata = brain_metadata(self.files["student.slither-brain"])
+        self.assertEqual(metadata["provenance"]["details"]["trainerSourceSha256"], digest.hexdigest())
+        self.assertEqual(int(metadata["provenance"]["details"]["updates"], 16), 250)
+        self.assertEqual(metadata["graphManifest"]["inputSize"], 264)
+        self.assertEqual(metadata["graphManifest"]["totalParameters"], 25042)
+        before, after = (report["phaseCosts"][key]["counters"] for key in ["before", "after"])
+        for key, delta in self.manifest["phaseDeltas"].items():
+            self.assertEqual(str(int(after[key], 16) - int(before[key], 16)), delta)
+        self.assertEqual(self.manifest["phaseDeltas"]["terminalStepSamples"], "2")
+        self.assertFalse(self.manifest["performanceQualified"])
+        self.assertFalse(self.manifest["maturityQualified"])
+        self.assertFalse(self.manifest["fullCapacitySoakQualified"])
+
+    def test_resource_context_stays_aggregate(self):
+        """Exclude private Windows/WSL process details from both resource brackets."""
+        for name in ["resources.json", "after-resources.json"]:
+            rows = json.loads(self.files[name])
+            self.assertGreaterEqual(len(rows), 1)
+            aggregate_only(self, rows, self.files["host/system-resource-observer.py"])
+
+
 class PublishedDotEvidencePrivacyTests(unittest.TestCase):
     """Reject private host inventories across every retained JSON document."""
 
@@ -624,7 +670,7 @@ class PublishedDotEvidencePrivacyTests(unittest.TestCase):
                 for item in value:
                     visit(item)
 
-        for name in ["native-dot-performance-v1", "native-dot-numerics-v1", "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1"]:
+        for name in ["native-dot-performance-v1", "native-dot-numerics-v1", "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1", "live-precise-cpu-windows-v1"]:
             _, files = capsule(name)
             for path, raw in files.items():
                 if path.endswith((".json", ".slither-brain")):
