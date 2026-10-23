@@ -922,6 +922,16 @@ impl ExperimentalRunningAuthority {
 #[cfg(feature = "engine-test-hooks")]
 #[napi]
 impl ExperimentalRunningAuthority {
+    /// Read bounded hexadecimal quality counters from published ordinary observations.
+    #[napi(catch_unwind)]
+    pub fn observation_quality_for_test(&self) -> Result<String> {
+        self.root(|| {
+            self.runtime
+                .observation_quality_for_test()
+                .map_err(engine_error_to_napi)
+        })
+    }
+
     /// Test-addon-only one-shot failure for the next export on this handle.
     #[napi(catch_unwind)]
     pub fn arm_export_failure_for_test(&self, mode: u32) -> Result<()> {

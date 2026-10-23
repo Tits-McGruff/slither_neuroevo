@@ -1,3 +1,4 @@
+import { readObservationQuality, summarizeObservationQuality, type ObservationQualityNative } from './observationQuality.ts';
 /** Measure real Rust scheduling with durable teacher storage and reused frame copies. */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -104,6 +105,10 @@ async function run(): Promise<void> {
   assert(Number.isSafeInteger(rayBatch) && rayBatch >= 512 && rayBatch <= 10_000_000, 'ray batch must be 512..10000000');
   const hostPath = fileURLToPath(import.meta.url); const summaryPath = fileURLToPath(new URL('./sensorWallSummary.ts', import.meta.url));
   const hostSha256 = await digest(hostPath); const summarySha256 = await digest(summaryPath);
+  const observationHelperPath = fileURLToPath(new URL('./observationQuality.ts', import.meta.url));
+  const observationContractPath = fileURLToPath(new URL('../../src/protocol/observationQuality.ts', import.meta.url));
+  const observationHelperSha256 = await digest(observationHelperPath);
+  const observationContractSha256 = await digest(observationContractPath);
   const nativeSourceSha256 = computeNativeSourceIdentity(resolve('native')).sha256;
   const binding = loadPanicBinding();
   const Constructor = binding.ExperimentalStage6aFreshRunSession as new (run: string, seed: string, memory: string, workers: number) => QualifiedSession;
@@ -174,6 +179,7 @@ async function run(): Promise<void> {
     while (performance.now() < warmupEnd) {consume(); await delay(20);}
     const initialDataset = await storage.dataset(dataset.contract.captureEpoch);
     const initial = await observe(native); const reads = [initial]; const initialCosts = costs(native);
+    const observationBefore = readObservationQuality(native as typeof native & ObservationQualityNative);
     const initialCopies = frameCopies; const initialBytes = frameBytes; const cpuBefore = process.cpuUsage();
     const systemCpuBefore = cpus().map(cpu => cpu.times);
     let nextRead = initial.afterMs + 200;
@@ -188,6 +194,7 @@ async function run(): Promise<void> {
     }
     const cpu = process.cpuUsage(cpuBefore); const systemCpuAfter = cpus().map(entry => entry.times); const summary = summarizeSensorWall(reads, seconds);
     const finalCosts = costs(native);
+    const observationAfter = readObservationQuality(native as typeof native & ObservationQualityNative);
     assert.equal(finalCosts.worldEpoch, initialCosts.worldEpoch); assert.equal(finalCosts.generation, initialCosts.generation);
     const queueDiagnostics = native.queueDiagnostics(); const display = native.latestDisplay();
     let finalDataset = await capture.stop(dataset.contract.captureEpoch);
@@ -217,13 +224,19 @@ async function run(): Promise<void> {
     if (pumpError) throw pumpError;
     assert.equal(finalDataset.error, null, 'capture diagnostic failure');
     assert.equal(hostSha256, await digest(hostPath)); assert.equal(summarySha256, await digest(summaryPath));
+    assert.equal(observationHelperSha256, await digest(observationHelperPath));
+    assert.equal(observationContractSha256, await digest(observationContractPath));
+    assert.equal(observationBefore.snapshot.runId, runId);
+    assert.equal(observationAfter.snapshot.runId, runId);
     assert.equal(nativeSourceSha256, computeNativeSourceIdentity(resolve('native')).sha256, 'native sources changed during measurement');
     report = {schemaVersion: 1, recordedAt: new Date().toISOString(), scenario, workers, requestedSeconds: seconds, warmupSeconds,
       scope: 'Real Rust background clock, durable run-start SQLite checkpoint, ten v2 stochastic teachers, diagnostic spool and latest-frame copying. Seeded random modest population with unlimited evolved respawn and normal teacher death gaps. Excludes browser/WebSocket delivery, trainer, shadows, full storage capacity, long soak and production-default selection.',
-      source: {revision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(), hostSha256, summarySha256,
+      source: {revision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(), hostSha256, summarySha256, observationHelperSha256, observationContractSha256,
         nativeSourceSha256, nativeBuildIdentifier: binding.nativeAddonBuildIdentifier(), nativeTarget: binding.nativeAddonBuildTarget(), nativeClass: binding.nativeAddonBuildClass()},
       environment: {platform: platform(), release: release(), cpu: cpus()[0]?.model, availableCpus: availableParallelism(), totalMemoryBytes: totalmem()},
       workload: {request, metadata, captureLimits, storagePolicy, queues: INIT, runStartCheckpoint: checkpoint},
+      observationQuality: {before: observationBefore, after: observationAfter,
+        summary: summarizeObservationQuality(observationBefore, observationAfter)},
       summary, nativePhaseCosts: {initial: initialCosts, final: finalCosts,
         caveat: 'Coarse atomic timing counters sampled beside the window; nested control/neural/sensing/inference totals overlap. Slow-step attribution covers only steps above 16.667 ms.'}, diagnosticDelivery: {nativeDroppedChunks: finalDataset.nativeDroppedChunks,
         nativeDroppedSamples: finalDataset.nativeDroppedSamples, spoolDroppedChunks: finalDataset.spoolDroppedChunks,

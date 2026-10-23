@@ -1,3 +1,4 @@
+import { readObservationQuality, summarizeObservationQuality, type ObservationQualityNative } from '../../scripts/qualification/observationQuality.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -81,6 +82,9 @@ networkTest('activates four immutable shadows over actual Rust teacher rows thro
     await persistence.commit(descriptor); session.acknowledgeRunStartPersistence(descriptor);
     await session.activateRunningAuthority(); runtime = await session.createBackgroundRuntime(INIT, () => {}) as ExperimentalRunningAuthorityNativeHandle;
     const native = runtime;
+    const qualityBefore = readObservationQuality(native as typeof native & ObservationQualityNative);
+    expect(qualityBefore.snapshot.runId).toBeNull();
+    expect(qualityBefore.snapshot.ordinaryPublishedSteps).toBe('0'.repeat(16));
     const admission = new BackgroundCommandAdmission(native);
     capture = new DistillationCapture(() => native, admission, spool, () => ({ runId, seed: 42 }));
     router = new DistillationHttpRouter(spool, capture);
@@ -149,6 +153,18 @@ networkTest('activates four immutable shadows over actual Rust teacher rows thro
     expect((history.data as { events: unknown[] }).events).toHaveLength(5);
     expect(native.health().completedStep >= beforeStop).toBe(true);
     expect(pumpError).toBeUndefined();
+    const qualityAfter = readObservationQuality(native as typeof native & ObservationQualityNative);
+    const quality = summarizeObservationQuality(qualityBefore, qualityAfter);
+    expect(qualityAfter.snapshot.runId).toBe(runId);
+    const steps = BigInt(quality.ordinaryPublishedSteps);
+    expect(steps).toBeGreaterThan(0n);
+    for (const [index, maximum] of [55n, 10n].entries()) {
+      const row = quality.consumers[index]!;
+      expect(BigInt(row.counts['v4Observations']!)).toBeGreaterThan(0n);
+      expect(BigInt(row.counts['v4Observations']!)).toBeLessThanOrEqual(steps * maximum);
+      expect(row.counts['observations']).toBe(row.counts['v4Observations']);
+    }
+    expect(quality.consumers[2]!.counts['observations']).toBe('0');
   } finally {
     clearInterval(timer);
     server.closeAllConnections(); await new Promise<void>(done => server.close(() => done()));

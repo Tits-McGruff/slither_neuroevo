@@ -677,6 +677,18 @@ impl EngineRuntime {
         self.init
     }
 
+    /// Test-only bounded committed quality, independent of health atomics.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn observation_quality_for_test(&self) -> Result<String, EngineError> {
+        match &self.mode {
+            RuntimeMode::RunningAuthority { metrics, .. } => metrics.observation_quality_for_test(),
+            _ => Err(EngineError::new(
+                EngineErrorCode::InvalidLifecycle,
+                "observation quality requires a running authority",
+            )),
+        }
+    }
+
     /// Return a small consistent-enough operational snapshot.
     pub fn health(&self) -> EngineHealth {
         let (processed_batches, processed_commands) = self.coordinator.processed();

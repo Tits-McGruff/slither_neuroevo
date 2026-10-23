@@ -13,6 +13,8 @@ it('exposes complete native authority without standalone reference neural-kernel
   const binding = require(resolve(NATIVE_DIRECTORY, 'index.js')) as Record<string, unknown>;
   const identity = await computeNativeSourceIdentity(NATIVE_DIRECTORY);
   expect(() => validateExperimentalFreshRunBinding(binding, identity)).not.toThrow();
+  expect((binding['ExperimentalRunningAuthority'] as {prototype: Record<string, unknown>})
+    .prototype['observationQualityForTest']).toBeUndefined();
   for (const name of ['denseForwardNative', 'mlpForwardNative', 'gruStepNative', 'lstmStepNative', 'rruStepNative']) {
     expect(Object.hasOwn(binding, name)).toBe(false);
   }

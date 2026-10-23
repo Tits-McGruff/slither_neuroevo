@@ -17,6 +17,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/qualification/liveCapacityLibrary.test.ts',
     'scripts/qualification/liveSpoolPrefill.test.ts',
     'scripts/qualification/nativeStepCosts.test.ts',
+    'scripts/qualification/observationQuality.test.ts',
     'scripts/stage7/archive-overlap-summary.test.ts',
     'scripts/stage7/generation-window-summary.test.ts',
     'scripts/stage7/dense-world-capacity.test.ts',

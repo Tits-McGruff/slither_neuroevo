@@ -177,6 +177,9 @@ pub struct RunningAuthorityHealth {
 /// Atomics updated only by the authority thread and read by health callers.
 #[derive(Debug)]
 pub(crate) struct RunningAuthorityMetrics {
+    /// One coherent fixed-size quality prefix, isolated from production execution.
+    #[cfg(feature = "engine-test-hooks")]
+    observation_quality: Mutex<super::observation_quality::ObservationQuality>,
     loop_state: AtomicU8,
     world_epoch: AtomicU64,
     generation: AtomicU64,
@@ -223,6 +226,10 @@ impl RunningAuthorityMetrics {
     pub(crate) fn new(running: &RunningAuthorityLoop) -> Self {
         let diagnostics = running.scheduler_diagnostics();
         Self {
+            #[cfg(feature = "engine-test-hooks")]
+            observation_quality: Mutex::new(
+                super::observation_quality::ObservationQuality::default(),
+            ),
             loop_state: AtomicU8::new(loop_state_code(running.state())),
             world_epoch: AtomicU64::new(running.world_epoch()),
             generation: AtomicU64::new(running.generation()),
@@ -269,6 +276,22 @@ impl RunningAuthorityMetrics {
 
     /// Refresh the published bounded authority/scheduler snapshot.
     pub(crate) fn observe(&self, running: &RunningAuthorityLoop) {
+        #[cfg(feature = "engine-test-hooks")]
+        if let Some((run_id, key)) = running.qualification_observation_scope() {
+            let mut quality = lock_recover(&self.observation_quality);
+            if quality.needs_record(run_id, key) {
+                if let Some(counts) = running.qualification_observation_counts() {
+                    quality.record(
+                        run_id,
+                        key,
+                        running.world_epoch(),
+                        running.generation(),
+                        running.completed_step(),
+                        counts,
+                    );
+                }
+            }
+        }
         let diagnostics = running.scheduler_diagnostics();
         let transition = running.pending_generation_transition();
         let generation_checkpoint_published = transition
@@ -432,6 +455,14 @@ impl RunningAuthorityMetrics {
             }
         }
         self.step_timing_max_micros.load(Ordering::Relaxed)
+    }
+
+    /// Serialize a coherent ordinary quality prefix without touching the live world.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn observation_quality_for_test(&self) -> Result<String, EngineError> {
+        lock_recover(&self.observation_quality)
+            .to_json()
+            .map_err(|error| EngineError::new(EngineErrorCode::Faulted, error.to_string()))
     }
 
     /// Read a bounded, allocation-free operational snapshot.
@@ -1957,6 +1988,116 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    /// Pending vectors, rejected queue admission and terminal batches cannot enter the cached prefix.
+    #[test]
+    fn observation_quality_counts_only_ordinary_publication_and_never_changes_continuation() {
+        let mut running = ordinary_controller_loop();
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let empty = metrics.observation_quality_for_test().unwrap();
+        let witness = running.qualification_continuation_sha256();
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+        assert_eq!(running.qualification_continuation_sha256(), witness);
+
+        let bound = super::super::controller_output::service_reply_bound(&running).unwrap();
+        assert!(service_running_with_output_capacity(
+            &mut running,
+            &output_with_cap(bound - 1),
+            1200
+        )
+        .is_err());
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+        let output = output_with_cap(1024 * 1024);
+        assert!(matches!(
+            service_running_with_output_capacity(&mut running, &output, 1200).unwrap(),
+            RunningAuthorityLoopProgress::ExternalDeliveryPending { .. }
+        ));
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+        let messages = super::super::controller_output::own_pending_messages(&running).unwrap();
+        assert!(!messages.is_empty());
+        let receipts: Vec<_> = messages
+            .iter()
+            .map(|message| ExternalDeliveryReceipt {
+                operation_epoch: message.event.step_key.operation_epoch(),
+                event_sequence: message.event.event_sequence,
+                connection_id: message.event.connection_id,
+                lease_id: message.event.lease_id,
+                accepted: true,
+            })
+            .collect();
+        let stale = ExternalDeliveryReceipt {
+            connection_id: u64::MAX,
+            ..receipts[0]
+        };
+        command_reply(
+            &mut running,
+            RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                receipts: vec![stale].into_boxed_slice(),
+            },
+            1024 * 1024,
+        );
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+
+        // Use the actual command processor: its post-command observe must see this publication.
+        let state = CoordinatorState::new();
+        process_running_command_batch(
+            CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::RunningAuthority(
+                        RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                            receipts: receipts.into_boxed_slice(),
+                        },
+                    ),
+                }]
+                .into_boxed_slice(),
+            },
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1200,
+        )
+        .unwrap();
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        let text = metrics.observation_quality_for_test().unwrap();
+        assert!(text.len() <= 4096);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["ordinaryPublishedSteps"], "0000000000000001");
+        let expected = running.qualification_observation_counts().unwrap();
+        assert!(expected[0].observations > 0);
+        assert!(expected[2].observations > 0);
+        for (index, counts) in expected.iter().enumerate() {
+            assert_eq!(
+                parsed["consumers"][index]["observations"],
+                format!("{:016x}", counts.observations)
+            );
+            assert_eq!(
+                parsed["consumers"][index]["v4Observations"],
+                "0000000000000000"
+            );
+        }
+        let witness = running.qualification_continuation_sha256();
+        for _ in 0..8 {
+            metrics.observe(&running);
+            assert_eq!(metrics.observation_quality_for_test().unwrap(), text);
+        }
+        assert_eq!(running.qualification_continuation_sha256(), witness);
+
+        let mut terminal = background_generation_handoff_fixture().unwrap().running;
+        let terminal_metrics = RunningAuthorityMetrics::new(&terminal);
+        advance_to_transition(&mut terminal);
+        terminal_metrics.observe(&terminal);
+        assert_eq!(
+            terminal_metrics.observation_quality_for_test().unwrap(),
+            empty
+        );
     }
 
     #[test]
