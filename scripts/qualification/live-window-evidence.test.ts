@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
+import type { LiveCatalogReceipt } from './liveCapacityLibrary.ts';
 import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.ts';
 import { summarizeSensorWall, type SensorWallRead, type SensorGenerationBarrier } from './sensorWallSummary.ts';
 
@@ -397,5 +398,117 @@ it('preserves the max live replay ceiling across cold restart without claiming f
     expect(observation).not.toHaveProperty('wsl');
     expect(Object.keys(observation.host).every(key =>
       ['available', 'cpuTicks', 'loadAverage', 'memoryKiB'].includes(key))).toBe(true);
+  }
+});
+
+/** A measured large-population/catalog window preserves explicit unfilled storage and failed timing. */
+type LiveLargeCatalogEvidence = LiveReplayCeilingEvidence & {
+  source: {slitherRevision: string; pyrlRevision: string; libraryHelperSha256: string};
+  workload: {capacityGraph: string; checkpointEnvelopeMiB: number; capacityAudit: {
+    population: number; parametersPerGenome: number; decodedRoleBytes: number[]; decodedBytes: number;
+    conservativeTwoStateBytes: number; processMemoryCeilingBytes: number;
+    decodedEnvelopeFits: boolean; twoStateBudgetFits: boolean; workerScratchBytes: number; checkpointScratchBytes: number;
+    limits: {maxTotalDecodedBytes: number}}};
+  catalogOverlap: {fixtureIndexSha256: string; before: LiveCatalogReceipt; afterColdRestart: LiveCatalogReceipt;
+    overflowRejected: boolean; overflowPublishedFiles: boolean};
+  inspectorOverlap: {before: {subscriptions: number; deliveredSamples: number};
+    after: {subscriptions: number; deliveredSamples: number; maximumWireBytes: number}; pureProbe: boolean; inputSize: number};
+  spoolGiB: number; producerStoragePolicy: {maxBytes: string}; hostPeakRssBytes: number;
+};
+
+it('preserves real large-population/full-catalog/inspector overlap and the failed performance result', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-large-catalog-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    kind: string; largeCatalogOverlapQualified: boolean; performanceQualified: boolean;
+    loadedReplayQualified: boolean; loadedSpoolQualified: boolean; fullCapacitySoakQualified: boolean;
+    slitherCommit: string; pyrlCommit: string; nativeSourceSha256: string; trainerSourceSha256: string;
+    trainerSourceFiles: string[]; files: Record<string, FrozenFileReceipt>};
+  expect(manifest).toMatchObject({kind: 'live-large-catalog-window-evidence-v1', largeCatalogOverlapQualified: true,
+    performanceQualified: false, loadedReplayQualified: false, loadedSpoolQualified: false, fullCapacitySoakQualified: false});
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as LiveLargeCatalogEvidence;
+  expect(report.source).toMatchObject({slitherRevision: manifest.slitherCommit, pyrlRevision: manifest.pyrlCommit,
+    nativeSourceSha256: manifest.nativeSourceSha256, target: 'x86_64-unknown-linux-gnu',
+    hostSha256: sha256(files.get('host/live-distillation.ts')!),
+    libraryHelperSha256: sha256(files.get('host/liveCapacityLibrary.ts')!),
+    trainerGateSha256: sha256(files.get('pyrl/live_distillation_gate.py')!),
+    studentArtifactSha256: sha256(files.get('large-motion32-student.slither-brain')!)});
+  const trainer = frozenTrainerSource(files, 'pyrl/');
+  expect(trainer.names).toEqual(manifest.trainerSourceFiles); expect(trainer.sha256).toBe(manifest.trainerSourceSha256);
+  const fixture = JSON.parse(files.get('fixture-index.json')!.toString('utf8')) as {
+    schemaVersion: number; records: {brainId: string; weightsSha256: string; artifactByteCount: string; parameterCount: number}[]};
+  expect(fixture.schemaVersion).toBe(1); expect(fixture.records).toHaveLength(101);
+  expect(new Set(fixture.records.map(record => record.brainId)).size).toBe(101);
+  expect(new Set(fixture.records.map(record => record.weightsSha256)).size).toBe(101);
+  expect(fixture.records.every(record => record.parameterCount === 494306)).toBe(true);
+  expect(sha256(files.get('native-manual-source.slither-brain')!)).toBe(fixture.records[0]!.brainId);
+  expect(report.catalogOverlap.fixtureIndexSha256).toBe(sha256(files.get('fixture-index.json')!));
+  expect(JSON.parse(files.get('fixture-generation.json')!.toString('utf8'))).toMatchObject({
+    sourceSha256: manifest.nativeSourceSha256, libraryFixture: {recordCount: 100, overflowProbes: 1}});
+  expect(report).toMatchObject({device: 'cpu', workers: 4, seconds: 60, spoolGiB: 64, replayMiB: 2048,
+    workload: {scenario: 'P1', capacityGraph: 'large', checkpointEnvelopeMiB: 768,
+      request: {profile: 'motion', bins: 32}, metadata: {parameterCount: 494306, sensorVersion: 4}}});
+  const audit = report.workload.capacityAudit;
+  expect(audit).toMatchObject({population: 300, parametersPerGenome: 494306, decodedEnvelopeFits: true,
+    twoStateBudgetFits: true, workerScratchBytes: 512 * 1024 ** 2, checkpointScratchBytes: 512 * 1024 ** 2});
+  expect(audit.decodedRoleBytes[3]).toBe(300 * 494306 * 4);
+  expect(audit.decodedBytes).toBeGreaterThan(512 * 1024 ** 2);
+  expect(audit.decodedBytes).toBeLessThanOrEqual(768 * 1024 ** 2);
+  expect(audit.limits.maxTotalDecodedBytes).toBe(768 * 1024 ** 2);
+  expect(audit.conservativeTwoStateBytes).toBeLessThanOrEqual(audit.processMemoryCeilingBytes);
+  const catalog = report.catalogOverlap;
+  expect(catalog.before).toMatchObject({pages: 4, recordCount: 100});
+  expect(catalog.before.brainIds).toEqual(fixture.records.slice(0, 100).map(record => record.brainId).sort());
+  expect(catalog.before.originalBytes).toBe(fixture.records.slice(0, 100)
+    .reduce((sum, record) => sum + BigInt('0x' + record.artifactByteCount), 0n).toString());
+  expect(catalog.afterColdRestart).toEqual(catalog.before);
+  expect(catalog.overflowRejected).toBe(true); expect(catalog.overflowPublishedFiles).toBe(false);
+  const inspector = report.inspectorOverlap;
+  expect(inspector.pureProbe).toBe(false); expect(inspector.inputSize).toBe(504);
+  expect(inspector.after.deliveredSamples).toBeGreaterThan(inspector.before.deliveredSamples);
+  expect(inspector.after.subscriptions).toBeGreaterThan(inspector.before.subscriptions);
+  expect(inspector.after.maximumWireBytes).toBeLessThan(1024 * 1024);
+  expect(report.resume).toMatchObject({restartExact: true, updates: 250});
+  expect(report.sustain.initialUpdates).toBe(250);
+  expect(report.sustain.updates - report.sustain.initialUpdates).toBe(report.sustain.optimizerUpdates);
+  expect(report.sustain.optimizerUpdates).toBe(79);
+  expect(report.sustain.sequence).toMatchObject({batch_size: 32, burn_in_steps: 32, bptt_steps: 64});
+  for (const phase of [report.train, report.resume, report.sustain]) {
+    expect(phase.trainerSourceSha256).toBe(manifest.trainerSourceSha256);
+    expect(phase.replayCapacityBytes).toBe(2048 * 1024 ** 2);
+    expect(phase.processPriority).toEqual({platform: 'posix', nice: 5});
+  }
+  expect(report.sustain.activeWallSeconds).toBeGreaterThanOrEqual(60);
+  expect(report.sustain.finalCursor).toBeGreaterThan(report.sustain.initialCursor);
+  expect(report.sustain.peakReplayBytes).toBe(88070918);
+  expect(report.sustain.peakReplayBytes).toBeLessThan(report.sustain.replayCapacityBytes / 10);
+  expect(BigInt('0x' + report.producerStoragePolicy.maxBytes)).toBe(64n * 1024n ** 3n);
+  expect(BigInt('0x' + report.capture.after.retainedBytes)).toBeLessThan(64n * 1024n ** 3n / 10n);
+  expect(report.durability).toMatchObject({requestedBoundaries: 3, persistenceRestartExact: true,
+    restoredSourceSha256: manifest.nativeSourceSha256, invalidRestoreAdmissionsRejected: 7});
+  expect(report.durability.barriers).toHaveLength(3);
+  expect(report.durability.barriers.every(barrier => barrier.terminal.population === 300)).toBe(true);
+  const last = report.durability.barriers.at(-1)!;
+  expect(report.durability.restoredGeneration).toBe(last.checkpoint.generation);
+  expect(report.durability.restoredCompletedStep).toBe(last.checkpoint.completedStep);
+  expect(summarizeSensorWall(report.reads, 60, {runId: last.checkpoint.runId, barriers: report.durability.barriers})).toEqual(report.summary);
+  expect(report.summary.progress.deltaSteps).toBe('242');
+  expect(report.summary.stepTiming.p95UpperMs).toBe(128);
+  expect(report.summary.stepTiming.p99UpperMs).toBeNull(); expect(report.summary.stepTiming.overflowSamples).toBe('3');
+  expect(BigInt('0x' + report.summary.stepTiming.bucketUpperMicros.at(-2)!)).toBe(256000n);
+  expect(report.summary.droppedWallMicros).toBe('15222667'); expect(report.summary.meetsMeasuredGates).toBe(false);
+  expect(report.capture.noDrops).toBe(true); expect(report.http.forbiddenRequests).toBe(0);
+  expect(report.shadows.sampleProgress).toHaveLength(4);
+  for (const value of report.shadows.sampleProgress) expect(BigInt(value)).toBeGreaterThan(0n);
+  expect(report.hostPeakRssBytes).toBeGreaterThan(0);
+  const observerSha = sha256(files.get('host/system-resource-observer.py')!);
+  const resources = JSON.parse(files.get('aggregate-resources.json')!.toString('utf8')) as Array<{
+    platform: string; processDetailsIncluded: boolean; observerSourceSha256: string; host: Record<string, unknown>}>;
+  expect(resources.length).toBeGreaterThanOrEqual(3);
+  for (const observation of resources) {
+    expect(observation).toMatchObject({platform: 'Linux', processDetailsIncluded: false, observerSourceSha256: observerSha});
+    expect(Object.keys(observation).every(key => ['schemaVersion', 'utc', 'platform', 'gpu', 'processDetailsIncluded',
+      'attribution', 'host', 'collectionSeconds', 'sample', 'observerSourceSha256'].includes(key))).toBe(true);
+    expect(Object.keys(observation.host).every(key => ['available', 'cpuTicks', 'loadAverage', 'memoryKiB'].includes(key))).toBe(true);
   }
 });

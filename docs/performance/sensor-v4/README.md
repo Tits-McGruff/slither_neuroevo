@@ -1859,3 +1859,20 @@ inspector consumer reacquires evolved slot zero after life/generation retirement
 and records actual delivered neural samples with raw traces. Its selected-owner
 requests remain bounded at four Hz. Reports identify catalog/inspector overlap
 separately and still leave full spool/replay occupancy and soak qualification open.
+
+The [Debian large-population/catalog window](live-large-catalog-debian-v1/evidence.json)
+uses 300 large Motion/B32 genomes (494,306 parameters each), 100 distinct large
+manual portable originals, one actual selected inspector, four shadows and the
+default 32/32/64 CPU trainer. It completes exact trainer restart, 79 further
+optimizer updates, three durable generations and cold native/metadata restore.
+Four catalog pages and every original hash survive; the valid 101st save rejects
+without publishing files. Inspector selection requests drain before each
+requested generation barrier, retaining the existing five-second command bound.
+
+The window fails performance: 242 completed steps over 66.16 observed seconds,
+128-ms p95, p99 beyond the 256-ms histogram bound and 15.22 seconds of dropped
+wall debt. Host sampled peak RSS is 1,454.63 MiB; this does not establish a combined
+simultaneous peak for every process. Actual replay reaches 83.99 MiB under a
+2,048-MiB ceiling. The 64-GiB spool is a selected ceiling, not a filled store.
+The capsule retains aggregate resource counters only. Full storage occupancy,
+real-time performance, maturity and the integrated soak remain open.
