@@ -1,4 +1,4 @@
-import { distillationSpoolLimitsForGiB } from '../../server/rustEngine/distillationProtocol.ts';
+import { distillationSpoolLimitsForGiB, distillationRecoveryTimeoutMs } from '../../server/rustEngine/distillationProtocol.ts';
 import { validateRustCalculationWorkers } from '../../server/rustWorkers.ts';
 /** Qualify live committed Rust samples, HTTP, PyTorch restart and four Rust shadows. */
 import assert from 'node:assert/strict';
@@ -11,6 +11,8 @@ import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadLiveLibraryFixture, readLiveLibraryArtifact, readLiveCapacityCatalog } from './liveCapacityLibrary.ts';
 import type { LiveCatalogReceipt } from './liveCapacityLibrary.ts';
+import { prefillLiveSpool, readLiveSpoolPrefillState, verifyLiveSpoolPrefillRecovery } from './liveSpoolPrefill.ts';
+import type { LiveSpoolPrefillReceipt } from './liveSpoolPrefill.ts';
 import type { SavedBrainPageV1, SavedBrainCatalogResult } from '../../server/protocol.ts';
 import { existsSync } from 'node:fs';
 import { loadPanicBinding } from '../../server/test/panicRuntime.ts';
@@ -165,7 +167,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures', '--spool-prefill-gib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -187,7 +189,13 @@ async function run(): Promise<void> {
   const checkpointDiskRequest = checkpointDiskAdmissionRequest(BigInt(envelopeMiB) * 1024n ** 2n);
   const sixHour = args.has('--soak-hours');
   assert(!sixHour || args.get('--soak-hours') === '6');
-  assert(sixHour === args.has('--workspace'), 'six-hour measurement requires an exclusive persistent workspace');
+  const persistent = args.has('--workspace');
+  assert(!sixHour || persistent, 'six-hour measurement requires an exclusive persistent workspace');
+  assert(!persistent || workload !== undefined, 'persistent qualification workspace requires P0/P1 workload');
+  const spoolPrefillGiB = Number(args.get('--spool-prefill-gib') ?? '0');
+  assert(Number.isSafeInteger(spoolPrefillGiB) && spoolPrefillGiB >= 0 && spoolPrefillGiB <= spoolGiB);
+  assert(!args.has('--spool-prefill-gib') || spoolPrefillGiB >= 1 && persistent && capacityGraph === 'large',
+    'spool prefill requires an explicit 1..64-GiB target, persistent workspace and large Motion/B32 graph');
   const seconds = Number(args.get('--contention-seconds') ?? (sixHour ? '21600' : '60'));
   const timing = sensorWallTiming(seconds, sixHour);
   assert(sixHour || seconds <= 300);
@@ -209,14 +217,17 @@ async function run(): Promise<void> {
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
   const libraryHelperPath = fileURLToPath(new URL('./liveCapacityLibrary.ts', import.meta.url));
   const libraryHelperSha256 = await digest(libraryHelperPath);
+  const spoolHelperPath = fileURLToPath(new URL('./liveSpoolPrefill.ts', import.meta.url));
+  const spoolFixturePath = fileURLToPath(new URL('./spoolFixture.ts', import.meta.url));
+  const spoolHelperSha256 = await digest(spoolHelperPath); const spoolFixtureSha256 = await digest(spoolFixturePath);
   const trainerGateSha256 = await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py'));
   let root: string;
-  if (sixHour) {
+  if (persistent) {
     root = resolve(args.get('--workspace')!);
     const parent = await realpath(dirname(root)); const temporary = await realpath(tmpdir());
     const fromTemporary = relative(temporary, parent);
     assert(isAbsolute(fromTemporary) || fromTemporary === '..' || fromTemporary.startsWith('..' + sep),
-      'six-hour workspace must be outside disposable temporary storage');
+      'persistent qualification workspace must be outside disposable temporary storage');
     assert.equal(parent, dirname(root), 'workspace parent must resolve without symlinks');
     await mkdir(root); // Exclusive: an existing directory must never become this gate's workspace.
   } else root = await mkdtemp(join(tmpdir(), 'slither-live-distillation-'));
@@ -293,6 +304,18 @@ async function run(): Promise<void> {
     const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({managedDirectory: managed, operationId: randomBytes(16).toString('hex')}));
     await persistence.commit(descriptor); session.acknowledgeRunStartPersistence(descriptor);
     let latestNativeCheckpoint = descriptor;
+    let spoolPrefill: LiveSpoolPrefillReceipt | undefined;
+    if (spoolPrefillGiB) {
+      assert(metadata.sensorContract);
+      // Hold the already durable boundary without constructing/starting a wall-clock coordinator.
+      spool = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits); await spool.ready;
+      try {spoolPrefill = await prefillLiveSpool(spool, root, metadata.sensorContract, spoolPrefillGiB, spoolLimits, checkpointDiskRequest);}
+      finally {await spool.close();}
+      const recoveryStarted = performance.now();
+      spool = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits);
+      await verifyLiveSpoolPrefillRecovery(spool, spoolPrefill, recoveryStarted);
+      hostPeakRssBytes = Math.max(hostPeakRssBytes, process.memoryUsage.rss());
+    }
     await session.activateRunningAuthority(); runtime = await session.createBackgroundRuntime(INIT, () => {}) as ExperimentalRunningAuthorityNativeHandle;
     const native = runtime; const admission = new BackgroundCommandAdmission(native);
     let configRevision = '0000000000000001';
@@ -313,7 +336,8 @@ async function run(): Promise<void> {
         assert(sequence); receipts.set(sequence, event => {clearTimeout(timeout); done(event);});
       } catch (error) {clearTimeout(timeout); reject(error);}
     });
-    spool = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits); const storage = spool;
+    spool ??= new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits); const storage = spool;
+    await storage.ready;
     capture = new DistillationCapture(() => native, admission, storage, () => ({runId, seed: 42}));
     const generation = new BackgroundGenerationRouter({native, admission, persistence, managedDirectory: managed, maxAssignments: 1,
       send: () => {throw new Error('qualification must not assign controllers');},
@@ -582,8 +606,20 @@ async function run(): Promise<void> {
       }
       assert.equal(captureAfter.error, null); assert(frameCopies > 0); assert.equal(forbiddenRequests, 0);
       const queueDiagnostics = native.queueDiagnostics();
+      if (spoolPrefill) {
+        assert.notEqual(spoolPrefill.captureEpoch, dataset.contract.captureEpoch);
+        spoolPrefill.afterCapture = await readLiveSpoolPrefillState(storage, spoolPrefill);
+        const totalBytes = BigInt('0x' + spoolPrefill.afterCapture.retainedBytes) + BigInt('0x' + captureAfter.retainedBytes);
+        assert(totalBytes <= BigInt(spoolLimits.maxBytes));
+        assert(spoolPrefill.afterCapture.retainedChunks + captureAfter.retainedChunks <= spoolLimits.maxChunks);
+        if (spoolPrefill.objects === spoolLimits.maxChunks ||
+            BigInt('0x' + spoolPrefill.beforeRecovery.retainedBytes) === BigInt(spoolLimits.maxBytes)) {
+          assert(spoolPrefill.afterCapture.retainedChunks < spoolPrefill.objects, 'live capture must exercise ordinary retention under full prefill');
+        }
+      }
       assert.equal(hostSha256, await digest(fileURLToPath(import.meta.url)));
       assert.equal(libraryHelperSha256, await digest(libraryHelperPath));
+      assert.equal(spoolHelperSha256, await digest(spoolHelperPath)); assert.equal(spoolFixtureSha256, await digest(spoolFixturePath));
       assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
       assert.equal(studentArtifactSha256, await digest(studentArtifact));
       if (trainedCohort) assert.equal(cohortIndexSha256, await digest(trainedCohort));
@@ -646,16 +682,36 @@ async function run(): Promise<void> {
           restoredGeneration: restoredSnapshot.generation as string, restoredCompletedStep: restoredSnapshot.completedStep as string,
           restoredSourceSha256: binding.nativeAddonSourceSha256(), invalidRestoreAdmissionsRejected: rejectedAdmissions.length};
       }
+      if (spoolPrefill) {
+        await stopInspector?.(); clearInterval(timer); await activePump;
+        native.requestStop(); await native.join();
+        await capture.close(); // Closes the old diagnostic worker before independent verification.
+        const finalRecoveryStarted = performance.now();
+        const audit = new DistillationSpoolClient(join(root, 'diagnostics'), spoolLimits);
+        try {
+          await audit.ready;
+          spoolPrefill.finalRecoveryBudgetMs = audit.recoveryBudgetMs;
+          spoolPrefill.finalRecoveryElapsedMs = performance.now() - finalRecoveryStarted;
+          spoolPrefill.afterFinalRecovery = await readLiveSpoolPrefillState(audit, spoolPrefill);
+          assert.deepEqual(spoolPrefill.afterFinalRecovery, spoolPrefill.afterCapture);
+          const actual = await audit.dataset(dataset.contract.captureEpoch);
+          assert.equal(actual.retainedChunks, captureAfter.retainedChunks); assert.equal(actual.retainedBytes, captureAfter.retainedBytes);
+          assert.equal(actual.resolvedThrough, captureAfter.resolvedThrough);
+          const total = Number(BigInt('0x' + actual.retainedBytes) + BigInt('0x' + spoolPrefill.afterFinalRecovery.retainedBytes));
+          assert.equal(audit.recoveryBudgetMs, distillationRecoveryTimeoutMs(total));
+        } finally {await audit.close();}
+      }
       const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
-        device, workers, seed: 42, seconds, ...(sixHour ? {sixHourWindow: true, persistentWorkspace: root} : {}), ...(durability ? {durability} : {}),
-        fullCapacitySoakQualified: false,
+        device, workers, seed: 42, seconds, ...(persistent ? {persistentWorkspace: root} : {}),
+        ...(sixHour ? {sixHourWindow: true} : {}), ...(durability ? {durability} : {}),
+        fullCapacitySoakQualified: false, ...(spoolPrefill ? {spoolPrefill} : {}),
         ...(libraryFixture ? {catalogOverlap: {fixtureIndexSha256: libraryFixture.indexSha256, before: libraryBefore,
           afterColdRestart: libraryAfter, overflowRejected: true, overflowPublishedFiles: false},
         inspectorOverlap: {before: inspectorBefore, after: inspectorAfter, pureProbe: false, inputSize: 504}} : {}),
-        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full spool/replay occupancy and production-default selection. Full catalog and inspector overlap are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
+        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, loaded replay and production-default selection. Catalog/inspector overlap and explicitly synthetic inactive spool prefill are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
-          hostSha256, libraryHelperSha256, trainerGateSha256, studentArtifactSha256,
+          hostSha256, libraryHelperSha256, spoolHelperSha256, spoolFixtureSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
         workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {}),
           ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, producerStoragePolicy,
@@ -768,7 +824,7 @@ async function run(): Promise<void> {
     if (runtime) {runtime.requestStop(); await runtime.join();}
     await library?.close();
     if (capture) await capture.close(); else await spool?.close(); await persistence?.close();
-    if (!sixHour) await removeRoot(root);
+    if (!persistent) await removeRoot(root);
     else {
       await writeFile(join(root, 'host-completion.json'), JSON.stringify({schemaVersion: 1,
         status: measured ? 'measured' : 'failed', hostPid: process.pid, report: output}) + '\n', {flag: 'wx'});
