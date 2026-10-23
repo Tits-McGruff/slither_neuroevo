@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-23)
+## Implementation progress (2026-10-24)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -1390,8 +1390,18 @@ when subsequent blocks have low distance. The RMS threshold remains 0.35, and
 statistics, authoritative RNG, selection and reproduction contracts are unchanged.
 Native tests compare complete scalar decisions around cutoff/tail boundaries,
 extreme Float32 values, diverse and clustered owners, plus exact summary statistics.
-This is a performance implementation checkpoint; integrated timing and the
-remaining qualification gates above are still open.
+`species-distance-native-v1/` retains paired scalar/SIMD sources, records and
+aggregate Windows/running-WSL/Debian context. Distant streaming comparisons are
+21.6% faster on Debian and 56.2% faster on Windows in the standalone copies.
+Paired complete summary copies preserve every scalar statistic bit and greedy
+bucket: 55-owner cases improve 12.2–25.8%, and 300-owner cases 24.9–29.2%.
+These use fixed synthetic 494,306-parameter owners; they are not full-runtime
+or idle-host claims. A real P1 window passes exact trainer restart, drop-free
+capture, 100 catalog entries, inspector/four-shadow progress, three durable
+generations and cold restore. Its summary phases total 17.84 seconds, but p99
+still exceeds 256 ms and simulated/wall throughput is only 0.0675. The earlier
+28.20-second summary observation is unpaired and reaches different states.
+Timing, representative maturity and the integrated capacity/soak gates remain open.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 

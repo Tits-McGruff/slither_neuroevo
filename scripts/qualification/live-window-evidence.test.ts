@@ -791,3 +791,160 @@ it('binds native large-graph cost attribution and preserves a rejected cold-stre
     }
   }
 });
+
+/** Paired scalar/SIMD timings share exact inputs and order-balanced passes. */
+interface SpeciesMicroRecord {
+  case?: string; population?: number; clustered?: boolean; pass: number; oldFirst: boolean;
+  originalSeconds: number; candidateSeconds: number;
+  speciesCount?: number; topSpeciesSize?: number; averageWeightBits?: string; weightVarianceBits?: string;
+}
+
+/** Recompute retained paired medians without executing archived benchmark code. */
+function speciesMedian(records: SpeciesMicroRecord[]): number {
+  const ratios = records.map(row => row.candidateSeconds / row.originalSeconds).sort((a, b) => a - b);
+  expect(ratios.length % 2).toBe(0);
+  for (const row of records) {
+    expect(row.originalSeconds).toBeGreaterThan(0); expect(row.candidateSeconds).toBeGreaterThan(0);
+    expect(row.oldFirst).toBe([0, 3].includes(row.pass % 4));
+  }
+  return (ratios[ratios.length / 2 - 1]! + ratios[ratios.length / 2]!) / 2;
+}
+
+it('binds guarded species rejection to paired summaries, native generations and aggregate host context', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/species-distance-native-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    kind: string; slitherCommit: string; pyrlCommit: string; nativeSourceSha256: string;
+    trainerSourceSha256: string; sourcesFrom: string; performanceQualified: boolean;
+    fullCapacitySoakQualified: boolean; captureDropFree: boolean; resourceSamples: number;
+    phaseDeltas: Record<string, string>; files: Record<string, FrozenFileReceipt>;
+  };
+  expect(manifest).toMatchObject({kind: 'guarded-species-native-window-v1', performanceQualified: false,
+    fullCapacitySoakQualified: false, sourcesFrom: '../native-large-costs-debian-v1'});
+  const files = readFrozenFiles(root, manifest.files);
+  const priorRoot = resolve(root, manifest.sourcesFrom);
+  const priorManifest = JSON.parse(readFileSync(resolve(priorRoot, 'evidence.json'), 'utf8')) as {
+    files: Record<string, FrozenFileReceipt>};
+  const prior = readFrozenFiles(priorRoot, priorManifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as NativeCostInvestigation;
+  expect(report.source).toMatchObject({slitherRevision: manifest.slitherCommit, pyrlRevision: manifest.pyrlCommit,
+    nativeSourceSha256: manifest.nativeSourceSha256, target: 'x86_64-unknown-linux-gnu'});
+  for (const [key, name] of Object.entries({hostSha256: 'host/live-distillation.ts',
+    costHelperSha256: 'host/nativeStepCosts.ts', libraryHelperSha256: 'host/liveCapacityLibrary.ts',
+    spoolHelperSha256: 'host/liveSpoolPrefill.ts', spoolFixtureSha256: 'host/spoolFixture.ts',
+    trainerGateSha256: 'pyrl/live_distillation_gate.py', studentArtifactSha256: 'large-motion32-student.slither-brain'})) {
+    expect((report.source as Record<string, unknown>)[key]).toBe(sha256(prior.get(name)!));
+  }
+  expect(frozenTrainerSource(prior, 'pyrl/').sha256).toBe(manifest.trainerSourceSha256);
+  expect(report).toMatchObject({device: 'cpu', workers: 4, seconds: 60,
+    workload: {scenario: 'P1', capacityGraph: 'large', checkpointEnvelopeMiB: 768,
+      metadata: {parameterCount: 494306}}, train: {updates: 126}, resume: {updates: 250, restartExact: true}});
+  expect(report.sustain.optimizerUpdates).toBeGreaterThan(0);
+  expect(report.capture.noDrops).toBe(manifest.captureDropFree);
+  expect(report.catalogOverlap.before).toMatchObject({recordCount: 100, pages: 4});
+  expect(report.catalogOverlap.afterColdRestart).toEqual(report.catalogOverlap.before);
+  expect(report.catalogOverlap.overflowRejected).toBe(true); expect(report.catalogOverlap.overflowPublishedFiles).toBe(false);
+  expect(report.inspectorOverlap.after.deliveredSamples).toBeGreaterThan(report.inspectorOverlap.before.deliveredSamples);
+  expect(report.shadows.sampleProgress).toHaveLength(4);
+  for (const progress of report.shadows.sampleProgress) expect(BigInt(progress)).toBeGreaterThan(0n);
+  expect(report.durability.barriers).toHaveLength(3);
+  expect(report.durability).toMatchObject({persistenceRestartExact: true, restoredSourceSha256: manifest.nativeSourceSha256});
+  const last = report.durability.barriers.at(-1)!;
+  expect(summarizeSensorWall(report.reads, 60, {runId: last.checkpoint.runId,
+    barriers: report.durability.barriers})).toEqual(report.summary);
+  expect(report.summary.meetsMeasuredGates).toBe(false);
+  const before = report.phaseCosts.before.counters as Record<string, string>;
+  const after = report.phaseCosts.after.counters as Record<string, string>;
+  expect(Object.keys(before)).toHaveLength(21); expect(Object.keys(after)).toEqual(Object.keys(before));
+  for (const key of Object.keys(before).filter(key => key !== 'terminalStepMaxMicros')) {
+    expect((BigInt('0x' + after[key]!) - BigInt('0x' + before[key]!)).toString()).toBe(manifest.phaseDeltas[key]);
+  }
+  expect(manifest.phaseDeltas['terminalStepSamples']).toBe('3');
+
+  const evolution = files.get('native/evolution.rs')!.toString('utf8').replaceAll('\r\n', '\n');
+  const nativeSpecies = evolution.slice(evolution.indexOf('fn species_probe_proves_far('), evolution.indexOf('fn tournament_pick('));
+  for (const platform of ['debian', 'windows']) {
+    const micro = JSON.parse(files.get(platform + '/result.json')!.toString('utf8')) as {
+      exactDecisions: number; records: SpeciesMicroRecord[]};
+    const metadata = JSON.parse(files.get(platform + '/metadata.json')!.toString('utf8')) as {
+      sourceSha256: string; kernelSha256: string; medianCandidateRatios: Record<string, number>};
+    expect(metadata.sourceSha256).toBe(sha256(files.get('micro/benchmark-production.rs')!));
+    expect(metadata.kernelSha256).toBe(sha256(files.get('micro/simd_kernels.rs')!));
+    expect(micro.exactDecisions).toBe(500); expect(micro.records).toHaveLength(40);
+    for (const [name, median] of Object.entries(metadata.medianCandidateRatios)) {
+      const records = micro.records.filter(row => row.case === name);
+      expect(records.map(row => row.pass)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+      expect(speciesMedian(records)).toBeCloseTo(median, 14);
+    }
+    expect(metadata.medianCandidateRatios['distant-stream']).toBeLessThan(1);
+  }
+  const benchmark = files.get('micro/benchmark-production.rs')!.toString('utf8').replaceAll('\r\n', '\n');
+  expect(benchmark.slice(benchmark.indexOf('fn species_probe_proves_far('), benchmark.indexOf('fn candidate(')).trim())
+    .toBe(nativeSpecies.trim());
+  const whole = JSON.parse(files.get('debian/summary-result.json')!.toString('utf8')) as {
+    parametersPerGenome: number; records: SpeciesMicroRecord[]};
+  const wholeMetadata = JSON.parse(files.get('debian/summary-metadata.json')!.toString('utf8')) as {
+    sourceSha256: string; summary: Array<{population: number; clustered: boolean; medianCandidateRatio: number}>};
+  expect(whole.parametersPerGenome).toBe(494306); expect(whole.records).toHaveLength(16);
+  expect(wholeMetadata.sourceSha256).toBe(sha256(files.get('micro/benchmark-summary.rs')!));
+  const summarySource = files.get('micro/benchmark-summary.rs')!.toString('utf8').replaceAll('\r\n', '\n');
+  const originalEvolution = files.get('native/evolution-reference.rs')!.toString('utf8').replaceAll('\r\n', '\n');
+  const originalDistance = originalEvolution.slice(originalEvolution.indexOf('fn genomes_share_species('),
+    originalEvolution.indexOf('fn tournament_pick(')).replace('fn genomes_share_species(', 'fn genomes_share_species_reference(');
+  expect(summarySource).toContain(originalDistance);
+  const originalSummary = originalEvolution.slice(originalEvolution.indexOf('fn calculate_summary('),
+    originalEvolution.indexOf('/// Prove that the original scalar RMS comparison'))
+    .replace('fn calculate_summary(', 'fn calculate_summary_reference(')
+    .replaceAll('genomes_share_species(', 'genomes_share_species_reference(');
+  expect(summarySource).toContain(originalSummary);
+  const currentSummary = evolution.slice(evolution.indexOf('struct SpeciesRepresentative {'),
+    evolution.indexOf('/// Prove that the original scalar RMS comparison'));
+  expect(summarySource).toContain(currentSummary);
+  expect(summarySource).toContain(nativeSpecies);
+  for (const cell of wholeMetadata.summary) {
+    const records = whole.records.filter(row => row.population === cell.population && row.clustered === cell.clustered);
+    expect(records.map(row => row.pass)).toEqual([0, 1, 2, 3]);
+    expect(speciesMedian(records)).toBeCloseTo(cell.medianCandidateRatio, 14);
+    expect(new Set(records.map(row => JSON.stringify([row.speciesCount, row.topSpeciesSize,
+      row.averageWeightBits, row.weightVarianceBits]))).size).toBe(1);
+  }
+
+  const observerNames = {Linux: prior.get('host/system-resource-observer.py')!, Windows: files.get('windows/system-resource-observer.py')!};
+  for (const name of ['aggregate-resources.json', 'debian/summary-before-resources.json',
+    'debian/summary-after-resources.json', 'windows/before-resources.json', 'windows/after-resources.json']) {
+    const rows = JSON.parse(files.get(name)!.toString('utf8')) as Array<{
+      platform: 'Linux' | 'Windows'; processDetailsIncluded: boolean; observerSourceSha256: string;
+      host: Record<string, unknown>; gpu: {rows?: Array<Record<string, unknown>>};
+      wsl?: {available: boolean; distributions?: Array<Record<string, unknown>>}}>;
+    expect(rows.length).toBeGreaterThan(0);
+    if (name === 'aggregate-resources.json') expect(rows).toHaveLength(manifest.resourceSamples);
+    for (const row of rows) {
+      expect(row.processDetailsIncluded).toBe(false);
+      expect(row.observerSourceSha256).toBe(sha256(observerNames[row.platform]));
+      expect(Object.keys(row).every(key => ['schemaVersion', 'utc', 'platform', 'gpu', 'host', 'wsl',
+        'processDetailsIncluded', 'attribution', 'collectionSeconds', 'sample', 'observerSourceSha256'].includes(key))).toBe(true);
+      expect(Object.keys(row.host).every(key => ['available', 'cpuTicks', 'loadAverage', 'memoryKiB',
+        'cpuPercent', 'totalMemoryKiB', 'freeMemoryKiB', 'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+      if (row.platform === 'Linux') expect(row.wsl).toBeUndefined();
+      if (row.wsl) {
+        expect(Object.keys(row.wsl).every(key => ['available', 'distributions', 'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+        for (const distribution of row.wsl.distributions ?? []) {
+          expect(Object.keys(distribution).every(key => ['available', 'cpuTicks', 'loadAverage', 'memoryKiB',
+            'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+        }
+      }
+      for (const host of [row.host, ...row.wsl?.distributions ?? []]) {
+        const memory = host['memoryKiB'] as Record<string, unknown> | undefined;
+        if (memory) {
+          expect(Object.keys(memory).every(key => ['MemTotal', 'MemFree', 'MemAvailable', 'Buffers', 'Cached'].includes(key))).toBe(true);
+          for (const value of Object.values(memory)) {
+            expect(typeof value).toBe('number'); expect(Number.isFinite(value)).toBe(true);
+          }
+        }
+      }
+      expect(Object.keys(row.gpu).every(key => ['available', 'rows', 'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+      for (const gpu of row.gpu.rows ?? []) expect(Object.keys(gpu).every(key => ['name',
+        'utilization.gpu [%]', 'utilization.memory [%]', 'memory.used [MiB]', 'memory.total [MiB]',
+        'power.draw [W]', 'temperature.gpu'].includes(key))).toBe(true);
+    }
+  }
+});

@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "kind": "guarded-species-native-window-v1",
+  "slitherCommit": "2dbf5c9dacbc47cf0430c91fba0800a56e7494b1",
+  "pyrlCommit": "718af48546d66802586343f68f0d0a458fe81392",
+  "nativeSourceSha256": "0aaf529a1ec2d598d812d694f0ebb314ddcfa415559ced430815221797f62188",
+  "trainerSourceSha256": "7675d7cbc44076b99106a415015302c89dce934cad3247f224af3de28bfca1eb",
+  "sourcesFrom": "../native-large-costs-debian-v1",
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "captureDropFree": true,
+  "resourceSamples": 19,
+  "phaseDeltas": {
+    "stepTimingSamples": "273",
+    "stepTimingTotalMicros": "51397843",
+    "slowStepSamples": "270",
+    "slowStepControlMicros": "23003632",
+    "slowStepControlIndexMicros": "281074",
+    "slowStepControlNeuralMicros": "21622374",
+    "slowStepControlSensingMicros": "8235693",
+    "slowStepControlInferenceMicros": "13348719",
+    "slowStepWorldMicros": "2981839",
+    "slowStepOtherMicros": "546798",
+    "terminalStepSamples": "3",
+    "terminalStepTotalMicros": "24865574",
+    "terminalStepControlMicros": "277242",
+    "terminalStepWorldMicros": "26316",
+    "terminalStepPreparationMicros": "24166042",
+    "terminalStepEvolutionMicros": "24162406",
+    "terminalStepEvolutionSummaryMicros": "17840542",
+    "terminalStepEvolutionReproductionMicros": "5921510",
+    "terminalStepAdmissionMicros": "393575",
+    "terminalStepOtherMicros": "2399"
+  },
+  "scope": "Guarded species rejection with unchanged scalar membership, threshold and ordered statistics. Paired production-function copies use synthetic fixed inputs on Windows/Debian; whole-summary copies are Debian only and omit the inactive progress hook. The real P1 live window retains catalog/inspector/four shadows, exact trainer restart, three durable native generations and cold restore, but fails timing. Existing host/trainer/student/fixture sources are reused from the named prior capsule. Aggregate resources only; endpoint micro context does not establish an idle host. No full-capacity soak, mature-policy or production-default qualification.",
+  "files": {
+    "report.json": {
+      "bytes": 234316,
+      "sha256": "d99b41fcacaa7022292fb85177ae32e4cd8d7afd72f068bf288f0c49d6b00daa",
+      "gzipSha256": "454f6c8deadf84fa9ed95a78d0b400ae5e30872e98cfc4a604119a1dab237fc8"
+    },
+    "runtime-receipt.json": {
+      "bytes": 143,
+      "sha256": "2aabd88fe4f481e3cae93087fc768731b9a44faf7f59782b786d9f65ca2ea72b",
+      "gzipSha256": "09a8d981fc04be09192a78d99247fab55d962f07b78284d5552b2ac6f3d375f6"
+    },
+    "native/evolution.rs": {
+      "bytes": 95130,
+      "sha256": "22d775d6115202a98154bdb27945c3b366ceeb3d3e92a54578a2bca32f5cd59d",
+      "gzipSha256": "a70bf2982cbb079b7e3885a2b3c32215c186908ecd6670655fa8c3e7c29916de"
+    },
+    "micro/benchmark-production.rs": {
+      "bytes": 8583,
+      "sha256": "dc5b36e5ed700baa4eba08c86a65817243d27548a30a2d848c9af628cf950467",
+      "gzipSha256": "31d8a3b40d1c2649f95a859e4b534adfaf6189cb62bb7617a07bb74a2c2ba24e"
+    },
+    "micro/benchmark-summary.rs": {
+      "bytes": 16405,
+      "sha256": "3b4b6c19f79f1ef5fda2c1a373b9ed89255f4cfb00d631bb8ebbb6b011e299e6",
+      "gzipSha256": "347d4fb64becdfe847c18612090de999d461f4a71bad574dfa0ed850042b8231"
+    },
+    "micro/simd_kernels.rs": {
+      "bytes": 8358,
+      "sha256": "d95926f6598f815915115c8a5f53bdaff80e018c5dbb566ffe10809015aab32a",
+      "gzipSha256": "46a6de1a3a08f75c2ec509e33045f9899191f70f731c43a5124bbc3d089b1c77"
+    },
+    "debian/result.json": {
+      "bytes": 5275,
+      "sha256": "2dd21233cf3b6f2e34cdadfed3e63490e3cf210ebc84b494a396c628a99876d2",
+      "gzipSha256": "6fe4bf1135e5748062d3ae6f575305d7da866ee432ed03cde0a65a424dce5b32"
+    },
+    "debian/metadata.json": {
+      "bytes": 835,
+      "sha256": "298dfca4d0c9852da39b73bddb9d36338eb976a05ea3ead383c9239eb8bccad9",
+      "gzipSha256": "b12255c912dcf917e949916402f2e99bec84e33f0efc93a96e6d2fc447f0a96d"
+    },
+    "debian/summary-result.json": {
+      "bytes": 3938,
+      "sha256": "936481f9b78b92ab27d06072f4975753b9f3a40b9c850b1de9954bea868c75f7",
+      "gzipSha256": "dd333a4620cad6bf36c35726c5149918a6a3c65d3883c30d47965fd80020fcba"
+    },
+    "debian/summary-metadata.json": {
+      "bytes": 1199,
+      "sha256": "7dcee41b0e3a10aa658db5ff5f2ee66270c0a5c37400c391e545559a6efe9766",
+      "gzipSha256": "97aeaa70d3fd0ba7d8d39a35b5f38c20ecda0c44b2c37d5ace97a00a1079f470"
+    },
+    "aggregate-resources.json": {
+      "bytes": 18430,
+      "sha256": "40f18082d0f1388b7f7aa8e6109cc48f801b10b92fb95f5071049ca36fd67115",
+      "gzipSha256": "9f67ffee4ac3ddab06113baa5118ce85096eb6e844a10dc8ee5013342bf396ec"
+    },
+    "debian/summary-before-resources.json": {
+      "bytes": 973,
+      "sha256": "b888e5cdf378fc92f8a194db009c9d530893c5a4840cf21e60d85907c1ede8ca",
+      "gzipSha256": "88e3f8d7f207d793e61d0080403f9f6cccb4bfe611f2f431813cb0041f0909b8"
+    },
+    "debian/summary-after-resources.json": {
+      "bytes": 974,
+      "sha256": "0e0a3f2aa4cb2811378e241a081cc9b37bc58feb17054a3aa5a61f944fc6639f",
+      "gzipSha256": "06dec8b5d232e52e380447947d9a1464bfc49d6cddb56120474d1a3ddc38539a"
+    },
+    "native/evolution-reference.rs": {
+      "bytes": 89346,
+      "sha256": "6e6410c0b9c339f84771af756e1982581dc8e87ef2c37c1de4803c069846eea3",
+      "gzipSha256": "40da40c1d91920b2f93388c76edeb896ac7ca3a8ee235a57d23a8b1b9067d00d"
+    },
+    "windows/result.json": {
+      "bytes": 5116,
+      "sha256": "48606198e8a1ace263248e40240c42594a2a8ef5671d6da49537ab8b4830874a",
+      "gzipSha256": "2708cf11564f66bb838d7e7ad114ee4468dffd9298e2c4b966d0b9a9a92ec027"
+    },
+    "windows/metadata.json": {
+      "bytes": 841,
+      "sha256": "c5bb8af8a878e41fb33b99f5027d72812eb1b9e7a6d09fff5c2a686dfb5ab248",
+      "gzipSha256": "2b92bb99954211a92c441f6268dc29805f4f9ca6a45cfda2e575ffe34e3e914b"
+    },
+    "windows/system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "windows/before-resources.json": {
+      "bytes": 1554,
+      "sha256": "2d007d51264205c5bc196845036fd74a58b2eba421ad73099df8be0fb260201b",
+      "gzipSha256": "26a04b3f67a124dba21c00a733f9d9b41b7da4ceefe6a081d096075eb409648f"
+    },
+    "windows/after-resources.json": {
+      "bytes": 1569,
+      "sha256": "bd98d300eca1ee4e4b5fd3cfb66bc911130c1747a9bc16bfdcf904bc14b38853",
+      "gzipSha256": "7083f00e684a152f3e09dad7ad276e5c4fab35d23aeee223a06c000d5a82ddfd"
+    }
+  }
+}
