@@ -1,0 +1,350 @@
+"""Verify retained inference timing and numeric correction without executing archived code."""
+import array
+import gzip
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import statistics
+import struct
+import sys
+import unittest
+
+BASE = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4"
+
+
+def sha(data):
+    """Hash opaque retained input/output bytes."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def capsule(name):
+    """Read confined regular files under bounded compressed and decoded byte ceilings."""
+    root = BASE / name
+    manifest = json.loads((root / "evidence.json").read_text(encoding="utf-8"))
+    assert 0 < len(manifest["files"]) <= 64
+    files = {}
+    total = 0
+    for name, record in manifest["files"].items():
+        assert re.fullmatch(r"(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:json|rs|py|ts|f32|slither-brain)", name)
+        path = root / (name + ".gz")
+        assert path.is_file() and not path.is_symlink() and path.stat().st_size <= 4 * 1024**2
+        size = record["bytes"]
+        assert type(size) is int and 0 < size <= 4 * 1024**2
+        encoded = path.read_bytes()
+        assert sha(encoded) == record["gzipSha256"]
+        with gzip.open(path, "rb") as stream:
+            raw = stream.read(size + 1)
+        assert len(raw) == size and sha(raw) == record["sha256"]
+        total += size
+        assert total <= 8 * 1024**2
+        files[name] = raw
+    return manifest, files
+
+
+def floats(raw):
+    """Interpret only finite retained Float32 result fixtures, never run a graph."""
+    assert len(raw) % 4 == 0
+    values = array.array("f")
+    values.frombytes(raw)
+    if sys.byteorder != "little":
+        values.byteswap()
+    assert all(math.isfinite(x) for x in values)
+    return values
+
+
+def f32(value):
+    """Reproduce the comparison gate's Float32 arithmetic."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def violations(actual, expected, atol, rtol):
+    """Recompute per-value Torch-style absolute/relative thresholds."""
+    assert len(actual) == len(expected)
+    return sum(abs(f32(x - y)) > f32(f32(atol) + f32(f32(rtol) * abs(y)))
+               for x, y in zip(actual, expected))
+
+
+def aggregate_only(test, rows, observer):
+    """Reject host/process inventories while retaining aggregate Windows/WSL/GPU counters."""
+    for row in rows:
+        test.assertIs(row["processDetailsIncluded"], False)
+        test.assertEqual(row["observerSourceSha256"], sha(observer))
+        test.assertLessEqual(set(row), {"schemaVersion", "utc", "platform", "gpu", "host", "wsl",
+                                      "processDetailsIncluded", "attribution", "collectionSeconds",
+                                      "sample", "observerSourceSha256"})
+        hosts = [row["host"]]
+        test.assertLessEqual(set(row["host"]), {"available", "cpuTicks", "loadAverage", "memoryKiB",
+                                              "cpuPercent", "totalMemoryKiB", "freeMemoryKiB",
+                                              "error", "exitCode", "oversized"})
+        if "wsl" in row:
+            test.assertEqual(row["platform"], "Windows")
+            test.assertLessEqual(set(row["wsl"]), {"available", "distributions", "error", "exitCode", "oversized"})
+            for item in row["wsl"].get("distributions", []):
+                test.assertLessEqual(set(item), {"available", "cpuTicks", "loadAverage", "memoryKiB",
+                                                "error", "exitCode", "oversized"})
+                hosts.append(item)
+        for host in hosts:
+            memory = host.get("memoryKiB", {})
+            test.assertLessEqual(set(memory), {"MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached"})
+            test.assertTrue(all(type(x) is int for x in memory.values()))
+        test.assertLessEqual(set(row["gpu"]), {"available", "rows", "error", "exitCode", "oversized"})
+        for gpu in row["gpu"].get("rows", []):
+            test.assertLessEqual(set(gpu), {"name", "utilization.gpu [%]", "utilization.memory [%]",
+                                          "memory.used [MiB]", "memory.total [MiB]",
+                                          "power.draw [W]", "temperature.gpu"})
+
+
+class NativeDotPerformanceEvidenceTests(unittest.TestCase):
+    """Separate fixed-input speed evidence from still-failing live workload gates."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Load bounded exact originals and their unchanged source dependency."""
+        cls.manifest, cls.files = capsule("native-dot-performance-v1")
+        _, cls.prior = capsule("native-large-costs-debian-v1")
+
+    def document(self, name):
+        """Decode one already verified retained JSON file."""
+        return json.loads(self.files[name])
+
+    def test_actual_kernel_sources_and_paired_medians(self):
+        """Four accumulators bind actual native source, not only a favorable prototype."""
+        for platform in ["windows", "debian"]:
+            metadata = self.document(platform + "/metadata.json")
+            result = self.document(platform + "/result.json")
+            self.assertEqual(metadata["sourceSha256"], sha(self.files["micro/benchmark.rs"]))
+            self.assertEqual(metadata["referenceSha256"], sha(self.files["micro/simd_kernels.rs"]))
+            self.assertEqual(metadata["candidateSha256"], sha(self.files["micro/candidate_kernels.rs"]))
+            self.assertEqual(result["comparisons"], 11776)
+            self.assertEqual(len(result["records"]), 112)
+            for cell in metadata["summary"]:
+                rows = [x for x in result["records"] if all(x[k] == cell[k] for k in
+                        ["accumulators", "width", "streaming"])]
+                self.assertEqual([x["pass"] for x in rows], list(range(8)))
+                self.assertTrue(all(x["oldFirst"] == (x["pass"] % 4 in [0, 3]) for x in rows))
+                self.assertAlmostEqual(statistics.median(x["candidateSeconds"] / x["originalSeconds"]
+                                                        for x in rows), cell["medianCandidateRatio"], places=14)
+                if cell["accumulators"] == 4 and cell["streaming"]:
+                    self.assertLess(cell["medianCandidateRatio"], 1)
+        self.assertEqual(self.manifest["selectedAccumulators"], 4)
+
+    def test_real_population_pairs_have_identical_work_and_numeric_probe_bounds(self):
+        """Recompute native single-worker v3 timings under equal build contracts."""
+        summary = self.document("population/summary.json")
+        self.assertEqual(len(summary["records"]), 16)
+        for record in summary["records"]:
+            prefix = "population/" + record["scenario"] + "-" + str(record["pass"])
+            old = self.document(prefix + "-reference.json")
+            new = self.document(prefix + "-candidate.json")
+            self.assertNotIn("command", old)
+            self.assertNotIn("command", new)
+            for data in [old, new]:
+                self.assertNotIn("hostname", data["environment"])
+                self.assertNotIn("distributionId", data["environment"])
+                self.assertEqual(set(data["environment"]), {
+                    "architecture", "availableParallelism", "capturedAtEpochMs", "cpuModel",
+                    "declaration", "fixtureRssBytes", "operatingSystem", "processPeakRssBytes",
+                    "totalMemoryBytes"})
+            self.assertEqual(old["workload"], new["workload"])
+            self.assertEqual(old["source"]["nativeBuildContractSha256"], new["source"]["nativeBuildContractSha256"])
+            self.assertEqual(new["source"]["nativeSourceSha256"], self.manifest["nativeSourceSha256"])
+            self.assertEqual(record["referenceMeanMs"], old["result"]["wholePopulationPassMs"]["mean"])
+            self.assertEqual(record["candidateMeanMs"], new["result"]["wholePopulationPassMs"]["mean"])
+            for name in ["outputs", "recurrent"]:
+                a = floats(bytes.fromhex(old["result"]["oneStepComparisonProbe"][name + "F32LeHex"]))
+                b = floats(bytes.fromhex(new["result"]["oneStepComparisonProbe"][name + "F32LeHex"]))
+                error = max(abs(x-y) for x, y in zip(a, b))
+                self.assertEqual(error, record["maxProbeAbs"][name])
+                self.assertLessEqual(error, old["result"]["oneStepComparisonProbe"]["absoluteTolerance"])
+        for cell in summary["summary"]:
+            rows = [r for r in summary["records"] if r["scenario"] == cell["scenario"]]
+            self.assertAlmostEqual(statistics.median(r["candidateMeanMs"] / r["referenceMeanMs"]
+                                                    for r in rows), cell["medianCandidateRatio"], places=14)
+            self.assertLess(cell["medianCandidateRatio"], 1)
+
+    def test_live_capture_and_durability_do_not_hide_failed_timing(self):
+        """Retain actual P0/P1 work with exact trainer restart and three cold-restored boundaries."""
+        self.assertFalse(self.manifest["performanceQualified"])
+        self.assertFalse(self.manifest["fullCapacitySoakQualified"])
+        for case in ["P0", "P1"]:
+            report = self.document("live-" + case + "/report.json")
+            self.assertEqual(report["source"]["slitherRevision"], self.manifest["slitherCommit"])
+            self.assertEqual(report["source"]["nativeSourceSha256"], self.manifest["nativeSourceSha256"])
+            self.assertEqual(report["source"]["hostSha256"], sha(self.prior["host/live-distillation.ts"]))
+            self.assertEqual(report["source"]["trainerGateSha256"], sha(self.prior["pyrl/live_distillation_gate.py"]))
+            self.assertEqual(report["resume"]["updates"], 250)
+            self.assertTrue(report["resume"]["restartExact"])
+            self.assertTrue(report["capture"]["noDrops"])
+            self.assertFalse(report["summary"]["meetsMeasuredGates"])
+            self.assertEqual(report["catalogOverlap"]["before"]["recordCount"], 100)
+            self.assertEqual(report["catalogOverlap"]["before"], report["catalogOverlap"]["afterColdRestart"])
+            self.assertEqual(len(report["durability"]["barriers"]), 3)
+            self.assertTrue(report["durability"]["persistenceRestartExact"])
+            before, after = (report["phaseCosts"][x]["counters"] for x in ["before", "after"])
+            for key, value in self.manifest["workloads"][case]["phaseDeltas"].items():
+                self.assertEqual(str(int(after[key], 16)-int(before[key], 16)), value)
+            self.assertEqual(self.manifest["workloads"][case]["phaseDeltas"]["terminalStepSamples"], "3")
+
+    def test_published_resource_context_excludes_inventories(self):
+        """Only aggregate counters survive into these performance receipts."""
+        for name in ["windows/resources.json", "debian/before-resources.json", "debian/after-resources.json",
+                     "live-P0/resources.json", "live-P1/resources.json"]:
+            observer = self.files["windows/system-resource-observer.py"] if name.startswith("windows/") else self.prior["host/system-resource-observer.py"]
+            aggregate_only(self, self.document(name), observer)
+
+
+class NativeDotNumericEvidenceTests(unittest.TestCase):
+    """Recompute the frozen first-step regressions and unchanged strict roundtrip contract."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Load finite input/output fixtures under the same bounded archive admission."""
+        cls.manifest, cls.files = capsule("native-dot-numerics-v1")
+        _, cls.prior = capsule("native-large-costs-debian-v1")
+
+    def document(self, name):
+        """Decode checksum-verified JSON only."""
+        return json.loads(self.files[name])
+
+    def test_all_named_optimizer_roundtrips_preserve_source_and_bounds(self):
+        """Both backends cover every operation and large recurrent family on CPU/CUDA."""
+        expected = {"dense", "mlp", "gru", "lstm", "rru", "mixed", "large-gru", "large-lstm", "large-rru"}
+        digest = hashlib.sha256(b"pyrl.canonical-training-source.v1\0")
+        for name in ["canonical_graph.py", "canonical_parity.py", "sequence_distillation.py"]:
+            raw = self.files["pyrl/" + name] if "pyrl/" + name in self.files else self.prior["pyrl/" + name]
+            digest.update(name.encode())
+            digest.update(raw.replace(b"\r\n", b"\n"))
+        for device in ["cpu", "cuda"]:
+            report = self.document(device + "-roundtrip.json")
+            self.assertEqual(report["trainerSourceSha256"], digest.hexdigest())
+            self.assertEqual(report["dtype"], "Float32")
+            self.assertFalse(report["tf32"])
+            self.assertEqual(len(report["cases"]), 18)
+            self.assertEqual({x["case"] for x in report["cases"]}, expected)
+            for case in report["cases"]:
+                self.assertEqual(case["nativeSourceSha256"], self.manifest["nativeSourceSha256"])
+                self.assertEqual(case["weightsSha256"], case["optimization"]["afterSha256"])
+                self.assertNotEqual(case["optimization"]["beforeSha256"], case["weightsSha256"])
+                self.assertEqual(case["optimization"]["trainingSamples"], 2048)
+                self.assertEqual(case["optimization"]["burnInSamples"], 1024)
+                for field in ["outputErrorGrowth", "stateErrorGrowth"]:
+                    self.assertEqual([x["step"] for x in case[field]], [1, 64, 128, 256])
+                    self.assertLess(max(x["maxAbs"] for x in case[field]), 1e-3)
+        self.assertEqual(sha(self.files["driver.py"]), self.document("cpu-roundtrip.json")["driverSha256"])
+
+    def test_original_scalar_failures_are_not_relabelled_or_dropped(self):
+        """Old/current scalar bytes match and two first-step failures remain explicitly recorded."""
+        old = self.document("cpu-before.json")
+        self.assertFalse(old["extendedPassed"])
+        self.assertTrue(old["extendedSse2Passed"])
+        failed = [x for x in old["extendedCases"] if not x["passed"]]
+        self.assertEqual({(x["case"], x["backend"]) for x in failed},
+                         {("large-lstm", "rust-scalar-v1"), ("large-rru", "rust-scalar-v1")})
+        self.assertTrue(self.document("cuda-before.json")["extendedPassed"])
+        for item in self.document("scalar-baseline.json")["results"]:
+            prefix = "cases/" + item["case"].removeprefix("large-") + "/"
+            before, legacy = (self.document(prefix + "receipt-" + x + ".json") for x in ["before", "legacy"])
+            self.assertEqual(before["sourceSha256"], self.manifest["previousSourceSha256"])
+            self.assertEqual(legacy["sourceSha256"], self.manifest["legacySourceSha256"])
+            for field in ["outputsSha256", "statesSha256"]:
+                self.assertEqual(before[field], legacy[field])
+                self.assertEqual(before[field], item[field])
+
+    def test_corrected_same_exports_satisfy_original_first_and_long_limits(self):
+        """Derive numerical pass/fail from actual old/new Float32 states and frozen Torch results."""
+        for kind, state_width, first_failures in [("lstm", 192, 3), ("rru", 96, 1)]:
+            prefix = "cases/" + kind + "/"
+            before, after = (self.document(prefix + "receipt-" + x + ".json") for x in ["before", "after"])
+            self.assertEqual(after["sourceSha256"], self.manifest["nativeSourceSha256"])
+            self.assertEqual(after["steps"], 256)
+            self.assertEqual(sha(self.files[prefix + "weights.f32"]), before["weightsSha256"])
+            self.assertEqual(before["weightsSha256"], after["weightsSha256"])
+            self.assertEqual(sha(self.files["cases/observations.f32"]), after["observationsSha256"])
+            self.assertGreater(len(floats(self.files[prefix + "weights.f32"])), 400000)
+            for field, width in [("outputs", 2), ("states", state_width)]:
+                actual = floats(self.files[prefix + "torch-" + field + ".f32"])
+                old = floats(self.files[prefix + "before-" + field + ".f32"])
+                new = floats(self.files[prefix + "after-" + field + ".f32"])
+                self.assertEqual(len(actual), 256 * width)
+                self.assertEqual(violations(actual[:width], old[:width], 1e-5, 1e-4),
+                                 first_failures if field == "states" else 0)
+                self.assertEqual(violations(actual[:width], new[:width], 1e-5, 1e-4), 0)
+                self.assertEqual(violations(actual, new, 1e-3, 1e-3), 0)
+                self.assertEqual(sha(self.files[prefix + "before-" + field + ".f32"]), before[field + "Sha256"])
+                self.assertEqual(sha(self.files[prefix + "after-" + field + ".f32"]), after[field + "Sha256"])
+
+    def test_debian_gap_and_rejected_prototype_remain_explicit(self):
+        """Recompute the unresolved first-state failure instead of extending a Windows pass."""
+        self.assertFalse(self.manifest["roundtripQualified"])
+        self.assertTrue(self.manifest["windowsCpuRoundtripQualified"])
+        self.assertTrue(self.manifest["windowsCudaRoundtripQualified"])
+        self.assertFalse(self.manifest["debianCpuRoundtripQualified"])
+        report = self.document("debian/cpu-extended.json")
+        self.assertEqual(len(report["cases"]), 12)
+        self.assertEqual(len(report["extendedCases"]), 6)
+        self.assertFalse(report["extendedPassed"])
+        self.assertFalse(report["extendedSse2Passed"])
+        self.assertEqual(report["driverSha256"], sha(self.files["debian/collect-debian.py"]))
+        failed = [x for x in report["extendedCases"] if not x["passed"]]
+        self.assertEqual({(x["case"], x["backend"]) for x in failed},
+                         {("large-lstm", "rust-scalar-v1"), ("large-lstm", "rust-sse2-v1")})
+        torch_states = floats(self.files["debian/torch-states.f32"])
+        self.assertEqual(len(torch_states), 256 * 192)
+        for backend in ["scalar", "sse2"]:
+            actual = floats(self.files["debian/" + backend + "-states.f32"])
+            receipt = self.document("debian/" + backend + "-receipt.json")
+            self.assertEqual(receipt["sourceSha256"], self.manifest["nativeSourceSha256"])
+            self.assertEqual(receipt["statesSha256"], sha(self.files["debian/" + backend + "-states.f32"]))
+            self.assertEqual(receipt["observationsSha256"], sha(self.files["cases/observations.f32"]))
+            self.assertEqual(violations(torch_states[:192], actual[:192], 1e-5, 1e-4), 1)
+            self.assertEqual(violations(torch_states, actual, 1e-3, 1e-3), 0)
+            case = next(x for x in failed if x["backend"] == "rust-" + backend + "-v1")
+            self.assertEqual(case["weightsSha256"], receipt["weightsSha256"])
+            self.assertEqual(case["checks"]["state"]["first"]["mismatchCount"], 1)
+            self.assertTrue(case["checks"]["state"]["sequence"]["passed"])
+        rejected = self.document("debian/rejected-optimizer-prototype.json")
+        self.assertFalse(rejected["passed"])
+        self.assertFalse(rejected["productionAdopted"])
+        self.assertEqual(rejected["prototypeDriverSha256"],
+                         sha(self.files["debian/probe-stable-cpu-optimizer.py"]))
+        self.assertEqual(rejected["failure"]["atol"], 1e-5)
+        self.assertEqual(rejected["failure"]["rtol"], 1e-4)
+        self.assertEqual(rejected["failure"]["mismatchCount"], 1)
+
+    def test_numeric_context_is_aggregate_only(self):
+        """Numeric qualification must not expose competing applications or WSL names."""
+        for name in ["before-resources.json", "after-resources.json", "debian/resources.json"]:
+            observer = self.prior["host/system-resource-observer.py"] if name.startswith("debian/") else self.files["system-resource-observer.py"]
+            aggregate_only(self, self.document(name), observer)
+
+
+class PublishedDotEvidencePrivacyTests(unittest.TestCase):
+    """Reject private host inventories across every retained JSON document."""
+
+    def test_json_documents_exclude_inventory_fields(self):
+        """App/process names, commands, PIDs and distribution identities cannot be published."""
+        forbidden = {"hostname", "username", "commandline", "command", "processes",
+                     "processname", "pid", "pids", "distributionname", "distributionid"}
+
+        def visit(value):
+            """Walk bounded already admitted JSON data, including nested reports."""
+            if isinstance(value, dict):
+                self.assertFalse(forbidden.intersection(key.lower() for key in value))
+                for item in value.values():
+                    visit(item)
+            elif isinstance(value, list):
+                for item in value:
+                    visit(item)
+
+        for name in ["native-dot-performance-v1", "native-dot-numerics-v1"]:
+            _, files = capsule(name)
+            for path, raw in files.items():
+                if path.endswith(".json"):
+                    with self.subTest(capsule=name, file=path):
+                        visit(json.loads(raw))
+
+
+if __name__ == "__main__":
+    unittest.main()

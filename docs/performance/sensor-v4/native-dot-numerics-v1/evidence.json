@@ -1,0 +1,297 @@
+{
+  "schemaVersion": 1,
+  "kind": "compensated-scalar-native-roundtrip-v1",
+  "nativeSourceSha256": "7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156",
+  "previousSourceSha256": "b066380f41085a83f8aed9445a26475f569c78d72aedcde238a1580aed2f3925",
+  "legacySourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "sourcesFrom": "../native-large-costs-debian-v1",
+  "performanceFrom": "../native-dot-performance-v1",
+  "cpuRoundtrips": 18,
+  "cudaRoundtrips": 18,
+  "roundtripQualified": false,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "scope": "Strict method-v1 optimizer/export/native-admission/reimport parity passes 18 Windows CPU and 18 CUDA cases with unchanged tolerances. Debian standard 12 pass; large LSTM first-state parity fails one value for each native backend, while 256-step bounds and the other extended families pass. The rejected CPU chunk-sum prototype does not resolve actual optimizer roundtrip parity. Two earlier frozen Windows scalar failures reproduce bit-identically on earlier native source and are corrected by Float32 compensated sums. Synthetic numeric fixtures establish no cross-platform gate, maturity, gameplay quality, idle-host or integrated capacity acceptance.",
+  "files": {
+    "cpu-roundtrip.json": {
+      "bytes": 35807,
+      "sha256": "7675385db7d0f014b793b0ca7bb0c501bf025c4309dc1cc645ff019229f3f325",
+      "gzipSha256": "5e24ba61f81679df6f23da6c7a8200e6df556f06e4b6c011b26f9fe296bfc346"
+    },
+    "cpu-before.json": {
+      "bytes": 38975,
+      "sha256": "aa21d81e1e68cb479cf0ff03af8983d4b19517210c4d6a60dcf5b10f3e423086",
+      "gzipSha256": "dfc8636000270437117ccc59e0d9eec46b145ab6a6effa07b1746a144350c1d5"
+    },
+    "cuda-roundtrip.json": {
+      "bytes": 36027,
+      "sha256": "e1a1aaf2220fb53063b88921956ee3e0fcfc74110fbe71ccbc4f5d762517795d",
+      "gzipSha256": "fdb3223e8ad039e2649355ad8bde4bd328b99460561cf0f113c3f71ad51985a5"
+    },
+    "cuda-before.json": {
+      "bytes": 39189,
+      "sha256": "ea54e4ccc6a950e99644b702637057a000373e92f4bf57d844284a0dbc566e2e",
+      "gzipSha256": "cc565a57f4269bc2b0b1bc043751839757ee0d29b05bd85b961bdcef257c92e3"
+    },
+    "scalar-baseline.json": {
+      "bytes": 1211,
+      "sha256": "8f9b730749da59fd86f3799f147cb560b5753f4b632bb19e7363a911f04c2120",
+      "gzipSha256": "18a74db8161f0f183f30c9aa164d92df99a50da77a1b2aacc197ff62122383d2"
+    },
+    "driver.py": {
+      "bytes": 6279,
+      "sha256": "1aee7a4f9b81f9661d813ea4d9ebb807066d7c452a9b7edac05639badf0bae64",
+      "gzipSha256": "64b8c9abc3da477b1c848e1c57836ce1d4be1d5fe4ab1dade9de25d6134e896e"
+    },
+    "before-driver.py": {
+      "bytes": 6462,
+      "sha256": "ae9d58dd9097e6bd3424f0ff9214c70fe1482e07c89a38523a68be19f3d03cb5",
+      "gzipSha256": "0cd636a5e88d3964322da7b9caa52c072d2ea86e78bf458c70e476dc6f77d8e9"
+    },
+    "native/inference.rs": {
+      "bytes": 124274,
+      "sha256": "38721532072a61a7c947050976967765839005d9750feb9baf420b796b4f2cab",
+      "gzipSha256": "5248b5833f09f8feddea70aadea8dc7d59dcd8d1797389422e522addc24e9116"
+    },
+    "pyrl/canonical_parity.py": {
+      "bytes": 9717,
+      "sha256": "b960733610b12a33d894f080d54473531b7b3e0d7ce665b58d5e08d0febacc30",
+      "gzipSha256": "8d2f67a9a17dd5cd754dc4fcb3391042c58c229bd6ed8a83dc4c2af4ce6ebe32"
+    },
+    "pyrl/generate_canonical_graph_fixtures.py": {
+      "bytes": 5764,
+      "sha256": "260f3747ce4e876d3cb4896f84eca364ace93580e088aeb423939c99028e8581",
+      "gzipSha256": "dc43172b94413a31b4ca505b61f89a2056b53306ff0ecfd87527920c410c35e8"
+    },
+    "pyrl/distillation_process.py": {
+      "bytes": 2337,
+      "sha256": "41b62b59e0dd79c1d9d62a0ccf485f8ddbba5e7ae69d76c5d94c19d6832a513f",
+      "gzipSha256": "0b83217bd6c3754654ebe2992af017d2acf4fb239712ed738615f6dc654ec8d2"
+    },
+    "system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "before-resources.json": {
+      "bytes": 1570,
+      "sha256": "f47f3cb82717e17926ef959e2d62ec6d41d76badf265d5a423378c3621130c76",
+      "gzipSha256": "d817cec1e1175d12f42a9a002e6bdb7b9e22bcbcdb7f7696b5e13cc3694f0b39"
+    },
+    "after-resources.json": {
+      "bytes": 1568,
+      "sha256": "eb27d6d62bf14734f82dc557b35d6a2f4e9bdad0c3970230748e59b9be51a47b",
+      "gzipSha256": "c5bd59d2c2ebe9a73aa4f8e089e90d0cf22926756368009049e00c772d511b5d"
+    },
+    "cases/observations.f32": {
+      "bytes": 516096,
+      "sha256": "32555325f416925467ea59678b70b1b5b9f148f3782f8997daf3f21334b616f0",
+      "gzipSha256": "b828ab282d335a1c81cc42078e839ad63d25ee8991b30bd5124c2d93a8dffb14"
+    },
+    "cases/lstm/weights.f32": {
+      "bytes": 2112776,
+      "sha256": "ab60b46cc91782073818e780cdee5991373ab1a798661b506d336df15a1b9d55",
+      "gzipSha256": "0415e024c96f2b2a9ba566706ffb3801b98c86c4e79be3821028cfe6fa161cdf"
+    },
+    "cases/lstm/manifest.json": {
+      "bytes": 24342,
+      "sha256": "012f6ba605cc98dc69c6bdb9f27b510f40312c035f8ae68378db1946adc511e3",
+      "gzipSha256": "281893ee7672e3d5b093fddaa6445fba98fc2a0cea7357133a545189a1d518cc"
+    },
+    "cases/lstm/initial-state.f32": {
+      "bytes": 768,
+      "sha256": "a899c9d7381f06d2b4d995d2456f65986e2eb4467d2f35c0554d14141b9f74fc",
+      "gzipSha256": "20970cee716a4c4eaab40390307abf2bc5df90da42d0ddd142e047c317e2c2a8"
+    },
+    "cases/lstm/torch-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "e750c9203bddb8da46e363819f088d9dab60a73c9840be89e8c3a60774da3052",
+      "gzipSha256": "4bf365b98299e8e3f3c8ef358ce11a441476e3562018df14b929eaf85c417980"
+    },
+    "cases/lstm/torch-states.f32": {
+      "bytes": 196608,
+      "sha256": "285a2d85e148a1f2338ee39e3db88bc39a9e5cbd7e45ece2b344f53976a543ae",
+      "gzipSha256": "bd5e58ad92a4d8dfe25ae33b41e40683da7c6f3e9b387c60648b78d7bb446b6d"
+    },
+    "cases/lstm/before-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "d9ddec092b475a6c1e83a262602270563a6456ec0198b7f111152c79193c0f7a",
+      "gzipSha256": "0a593e38d004240243c06c0501461d7b1a771ea9a999395b83327e12ce99bf09"
+    },
+    "cases/lstm/before-states.f32": {
+      "bytes": 196608,
+      "sha256": "bc53fbd10aa1002aa7bb6658e2a2c5353e1b56ab988734abeab6ae665d9c8fc6",
+      "gzipSha256": "33323adba418a72ab81ea572ee484dd9d369bb7ab2e892af21b81f919367c2c3"
+    },
+    "cases/lstm/after-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "bbb73de4c098d0b0017966c978fa4cd64b2653fd581476a56ba268fd604395ad",
+      "gzipSha256": "84fa0a7397b3c9c691dff54a2d0b1902bd308f80ffc2f673e8adb9e0ddb5a125"
+    },
+    "cases/lstm/after-states.f32": {
+      "bytes": 196608,
+      "sha256": "eec1486b7f9803733467eeb1719de36be4949e7507448c56a576b4b1bfbc39a2",
+      "gzipSha256": "7581ae62eb3eeeede89a97e4b7ee15332fedcf6542768fa93e7800b05a0f2844"
+    },
+    "cases/lstm/receipt-before.json": {
+      "bytes": 1037,
+      "sha256": "b8c011d9a8f36c1a58927eae9e755cad68feaf1bfad0bd541d19d38ac8a94ab8",
+      "gzipSha256": "e7d86da71d7813c11966e3cd998a14c543b3e429b2184e878498e914eb80c77b"
+    },
+    "cases/lstm/receipt-after.json": {
+      "bytes": 1037,
+      "sha256": "62f5f35032394283a020c94da379199c319ccdc1cae5513a11a9e4d371791c84",
+      "gzipSha256": "33c1dac40f42e16b752e0ea719c1b30a8c3cd531ec932ea5aebadb59e5812b54"
+    },
+    "cases/lstm/receipt-legacy.json": {
+      "bytes": 1037,
+      "sha256": "8ef5788042b18b7196b478427b62f54652ad84fcaa16e5032d307e7009a93e12",
+      "gzipSha256": "67d4d7d6ee728b4384d4e1568b57cd63a4ee4ecf16a90ccc4b4e146c6030920f"
+    },
+    "cases/lstm/request.json": {
+      "bytes": 1212,
+      "sha256": "27f0f76b47c5ba63cd49a7219dbcd1e150dbc8d275aafe9d72696c77265ba0fc",
+      "gzipSha256": "c84aa8f24ce2dc4f3a9ec5c60a44807ccf5f778c99370d880913eb4024a1cd06"
+    },
+    "cases/rru/weights.f32": {
+      "bytes": 1841672,
+      "sha256": "cb6306b80e2b8f355e904c88c87c5541b8180602c9da5a4ab78c216281801dd8",
+      "gzipSha256": "36765a1db25cd21c5b7de005797de76d1f62904a786238f90dcb7421219ecec5"
+    },
+    "cases/rru/manifest.json": {
+      "bytes": 23845,
+      "sha256": "aed44e0eb79e27f00dbd35e3cf66173071eb6ad3497f6800ef1c29b2106e4e02",
+      "gzipSha256": "dc6f937b4daffe2c8b96e9a16c1bde77a5d79d4f0105e580faf8dea7cc467d27"
+    },
+    "cases/rru/initial-state.f32": {
+      "bytes": 384,
+      "sha256": "4d8daf5ba6896ae0901c641a03a66340ec58240293cd27b579aeef466565f52f",
+      "gzipSha256": "e74cdc0cfd4023e90ef2c0c1c3b6697e28f1405f8c13cbbe3f61a7f0ca48640b"
+    },
+    "cases/rru/torch-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "5523564638ed19f9ca03881b09ce2b72329c5a2872942c9d39164beb19fbce67",
+      "gzipSha256": "38a0dcad7d7018e8f5adbe6f279ea6823a653dfb8a0cc37357ac82d6e3b2fd3c"
+    },
+    "cases/rru/torch-states.f32": {
+      "bytes": 98304,
+      "sha256": "64a00dee737cbefe8feefd992b6f0d6420d7f14d30c4df67f1301926ab0f6e3e",
+      "gzipSha256": "a5529e41aa3963bbc9f0d2f420c0e945b429b39750817aa953353d9388879b00"
+    },
+    "cases/rru/before-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "ce78a6cac8bb2d5d323a44df0bb4312ff88c8a7b1ed625cd9c787d30f8b6bdb5",
+      "gzipSha256": "1acee55789b66bf01f00eb10946468c2022b0e74112e88f8bda0cef601c5b0e4"
+    },
+    "cases/rru/before-states.f32": {
+      "bytes": 98304,
+      "sha256": "9d7ba4c779d7f5e804e5c98fe7d2957e2320206fb0f7f37c14761829993f220a",
+      "gzipSha256": "92b2cc5974410a7c9cad5ee0afe918f54a577e005e3e98a51780985fb3b0b943"
+    },
+    "cases/rru/after-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "ea0c9fb6b2c4f86f7a062ab0435f508a9f549fcd73e934735878aa9ceda08718",
+      "gzipSha256": "207e596a8c90c1b1bbcac8c08ab8fb2f03bd84f7bf9d17db8d253a791ab61158"
+    },
+    "cases/rru/after-states.f32": {
+      "bytes": 98304,
+      "sha256": "5f4779ac52f764e11163f65fa502ec683a0f3fd193a8f282708db79d37b0bacc",
+      "gzipSha256": "cff565e02f9701e2f682e7b3de49bce2bd42742176203e05b2973e825fef5030"
+    },
+    "cases/rru/receipt-before.json": {
+      "bytes": 1037,
+      "sha256": "e83c2a2def0ee35688431afe2241b22571e27d877b6d48b8e0b53d1d4d1b5143",
+      "gzipSha256": "6cfe64bd4192532fef61fbe244c8ea9953d9dd45e3d7674dace4f1cb78d6a38a"
+    },
+    "cases/rru/receipt-after.json": {
+      "bytes": 1037,
+      "sha256": "149742c927c37aa73a478e8ccb62331fb3e17c4eb1fff7e1de72b1a2fe2a5794",
+      "gzipSha256": "b2c3dace4205fceddf8348dd0079c43e76d1d19edd7ced695262d3aa44d2d0d2"
+    },
+    "cases/rru/receipt-legacy.json": {
+      "bytes": 1037,
+      "sha256": "dfe1892b86e2f5e800fb9b95d4900dd96b4fe956909f53f22a66cf88bf82463d",
+      "gzipSha256": "1050f43b49e67688a18afcb7da4dfea85e70642fb451e4e0bd65fae3c2fb3092"
+    },
+    "cases/rru/request.json": {
+      "bytes": 1211,
+      "sha256": "33d68d02a4350431619df5fbf165995b57b698bfa2a21f71787c1d32a028af75",
+      "gzipSha256": "44956c4dc6e22c33037d3a5953aa07c886a9ad1f59259da8f00136798f01fae2"
+    },
+    "debian/cpu-extended.json": {
+      "bytes": 37679,
+      "sha256": "41a60852734ddf991e2080ea4c0a073edd35eaa4b2e1e492aab00a61c01ca103",
+      "gzipSha256": "5b05358ba5aed0f703250a3c543149fe4ed28f15b2fc7d4d8c94f4f9d12c7de3"
+    },
+    "debian/torch-states.f32": {
+      "bytes": 196608,
+      "sha256": "fa5d7682f4f7f0fb7c75f8c2e2b9aa698e61afac67e9c76231cac8f34b2702d1",
+      "gzipSha256": "692f8036282bdd5eba35f0df183fe72eff0d2994c7bcaedd71cb24113714b44a"
+    },
+    "debian/scalar-states.f32": {
+      "bytes": 196608,
+      "sha256": "16061eca0954c8124652e995fe829761af924b20c54b3ed91f615882e7cb9f8d",
+      "gzipSha256": "12ed32d083384515f9579c74dc4f14f45c0d726ea6189a4084883a941c5391ba"
+    },
+    "debian/sse2-states.f32": {
+      "bytes": 196608,
+      "sha256": "32bf6c8e01ff879bd315f4e71648e8ed870dfd12da1119282c1a24712540c40a",
+      "gzipSha256": "5bb59d91d24f00dbec7b867e4c19a6630228a1a6981f831b9044e285226d5642"
+    },
+    "debian/scalar-receipt.json": {
+      "bytes": 1039,
+      "sha256": "a51d10268845442602a0e3c0b6009c633d8a85ea22086632b4177d764ced5a81",
+      "gzipSha256": "c79944d3d0ce8ba4a3ed540b64eaabb44251487c4eb62bb7fb0888e37be244ca"
+    },
+    "debian/sse2-receipt.json": {
+      "bytes": 1037,
+      "sha256": "acd246509a0a6e515780335a18a5663cabc028a2c1bab3e16d21f465fc5e08ad",
+      "gzipSha256": "1ae669c0f87e083417adea4adbee448164baabfce9d0d17d4de2669d013c8147"
+    },
+    "debian/cpu-dispatch-probes.json": {
+      "bytes": 12437,
+      "sha256": "0c03f23f8bde61053e4fe01cbcdd1e643819de2726400fca66b2be794c5855ad",
+      "gzipSha256": "3d2e6dc6a2d99cf79539741e926db2c650cd860c885be29c9d66c7bf42ab5832"
+    },
+    "debian/compensated-cpu-matmul-probes.json": {
+      "bytes": 15173,
+      "sha256": "2986070dbd7f83f4b4e9a3a69c9883f9f81d5b6245d82190fbc7c13d744e10c3",
+      "gzipSha256": "a3638b78f5d7a4b86103773e3cff60d266b91e63d8e4f6e0976cdf7a25046758"
+    },
+    "debian/resources.json": {
+      "bytes": 956,
+      "sha256": "4970af1974f2e7e17720e0394d3bded820bf9471a42b4d0c2f6c8cec68867d2a",
+      "gzipSha256": "695af3ac6a70a9f33708845abfb5354968c89252570ff3ed521d65e9e654ce48"
+    },
+    "debian/collect-debian.py": {
+      "bytes": 6538,
+      "sha256": "7e1ea128cfb523eb27ba436306b6e3b38bf18699fb96807a6234186de88049d7",
+      "gzipSha256": "5bc4a851f44850dfbe3e45d36e621eee675f17c747d45032fc89a1227d5d5184"
+    },
+    "debian/probe-cpu-dispatch.py": {
+      "bytes": 1889,
+      "sha256": "dc85bea8000010aa0db5bdc49d2a79f05ca3a293ac689fb4ae3fce4abf9ba50a",
+      "gzipSha256": "061e8f2d1dcd263200ac1cac47f669105abbac72e75bc7786977e3c879e9d507"
+    },
+    "debian/probe-compensated-matmul.py": {
+      "bytes": 2729,
+      "sha256": "528349db42098e4ceb7747c96e57eb3309af63fa60195ccbc1a2e7b11f51bde7",
+      "gzipSha256": "4baffe563ecf21ec680bbb56876a1fb31394aa683c1f7e6c7b33676bcc74f2a1"
+    },
+    "debian/probe-stable-cpu-optimizer.py": {
+      "bytes": 1967,
+      "sha256": "46ed17b65afeb6f92d03cd35ea0cbfc9368233a2fa6ef13f91fb311b2a288ed7",
+      "gzipSha256": "9281ad1e44b9441aac43c56cd18f42a3027d51fc81cd61cefff5e3d21e7d3e75"
+    },
+    "debian/rejected-optimizer-prototype.json": {
+      "bytes": 1017,
+      "sha256": "ba5844f045909be66daf1015c88017083efec2a7e013ce5f6db73ba8ae95c534",
+      "gzipSha256": "d24d9f3b4955dc9c93e28b444aacc87a89e58eab583e5076118a4af1362ac5cf"
+    }
+  },
+  "windowsCpuRoundtripQualified": true,
+  "windowsCudaRoundtripQualified": true,
+  "debianCpuRoundtripQualified": false,
+  "debianStandardRoundtrips": 12,
+  "debianExtendedRoundtrips": 6
+}

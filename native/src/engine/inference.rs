@@ -48,7 +48,7 @@ struct ExecutionNode {
 /// Numeric implementation selected once for one immutable execution plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InferenceMathBackend {
-    /// Reference implementation using ordered scalar `f32` accumulation.
+    /// Float32 scalar reference with compensated long rows and ordered short rows.
     Scalar,
     /// Four-lane SSE dot kernels; exact reduction order is source/build-bound.
     Sse2,
@@ -1426,12 +1426,48 @@ fn forward_slices<'a>(
     ))
 }
 
+/// Reduce long reference rows with Float32 Neumaier compensation.
+///
+/// Products, correction and the returned value all remain Float32. Compensation
+/// avoids avoidable first-delivery error in deep, wide recurrent graphs while
+/// short rows retain their original ordered sum. Nonfinite partial sums retain
+/// ordinary Float32 infinity/NaN propagation rather than poisoning saturation
+/// with an invalid correction. No storage is allocated by these iterators.
+#[inline]
+fn compensated_f32_sum(terms: impl Iterator<Item = f32>) -> f32 {
+    let mut sum = 0.0_f32;
+    let mut correction = 0.0_f32;
+    for term in terms {
+        let next = sum + term;
+        if next.is_finite() && sum.is_finite() && term.is_finite() {
+            correction += if sum.abs() >= term.abs() {
+                (sum - next) + term
+            } else {
+                (term - next) + sum
+            };
+        } else {
+            correction = 0.0;
+        }
+        sum = next;
+    }
+    if sum.is_finite() {
+        sum + correction
+    } else {
+        sum
+    }
+}
+
 /// Apply one backend-selected dot product over equal, prevalidated slices.
 #[inline]
 fn dot_product(backend: InferenceMathBackend, weights: &[f32], input: &[f32]) -> f32 {
     debug_assert_eq!(weights.len(), input.len());
     match backend {
         InferenceMathBackend::Scalar => {
+            if input.len() >= 32 {
+                return compensated_f32_sum(
+                    (0..input.len()).map(|index| weights[index] * input[index]),
+                );
+            }
             let mut sum = 0.0f32;
             for index in 0..input.len() {
                 sum += weights[index] * input[index];
@@ -1454,6 +1490,11 @@ fn dot_product_mul(
     debug_assert_eq!(left.len(), right.len());
     match backend {
         InferenceMathBackend::Scalar => {
+            if left.len() >= 32 {
+                return compensated_f32_sum(
+                    (0..left.len()).map(|index| weights[index] * (left[index] * right[index])),
+                );
+            }
             let mut sum = 0.0f32;
             for index in 0..left.len() {
                 sum += weights[index] * (left[index] * right[index]);
@@ -2677,6 +2718,59 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Compensation recovers small long-row terms lost by naive Float32 accumulation.
+    #[test]
+    fn scalar_long_rows_recover_cancellation_without_widening_products() {
+        let mut weights = vec![1.0_f32; 32];
+        weights[0] = 100_000_000.0;
+        weights[31] = -100_000_000.0;
+        let input = vec![1.0; 32];
+        let mut naive = 0.0_f32;
+        for &weight in &weights {
+            naive += weight;
+        }
+        assert_eq!(naive, 0.0);
+        assert_eq!(
+            dot_product(InferenceMathBackend::Scalar, &weights, &input),
+            30.0
+        );
+        assert_eq!(
+            dot_product_mul(InferenceMathBackend::Scalar, &weights, &input, &input),
+            30.0
+        );
+
+        let short = [100_000_000.0_f32, 1.0, -100_000_000.0];
+        assert_eq!(
+            dot_product(InferenceMathBackend::Scalar, &short, &[1.0; 3]),
+            0.0
+        );
+        assert_eq!(
+            compensated_f32_sum([0.0, -0.0].into_iter()).to_bits(),
+            0.0_f32.to_bits()
+        );
+    }
+
+    /// Saturating activations still receive ordinary infinity; invalid cancellation remains NaN.
+    #[test]
+    fn scalar_compensation_preserves_nonfinite_partial_sum_propagation() {
+        let maximum = vec![f32::MAX; 32];
+        let input = vec![1.0; 32];
+        assert_eq!(
+            dot_product(InferenceMathBackend::Scalar, &maximum, &input),
+            f32::INFINITY
+        );
+        assert_eq!(
+            dot_product_mul(InferenceMathBackend::Scalar, &maximum, &input, &input),
+            f32::INFINITY
+        );
+        assert_eq!(
+            compensated_f32_sum([f32::NEG_INFINITY, 1.0].into_iter()),
+            f32::NEG_INFINITY
+        );
+        assert!(compensated_f32_sum([f32::INFINITY, f32::NEG_INFINITY].into_iter()).is_nan());
+        assert!(compensated_f32_sum([f32::NAN, 1.0].into_iter()).is_nan());
     }
 
     /// One fully populated evolved snake record for calculation-work resolution.
