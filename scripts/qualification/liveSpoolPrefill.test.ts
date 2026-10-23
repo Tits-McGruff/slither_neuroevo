@@ -1,6 +1,6 @@
 /** Bound loaded-spool admission without allocating multi-GiB payloads in unit tests. */
 import { expect, it } from 'vitest';
-import { planLiveSpoolPrefill, readLiveSpoolPrefillState } from './liveSpoolPrefill.ts';
+import { planLiveSpoolPrefill, readLiveSpoolPrefillState, verifyLiveSpoolPrefillRecovery, type LiveSpoolPrefillReceipt } from './liveSpoolPrefill.ts';
 import { distillationSpoolLimitsForGiB } from '../../server/rustEngine/distillationProtocol.ts';
 import { checkpointDiskAdmissionRequest, OPERATING_DISK_RESERVE_BYTES, SQLITE_WAL_ALLOWANCE_BYTES } from '../../server/rustEngine/diskAdmission.ts';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
@@ -38,4 +38,24 @@ it('accepts ordinary old-fixture eviction but rejects a changed watermark, open 
     {retainedChunks: 1025}, {retainedBytes: '0000000000000000'}]) {
     await expect(readLiveSpoolPrefillState({dataset: async () => ({...state, ...fault}) as unknown as DistillationDataset}, receipt)).rejects.toThrow();
   }
+});
+
+it.each([1, 64])('cold-verifies %i GiB using the retained inventory and refuses a mismatched readiness allowance', async gib => {
+  const objects = gib * 1024;
+  const beforeRecovery = {retainedChunks: objects, retainedBytes: (gib * 1024 ** 3).toString(16).padStart(16, '0'),
+    resolvedThrough: objects.toString(16).padStart(16, '0')};
+  const receipt = {captureEpoch: 'ab'.repeat(16), objects, objectBytes: 1024 ** 2,
+    targetGiB: gib, beforeRecovery} as LiveSpoolPrefillReceipt;
+  let ready = false;
+  const recoveryBudgetMs = gib === 64 ? 660_000 : 60_000;
+  const store = {ready: Promise.resolve().then(() => {ready = true;}), recoveryBudgetMs,
+    dataset: async () => {
+      expect(ready).toBe(true);
+      return {state: 'stopped', productionWatermark: beforeRecovery.resolvedThrough, ...beforeRecovery} as unknown as DistillationDataset;
+    }};
+  await verifyLiveSpoolPrefillRecovery(store, receipt, performance.now());
+  expect(receipt.afterRecovery).toEqual(beforeRecovery);
+  expect(receipt.recoveryBudgetMs).toBe(recoveryBudgetMs);
+  await expect(verifyLiveSpoolPrefillRecovery({...store, recoveryBudgetMs: recoveryBudgetMs + 1},
+    {...receipt}, performance.now())).rejects.toThrow();
 });

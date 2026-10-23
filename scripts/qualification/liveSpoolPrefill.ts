@@ -134,12 +134,13 @@ export async function prefillLiveSpool(store: DistillationSpoolClient, directory
 }
 
 /** Reopened readiness must verify the original full fixture within its actual retained-byte allowance. */
-export async function verifyLiveSpoolPrefillRecovery(store: DistillationSpoolClient,
+export async function verifyLiveSpoolPrefillRecovery(store: Pick<DistillationSpoolClient, 'ready' | 'recoveryBudgetMs' | 'dataset'>,
   receipt: LiveSpoolPrefillReceipt, startedAt: number): Promise<void> {
   await store.ready;
   receipt.recoveryElapsedMs = performance.now() - startedAt;
   receipt.recoveryBudgetMs = store.recoveryBudgetMs;
-  assert.equal(receipt.recoveryBudgetMs, distillationRecoveryTimeoutMs(receipt.targetGiB * 1024 ** 3));
+  assert.equal(receipt.recoveryBudgetMs, distillationRecoveryTimeoutMs({chunks: receipt.beforeRecovery.retainedChunks,
+    bytes: Number(BigInt('0x' + receipt.beforeRecovery.retainedBytes))}));
   receipt.afterRecovery = await readLiveSpoolPrefillState(store, receipt);
   assert.deepEqual(receipt.afterRecovery, receipt.beforeRecovery);
 }
