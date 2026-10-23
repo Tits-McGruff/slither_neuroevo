@@ -1941,3 +1941,11 @@ p99, 0.933 simulated/wall ratio and 663 ms dropped wall debt fail performance.
 Each capsule preserves the actual update-250 candidate and aggregate resource
 counters. These separate functional loads do not qualify joint maxima,
 loss-free setup, representative maturity or a six-hour integrated soak.
+
+Live contention reports also retain `phaseCosts.before/after` from existing
+native health counters, including slow-step sensing/inference/physics and
+separate terminal preparation/evolution/admission. These are independent atomic
+observations beside the measured window, not simultaneous completed-step
+snapshots. The lifetime terminal maximum does not establish a window maximum.
+The consistent histogram and wall/debt gates remain the acceptance evidence;
+these extra scalar observations add no native hot-path timers.

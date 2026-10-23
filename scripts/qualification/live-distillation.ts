@@ -1,3 +1,4 @@
+import { readNativeStepCosts } from './nativeStepCosts.ts';
 import { distillationSpoolLimitsForGiB, distillationRecoveryTimeoutMs } from '../../server/rustEngine/distillationProtocol.ts';
 import { validateRustCalculationWorkers } from '../../server/rustWorkers.ts';
 /** Qualify live committed Rust samples, HTTP, PyTorch restart and four Rust shadows. */
@@ -227,6 +228,8 @@ async function run(): Promise<void> {
   const cohortIndexSha256 = trainedCohort ? await digest(trainedCohort) : undefined;
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
+  const costHelperPath = fileURLToPath(new URL('./nativeStepCosts.ts', import.meta.url));
+  const costHelperSha256 = await digest(costHelperPath);
   const libraryHelperPath = fileURLToPath(new URL('./liveCapacityLibrary.ts', import.meta.url));
   const libraryHelperSha256 = await digest(libraryHelperPath);
   const spoolHelperPath = fileURLToPath(new URL('./liveSpoolPrefill.ts', import.meta.url));
@@ -518,6 +521,7 @@ async function run(): Promise<void> {
       const captureBefore = await storage.dataset(dataset.contract.captureEpoch);
       const inspectorBefore = {...inspector};
       const first = await wallRead(native); const reads = [first];
+      const initialPhaseCosts = readNativeStepCosts(native);
       const generationBarriers: SensorGenerationBarrier[] = [];
       const barrierIntervalMs = seconds * 1000 / (boundaries + 1);
       const frame = new Uint8Array(metadata.maximumFrameBytes);
@@ -603,6 +607,7 @@ async function run(): Promise<void> {
       if (trainerError) throw trainerError;
       reads.push(await wallRead(native));
       assert.equal(generationBarriers.length, boundaries, 'all requested generations must commit during the trainer window');
+      const finalPhaseCosts = readNativeStepCosts(native);
       const summary = summarizeSensorWall(reads, seconds, boundaries ? {runId, barriers: generationBarriers} : undefined, sixHour);
       const sustain = JSON.parse(await readFile(join(jobDirectory, 'sustain-report.json'), 'utf8')) as Record<string, unknown>;
       if (sixHour) {
@@ -643,6 +648,7 @@ async function run(): Promise<void> {
         }
       }
       assert.equal(hostSha256, await digest(fileURLToPath(import.meta.url)));
+      assert.equal(costHelperSha256, await digest(costHelperPath));
       assert.equal(libraryHelperSha256, await digest(libraryHelperPath));
       assert.equal(spoolHelperSha256, await digest(spoolHelperPath)); assert.equal(spoolFixtureSha256, await digest(spoolFixturePath));
       assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
@@ -737,11 +743,13 @@ async function run(): Promise<void> {
         scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies and production-default selection. Loaded replay is exercised only when an explicit occupancy target is recorded. Catalog/inspector overlap and explicitly synthetic inactive spool prefill are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
-          hostSha256, libraryHelperSha256, spoolHelperSha256, spoolFixtureSha256, trainerGateSha256, studentArtifactSha256,
+          hostSha256, costHelperSha256, libraryHelperSha256, spoolHelperSha256, spoolFixtureSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
         workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {}),
           ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, replayMinMiB, ...(replayMinMiB ? {replayFillSeconds} : {}), producerStoragePolicy,
         hostPeakRssBytes, train, resume: {...resume, candidatePath: undefined}, sustain, summary,
+        phaseCosts: {scope: 'Independent native atomics beside the exact histogram window; slow-step and terminal diagnostics, not simultaneous step snapshots. Lifetime maximum is not a window maximum.',
+          before: initialPhaseCosts, after: finalPhaseCosts},
         reads: reads.map((read, index) => {
           const health = {...read.health};
           if (index > 0 && index < reads.length - 1) {delete health.stepTimingBucketUpperMicros; delete health.stepTimingBucketCounts;}
