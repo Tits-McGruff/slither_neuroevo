@@ -1,3 +1,4 @@
+import { summarizeObservationQuality, type ObservationQualityRead } from './observationQuality.ts';
 /** Frozen real-clock/job receipts are checked without executing archived code or world state. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -1009,4 +1010,49 @@ it('retains current CPU P1 learned-cohort work without hiding the failed timing 
     expect(delta).toBeGreaterThan(0n);
     expect(delta.toString()).toBe(report.shadows.sampleProgress[slot]);
   }
+});
+
+
+/** Published sensor prefixes remain distinct from independently sampled step histograms. */
+it('recomputes live all-consumer quality without hiding timing, caps or shared-host load', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-observation-quality-windows-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    files: Record<string, FrozenFileReceipt>; slitherCommit: string; nativeSourceSha256: string;
+    performanceQualified: boolean; rayQualityQualified: boolean; queryQualityQualified: boolean;
+  };
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as {
+    recordedAt: string; requestedSeconds: number; scenario: string; workers: number;
+    source: Record<string, string>; reads: SensorWallRead[]; summary: ReturnType<typeof summarizeSensorWall>;
+    observationQuality: {before: ObservationQualityRead; after: ObservationQualityRead;
+      summary: ReturnType<typeof summarizeObservationQuality>};
+  };
+  expect(report.source).toMatchObject({revision: manifest.slitherCommit, nativeSourceSha256: manifest.nativeSourceSha256});
+  for (const [key, name] of Object.entries({hostSha256: 'sensor-wall.ts', summarySha256: 'sensorWallSummary.ts',
+    observationHelperSha256: 'observationQuality.ts', observationContractSha256: 'observationQualityContract.ts'})) {
+    expect(report.source[key]).toBe(sha256(files.get('host/' + name)!));
+  }
+  expect(report.scenario).toBe('P1'); expect(report.workers).toBe(4);
+  expect(report.summary).toEqual(summarizeSensorWall(report.reads, report.requestedSeconds));
+  expect(report.summary.progress.deltaSteps).toBe('3529');
+  expect(report.summary.stepTiming.p99UpperMs).toBe(24);
+  expect(report.summary.meetsMeasuredGates).toBe(false);
+  const {before, after, summary} = report.observationQuality;
+  expect(before.beforeMs).toBeGreaterThanOrEqual(report.reads[0]!.afterMs);
+  expect(after.beforeMs).toBeGreaterThanOrEqual(report.reads.at(-1)!.afterMs);
+  expect(summary).toEqual(summarizeObservationQuality(before, after));
+  expect(summary.ordinaryPublishedSteps).toBe('3531');
+  expect(summary.consumers.map(row => row.counts['v4Observations'])).toEqual(['1059298', '12078', '0']);
+  expect(summary.meetsOrdinaryRayGate).toBe(false); expect(summary.meetsOrdinaryQueryGate).toBe(false);
+  expect(summary.consumers[2]!.rayIncompleteFraction).toBeNull();
+  expect(manifest.performanceQualified || manifest.rayQualityQualified || manifest.queryQualityQualified).toBe(false);
+  const resources = JSON.parse(files.get('resources.json')!.toString('utf8')) as Array<{
+    utc: string; processDetailsIncluded: boolean; observerSourceSha256: string}>;
+  expect(resources).toHaveLength(4);
+  for (const row of resources) {
+    expect(row.processDetailsIncluded).toBe(false);
+    expect(row.observerSourceSha256).toBe(sha256(files.get('host/system-resource-observer.py')!));
+  }
+  expect(Date.parse(resources[0]!.utc)).toBeLessThan(Date.parse(report.recordedAt) - report.requestedSeconds * 1000);
+  expect(Date.parse(resources.at(-1)!.utc)).toBeGreaterThan(Date.parse(report.recordedAt));
 });

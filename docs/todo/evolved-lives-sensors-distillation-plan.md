@@ -1494,6 +1494,20 @@ noninterference and production-surface isolation are automated checks. This
 instrumentation does not retroactively qualify the retained P1 window or select
 ray defaults.
 
+Checkpoint `ab8ec83` passes the complete Windows/Ubuntu Node-24/26 CI matrix.
+Its first direct P1 random-policy window at cap 256/batch 65,536 still fails:
+0.97699 simulated/wall, a 24-ms p99 bucket and 1.128 seconds dropped debt.
+Separate published-observation prefixes show neural/teacher ray incompleteness
+3.11%/2.48%, with pellet detail caps in 37.23%/35.36% of observations.
+`live-observation-quality-windows-v1/` retains the exact failed report, helper
+sources and four counter-only shared-host resource samples; tests independently
+recompute timing and quality and enforce the privacy allowlist. This excludes
+mature-policy, trainer/shadow and integrated-capacity qualification.
+A duplicate-ray-construction candidate preserves exact P1 continuation,
+distributions, work and capture in adjacent ABBA runs but changes native mean
+only 0.17% with slightly higher p95; it is reverted and retained in the same
+capsule. Native behavior, limits and defaults remain unchanged.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

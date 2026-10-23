@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-published-observation-quality-v1",
+  "slitherCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+  "nativeSourceSha256": "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
+  "performanceQualified": false,
+  "rayQualityQualified": false,
+  "queryQualityQualified": false,
+  "maturityQualified": false,
+  "fullCapacitySoakQualified": false,
+  "resourceProjection": "Explicit scalar/kernel-counter allowlist; GPU model names are omitted. WSL entries contain only anonymous CPU/load/memory counters, with no distribution identities or process inventories.",
+  "scope": "Windows P1/300 seeded random modest policies, ten stochastic v2 teachers, real scheduler and durable capture. Explicit ray cap 256/batch 65536. Observation prefixes and timing histograms have independent monotonic brackets. Four aggregate Windows/running-WSL/GPU samples bracket this shared-host probe. External controllers, mature policies, trainer/shadows and integrated capacity are excluded.",
+  "files": {
+    "report.json": {
+      "bytes": 227583,
+      "sha256": "cc670ffddd802268358e7481a45574f6493f65abee6ccc1cd6d3a4f8b576b4e0",
+      "gzipSha256": "c210a4b8c1600e9b836b553eb266d0e35f10d87168c36e87e33eb016441a9997"
+    },
+    "resources.json": {
+      "bytes": 6116,
+      "sha256": "9575a79cb76d06aa946651100bfbf997b7aaaa369f1756519ac9e00ed6f3adb1",
+      "gzipSha256": "d670393fabfed67bcafed50de86fc5b28f989d6ca23e26849e3ae6991e5e5f5c"
+    },
+    "host/sensor-wall.ts": {
+      "bytes": 21767,
+      "sha256": "0b09f06398a607c87eae9597c12554d0a9f633dbee8f159de474b1b575b0a847",
+      "gzipSha256": "de981784c8f93446cd2bf0d73789493fea70792c3c7c12b95dc2de2ddffaaafe"
+    },
+    "host/sensorWallSummary.ts": {
+      "bytes": 8525,
+      "sha256": "d4122f103a57a6250191c34912ecb7fc056340495acae411098cae45f64b6099",
+      "gzipSha256": "6950dc4b461429b7e4b8922a599a0acee9f96504cd7f0a01452e2ff448f5d971"
+    },
+    "host/observationQuality.ts": {
+      "bytes": 7364,
+      "sha256": "4cd1a0e6ec9e93a83a9369d20327914814460f85d13894284741863ae000a35f",
+      "gzipSha256": "59b0677cf3b2e1083a2f55c4a1790f6eb2a6e2af882c1e54377e09a3457e2126"
+    },
+    "host/observationQualityContract.ts": {
+      "bytes": 2216,
+      "sha256": "551d7641eab0221c40624638375a2c7cc0ccd6139d18e72a0e9ea035e4f0597b",
+      "gzipSha256": "0b9c787d7343766fae8440763c99fea879ec34f759032a7fded6c2fd78ce58ec"
+    },
+    "host/system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "ray-reuse/0-baseline.json": {
+      "bytes": 214602,
+      "sha256": "be82430eaa79a54bc749044c6a50bcf15da8a350ded6c0fd815ae921491ab131",
+      "gzipSha256": "f55b299efe693446694ceaa14162a9d0630a57427649a1a1ffe445410fdce451"
+    },
+    "ray-reuse/1-candidate.json": {
+      "bytes": 214632,
+      "sha256": "3aa33fbb5511e0fe787d1fcf297aa9f8a8ed4e96247cdbbd86d7e6f8ff38e670",
+      "gzipSha256": "7f4e1f6a20a99a75e59ac327da3e5ea863fd6e4bf950e2d93442311413ac15c8"
+    },
+    "ray-reuse/2-candidate.json": {
+      "bytes": 214625,
+      "sha256": "3e88f8be31434b81b204e64a6228e74ce182fc28b8057c658a558d93ce045294",
+      "gzipSha256": "0447081c2d3a98b5515d8752ddb98e1bda53f157b1f2dc1f00a79750ef6ab40e"
+    },
+    "ray-reuse/3-baseline.json": {
+      "bytes": 214583,
+      "sha256": "90c1f96ad0a4c85b14db29ae494ff605ff3a54f1d29233bb4c6a3f3f636d801c",
+      "gzipSha256": "444acf56196166a4415b9a1e68db38d2ec76278a9e587507dc6d2c01c831c35b"
+    },
+    "ray-reuse/comparison.json": {
+      "bytes": 4072,
+      "sha256": "4f4507adf2437d226bf0efdf25af0497b817205d926dc2a575b68f72e6048662",
+      "gzipSha256": "17ac160d8961a646ac59c88fbe6be96641bf2b1a5efdf260250f59d1ad5ac6db"
+    },
+    "ray-reuse/compare-sensor-workloads.py": {
+      "bytes": 14219,
+      "sha256": "73bd72b4ca7d9d6a31337684364eb8c0a24c75b587853d76299cefd6d088994b",
+      "gzipSha256": "346c136608cf1ec18fb20464e9ae9296ccf783dddcc91ff82a5d5252234744fe"
+    },
+    "ray-reuse/run-comparison.py": {
+      "bytes": 2040,
+      "sha256": "13d0c275b6257c3fad13ea2455a831da67d327c316fd5a51177bb80b929f945b",
+      "gzipSha256": "121a7feb0d98f4ec3a627efb00b49c2bc2fa43b630241416db04479277cb862f"
+    },
+    "ray-reuse/baseline-sensors_v4.rs": {
+      "bytes": 95238,
+      "sha256": "d324cfb35a9c21674650693e98e233b1f5abccd2947422581cc02ccec959cc2e",
+      "gzipSha256": "0b6de3513d8a5b1a0d629f81b50dae7d5ab0dea8c13bdd1af707fad64d8e5684"
+    },
+    "ray-reuse/candidate-sensors_v4.rs": {
+      "bytes": 97527,
+      "sha256": "1cebf1526b18d0940b4f92893d8892bd72c9940f21f1d47cd4afc6b4190faf9f",
+      "gzipSha256": "99112b707acd82fa4e3ef4de9429e15238d3338823d1162e9cad4303bdec8565"
+    },
+    "ray-reuse/resources.json": {
+      "bytes": 8271,
+      "sha256": "fe7c7ae5a3a46b28b36b7c177bc0d9d8d7ff69ba3374c11c6e8e196cd2540886",
+      "gzipSha256": "c2f301fdb37add2e5c8fe4ca98b15da597d942e2ac3a0e059129a15e03f0770b"
+    }
+  },
+  "rayReuseExperiment": {
+    "adopted": false,
+    "baselineSourceSha256": "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
+    "candidateSourceSha256": "cb8e41caefaef947dae65c3b36efeb3ee52da0aa423845f2dc1dc040548ba4f7",
+    "reason": "Exact continuation, consumer work, raw/normalized histograms and capture match; adjacent ABBA native mean changes by 0.17% and p95 is slightly higher. No meaningful whole-workload improvement is established, so the candidate is reverted.",
+    "scope": "Same Windows P1 random cohort, 600 warmup plus 1200 measured steps per process, four workers, cap 256/batch 65536, actual stochastic teachers and capture. Aggregate-only resource snapshots bracket the ABBA comparison; this is not a real-clock, maturity or production-default gate."
+  }
+}

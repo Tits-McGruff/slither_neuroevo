@@ -652,13 +652,86 @@ class CurrentCpuLiveEvidenceTests(unittest.TestCase):
             aggregate_only(self, rows, self.files["host/system-resource-observer.py"])
 
 
+class LiveObservationQualityEvidenceTests(unittest.TestCase):
+    """Keep exact ordinary quality counts and aggregate resource context together."""
+
+    def test_quality_failure_and_aggregate_resource_coverage(self):
+        manifest, files = capsule("live-observation-quality-windows-v1")
+        report = json.loads(files["report.json"])
+        self.assertEqual(report["source"]["revision"], manifest["slitherCommit"])
+        self.assertEqual(report["source"]["nativeSourceSha256"], manifest["nativeSourceSha256"])
+        self.assertFalse(manifest["performanceQualified"])
+        self.assertFalse(manifest["rayQualityQualified"])
+        self.assertFalse(manifest["queryQualityQualified"])
+        self.assertFalse(report["summary"]["meetsMeasuredGates"])
+        quality = report["observationQuality"]["summary"]
+        self.assertEqual(quality["allConsumerV4Observations"], "1071376")
+        self.assertFalse(quality["meetsOrdinaryRayGate"])
+        self.assertFalse(quality["meetsOrdinaryQueryGate"])
+        self.assertEqual([row["counts"]["v4Observations"] for row in quality["consumers"]],
+                         ["1059298", "12078", "0"])
+        resources = json.loads(files["resources.json"])
+        self.assertEqual(len(resources), 4)
+        aggregate_only(self, resources, files["host/system-resource-observer.py"])
+        self.assertTrue(all(row["wsl"]["available"] for row in resources))
+
+
+    def test_rejected_ray_reuse_preserves_work_without_claiming_a_speed_gate(self):
+        """Recompute the unchanged trajectory and descriptive ABBA medians."""
+        manifest, files = capsule("live-observation-quality-windows-v1")
+        experiment = manifest["rayReuseExperiment"]
+        self.assertFalse(experiment["adopted"])
+        comparison = json.loads(files["ray-reuse/comparison.json"])
+        self.assertTrue(comparison["equivalent"])
+        self.assertEqual(comparison["scriptSha256"],
+                         sha(files["ray-reuse/compare-sensor-workloads.py"]))
+        reports = []
+        for record in comparison["records"]:
+            raw = files["ray-reuse/" + record["report"]]
+            self.assertEqual(sha(raw), record["reportSha256"])
+            report = json.loads(raw)
+            self.assertEqual(report["sourceSha256"], experiment[record["role"] + "SourceSha256"])
+            self.assertEqual(report["completedSteps"], 1800)
+            self.assertEqual(report["measuredSteps"], 1200)
+            self.assertEqual(record["nativeMeanMs"], report["nativePhaseCosts"]["totalMicros"] / 1200 / 1000)
+            self.assertEqual(record["sensingMeanMs"], report["nativePhaseCosts"]["sensingMicros"] / 1200 / 1000)
+            self.assertEqual(record["nativeP95Ms"], report["stepCost"]["p95Ms"])
+            self.assertTrue(report["capture"]["exactSamplesMatch"])
+            reports.append(report)
+        for report in reports[1:]:
+            for key in ["continuationSha256", "consumerWork", "raw", "normalized", "sensorSha256"]:
+                self.assertEqual(report[key], reports[0][key])
+            for key in ["sourceSampleSha256", "drainedSampleSha256"]:
+                self.assertEqual(report["capture"][key], reports[0]["capture"][key])
+        for role in ["baseline", "candidate"]:
+            for key in ["nativeMeanMs", "sensingMeanMs", "nativeP95Ms"]:
+                median = statistics.median(record[key] for record in comparison["records"]
+                                           if record["role"] == role)
+                self.assertEqual(median, comparison["medians"][role][key])
+        medians = comparison["medians"]
+        self.assertLess(abs(medians["candidate"]["nativeMeanMs"] / medians["baseline"]["nativeMeanMs"] - 1), 0.01)
+        self.assertGreater(medians["candidate"]["nativeP95Ms"], medians["baseline"]["nativeP95Ms"])
+        baseline = files["ray-reuse/baseline-sensors_v4.rs"].decode().replace("\r\n", "\n")
+        candidate = files["ray-reuse/candidate-sensors_v4.rs"].decode().replace("\r\n", "\n")
+        old = '            let ray = SensorRay::new(snake.position, angle, radii.near)\n                .map_err(|_| V4SensorError::Geometry)?;'
+        new = '            // The body packet already owns this exact validated heading and range.\n            let ray = packet[bin];'
+        self.assertEqual(baseline.count(old), 1)
+        self.assertEqual(baseline.replace(old, new), candidate)
+        resources = json.loads(files["ray-reuse/resources.json"])
+        for rows in resources.values():
+            self.assertGreaterEqual(len(rows), 1)
+            aggregate_only(self, rows, files["host/system-resource-observer.py"])
+
+
 class PublishedDotEvidencePrivacyTests(unittest.TestCase):
     """Reject private host inventories across every retained JSON document."""
 
     def test_json_documents_exclude_inventory_fields(self):
         """App/process names, commands, PIDs and distribution identities cannot be published."""
         forbidden = {"hostname", "username", "commandline", "command", "processes",
-                     "processname", "pid", "pids", "distributionname", "distributionid"}
+                     "processname", "process_name", "pid", "pids", "distribution",
+                     "distributionname", "distribution_name", "distributionid",
+                     "idprocess", "gpuprocesses"}
 
         def visit(value):
             """Walk bounded already admitted JSON data, including nested reports."""
@@ -670,7 +743,9 @@ class PublishedDotEvidencePrivacyTests(unittest.TestCase):
                 for item in value:
                     visit(item)
 
-        for name in ["native-dot-performance-v1", "native-dot-numerics-v1", "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1", "live-precise-cpu-windows-v1"]:
+        for name in ["native-dot-performance-v1", "native-dot-numerics-v1",
+                     "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1",
+                     "live-precise-cpu-windows-v1", "live-observation-quality-windows-v1"]:
             _, files = capsule(name)
             for path, raw in files.items():
                 if path.endswith((".json", ".slither-brain")):
