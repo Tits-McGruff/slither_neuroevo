@@ -1966,3 +1966,24 @@ unchanged. Microbenchmark resource observations bracket the run only and make no
 idle-host or integrated-runtime performance claim. Sources, records and the
 negative decision are retained so hot-cache results cannot be mistaken for a
 large-population improvement.
+
+The `native-dot-performance-v1/` capsule retains the adopted four-accumulator
+SSE2 kernel, actual source-bound Windows/Debian streaming comparisons, and
+paired native single-worker v3 population timings. Streaming widths 256/504
+improve about 23–28%; fixed-input population cases improve 16–28%. The live
+large Motion/B32 P0/P1 windows retain functional restart/durability success but
+still fail timing (0.521/0.0383 simulated/wall ratios). Their offline 768-MiB
+checkpoint candidate does not select production admission or resource defaults.
+Changes in Float32 grouping bind replay to the recorded source/build.
+
+The `native-dot-numerics-v1/` capsule preserves two earlier Windows scalar
+first-state failures and the correction using Float32 compensated long sums.
+All 18 actual optimizer/export/native/reimport roundtrips pass on Windows CPU
+and CUDA, including 256-delivery large recurrent cases at unchanged tolerances.
+Debian's 12 standard cases pass, but one large-LSTM first-state value fails
+for each backend; extended 256-step limits still pass. Scoped CPU dispatch
+settings and an actual-optimizer compensated-matmul prototype do not resolve
+the gap. The prototype is rejected, PyRL source remains unchanged, and
+cross-platform extended parity stays open. Automated checks recompute frozen
+first/long failures and reject host/process/command/PID/distribution inventories
+across every retained JSON report; resource observations remain aggregate only.

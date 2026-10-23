@@ -1403,6 +1403,36 @@ still exceeds 256 ms and simulated/wall throughput is only 0.0675. The earlier
 28.20-second summary observation is unpaired and reaches different states.
 Timing, representative maturity and the integrated capacity/soak gates remain open.
 
+Native long SSE2 dot rows now use four independent accumulators. The
+`native-dot-performance-v1/` capsule binds the actual production kernel to
+paired Windows/Debian microbenchmarks and fixed-input native population runs.
+Streaming widths 256/504 improve about 23–28% across the two platforms;
+single-worker v3 population passes improve 16–28% across P0–P3. Short rows
+retain their previous algorithm. Changed Float32 grouping is source/build
+specific; earlier long-horizon gameplay evidence does not establish identical
+trajectories on this revision. Separate real large Motion/B32 windows preserve
+drop-free capture, exact update-250 trainer restart, 100 catalog originals,
+inspector/four-shadow progress and three cold-restored durable generations.
+P0 reaches only 0.521 simulated/wall time and P1 0.0383; both fail timing.
+These are the offline 768-MiB checkpoint candidate, not admitted production
+defaults or a combined-capacity soak.
+
+Long scalar reference dots now use Float32 Neumaier compensation, retaining
+ordered short sums and nonfinite propagation without allocation. Frozen
+Windows large-LSTM/RRU first-state failures reproduce on the older scalar
+source and pass with the correction at unchanged tolerances. Fresh actual
+optimizer/export/native-admission/reimport tests pass all 18 Windows CPU and
+18 CUDA cases, including large GRU/LSTM/RRU and 256 delivered observations.
+The `native-dot-numerics-v1/` capsule also keeps the unresolved Debian result:
+all 12 standard cases pass, but one large-LSTM first-state value fails for each
+native backend; all extended 256-step bounds pass. Scoped CPU dispatch changes
+do not resolve it. A compensated CPU matmul prototype passes some fixed
+exports but fails the actual optimizer roundtrip and is rejected. PyRL source,
+initialization and tolerances remain unchanged. Cross-platform extended parity,
+representative maturity, ray limits/defaults and integrated timing/soak remain
+open. Retained JSON privacy checks reject process/command/PID inventories,
+host names and distribution identities; resource sidecars contain aggregates.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
