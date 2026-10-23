@@ -9,6 +9,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile, rename, realpath } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadLiveLibraryFixture, readLiveLibraryArtifact, readLiveCapacityCatalog } from './liveCapacityLibrary.ts';
+import type { LiveCatalogReceipt } from './liveCapacityLibrary.ts';
+import type { SavedBrainPageV1, SavedBrainCatalogResult } from '../../server/protocol.ts';
 import { existsSync } from 'node:fs';
 import { loadPanicBinding } from '../../server/test/panicRuntime.ts';
 import type { ExperimentalFreshRunNativeHandle } from '../../server/rustEngine/experimentalFreshRunSession.ts';
@@ -100,10 +103,11 @@ async function python(pythonPath: string, checkout: string, args: string[], dead
 
 /** Bounded JSON or opaque-byte response; every request stays inside the diagnostic namespace. */
 async function exchange(port: number, path: string, method: string, body?: unknown, expectedStatus = 200): Promise<Buffer> {
-  const bytes = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+  const binary = body instanceof Uint8Array;
+  const bytes = body === undefined ? undefined : binary ? Buffer.from(body) : Buffer.from(JSON.stringify(body));
   return await new Promise((done, reject) => {
     const request = httpRequest({hostname: '127.0.0.1', port, path, method,
-      headers: bytes ? {'Content-Type': 'application/json', 'Content-Length': bytes.byteLength} : {},
+      headers: bytes ? {'Content-Type': binary ? 'application/octet-stream' : 'application/json', 'Content-Length': bytes.byteLength} : {},
       signal: AbortSignal.timeout(35_000)}, response => {
       const chunks: Buffer[] = []; let length = 0;
       response.on('data', (part: Buffer) => {length += part.byteLength;
@@ -161,7 +165,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -191,6 +195,9 @@ async function run(): Promise<void> {
   assert(Number.isSafeInteger(boundaries) && (boundaries === 0 ||
     (boundaries >= 2 && boundaries <= timing.generationBoundaryLimit && workload !== undefined)));
   assert(!sixHour || workload !== undefined && boundaries >= 2);
+  assert(!args.has('--library-fixtures') || capacityGraph === 'large' && boundaries >= 3,
+    'full catalog overlap requires a large capacity graph and at least three durable generations');
+  const libraryFixture = args.has('--library-fixtures') ? await loadLiveLibraryFixture(resolve(args.get('--library-fixtures')!)) : undefined;
   assert(workload ? args.has('--student-artifact') : !args.has('--student-artifact') && !args.has('--contention-seconds'));
   const studentArtifact = resolve(args.get('--student-artifact') ?? 'native/fixtures/portable-brain-v1.slither-brain');
   const studentArtifactSha256 = await digest(studentArtifact);
@@ -200,6 +207,8 @@ async function run(): Promise<void> {
   const cohortIndexSha256 = trainedCohort ? await digest(trainedCohort) : undefined;
   const output = resolve(args.get('--report')!); assert(!existsSync(output), 'qualification report already exists');
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
+  const libraryHelperPath = fileURLToPath(new URL('./liveCapacityLibrary.ts', import.meta.url));
+  const libraryHelperSha256 = await digest(libraryHelperPath);
   const trainerGateSha256 = await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py'));
   let root: string;
   if (sixHour) {
@@ -218,6 +227,7 @@ async function run(): Promise<void> {
   let library: SavedBrainLibrary | undefined;
   let spool: DistillationSpoolClient | undefined; let timer: NodeJS.Timeout | undefined;
   let activePump: Promise<void> | undefined; let pumpError: unknown; let hostPeakRssBytes = process.memoryUsage.rss();
+  let stopInspector: (() => Promise<void>) | undefined;
   let router: DistillationHttpRouter | undefined;
   const routes = new Map<string, number>(); let forbiddenRequests = 0;
   const server = createServer((request, response) => {
@@ -272,6 +282,7 @@ async function run(): Promise<void> {
       assert.equal(metadata.graphSpec.nodes.find(node => node.type === 'Input')?.outputSize, capacityGraph ? 504 : 264);
       const student = JSON.parse(binding.validateBrainArtifactFile(studentArtifact)) as BrainArtifactDescriptor;
       assert.equal(student.sensorSha256, metadata.sensorContract?.sha256, 'student artifact must match the exact native sensor contract');
+      assert.equal(student.controlIntervalSeconds, request.cadence, 'student artifact must match the actual teacher cadence');
       const settings = new Map(metadata.settings.map(entry => [entry.path, entry.value]));
       assert.equal(settings.get('snakeCount'), workload === 'P0' ? 55 : 300);
       assert.equal(settings.get('generationSeconds'), 604800); assert.equal(settings.get('simSpeed'), 1);
@@ -333,6 +344,78 @@ async function run(): Promise<void> {
     }, 5);
     native.start(); await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
     const address = server.address(); assert(address && typeof address !== 'string');
+    let libraryBefore: LiveCatalogReceipt | undefined;
+    let libraryAfter: LiveCatalogReceipt | undefined;
+    if (libraryFixture) {
+      const empty = await savedLibrary.list(null, 25); assert.deepEqual(empty, {entries: [], next: null});
+      for (const [ordinal, record] of libraryFixture.records.entries()) {
+        const bytes = await readLiveLibraryArtifact(libraryFixture, ordinal);
+        const result = JSON.parse((await exchange(address.port,
+          '/api/distillation/v1/library/import?name=' + encodeURIComponent(record.name), 'POST', bytes,
+          ordinal === 100 ? 429 : 201)).toString('utf8')) as SavedBrainRecordV1 & {error?: string};
+        if (ordinal === 100) {
+          assert.match(result.error ?? '', /record quota/u);
+          assert(!existsSync(join(managed, record.brainId + '.slither-brain')));
+          assert(!existsSync(join(managed, record.weightsSha256 + '.hof-weights-v1')));
+        } else {
+          assert.equal(result.brainId, record.brainId); assert.equal(result.artifact.weightsSha256, record.weightsSha256);
+          assert.equal(result.artifact.parameterCount, 494306); assert.equal(result.artifact.inputSize, 504);
+          assert.equal(result.artifact.architectureKey, metadata.graphKey);
+          assert.equal(result.artifact.sensorSha256, metadata.sensorContract?.sha256);
+          assert.equal(result.artifactByteCount, record.artifactByteCount); assert.equal(result.provenance.sourceKind, 'manual');
+          await until(() => !savedLibrary.busy, 'catalog import did not settle');
+        }
+      }
+      libraryBefore = await readLiveCapacityCatalog(async after => {
+        const response = JSON.parse((await exchange(address.port,
+          '/api/distillation/v1/library?limit=25' + (after ? '&after=' + after : ''), 'GET')).toString('utf8')) as {page: SavedBrainPageV1};
+        return response.page;
+      });
+      assert.deepEqual(libraryBefore.brainIds, libraryFixture.records.slice(0, 100).map(record => record.brainId).sort());
+    }
+    const inspector = {subscriptions: 0, rejectedScopes: 0, pendingSelections: 0, publications: 0, clearPublications: 0,
+      deliveredSamples: 0, maximumWireBytes: 0, lastSampleStep: '0000000000000000'};
+    if (libraryFixture) {
+      let sequence = '0000000000000000'; let lastDelivery = ''; let needsSelection = true;
+      let nextSelectionAt = 0; let closing = false; let pending: Promise<void> | undefined;
+      /** Poll only the native replaceable cache and reacquire the same evolved owner after retirement. */
+      const serviceInspector = async (): Promise<void> => {
+        const wire = native.latestInspector(sequence);
+        if (wire !== undefined && wire !== null) {
+          const snapshot = parseInspectorSnapshot(JSON.parse(wire));
+          assert(snapshot.sequence > sequence); sequence = snapshot.sequence; inspector.publications++;
+          inspector.maximumWireBytes = Math.max(inspector.maximumWireBytes, Buffer.byteLength(wire));
+          const sample = snapshot.sample;
+          if (sample === null) {inspector.clearPublications++; needsSelection = true;}
+          else {
+            assert.equal(sample.populationSlot, 0); assert.equal(sample.normalizedInputs.length, 504);
+            assert.equal(sample.profile, 'motion'); assert.equal(sample.bins, 32);
+            assert.equal(sample.sensorSha256, metadata.sensorContract?.sha256);
+            assert.equal(sample.raw.kind, 'evolved'); assert.notEqual(sample.pureProbe, true);
+            assert(sample.trace && sample.neuralOutputs?.every(Number.isFinite));
+            const delivery = snapshot.worldEpoch + ':' + sample.physicalId + ':' + sample.sampleStep;
+            if (delivery !== lastDelivery) {lastDelivery = delivery; inspector.deliveredSamples++;}
+            inspector.lastSampleStep = sample.sampleStep;
+          }
+        }
+        if (!closing && needsSelection && !generation.active && performance.now() >= nextSelectionAt) {
+          nextSelectionAt = performance.now() + 250;
+          const selected = await command(value => native.submitEntitySelection(value, 'slot', 0, runId, native.health().generation));
+          if (selected.kind === 'commandRejected') {inspector.rejectedScopes++; return;}
+          assert.equal(selected.kind, 'entitySelected');
+          if (!selected.entitySelection) {inspector.pendingSelections++; return;}
+          const result = await command(value => native.submitInspector(value, runId, selected.entitySelection!.token,
+            selected.entitySelection!.snakeId));
+          if (result.kind === 'commandRejected') {inspector.rejectedScopes++; return;}
+          assert.equal(result.kind, 'inspectorChanged'); inspector.subscriptions++; needsSelection = false;
+        }
+      };
+      const inspectorTimer = setInterval(() => {
+        if (closing || pending || pumpError) return;
+        pending = serviceInspector().catch(error => {pumpError = error;}).finally(() => {pending = undefined;});
+      }, 100);
+      stopInspector = async () => {closing = true; clearInterval(inspectorTimer); await pending;};
+    }
     const dataset = await capture.start({expectedRunId: runId, expectedConfigRevision: '0000000000000001',
       baselineSlots: Array.from({length: 10}, (_, slot) => slot), pendingBytes: workload ? 16 * 1024 ** 2 : 1024 ** 2,
       queueChunks: workload ? 1024 : 32, queueBytes: workload ? 16 * 1024 ** 2 : 4 * 1024 ** 2});
@@ -375,6 +458,7 @@ async function run(): Promise<void> {
     if (workload) {
       const shadowsBefore = metrics.slots;
       const captureBefore = await storage.dataset(dataset.contract.captureEpoch);
+      const inspectorBefore = {...inspector};
       const first = await wallRead(native); const reads = [first];
       const generationBarriers: SensorGenerationBarrier[] = [];
       const barrierIntervalMs = seconds * 1000 / (boundaries + 1);
@@ -484,20 +568,42 @@ async function run(): Promise<void> {
       assert.equal(captureAfter.error, null); assert(frameCopies > 0); assert.equal(forbiddenRequests, 0);
       const queueDiagnostics = native.queueDiagnostics();
       assert.equal(hostSha256, await digest(fileURLToPath(import.meta.url)));
+      assert.equal(libraryHelperSha256, await digest(libraryHelperPath));
       assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
       assert.equal(studentArtifactSha256, await digest(studentArtifact));
       if (trainedCohort) assert.equal(cohortIndexSha256, await digest(trainedCohort));
+      if (libraryFixture) assert.equal(libraryFixture.indexSha256, await digest(join(libraryFixture.directory, 'library-inputs/index.json')));
       if (pumpError) throw pumpError;
+      const inspectorAfter = {...inspector};
+      if (libraryFixture) {
+        assert(inspectorAfter.deliveredSamples > inspectorBefore.deliveredSamples, 'inspector must retain real neural deliveries during training');
+        assert(inspectorAfter.subscriptions > inspectorBefore.subscriptions, 'inspector must reacquire across generation/life boundaries');
+      }
       let durability: {requestedBoundaries: number; barriers: SensorGenerationBarrier[]; persistenceRestartExact: boolean;
         restoredGeneration: string; restoredCompletedStep: string; restoredSourceSha256: string; invalidRestoreAdmissionsRejected: number} | undefined;
       if (boundaries) {
         // Stop only this gate's authority before restarting its metadata worker and validating a cold restore.
+        await stopInspector?.();
         clearInterval(timer); await activePump;
         native.requestStop(); await native.join();
         await library.close(); await persistence.close();
         persistence = new CheckpointPersistenceClient({databasePath: join(root, 'game.sqlite'), managedRootPath: managed});
         const recovered = await persistence.selectCurrent(runId); assert(recovered);
         assert.deepEqual(recovered, latestNativeCheckpoint);
+        if (libraryFixture) {
+          libraryAfter = await readLiveCapacityCatalog(async after => {
+            const result = await persistence!.savedBrainCatalog({action: 'list', after, limit: 25});
+            assert.equal(result.action, 'list'); return (result as {page: SavedBrainPageV1}).page;
+          });
+          assert.deepEqual(libraryAfter, libraryBefore, 'full catalog must survive cold metadata restart');
+          for (const record of libraryFixture.records.slice(0, 100)) {
+            const result: SavedBrainCatalogResult = await persistence.savedBrainCatalog({action: 'read', brainId: record.brainId});
+            assert(result.action === 'read' && result.record);
+            const original: Buffer = await readFile(join(managed, result.record.artifactRelativeFilename));
+            assert.equal(original.byteLength, Number(BigInt('0x' + record.artifactByteCount)));
+            assert.equal(createHash('sha256').update(original).digest('hex'), record.brainId);
+          }
+        }
         const recoveredHistory = await persistence.readBrowserHistory(runId);
         for (const barrier of generationBarriers) {
           const row = recoveredHistory.find(entry => BigInt(entry.gen) === BigInt('0x' + barrier.terminal.generation));
@@ -528,10 +634,13 @@ async function run(): Promise<void> {
       const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
         device, workers, seed: 42, seconds, ...(sixHour ? {sixHourWindow: true, persistentWorkspace: root} : {}), ...(durability ? {durability} : {}),
         fullCapacitySoakQualified: false,
-        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full library/spool capacity and production-default selection. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
+        ...(libraryFixture ? {catalogOverlap: {fixtureIndexSha256: libraryFixture.indexSha256, before: libraryBefore,
+          afterColdRestart: libraryAfter, overflowRejected: true, overflowPublishedFiles: false},
+        inspectorOverlap: {before: inspectorBefore, after: inspectorAfter, pureProbe: false, inputSize: 504}} : {}),
+        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, full spool/replay occupancy and production-default selection. Full catalog and inspector overlap are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
-          hostSha256, trainerGateSha256, studentArtifactSha256,
+          hostSha256, libraryHelperSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
         workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {}),
           ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, producerStoragePolicy,
@@ -638,6 +747,7 @@ async function run(): Promise<void> {
     await writeFile(output, JSON.stringify(report, null, 2) + '\n', {flag: 'wx'});
     console.info('[live-distillation] passed', output);
   } finally {
+    await stopInspector?.();
     clearInterval(timer); await activePump;
     server.closeAllConnections(); await new Promise<void>(done => server.close(() => done()));
     if (runtime) {runtime.requestStop(); await runtime.join();}

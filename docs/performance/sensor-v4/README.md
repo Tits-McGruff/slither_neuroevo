@@ -1848,3 +1848,14 @@ mean endpoint regresses. Cells share geometry folds, so these descriptive means
 do not establish independent final-seed performance, maturity or a sensor choice.
 The study used a shared host and does not establish isolated-host timing.
 Production defaults and the outstanding maturity/resource gates remain open.
+
+The live large-graph host accepts `--library-fixtures PATH/library-inputs/index.json`
+with at least three durable generation boundaries. Supply the 100 distinct large
+Motion/B32 manual originals plus the valid 101st probe written by the existing
+native capacity fixture generator. The host imports through the real HTTP/native
+library path, checks the 101st rejection leaves no managed files, compares four
+catalog pages across cold restart, and hashes all retained originals. A 10-Hz
+inspector consumer reacquires evolved slot zero after life/generation retirement
+and records actual delivered neural samples with raw traces. Its selected-owner
+requests remain bounded at four Hz. Reports identify catalog/inspector overlap
+separately and still leave full spool/replay occupancy and soak qualification open.
