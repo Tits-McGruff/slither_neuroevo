@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-precise-cpu-learned-cohort-v1",
+  "slitherBaseCommit": "bf29580b11c51a2b78787de6f6a810cc866eb795",
+  "pyrlCommit": "7499f297bd35080fdde157b928831fbfb9377a69",
+  "nativeSourceSha256": "7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156",
+  "cohortFrom": "../live-cohort-debian-v1",
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "fullCapacitySoakQualified": false,
+  "scope": "Current CPU trainer, four retained learned Full-policy families across P1/300, ten stochastic v2 teachers, four native shadows, two durable generation transitions and cold restore on a shared Windows host. Teacher respawn remains the native fixture's 20 simulated seconds; the observation setup wait is bounded at 60 wall seconds and does not alter timing acceptance. Excludes maturity, all-consumer saturation statistics, catalog/inspector maxima, loaded replay/spool and integrated soak. Reports exclude local workspace/candidate paths; resource records contain only aggregate Windows/running-WSL/GPU counters.",
+  "files": {
+    "report.json": {
+      "bytes": 295023,
+      "sha256": "4af225ef8313ffdcab87b15ead9e2a4ca4063b1c3a9a5d83619d2eca88b5e314",
+      "gzipSha256": "00550bbfa81ccefa337fc763b2f2efca296dd8c0bd76272d0885675ffb651729"
+    },
+    "host/live-distillation.ts": {
+      "bytes": 69633,
+      "sha256": "3f4ce13a3ffb0ac25dd2d721b58b3056c9b550df2b96dcdf0926ed0287465b61",
+      "gzipSha256": "b5892a1bf4d04cfc299724ab35b7e083bc2703ea6378580b8263a3500b1bb5b5"
+    },
+    "host/nativeStepCosts.ts": {
+      "bytes": 2752,
+      "sha256": "f7d1aab865db1b8a60f1eafac2a768eddd3803eb4ef03865ebd997da74401e37",
+      "gzipSha256": "01483d33b9b359169145f94f8560de74cb66bd1be034f51def0e6d4d1d3d9d79"
+    },
+    "host/sensorWallTiming.ts": {
+      "bytes": 882,
+      "sha256": "9c47abe4006f9db93e343c370e2a64e21e6f17ed3e1e2916e87f4699d47f3979",
+      "gzipSha256": "72b7dc67dd35f34d8c90f47b5576c2e1e6755db0bc3e973fd26848af84381d64"
+    },
+    "host/sensorWallSummary.ts": {
+      "bytes": 8525,
+      "sha256": "d4122f103a57a6250191c34912ecb7fc056340495acae411098cae45f64b6099",
+      "gzipSha256": "6950dc4b461429b7e4b8922a599a0acee9f96504cd7f0a01452e2ff448f5d971"
+    },
+    "host/liveCapacityLibrary.ts": {
+      "bytes": 7152,
+      "sha256": "f69be7946b8226f2450fc25f52fadbd9047ba10893e05af2218a9fa4b9e551c8",
+      "gzipSha256": "6cb8041839f8497b9875a92405d34e89e38d87c9323a4b26529c07796a8bf449"
+    },
+    "host/liveSpoolPrefill.ts": {
+      "bytes": 10244,
+      "sha256": "a3ec9431647dcadb42f36cf563a39f4044f4ebc32043a3961236b2a3ce768d84",
+      "gzipSha256": "cc1796ee50da7fd6978dd2e69e3447d9ec38bd9be931667fdaee10895ef8c067"
+    },
+    "host/spoolFixture.ts": {
+      "bytes": 4423,
+      "sha256": "46a6ccd7acfac1a4dac1f6d0c56c530856b1b50159d9c5c5b80b3dda963e672b",
+      "gzipSha256": "3b34b2085bd6bc253611c4bd8c4c55fc0cb7628783327bb55c6d470833e0a279"
+    },
+    "host/system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "pyrl/canonical_graph.py": {
+      "bytes": 29527,
+      "sha256": "f79949d642aa667129b6d6e23ebf14bbb69c9ce96ed18b51ebab9629b4ab2ada",
+      "gzipSha256": "6f319601a69a6e867685edd9c395972bbcd0ffc3ca8c36aad9dac1d92345bcb4"
+    },
+    "pyrl/sensor_contract.py": {
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "7b24856553f2fd3900b755ba5276c9b2cc8152509dc3bb0845f5b3b39c55d68f"
+    },
+    "pyrl/sequence_distillation.py": {
+      "bytes": 17366,
+      "sha256": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+      "gzipSha256": "1febf12ada20ff41bb3fec830bb1292d93650cc3ad41dd7c1c87ea0ec1afd373"
+    },
+    "pyrl/distillation_transport.py": {
+      "bytes": 20337,
+      "sha256": "0498343d66408ddc1896ffad48777859e3ddac98406885ab25aaa4518f61d0ce",
+      "gzipSha256": "cb651105cff8c8ec2e1b99a1cf7c24caed6522ba7fe3347bc11689e048fe59e1"
+    },
+    "pyrl/distillation_client.py": {
+      "bytes": 22665,
+      "sha256": "91de1bb80cb00ed961758d079a051c662e3c2ae538a546b11731ba00f39b54c6",
+      "gzipSha256": "ef73dd3d7790abd2f751e50ad918e180ed9d29dcaf10fed33372b8a0ea75e2ba"
+    },
+    "pyrl/distillation_storage.py": {
+      "bytes": 2342,
+      "sha256": "05fe9f442c004e6a5c131e44d92b7a285293b7738f28736de07a3519db005f96",
+      "gzipSha256": "ff1ff040fa8048daa7cea7c83cc2b2910d9c8da11fee849c42fbd876754732cd"
+    },
+    "pyrl/distillation_replay.py": {
+      "bytes": 15074,
+      "sha256": "4538ca541528c6f550afb41ed3eaa4ff6f0e7640f0f9deb19ac95e3ca7bb85f6",
+      "gzipSha256": "80c03438fa0e9fd096f5330ea318a4c855e390b89c911eee556186a3d0f990e8"
+    },
+    "pyrl/distillation_sampling.py": {
+      "bytes": 12631,
+      "sha256": "5eef4b95bccb0e84090053b64fb415e72986da97f255ef0cd83b1222b67626ac",
+      "gzipSha256": "7a89366bd384851a5877254696be615fb4f2a0948d45b64c87d76daa83dc87ce"
+    },
+    "pyrl/distillation_job.py": {
+      "bytes": 26391,
+      "sha256": "8b384f4ae1364e8fc84ecbf3825c1c8cf0249586aef43438b2e0cbefdf2d531a",
+      "gzipSha256": "32bd658bdbfd3d9c38dd59c6d684454401c73991d54b7234239ca0dd27adca81"
+    },
+    "pyrl/distillation_process.py": {
+      "bytes": 2337,
+      "sha256": "41b62b59e0dd79c1d9d62a0ccf485f8ddbba5e7ae69d76c5d94c19d6832a513f",
+      "gzipSha256": "0b83217bd6c3754654ebe2992af017d2acf4fb239712ed738615f6dc654ec8d2"
+    },
+    "pyrl/distillation_checkpoint.py": {
+      "bytes": 34525,
+      "sha256": "beaa2c7a8cfc43af7bad01e97b2ee502f7e92d3b5548b679e60504627dbac9ae",
+      "gzipSha256": "d3b8c185716eccb4879cb577f1c2c02505e4570ea2265c81734023b299710132"
+    },
+    "pyrl/distillation_run.py": {
+      "bytes": 13699,
+      "sha256": "178296a3b26d8a9190d5c42b928ae569252a855d0c266fd6acfdad52f82a1e4c",
+      "gzipSha256": "dc1fc4fee3b414c1f1cc662b776edf819c6d53a499620e76148396818be8a4f5"
+    },
+    "pyrl/brain_artifact.py": {
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "a486c6db878a108da0b96b07babbfcec174597f1023a392afebab14939442a51"
+    },
+    "pyrl/distillation_shadows.py": {
+      "bytes": 7684,
+      "sha256": "6663d2edbecf8c8ce6e36dc46382e9de28a4ad184750e6a19c8b4dd2171f5277",
+      "gzipSha256": "bb3a114f3ae8c8bce291546c4532bacc1a4beb1388d4254e26cf17ba184b4175"
+    },
+    "pyrl/live_distillation_gate.py": {
+      "bytes": 26451,
+      "sha256": "7041fbb3082c54af15cc47113cbdb9f1b34fc3ceab800883259906dd8a3f3cf6",
+      "gzipSha256": "9145e1c0e086705b13a30e51a1a555af58ce5db1d1029ac7f27217506d745aa4"
+    },
+    "resources.json": {
+      "bytes": 9378,
+      "sha256": "b4837dbbe982afcf9105150cbdedb8f8a46149d33970a07a7203b9af12f270a2",
+      "gzipSha256": "420b7154aac42d4278cefad51a86fc9de5c0492b65ef258a7f4b2d6b15703f52"
+    },
+    "after-resources.json": {
+      "bytes": 1567,
+      "sha256": "d8b14af4cbc35c4947665e534bfc6b9e36dba654de7d65a43aaeb0687da23576",
+      "gzipSha256": "6f570890f644d171383214c12c2473a2217467d31ab6125c7f96ec93b61798c7"
+    },
+    "student.slither-brain": {
+      "bytes": 120412,
+      "sha256": "75f10cdef20c4790fb5f16670c2d343ddb55c2ed77d317fbcf4f05b8e67c3ecd",
+      "gzipSha256": "67545b8e7d58411c255adcc14087c62ece28afcd87d51478171b0357acab4ba6"
+    }
+  },
+  "studentSha256": "75f10cdef20c4790fb5f16670c2d343ddb55c2ed77d317fbcf4f05b8e67c3ecd",
+  "phaseDeltas": {
+    "stepTimingSamples": "3668",
+    "stepTimingTotalMicros": "56396752",
+    "slowStepSamples": "998",
+    "slowStepControlMicros": "13963491",
+    "slowStepControlIndexMicros": "555376",
+    "slowStepControlNeuralMicros": "11171506",
+    "slowStepControlSensingMicros": "10056981",
+    "slowStepControlInferenceMicros": "1039907",
+    "slowStepWorldMicros": "4862130",
+    "slowStepOtherMicros": "720137",
+    "terminalStepSamples": "2",
+    "terminalStepTotalMicros": "183957",
+    "terminalStepControlMicros": "25832",
+    "terminalStepWorldMicros": "9684",
+    "terminalStepPreparationMicros": "140040",
+    "terminalStepEvolutionMicros": "139401",
+    "terminalStepEvolutionSummaryMicros": "28490",
+    "terminalStepEvolutionReproductionMicros": "103558",
+    "terminalStepAdmissionMicros": "7910",
+    "terminalStepOtherMicros": "491"
+  },
+  "trainerSourceSha256": "31a1c5471f4b0a32e3adab6fb17c584a7ec08d205cd73b27a1cb9a1385c6ef03",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ]
+}

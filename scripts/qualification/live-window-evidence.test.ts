@@ -948,3 +948,65 @@ it('binds guarded species rejection to paired summaries, native generations and 
     }
   }
 });
+
+
+/** Current Windows CPU receipts keep source/durability and learned initial families together. */
+type CurrentCpuCohortEvidence = TrainerContentionEvidence & {
+  source: TrainerContentionEvidence['source'] & {slitherRevision: string; pyrlRevision: string};
+  workload: TrainerContentionEvidence['workload'] & {trainedCohort: {
+    indexSha256: string; families: {artifact: BrainArtifactDescriptor; populationSlots: number}[]}};
+  train: TrainerContentionEvidence['train'] & {trainerSourceSha256: string};
+  resume: TrainerContentionEvidence['resume'] & {trainerSourceSha256: string};
+  sustain: TrainerContentionEvidence['sustain'] & {trainerSourceSha256: string};
+  durability: LiveSixHourEvidenceReport['durability'];
+};
+
+it('retains current CPU P1 learned-cohort work without hiding the failed timing gate', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-precise-cpu-windows-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    files: Record<string, FrozenFileReceipt>; slitherBaseCommit: string; pyrlCommit: string;
+    nativeSourceSha256: string; trainerSourceSha256: string; trainerSourceFiles: string[]; studentSha256: string;
+  };
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as CurrentCpuCohortEvidence;
+  expect(frozenTrainerSource(files, 'pyrl/')).toEqual({names: manifest.trainerSourceFiles, sha256: manifest.trainerSourceSha256});
+  expect(report.source).toMatchObject({slitherRevision: manifest.slitherBaseCommit, pyrlRevision: manifest.pyrlCommit,
+    nativeSourceSha256: manifest.nativeSourceSha256, target: 'x86_64-pc-windows-msvc'});
+  expect(report.workload).toMatchObject({scenario: 'P1', request: {profile: 'motion', bins: 16, rayCap: 512, rayBatch: 131072},
+    metadata: {parameterCount: 25042, sensorVersion: 4}});
+  const cohortRoot = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/live-cohort-debian-v1');
+  const cohortManifest = JSON.parse(readFileSync(resolve(cohortRoot, 'evidence.json'), 'utf8')) as {files: Record<string, FrozenFileReceipt>};
+  const original = readFrozenFiles(cohortRoot, cohortManifest.files);
+  const index = JSON.parse(original.get('cohort.json')!.toString('utf8')) as {artifacts: {file: string; sha256: string}[]};
+  expect(report.workload.trainedCohort.indexSha256).toBe(sha256(original.get('cohort.json')!));
+  expect(report.workload.trainedCohort.families.map(family => family.artifact.artifactSha256)).toEqual(index.artifacts.map(entry => entry.sha256));
+  expect(report.workload.trainedCohort.families.map(family => family.populationSlots)).toEqual([75, 75, 75, 75]);
+  expect(report.resume).toMatchObject({updates: 250, restartExact: true, trainerSourceSha256: manifest.trainerSourceSha256});
+  expect(report.sustain).toMatchObject({initialUpdates: 250, updates: 550, optimizerUpdates: 300,
+    trainerSourceSha256: manifest.trainerSourceSha256});
+  expect(report.sustain.finalCursor).toBeGreaterThan(report.sustain.initialCursor);
+  expect(report.durability).toMatchObject({persistenceRestartExact: true, requestedBoundaries: 2,
+    restoredSourceSha256: manifest.nativeSourceSha256});
+  expect(report.durability.barriers).toHaveLength(2);
+  const last = report.durability.barriers.at(-1)!;
+  expect(report.summary).toEqual(summarizeSensorWall(report.reads, report.seconds,
+    {runId: last.checkpoint.runId, barriers: report.durability.barriers}));
+  expect(report.summary.progress.deltaSteps).toBe('3668');
+  expect(report.summary.stepTiming.p99UpperMs).toBe(24);
+  expect(report.summary.droppedWallMicros).toBe('2925000');
+  expect(report.summary.meetsMeasuredGates).toBe(false);
+  expect(report.capture.noDrops).toBe(true);
+  expect(report.capture.after.resolvedThrough).toBe(report.capture.after.productionWatermark);
+  expect(report.http.forbiddenRequests).toBe(0);
+  expect(report.frames.copies).toBeGreaterThan(0);
+  expect(sha256(files.get('student.slither-brain')!)).toBe(manifest.studentSha256);
+  for (const [slot, after] of report.shadows.after.entries()) {
+    const before = report.shadows.before[slot]!;
+    expect(after.artifactSha256).toBe(manifest.studentSha256);
+    expect(before.artifactSha256).toBe(manifest.studentSha256);
+    expect(BigInt('0x' + before.totals.samples)).toBeGreaterThan(0n);
+    const delta = BigInt('0x' + after.totals.samples) - BigInt('0x' + before.totals.samples);
+    expect(delta).toBeGreaterThan(0n);
+    expect(delta.toString()).toBe(report.shadows.sampleProgress[slot]);
+  }
+});

@@ -510,7 +510,11 @@ async function run(): Promise<void> {
         baselineSlot: receipt.baselineSlot, artifactSha256: identity});
       assert.equal(activated['enabled'], true);
     }
-    let metrics = await capture.shadows.metrics(); const limit = performance.now() + 10_000;
+    // The fixture has a 20-simulated-second teacher respawn delay. A teacher
+    // may die after resume's first sample, so ten wall seconds cannot cover
+    // its ordinary replacement even at 1x. Keep this setup phase within the
+    // existing 60-second request budget and retain every real-sample assertion.
+    let metrics = await capture.shadows.metrics(); const limit = performance.now() + 60_000;
     while (metrics.slots.some(slot => !slot || !slot.enabled || BigInt('0x' + slot.totals.samples) === 0n) && performance.now() < limit) {
       if (pumpError) throw pumpError;
       await new Promise(done => setTimeout(done, 50)); metrics = await capture.shadows.metrics();
