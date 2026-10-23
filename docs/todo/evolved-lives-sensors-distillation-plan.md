@@ -1320,6 +1320,20 @@ at 83.99 MiB under the configured 2,048-MiB ceiling; the configured 64-GiB spool
 also remains unfilled. Loaded storage, performance and the integrated soak are
 still unqualified.
 
+Disjoint final-seed synthetic native gameplay is now measured for the fixed
+training fold 2, all three initialization seeds and all seven 8,000-update
+variants. Every model covers 112 physical trials (14 scenarios, seeds 33..40),
+disjoint from the source corpus's seeds 1..8. The bounded
+`final-native-tactics-cuda8000-windows-v1/` capsule retains all 21 opaque models,
+native reports, frozen input identities and aggregate resource observations.
+Automated checks recompute outcomes, verify identical paired v1 references and
+reject process/distribution inventories in published counters. Full averages
+84 surviving trials against v1's 58, while v1 earns 335.11 food against Full's
+161.90; these are descriptive synthetic outcomes. They do not establish final
+teacher-agreement, representative ecology, maturity, cost, profile selection or
+release acceptance. Initial resource coverage is partial, so this evidence
+makes no idle-host performance claim.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
