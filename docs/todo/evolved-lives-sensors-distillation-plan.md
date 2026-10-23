@@ -1293,6 +1293,16 @@ Oxygen passes all 798 release library tests, five native bridge tests, rustfmt
 and Clippy; TypeScript and focused host/evidence checks pass. This construction
 path does not qualify the outstanding full-capacity soak.
 
+The 8,000-update compiled CUDA study is complete across nine paired seed/fold
+cells and seven variants (504,000 optimizer updates, no eager fallback). The
+retained matrix independently recomputes from native reports, opaque models and
+frozen sources under `heldout-curves-cuda8000-windows-v1/`. All 63 measured
+256-delivery prefixes pass native parity. Full's mean held-out turn MAE improves
+from 0.04020 at 6,000 updates to 0.03689 at 8,000; seven of nine Full cells improve.
+Core-only's endpoint mean regresses from 0.03183 to 0.03652. These late curves do
+not establish maturity, independent final-seed acceptance or a sensor-profile
+choice. The shared-host study provides no isolated-host performance evidence.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

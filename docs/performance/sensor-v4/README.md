@@ -1825,3 +1825,26 @@ These flags are qualification-only, preserve both 512-MiB scratch limits, and
 currently require fresh native population weights. Reports retain the native
 capacity audit and keep `fullCapacitySoakQualified` false: library/spool fills,
 loaded replay, performance and the integrated six-hour gate still need evidence.
+
+The [compiled CUDA 8,000-update study](heldout-curves-cuda8000-windows-v1/evidence.json)
+retains nine paired initialization/held-out-fold cells and all seven variants:
+63 models and 504,000 actual compiled updates, with zero eager window calls.
+Every model passes its measured 256-delivery native parity prefix; maximum
+observed output/state absolute errors are 7.87e-7/2.08e-6. The stdlib restore
+verifier independently reconstructs the exact matrix from the retained bytes.
+
+| Variant | Mean held-out turn MAE, 6,000 updates | At 8,000 updates |
+| --- | ---: | ---: |
+| Full | 0.04020 | 0.03689 |
+| No bearing | 0.03610 | 0.03345 |
+| No heading | 0.03620 | 0.03360 |
+| No velocity | 0.04565 | 0.03791 |
+| No urgency | 0.04456 | 0.04140 |
+| No density | 0.04379 | 0.03919 |
+| Core only | 0.03183 | 0.03652 |
+
+Full improves in seven of nine cells over the final 2,000 updates; Core-only's
+mean endpoint regresses. Cells share geometry folds, so these descriptive means
+do not establish independent final-seed performance, maturity or a sensor choice.
+The study used a shared host and does not establish isolated-host timing.
+Production defaults and the outstanding maturity/resource gates remain open.
