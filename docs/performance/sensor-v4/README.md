@@ -1896,3 +1896,14 @@ does not qualify loaded replay or the full integrated soak.
 `--workspace` also permits explicit retention of short P0/P1 qualification
 artifacts and failed-run diagnostics. Existing directories are rejected;
 six-hour windows continue to require an exclusive persistent workspace.
+
+Explicit live replay loading uses `--replay-mib 2048 --replay-min-mib 2040`
+with a persistent P0/P1 workspace. The minimum counts the ordinary replay
+owner's actual raw/decoded data and charged metadata; reports separate encoded
+data, decoded ownership and total charged bytes. Only the active epoch's strict
+HTTP intake can fill it. `--replay-fill-seconds` selects an absolute 1..10,800
+second setup allowance (default 1,800 when loading is requested). The ordinary
+optimizer-work allowance begins after that measured fill; request timeouts stay
+unchanged. Exact restart must preserve the same requested floor, and sustained
+intake must never drop below it. A selected ceiling without these occupancy
+receipts remains unqualified.

@@ -167,7 +167,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures', '--spool-prefill-gib', '--spool-prefill-deadline-seconds'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
+    if (!['--pyrl-root', '--python', '--device', '--workers', '--report', '--spool-gib', '--workload', '--student-artifact', '--contention-seconds', '--generation-boundaries', '--soak-hours', '--workspace', '--trained-cohort', '--replay-mib', '--capacity-graph', '--checkpoint-envelope-mib', '--library-fixtures', '--spool-prefill-gib', '--spool-prefill-deadline-seconds', '--replay-min-mib', '--replay-fill-seconds'].includes(key) || value === undefined || args.has(key)) throw new Error('invalid qualification arguments');
     args.set(key, value);
   }
   for (const key of ['--pyrl-root', '--python', '--device', '--workers', '--report']) assert(args.has(key), 'required ' + key);
@@ -192,6 +192,14 @@ async function run(): Promise<void> {
   const persistent = args.has('--workspace');
   assert(!sixHour || persistent, 'six-hour measurement requires an exclusive persistent workspace');
   assert(!persistent || workload !== undefined, 'persistent qualification workspace requires P0/P1 workload');
+  const replayMinMiB = Number(args.get('--replay-min-mib') ?? '0');
+  assert(Number.isSafeInteger(replayMinMiB) && replayMinMiB >= 0 && replayMinMiB < replayMiB,
+    'minimum replay MiB must be an integer below replay capacity');
+  assert(!replayMinMiB || workload !== undefined && persistent,
+    'loaded replay requires an explicit P0/P1 workload and persistent workspace');
+  const replayFillSeconds = Number(args.get('--replay-fill-seconds') ?? '1800');
+  assert(Number.isSafeInteger(replayFillSeconds) && replayFillSeconds >= 1 && replayFillSeconds <= 10_800);
+  assert(!args.has('--replay-fill-seconds') || replayMinMiB > 0, 'replay setup allowance requires explicit occupancy');
   const spoolPrefillGiB = Number(args.get('--spool-prefill-gib') ?? '0');
   assert(Number.isSafeInteger(spoolPrefillGiB) && spoolPrefillGiB >= 0 && spoolPrefillGiB <= spoolGiB);
   assert(!args.has('--spool-prefill-gib') || spoolPrefillGiB >= 1 && persistent && capacityGraph === 'large',
@@ -463,11 +471,13 @@ async function run(): Promise<void> {
     const jobDirectory = join(root, 'job');
     const common = ['--origin', origin, '--capture-epoch', dataset.contract.captureEpoch,
       '--artifact', studentArtifact, '--directory', jobDirectory, '--device', device, '--spool-gib', String(spoolGiB), '--replay-mib', String(replayMiB),
-      ];
+      ...(replayMinMiB ? ['--replay-min-mib', String(replayMinMiB)] : [])];
     const trainingCommon = [...common, '--max-wall-seconds', workload ? '600' : '180'];
     const before = native.health();
     console.info('[live-distillation] training', device, 'workers=' + workers);
-    await python(pythonPath, checkout, ['--phase', 'train', ...trainingCommon]);
+    await python(pythonPath, checkout, ['--phase', 'train', ...trainingCommon,
+      ...(replayMinMiB ? ['--replay-fill-seconds', String(replayFillSeconds)] : [])],
+    630_000 + (replayMinMiB ? replayFillSeconds * 1000 : 0));
     if (pumpError) throw pumpError;
     await python(pythonPath, checkout, ['--phase', 'resume', ...trainingCommon]);
     if (pumpError) throw pumpError;
@@ -477,6 +487,16 @@ async function run(): Promise<void> {
     for (const phase of [train, resume]) {
       assert.equal(phase['replayCapacityBytes'], replayMiB * 1024 ** 2);
       assert(Number(phase['replayBytes']) <= replayMiB * 1024 ** 2);
+      assert(Number(phase['replayBytes']) >= replayMinMiB * 1024 ** 2);
+    }
+    if (replayMinMiB) {
+      const fill = train['replayFill'] as {minimumOwnedBytes: number; ownedBytes: number; captureEpoch: string;
+        setupDeadlineSeconds: number; elapsedSeconds: number};
+      assert.equal(fill.minimumOwnedBytes, replayMinMiB * 1024 ** 2);
+      assert.equal(fill.captureEpoch, dataset.contract.captureEpoch);
+      assert(fill.ownedBytes >= fill.minimumOwnedBytes && fill.ownedBytes <= replayMiB * 1024 ** 2);
+      assert.equal(fill.setupDeadlineSeconds, replayFillSeconds);
+      assert(fill.elapsedSeconds < replayFillSeconds);
     }
     const identity = resume['candidateSha256']; assert.equal(typeof identity, 'string'); assert(/^[0-9a-f]{64}$/u.test(identity as string));
     const receipt = resume['receipt'] as {processEpoch: string; baselineSlot: number};
@@ -591,6 +611,7 @@ async function run(): Promise<void> {
       }
       assert.equal(sustain['replayCapacityBytes'], replayMiB * 1024 ** 2);
       assert(Number(sustain['peakReplayBytes']) <= replayMiB * 1024 ** 2);
+      if (replayMinMiB) assert(Number(sustain['minimumReplayBytes']) >= replayMinMiB * 1024 ** 2);
       assert.equal(sustain['requestedSeconds'], seconds); assert(Number(sustain['activeWallSeconds']) >= seconds);
       assert(Number(sustain['optimizerUpdates']) > 0 && Number(sustain['fetches']) > 0);
       assert(BigInt(String(sustain['finalCursor'])) > BigInt(String(sustain['initialCursor'])));
@@ -713,13 +734,13 @@ async function run(): Promise<void> {
         ...(libraryFixture ? {catalogOverlap: {fixtureIndexSha256: libraryFixture.indexSha256, before: libraryBefore,
           afterColdRestart: libraryAfter, overflowRejected: true, overflowPublishedFiles: false},
         inspectorOverlap: {before: inspectorBefore, after: inspectorAfter, pureProbe: false, inputSize: 504}} : {}),
-        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies, loaded replay and production-default selection. Catalog/inspector overlap and explicitly synthetic inactive spool prefill are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
+        scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies and production-default selection. Loaded replay is exercised only when an explicit occupancy target is recorded. Catalog/inspector overlap and explicitly synthetic inactive spool prefill are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
           hostSha256, libraryHelperSha256, spoolHelperSha256, spoolFixtureSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
         workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {}),
-          ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, producerStoragePolicy,
+          ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, replayMinMiB, ...(replayMinMiB ? {replayFillSeconds} : {}), producerStoragePolicy,
         hostPeakRssBytes, train, resume: {...resume, candidatePath: undefined}, sustain, summary,
         reads: reads.map((read, index) => {
           const health = {...read.health};
