@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "kind": "canonical-cpu-compensated-dot-v1",
+  "nativeSourceSha256": "7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156",
+  "slitherCommit": "101014d994bf7175c102ecc18cde56e1a531322b",
+  "sourcesFrom": "../native-dot-numerics-v1",
+  "roundtripQualified": true,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "cpuPartialWidth": 16,
+  "minimumCpuWidth": 32,
+  "scope": "Float32 compensated CPU matrix partials resolve the retained Debian large-LSTM first-state gap on the identical frozen export and on fresh actual optimizer/native-admission/exact-reimport gates. Standard and --include-large fixture generation covers 18 cases on Windows CPU, Debian CPU and CUDA. Separate 384-case per-platform Float64-oracle comparisons assess general dot accuracy; forward/gradient tests cover strided views. Direct CUDA math and trained exports are unchanged. This establishes no CPU-throughput, gameplay maturity, integrated capacity, idle-host or cross-build exact-trajectory claim.",
+  "files": {
+    "pyrl/canonical_graph.py": {
+      "bytes": 27612,
+      "sha256": "4764ce6884301369fc050c71984bde250aa272948aec38a60a1bb042f25c5d49",
+      "gzipSha256": "97c6fad6b2413727f02a0c59d824ff0e3d2c4e4e911382ef019bbaa5f2249dff"
+    },
+    "pyrl/canonical_parity.py": {
+      "bytes": 10271,
+      "sha256": "7cc56a79921bd735da891c37190250d015732a02999abcd92987e1fd22e4eb34",
+      "gzipSha256": "292cab571a20e59249028f8c38afa9689a1934c53cb1834bc2d4498d803a5b2b"
+    },
+    "pyrl/sequence_distillation.py": {
+      "bytes": 17366,
+      "sha256": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+      "gzipSha256": "1febf12ada20ff41bb3fec830bb1292d93650cc3ad41dd7c1c87ea0ec1afd373"
+    },
+    "pyrl/test_canonical_graph.py": {
+      "bytes": 13935,
+      "sha256": "d28242f687087ddcf3907b1aabceb7726b12d905b4a02e0783279fdc87b39bc9",
+      "gzipSha256": "99e68e6fbc4b98c164fc99c0629b458405f4acf1dd275f33af8adf16b3ad2e60"
+    },
+    "pyrl/generate_canonical_graph_fixtures.py": {
+      "bytes": 7025,
+      "sha256": "2c6460c7c83c430de42f1e5707438e95597b2a586d5712a0bedd374d529ec6e2",
+      "gzipSha256": "6261b9dda41104cf0ca7c388fbf62416d4d8cf4a11f6392472c36a06f67984d6"
+    },
+    "qualify.py": {
+      "bytes": 3774,
+      "sha256": "78e17853bea2af836bbdaa4275841fca8a27334c6419b29c4ca8eca668e5ced9",
+      "gzipSha256": "97f97a60fee50b56969217071b76452bb0aed4ba9d0e45c4c92eccad00b29c5b"
+    },
+    "accuracy.py": {
+      "bytes": 2285,
+      "sha256": "c98fd0e62e1ad6e39426ca9ea490de9a01562f327e8e0e758255537ad7931031",
+      "gzipSha256": "af47acae9ff71baa8e26cca977321831f658cca786e72ae3b5ce24cf25d6b20f"
+    },
+    "fixed-export.py": {
+      "bytes": 2528,
+      "sha256": "ceb35e5f95d0c68fb70b6390930cf1adc64f21f5881230c9686e16983da5eaa3",
+      "gzipSha256": "c66351676cd4b9b2cda23217915a69706ed5331d1ffa3d8d6c04746a17ef39a1"
+    },
+    "windows/cpu-roundtrip.json": {
+      "bytes": 36044,
+      "sha256": "48bfa1b42b9604372d7c48da6da1bcb1e745ed30db5f593efdf29da68472d59c",
+      "gzipSha256": "50fef09b861635df0bdbf34303c847314c966f5b41aa2330c947a2f009d104c2"
+    },
+    "windows/cuda-roundtrip.json": {
+      "bytes": 36262,
+      "sha256": "12e866f9e1bde38bc9906ccf9eae2bcc77247ff5ac7f7dab0a466983f61f8a77",
+      "gzipSha256": "a9f17127e1f9f52a26986933f12b4e8c1a982f3cf00aed131f45cfd593c4e808"
+    },
+    "windows/accuracy.json": {
+      "bytes": 116695,
+      "sha256": "05a4fd0d0b9acfd34107afb71e74ff71029e9b933aaa8d9f1267e0e431455490",
+      "gzipSha256": "a75c2932596b0a57a9b1eaed798144b65371a3d2e7b20e4fdd65ae318f566f9a"
+    },
+    "debian/cpu-roundtrip.json": {
+      "bytes": 34868,
+      "sha256": "4a4a54ee5bf67c786c7d63662eefc22585d9430061b0d451996f6620270b1715",
+      "gzipSha256": "5a1f28695ff975aa67163cc868e3909eec8a2b2c84d19fe158c92fff022cd763"
+    },
+    "debian/accuracy.json": {
+      "bytes": 112785,
+      "sha256": "32e586e96692322595fd94a2bc461d39b5829c1e93148284047cbec469d21070",
+      "gzipSha256": "490e4ea11dce1e63d9783237c9c2f654d42640f3e454eec6267c56cfc4d62ae8"
+    },
+    "windows/resources.json": {
+      "bytes": 4697,
+      "sha256": "56d75436aadc9910048fbc17e5f020d8d3a97902408c7a6709df5dd7fa3abd4c",
+      "gzipSha256": "b9c088d49917d9df16314d12e4d45faf44a1601800668e1c5b38839bc9d36185"
+    },
+    "debian/resources.json": {
+      "bytes": 2875,
+      "sha256": "9b97a0721803596b150ce4baabc8998aaf0f9abcb7d96e9202fcfefad3737cfb",
+      "gzipSha256": "ff40356aa177057ca53fc4817f5d7a89c882c8d99bd3230a1e33747ae24317e4"
+    },
+    "windows/system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "debian/system-resource-observer.py": {
+      "bytes": 9992,
+      "sha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
+      "gzipSha256": "64aa8b71faeeee2a8840e4aba558fb9b53a5222025a3cbb1a1b1437c39942011"
+    },
+    "fixed-lstm/report.json": {
+      "bytes": 4539,
+      "sha256": "90d9523ff4425a8a6f127d45df4ac5ff410d25af5a9cc7d2d4c02037a7ca2fa9",
+      "gzipSha256": "2b5a43917b8c6376e3b29c1e8d3e6593ab8b8f7a1dee565362157249e0833e95"
+    },
+    "fixed-lstm/weights.f32": {
+      "bytes": 2112776,
+      "sha256": "bf7be5c579de6d8b71d4c8f215ef404781f885c304573845291c034ad84fc4af",
+      "gzipSha256": "69fdfca8ef4ce16ab78a3f9074c17bd3223d79716fc5aae980c954c3caf931bf"
+    },
+    "fixed-lstm/manifest.json": {
+      "bytes": 24342,
+      "sha256": "012f6ba605cc98dc69c6bdb9f27b510f40312c035f8ae68378db1946adc511e3",
+      "gzipSha256": "281893ee7672e3d5b093fddaa6445fba98fc2a0cea7357133a545189a1d518cc"
+    },
+    "fixed-lstm/torch-states.f32": {
+      "bytes": 196608,
+      "sha256": "607c12fbd289daa0d4f249ed517b238e9279eb01dab34d140ff6dff932a2484a",
+      "gzipSha256": "de99eb4bb46164b985e40e8fdf84bce85aca644b707deb002297140c28182b9b"
+    },
+    "fixed-lstm/torch-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "648d9081fe6b2f558e3f6b54b2000a69a645031d2fcd22392905a351564b89fb",
+      "gzipSha256": "404d0f034b3b343569c991deac57c47926b872cd70bf4cb9c3c80ee6614a298d"
+    }
+  },
+  "trainerSourceSha256": "1f678a850aeead4810b399fbe0f142b77fce88c478c3b20a494af18ad2ff3f4e",
+  "pyrlCommit": "b7f7508d57f12e496b83ee8af120b23ef620a6a1"
+}

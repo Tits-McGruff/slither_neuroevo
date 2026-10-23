@@ -327,6 +327,21 @@
       "bytes": 10213,
       "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
       "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "live-P0/student.slither-brain": {
+      "bytes": 2003356,
+      "sha256": "8c54e325bea268ea010246c576b23621c027b2a493a577f5d20208241221f10a",
+      "gzipSha256": "858e63e4425162882137d782416d39459545a09b0b1ca643fa4cec7f4b0b43ed"
+    },
+    "live-P1/student.slither-brain": {
+      "bytes": 2003340,
+      "sha256": "ad5d12a018933867051da5504295f75a40ed39a156d076afb7fd400bb6eea579",
+      "gzipSha256": "5489390338c9d442960037142ecb57f618f19a8201d90b4c771799ed034ee5b0"
     }
+  },
+  "retainedStudentUpdates": 250,
+  "retainedStudents": {
+    "P0": "8c54e325bea268ea010246c576b23621c027b2a493a577f5d20208241221f10a",
+    "P1": "ad5d12a018933867051da5504295f75a40ed39a156d076afb7fd400bb6eea579"
   }
 }
