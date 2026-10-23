@@ -1949,3 +1949,20 @@ observations beside the measured window, not simultaneous completed-step
 snapshots. The lifetime terminal maximum does not establish a window maximum.
 The consistent histogram and wall/debt gates remain the acceptance evidence;
 these extra scalar observations add no native hot-path timers.
+
+The `native-large-costs-debian-v1/` investigation keeps the failed P1 large
+window's existing coarse counters. Three terminal boundaries spend 34.70 seconds
+in preparation: 28.20 seconds in statistics/species work and 5.96 seconds in
+reproduction. Across 173 ordinary slow steps, neural batches total 15.59 seconds
+and physics 2.26 seconds. Independent atomic reads and bounded native subcosts
+are diagnostic attribution, not exact per-step snapshots or CPU percentages.
+
+Its separate four-row affine prototype retains every tested row's original
+accumulation order. It passes 7,476 exact raw-dot and 7,707 exact activated-output
+comparisons plus streaming-bank checks. Eight paired order-balanced passes per
+case show hot-cache gains but a 12.5% median regression at width 256 with a
+128-matrix streaming bank. The candidate is rejected; production kernels remain
+unchanged. Microbenchmark resource observations bracket the run only and make no
+idle-host or integrated-runtime performance claim. Sources, records and the
+negative decision are retained so hot-cache results cannot be mistaken for a
+large-population improvement.

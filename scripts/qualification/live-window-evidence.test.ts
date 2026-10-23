@@ -6,6 +6,7 @@ import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
 import { distillationRecoveryTimeoutMs } from '../../server/rustEngine/distillationProtocol.ts';
+import type { NativeStepCostRead } from './nativeStepCosts.ts';
 import type { LiveSpoolPrefillReceipt } from './liveSpoolPrefill.ts';
 import type { LiveCatalogReceipt } from './liveCapacityLibrary.ts';
 import type { BrainArtifactDescriptor } from '../../src/protocol/brainArtifacts.ts';
@@ -24,7 +25,7 @@ function readFrozenFiles(root: string, receipts: Record<string, FrozenFileReceip
   expect(Object.keys(receipts).length).toBeLessThanOrEqual(64);
   const files = new Map<string, Buffer>(); let total = 0;
   for (const [name, receipt] of Object.entries(receipts)) {
-    expect(name).toMatch(/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:json|py|ts|slither-brain)$/u);
+    expect(name).toMatch(/^(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+\.(?:json|py|ts|rs|slither-brain)$/u);
     const path = resolve(root, name + '.gz'); const info = lstatSync(path);
     expect(info.isFile()).toBe(true); expect(info.isSymbolicLink()).toBe(false);
     expect(info.size).toBeLessThanOrEqual(4 * 1024 ** 2);
@@ -674,5 +675,119 @@ it.each(['spool', 'replay'] as const)('preserves the actual loaded %s gate and i
     expect(report.sustain.minimumReplayBytes).toBeGreaterThanOrEqual(fill.minimumOwnedBytes);
     expect(report.sustain.peakReplayBytes).toBeGreaterThanOrEqual(2047 * 1024 ** 2);
     expect(report.summary.stepTiming.p99UpperMs).toBe(48);
+  }
+});
+
+
+/** Existing native costs are independent diagnostic snapshots beside the ordinary live histogram. */
+type NativeCostInvestigation = LiveLargeCatalogEvidence & {
+  source: {costHelperSha256: string; spoolHelperSha256: string; spoolFixtureSha256: string};
+  phaseCosts: {scope: string; before: NativeStepCostRead; after: NativeStepCostRead};
+};
+
+it('binds native large-graph cost attribution and preserves a rejected cold-streaming affine candidate', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/native-large-costs-debian-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    kind: string; performanceQualified: boolean; fullCapacitySoakQualified: boolean;
+    runtimeOptimized: boolean; denseRowBatchingSelected: boolean; slitherCommit: string; pyrlCommit: string;
+    nativeSourceSha256: string; trainerSourceSha256: string; trainerSourceFiles: string[];
+    files: Record<string, FrozenFileReceipt>};
+  expect(manifest).toMatchObject({kind: 'native-large-cost-investigation-v1', performanceQualified: false,
+    fullCapacitySoakQualified: false, runtimeOptimized: false, denseRowBatchingSelected: false});
+  const files = readFrozenFiles(root, manifest.files);
+  const report = JSON.parse(files.get('report.json')!.toString('utf8')) as NativeCostInvestigation;
+  expect(report.source).toMatchObject({slitherRevision: manifest.slitherCommit, pyrlRevision: manifest.pyrlCommit,
+    nativeSourceSha256: manifest.nativeSourceSha256, target: 'x86_64-unknown-linux-gnu',
+    hostSha256: sha256(files.get('host/live-distillation.ts')!),
+    costHelperSha256: sha256(files.get('host/nativeStepCosts.ts')!),
+    libraryHelperSha256: sha256(files.get('host/liveCapacityLibrary.ts')!),
+    spoolHelperSha256: sha256(files.get('host/liveSpoolPrefill.ts')!),
+    spoolFixtureSha256: sha256(files.get('host/spoolFixture.ts')!),
+    trainerGateSha256: sha256(files.get('pyrl/live_distillation_gate.py')!),
+    studentArtifactSha256: sha256(files.get('large-motion32-student.slither-brain')!)});
+  const trainer = frozenTrainerSource(files, 'pyrl/');
+  expect(trainer.names).toEqual(manifest.trainerSourceFiles);
+  expect(trainer.sha256).toBe(manifest.trainerSourceSha256);
+  expect(report).toMatchObject({device: 'cpu', workers: 4, seconds: 60,
+    workload: {scenario: 'P1', capacityGraph: 'large', checkpointEnvelopeMiB: 768,
+      metadata: {parameterCount: 494306}}, train: {updates: 126}, resume: {updates: 250, restartExact: true}});
+  expect(report.catalogOverlap.before).toMatchObject({recordCount: 100, pages: 4});
+  expect(report.catalogOverlap.afterColdRestart).toEqual(report.catalogOverlap.before);
+  expect(report.inspectorOverlap.after.deliveredSamples).toBeGreaterThan(report.inspectorOverlap.before.deliveredSamples);
+  expect(report.durability.barriers).toHaveLength(3);
+  const last = report.durability.barriers.at(-1)!;
+  expect(summarizeSensorWall(report.reads, 60, {runId: last.checkpoint.runId,
+    barriers: report.durability.barriers})).toEqual(report.summary);
+  expect(report.summary.meetsMeasuredGates).toBe(false);
+  const phases = report.phaseCosts;
+  expect(phases.scope).toContain('not simultaneous step snapshots');
+  expect(phases.scope).toContain('Lifetime maximum is not a window maximum');
+  expect(phases.before.beforeMs).toBeGreaterThanOrEqual(report.reads[0]!.beforeMs);
+  expect(phases.after.afterMs).toBeGreaterThanOrEqual(report.reads.at(-1)!.beforeMs);
+  const declaration = files.get('host/nativeStepCosts.ts')!.toString('utf8')
+    .match(/NATIVE_STEP_COST_KEYS = \[([\s\S]*?)\] as const/u);
+  expect(declaration).not.toBeNull();
+  const keys = [...declaration![1]!.matchAll(/'([a-zA-Z]+)'/gu)].map(match => match[1]!);
+  expect(keys).toHaveLength(21);
+  /** Use a string-keyed view only after matching the frozen literal inventory. */
+  const before = phases.before.counters as Record<string, string>;
+  const after = phases.after.counters as Record<string, string>;
+  expect(Object.keys(before)).toEqual(keys); expect(Object.keys(after)).toEqual(keys);
+  const deltas: Record<string, bigint> = {};
+  for (const key of keys) {
+    expect(before[key]).toMatch(/^[0-9a-f]{16}$/u); expect(after[key]).toMatch(/^[0-9a-f]{16}$/u);
+    expect(before[key]).not.toBe('f'.repeat(16)); expect(after[key]).not.toBe('f'.repeat(16));
+    expect(BigInt('0x' + after[key]!)).toBeGreaterThanOrEqual(BigInt('0x' + before[key]!));
+    if (key !== 'terminalStepMaxMicros') deltas[key] = BigInt('0x' + after[key]!) - BigInt('0x' + before[key]!);
+  }
+  expect(deltas['terminalStepSamples']).toBe(3n);
+  expect(deltas['slowStepSamples']).toBe(173n);
+  expect(deltas['terminalStepPreparationMicros']).toBe(34701064n);
+  expect(deltas['terminalStepEvolutionSummaryMicros']).toBe(28201694n);
+  expect(deltas['terminalStepEvolutionReproductionMicros']).toBe(5963211n);
+  expect(deltas['slowStepControlNeuralMicros']).toBe(15589631n);
+  expect(deltas['slowStepWorldMicros']).toBe(2261696n);
+  const micro = JSON.parse(files.get('micro/result.json')!.toString('utf8')) as {
+    exactOutputComparisons: number; exactDotComparisons: number;
+    records: {width: number; rows: number; iterations: number; pass: number; streaming: boolean;
+      oldFirst: boolean; originalSeconds: number; candidateSeconds: number}[]};
+  const metadata = JSON.parse(files.get('micro/metadata.json')!.toString('utf8')) as {
+    sourceSha256: string; referenceSha256: string; scope: string;
+    summary: {width: number; rows: number; streaming: boolean; medianCandidateRatio: number}[]};
+  expect(metadata.sourceSha256).toBe(sha256(files.get('micro/benchmark.rs')!));
+  expect(metadata.referenceSha256).toBe(sha256(files.get('micro/simd_kernels.rs')!));
+  expect(metadata.scope).toContain('Endpoint aggregate resource context only');
+  expect(micro.exactOutputComparisons).toBe(7707); expect(micro.exactDotComparisons).toBe(7476);
+  expect(micro.records).toHaveLength(56); expect(metadata.summary).toHaveLength(7);
+  for (const record of micro.records) {
+    expect(record.originalSeconds).toBeGreaterThan(0); expect(record.candidateSeconds).toBeGreaterThan(0);
+    expect(record.oldFirst).toBe([0, 3].includes(record.pass % 4));
+  }
+  for (const summary of metadata.summary) {
+    const cells = micro.records.filter(row => row.width === summary.width &&
+      row.rows === summary.rows && row.streaming === summary.streaming);
+    expect(cells.map(row => row.pass)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    const ratios = cells.map(row => row.candidateSeconds / row.originalSeconds).sort((a, b) => a - b);
+    expect(summary.medianCandidateRatio).toBeCloseTo((ratios[3]! + ratios[4]!) / 2, 14);
+  }
+  expect(metadata.summary.find(row => row.width === 256 && row.streaming)!.medianCandidateRatio).toBeGreaterThan(1.1);
+  expect(metadata.summary.find(row => row.width === 256 && !row.streaming)!.medianCandidateRatio).toBeLessThan(0.5);
+  const observer = sha256(files.get('host/system-resource-observer.py')!);
+  for (const name of ['aggregate-resources.json', 'micro/before-resources.json', 'micro/after-resources.json']) {
+    const rows = JSON.parse(files.get(name)!.toString('utf8')) as Array<{
+      processDetailsIncluded: boolean; observerSourceSha256: string; host: Record<string, unknown>;
+      gpu: {rows?: Array<Record<string, unknown>>}}>;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.processDetailsIncluded).toBe(false); expect(row.observerSourceSha256).toBe(observer);
+      expect(Object.keys(row).every(key => ['schemaVersion', 'utc', 'platform', 'gpu', 'host',
+        'processDetailsIncluded', 'attribution', 'collectionSeconds', 'sample', 'observerSourceSha256'].includes(key))).toBe(true);
+      expect(Object.keys(row.host).every(key => ['available', 'cpuTicks', 'loadAverage', 'memoryKiB',
+        'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+      expect(Object.keys(row.gpu).every(key => ['available', 'rows', 'error', 'exitCode', 'oversized'].includes(key))).toBe(true);
+      for (const gpu of row.gpu.rows ?? []) expect(Object.keys(gpu).every(key => ['name',
+        'utilization.gpu [%]', 'utilization.memory [%]', 'memory.used [MiB]', 'memory.total [MiB]',
+        'power.draw [W]', 'temperature.gpu'].includes(key))).toBe(true);
+    }
   }
 });

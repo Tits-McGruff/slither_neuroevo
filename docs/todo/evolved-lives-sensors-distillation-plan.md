@@ -1369,6 +1369,19 @@ above 256 ms; the loaded P0 replay case has 48-ms p99, 0.933 simulated/wall rati
 and 663 ms of dropped wall debt. Performance, loss-free setup under contention,
 representative maturity and the integrated six-hour gate remain open.
 
+A further P1 large-graph window retains existing native cost counters under
+`native-large-costs-debian-v1/`. Three terminal boundaries spend 34.70 seconds
+in preparation, including 28.20 seconds in evolution statistics/species work and
+5.96 seconds in reproduction. Across 173 ordinary slow steps, reported neural
+batch evaluation totals 15.59 seconds and physics 2.26 seconds. These are coarse
+independent atomic observations beside the unchanged histogram gate, not exact
+per-step or CPU-fraction attribution. A separate four-row affine prototype
+preserves 7,476 raw-dot and 7,707 activated-output bit comparisons and improves
+hot-cache microbenchmarks, but regresses the 256-wide streaming-bank median by
+12.5%; it is rejected and no production kernel changes. The capsule binds the
+runtime and synthetic benchmark sources, paired records and aggregate resource
+context. Generation summary and neural cost remain performance work.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
