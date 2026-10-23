@@ -871,6 +871,8 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             #[cfg(feature = "engine-test-hooks")]
             trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Fresh,
@@ -919,6 +921,8 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             #[cfg(feature = "engine-test-hooks")]
             trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Checkpoint(Box::new(restore)),
@@ -967,6 +971,8 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             #[cfg(feature = "engine-test-hooks")]
             trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::LegacySqlite(legacy),
@@ -1203,9 +1209,10 @@ impl ExperimentalStage6aFreshRunSession {
             "rayMinimum",
             "rayCap",
             "rayBatch",
+            "envelopeMiB",
         ];
         let names = admission.get_property_names()?;
-        if names.get_array_length()? != keys.len() as u32 {
+        if !matches!(names.get_array_length()?, 6 | 7) {
             return Err(Error::new(
                 Status::InvalidArg,
                 "qualified restore requires exact fields",
@@ -1267,6 +1274,23 @@ impl ExperimentalStage6aFreshRunSession {
             512,
         )
         .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let capacity_policy = if admission.has_own_property("envelopeMiB")? {
+            if profile != crate::engine::sensor_contract::SensorProfile::Motion || bins != 32 {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore capacity envelope requires Motion/B32",
+                ));
+            }
+            Some(
+                crate::engine::checkpoint_capacity::CheckpointCapacityPolicy::new(
+                    integer("envelopeMiB", 512.0, 768.0)?,
+                    false,
+                )
+                .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?,
+            )
+        } else {
+            None
+        };
         let directory = parse_managed_path(bounded_js_string(
             managed_directory,
             "managedDirectory",
@@ -1289,6 +1313,8 @@ impl ExperimentalStage6aFreshRunSession {
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
             #[cfg(feature = "engine-test-hooks")]
             trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::QualifiedCheckpoint(Box::new(
@@ -1299,10 +1325,115 @@ impl ExperimentalStage6aFreshRunSession {
                     bins,
                     math,
                     ray_work,
+                    capacity_policy,
                 },
             )),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
+    /// Construct one explicit Motion/B32 capacity candidate through ordinary native admission.
+    #[napi(catch_unwind)]
+    pub fn initialize_capacity_for_test(
+        &self,
+        request: Object<'_>,
+    ) -> Result<AsyncTask<InitializeQualifiedFreshRunTask>> {
+        let keys = [
+            "population",
+            "graph",
+            "envelopeMiB",
+            "rawFallback",
+            "rayMinimum",
+            "rayCap",
+            "rayBatch",
+        ];
+        let names = request.get_property_names()?;
+        if names.get_array_length()? != keys.len() as u32 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "capacity qualification requires exact fields",
+            ));
+        }
+        for index in 0..names.get_array_length()? {
+            let key = bounded_js_string(
+                names.get_element::<JsString<'_>>(index)?,
+                "capacity key",
+                32,
+                false,
+            )?;
+            if !keys.contains(&key.as_str()) || !request.has_own_property(&key)? {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "capacity qualification requires exact own fields",
+                ));
+            }
+        }
+        let integer = |key, low: f64, high: f64| -> Result<usize> {
+            let value = request
+                .get::<f64>(key)?
+                .ok_or_else(|| Error::new(Status::InvalidArg, "capacity value missing"))?;
+            if !value.is_finite() || value.fract() != 0.0 || value < low || value > high {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "capacity qualification integer range",
+                ));
+            }
+            Ok(value as usize)
+        };
+        let population = integer("population", 55.0, 300.0)?;
+        if !matches!(population, 55 | 300) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "capacity population must be 55 or 300",
+            ));
+        }
+        let large_graph = match bounded_object_string(&request, "graph", 6)?.as_str() {
+            "modest" => false,
+            "large" => true,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "capacity graph must be modest/large",
+                ))
+            }
+        };
+        let raw = request.get::<bool>("rawFallback")?.ok_or_else(|| {
+            Error::new(Status::InvalidArg, "capacity rawFallback boolean missing")
+        })?;
+        let policy = crate::engine::checkpoint_capacity::CheckpointCapacityPolicy::new(
+            integer("envelopeMiB", 512.0, 768.0)?,
+            raw,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let ray_work = crate::engine::ray_work::RayWorkLimits::new(
+            integer("rayMinimum", 0.0, 1_000_000.0)? as u32,
+            integer("rayCap", 1.0, 1_000_000.0)? as u32,
+            integer("rayBatch", 1.0, 10_000_000.0)? as u32,
+            512,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeQualifiedFreshRunTask {
+            inner: InitializeExperimentalFreshRunTask {
+                trained_cohort_json: None,
+                capacity_audit_json: None,
+                request: self.request.clone(),
+                calculation_workers: self.calculation_workers,
+                source: FreshRunInitialization::Capacity {
+                    population,
+                    large_graph,
+                    policy,
+                    ray_work,
+                },
+                inner: Arc::clone(&self.inner),
+                active_operation: Arc::clone(&self.active_operation),
+            },
         }))
     }
 
@@ -1430,6 +1561,8 @@ impl ExperimentalStage6aFreshRunSession {
             inner: InitializeExperimentalFreshRunTask {
                 #[cfg(feature = "engine-test-hooks")]
                 trained_cohort_json: None,
+                #[cfg(feature = "engine-test-hooks")]
+                capacity_audit_json: None,
                 request: self.request.clone(),
                 calculation_workers: self.calculation_workers,
                 source: FreshRunInitialization::Qualification(
@@ -1453,6 +1586,7 @@ impl ExperimentalStage6aFreshRunSession {
 pub struct QualifiedFreshRunInitialization {
     pub snapshot: ExperimentalFreshRunSnapshot,
     pub trained_cohort_json: Option<String>,
+    pub capacity_audit_json: Option<String>,
 }
 
 /// Wrap the ordinary complete construction task without introducing a second authority.
@@ -1474,6 +1608,7 @@ impl Task for InitializeQualifiedFreshRunTask {
         Ok(QualifiedFreshRunInitialization {
             snapshot: fresh_run_snapshot_to_napi(output)?,
             trained_cohort_json: self.inner.trained_cohort_json.take(),
+            capacity_audit_json: self.inner.capacity_audit_json.take(),
         })
     }
 
@@ -1672,6 +1807,7 @@ struct QualifiedCheckpointInitialization {
     bins: usize,
     math: crate::engine::inference::InferenceMathBackend,
     ray_work: crate::engine::ray_work::RayWorkLimits,
+    capacity_policy: Option<crate::engine::checkpoint_capacity::CheckpointCapacityPolicy>,
 }
 
 /// Async complete fixed-profile construction for one experimental lineage.
@@ -1687,6 +1823,13 @@ enum FreshRunInitialization {
         Option<PathBuf>,
     ),
     #[cfg(feature = "engine-test-hooks")]
+    Capacity {
+        population: usize,
+        large_graph: bool,
+        policy: crate::engine::checkpoint_capacity::CheckpointCapacityPolicy,
+        ray_work: crate::engine::ray_work::RayWorkLimits,
+    },
+    #[cfg(feature = "engine-test-hooks")]
     QualifiedCheckpoint(Box<QualifiedCheckpointInitialization>),
     Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
@@ -1695,6 +1838,8 @@ enum FreshRunInitialization {
 pub struct InitializeExperimentalFreshRunTask {
     #[cfg(feature = "engine-test-hooks")]
     trained_cohort_json: Option<String>,
+    #[cfg(feature = "engine-test-hooks")]
+    capacity_audit_json: Option<String>,
     request: Stage6aP0FreshRunRequest,
     calculation_workers: usize,
     source: FreshRunInitialization,
@@ -1737,14 +1882,57 @@ impl Task for InitializeExperimentalFreshRunTask {
                         .map_err(|error| error.to_string())?
                 }
                 #[cfg(feature = "engine-test-hooks")]
+                FreshRunInitialization::Capacity {
+                    population,
+                    large_graph,
+                    policy,
+                    ray_work,
+                } => {
+                    let mut options = crate::engine::checkpoint_capacity::capacity_workload_options(
+                        *population,
+                        *large_graph,
+                    );
+                    options.seed = self.request.seed;
+                    options.workers = self.calculation_workers;
+                    options.ray_limits = Some(*ray_work);
+                    let qualified = crate::engine::checkpoint_capacity::prepare_live_capacity_run(
+                        self.request.clone(),
+                        &options,
+                        *policy,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    self.capacity_audit_json = Some(
+                        serde_json::to_string(&qualified.audit)
+                            .map_err(|error| error.to_string())?,
+                    );
+                    qualified
+                        .pending
+                        .ok_or_else(|| "capacity candidate has no admitted boundary".to_owned())?
+                }
+                #[cfg(feature = "engine-test-hooks")]
                 FreshRunInitialization::QualifiedCheckpoint(inputs) => {
-                    crate::engine::fresh_run::prepare_sensor_qualification_checkpoint_restore(
-                        &inputs.directory, &inputs.descriptor, self.request.memory_ceiling_bytes, inputs.profile, inputs.bins, inputs.math,
-                        crate::engine::step_config::RunningStepWorkLimits {
-                            calculation_workers: self.calculation_workers, ray_work: Some(inputs.ray_work),
-                            ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
-                        },
-                    ).map_err(|error| error.to_string())?
+                    let work_limits = crate::engine::step_config::RunningStepWorkLimits {
+                        calculation_workers: self.calculation_workers,
+                        ray_work: Some(inputs.ray_work),
+                        ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
+                    };
+                    let restored = if let Some(policy) = inputs.capacity_policy {
+                        crate::engine::fresh_run::prepare_sensor_qualification_checkpoint_restore_with_limits(
+                            &inputs.directory, &inputs.descriptor, self.request.memory_ceiling_bytes,
+                            inputs.profile, inputs.bins, inputs.math, work_limits, policy.limits(),
+                        )
+                    } else {
+                        crate::engine::fresh_run::prepare_sensor_qualification_checkpoint_restore(
+                            &inputs.directory,
+                            &inputs.descriptor,
+                            self.request.memory_ceiling_bytes,
+                            inputs.profile,
+                            inputs.bins,
+                            inputs.math,
+                            work_limits,
+                        )
+                    };
+                    restored.map_err(|error| error.to_string())?
                 }
                 FreshRunInitialization::LegacySqlite((database_path, snapshot_id)) => {
                     prepare_legacy_sqlite_population_import(
@@ -1790,14 +1978,17 @@ impl Task for InitializeExperimentalFreshRunTask {
                             let transition = crate::engine::sensor_qualification::prepare_sensor_cohort_workload(
                                 &options, self.request.clone(), &cohort,
                             ).map_err(|error| error.to_string())?;
-                            self.trained_cohort_json = Some(serde_json::to_string(
-                                &cohort.descriptor(*population),
-                            ).map_err(|error| error.to_string())?);
+                            self.trained_cohort_json = Some(
+                                serde_json::to_string(&cohort.descriptor(*population))
+                                    .map_err(|error| error.to_string())?,
+                            );
                             transition
                         } else {
                             crate::engine::sensor_qualification::prepare_sensor_workload(
-                                &options, self.request.clone(),
-                            ).map_err(|error| error.to_string())?
+                                &options,
+                                self.request.clone(),
+                            )
+                            .map_err(|error| error.to_string())?
                         }
                     } else {
                         use crate::engine::graph::{

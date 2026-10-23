@@ -258,6 +258,31 @@ pub(crate) fn prepare_sensor_qualification_checkpoint_restore(
     math: InferenceMathBackend,
     limits: RunningStepWorkLimits,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_sensor_qualification_checkpoint_restore_with_limits(
+        managed_directory,
+        descriptor,
+        memory_ceiling_bytes,
+        profile,
+        bins,
+        math,
+        limits,
+        production_checkpoint_limits(),
+    )
+}
+
+/// Explicit test-hook envelope accompanies the same exact-source restore and contract checks.
+#[cfg(feature = "engine-test-hooks")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_sensor_qualification_checkpoint_restore_with_limits(
+    managed_directory: &std::path::Path,
+    descriptor: &super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    math: InferenceMathBackend,
+    limits: RunningStepWorkLimits,
+    checkpoint_limits: CheckpointLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
     if profile == super::sensor_contract::SensorProfile::V3 || limits.ray_work.is_none() {
         return Err(FreshRunError::Settings(
             "qualified restore requires v4 and explicit ray limits".into(),
@@ -271,7 +296,7 @@ pub(crate) fn prepare_sensor_qualification_checkpoint_restore(
         managed_directory,
         descriptor,
         policy,
-        production_checkpoint_limits(),
+        checkpoint_limits,
         stage6a_p0_graph_limits(),
         limits,
     )?;

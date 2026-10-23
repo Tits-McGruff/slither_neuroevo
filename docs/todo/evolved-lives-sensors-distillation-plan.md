@@ -1284,6 +1284,15 @@ capacity. Performance still fails (48-ms p99 and 127,667 microseconds of dropped
 wall debt). Exact reports and aggregate-only resource observations are retained
 under `live-replay-ceiling-debian-v1/`; unrelated process inventories are excluded.
 
+The live qualification host can explicitly select the existing modest or large
+Motion/B32 capacity graph and its 512/768-MiB checkpoint envelope. Native preflight
+rejects an undersized envelope or current/successor memory budget before numeric
+allocation. Disk admission and cold restore carry the selected envelope; both
+native scratch limits remain 512 MiB and production startup remains unchanged.
+Oxygen passes all 798 release library tests, five native bridge tests, rustfmt
+and Clippy; TypeScript and focused host/evidence checks pass. This construction
+path does not qualify the outstanding full-capacity soak.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
