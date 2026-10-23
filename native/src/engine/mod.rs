@@ -238,3 +238,7 @@ pub mod crowded_sensor_qualification;
 /// Bounded same-graph learned families for native qualification, never a production founder API.
 #[cfg(feature = "engine-test-hooks")]
 pub mod trained_cohort;
+
+/// Complete ordinary observation quality, confined to qualification builds.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) mod observation_quality;

@@ -1492,6 +1492,24 @@ impl RunningAuthorityLoop {
         Some(self.coordinator.qualification_sensor_work())
     }
 
+    /// Match the current published ordinary batch, excluding staged/terminal work.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_scope(
+        &self,
+    ) -> Option<(&str, super::calculation::CalculationBatchKey)> {
+        let (batch, _) = self.qualification_batch()?;
+        Some((&self.authority.state().identity.run_id, batch.key()))
+    }
+
+    /// Borrow diagnostics only after the same ordinary publication gate.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_counts(
+        &self,
+    ) -> Option<[super::observation_quality::ObservationCounts; 3]> {
+        self.qualification_batch()?;
+        Some(self.coordinator.qualification_observation_counts())
+    }
+
     /// Exact active observation width; no world scan or sensor execution.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.coordinator.sensor_input_size()

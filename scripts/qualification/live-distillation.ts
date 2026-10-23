@@ -1,3 +1,4 @@
+import { readObservationQuality, summarizeObservationQuality, type ObservationQualityNative } from './observationQuality.ts';
 import { readNativeStepCosts } from './nativeStepCosts.ts';
 import { distillationSpoolLimitsForGiB, distillationRecoveryTimeoutMs } from '../../server/rustEngine/distillationProtocol.ts';
 import { validateRustCalculationWorkers } from '../../server/rustWorkers.ts';
@@ -230,6 +231,10 @@ async function run(): Promise<void> {
   const hostSha256 = await digest(fileURLToPath(import.meta.url));
   const costHelperPath = fileURLToPath(new URL('./nativeStepCosts.ts', import.meta.url));
   const costHelperSha256 = await digest(costHelperPath);
+  const observationHelperPath = fileURLToPath(new URL('./observationQuality.ts', import.meta.url));
+  const observationContractPath = fileURLToPath(new URL('../../src/protocol/observationQuality.ts', import.meta.url));
+  const observationHelperSha256 = await digest(observationHelperPath);
+  const observationContractSha256 = await digest(observationContractPath);
   const libraryHelperPath = fileURLToPath(new URL('./liveCapacityLibrary.ts', import.meta.url));
   const libraryHelperSha256 = await digest(libraryHelperPath);
   const spoolHelperPath = fileURLToPath(new URL('./liveSpoolPrefill.ts', import.meta.url));
@@ -526,6 +531,7 @@ async function run(): Promise<void> {
       const inspectorBefore = {...inspector};
       const first = await wallRead(native); const reads = [first];
       const initialPhaseCosts = readNativeStepCosts(native);
+      const observationBefore = readObservationQuality(native as typeof native & ObservationQualityNative);
       const generationBarriers: SensorGenerationBarrier[] = [];
       const barrierIntervalMs = seconds * 1000 / (boundaries + 1);
       const frame = new Uint8Array(metadata.maximumFrameBytes);
@@ -612,6 +618,7 @@ async function run(): Promise<void> {
       reads.push(await wallRead(native));
       assert.equal(generationBarriers.length, boundaries, 'all requested generations must commit during the trainer window');
       const finalPhaseCosts = readNativeStepCosts(native);
+      const observationAfter = readObservationQuality(native as typeof native & ObservationQualityNative);
       const summary = summarizeSensorWall(reads, seconds, boundaries ? {runId, barriers: generationBarriers} : undefined, sixHour);
       const sustain = JSON.parse(await readFile(join(jobDirectory, 'sustain-report.json'), 'utf8')) as Record<string, unknown>;
       if (sixHour) {
@@ -653,6 +660,10 @@ async function run(): Promise<void> {
       }
       assert.equal(hostSha256, await digest(fileURLToPath(import.meta.url)));
       assert.equal(costHelperSha256, await digest(costHelperPath));
+      assert.equal(observationHelperSha256, await digest(observationHelperPath));
+      assert.equal(observationContractSha256, await digest(observationContractPath));
+      assert.equal(observationBefore.snapshot.runId, runId);
+      assert.equal(observationAfter.snapshot.runId, runId);
       assert.equal(libraryHelperSha256, await digest(libraryHelperPath));
       assert.equal(spoolHelperSha256, await digest(spoolHelperPath)); assert.equal(spoolFixtureSha256, await digest(spoolFixturePath));
       assert.equal(trainerGateSha256, await digest(join(checkout, 'pyrl_trainer/live_distillation_gate.py')));
@@ -740,14 +751,17 @@ async function run(): Promise<void> {
       const contentionReport = {schemaVersion: 1, gate: sixHour ? 'live-trainer-six-hour-window-v1' : boundaries ? 'live-trainer-generation-durability-v1' : 'live-trainer-four-shadow-contention-v1',
         device, workers, seed: 42, seconds, ...(persistent ? {persistentWorkspace: root} : {}),
         ...(sixHour ? {sixHourWindow: true} : {}), ...(durability ? {durability} : {}),
-        fullCapacitySoakQualified: false, ...(spoolPrefill ? {spoolPrefill} : {}),
+        fullCapacitySoakQualified: false,
+        observationQuality: {before: observationBefore, after: observationAfter,
+          summary: summarizeObservationQuality(observationBefore, observationAfter)},
+        ...(spoolPrefill ? {spoolPrefill} : {}),
         ...(libraryFixture ? {catalogOverlap: {fixtureIndexSha256: libraryFixture.indexSha256, before: libraryBefore,
           afterColdRestart: libraryAfter, overflowRejected: true, overflowPublishedFiles: false},
         inspectorOverlap: {before: inspectorBefore, after: inspectorAfter, pureProbe: false, inputSize: 504}} : {}),
         scope: 'Real background scheduler, seeded ' + (capacityGraph ?? 'modest') + ' population starting from ' + (cohort ? 'diverse Rust-admitted learned weights' : 'random weights') + ' with evolved respawn, ten stochastic v2 teachers, actual durable HTTP capture intake, one default TBPTT/Adam trainer and four identical learned native shadows. Window includes trainer process startup/restore/shutdown; trainer active duration is separately recorded. Optional manual generations include real native/SQLite handoffs and a cold boundary restore. Excludes crowded geometry, diverse mature policies and production-default selection. Loaded replay is exercised only when an explicit occupancy target is recorded. Catalog/inspector overlap and explicitly synthetic inactive spool prefill are identified separately when requested. A six-hour window is identified explicitly and is not a full-capacity integrated soak.',
         source: {slitherRevision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
           pyrlRevision: execFileSync('git', ['rev-parse', 'HEAD'], {cwd: checkout, encoding: 'utf8'}).trim(),
-          hostSha256, costHelperSha256, libraryHelperSha256, spoolHelperSha256, spoolFixtureSha256, trainerGateSha256, studentArtifactSha256,
+          hostSha256, costHelperSha256, observationHelperSha256, observationContractSha256, libraryHelperSha256, spoolHelperSha256, spoolFixtureSha256, trainerGateSha256, studentArtifactSha256,
           nativeSourceSha256: binding.nativeAddonSourceSha256(), target: binding.nativeAddonBuildTarget()},
         workload: {scenario: workload, request, metadata, ...(cohort ? {trainedCohort: cohort} : {}),
           ...(capacityAudit ? {capacityGraph, checkpointEnvelopeMiB: envelopeMiB, capacityAudit} : {})}, spoolGiB, replayMiB, replayMinMiB, ...(replayMinMiB ? {replayFillSeconds} : {}), producerStoragePolicy,

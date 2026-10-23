@@ -1705,6 +1705,29 @@ impl ControlPhaseWorkspace {
         result
     }
 
+    /// Count already evaluated ordinary classes without retaining or resampling vectors.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_counts(
+        &self,
+    ) -> [super::observation_quality::ObservationCounts; 3] {
+        let mut result = [super::observation_quality::ObservationCounts::default(); 3];
+        if let Ok(batch) = self.neural.batch() {
+            for sample in batch.diagnostics() {
+                result[0].record(sample, self.neural.sensor().is_v4());
+            }
+        }
+        for baseline in &self.baseline_controls[..self.baseline_control_count] {
+            result[1].record(
+                &baseline.sensor_diagnostics,
+                self.baseline_v2_settings.is_some(),
+            );
+        }
+        for event in &self.external_events {
+            result[2].record(&event.diagnostics, self.neural.sensor().is_v4());
+        }
+        result
+    }
+
     /// Exact configured observation width, read without sampling or allocation.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.neural.sensor().layout().input_size
@@ -4345,6 +4368,12 @@ mod tests {
                     let lifecycle = committed.baseline_lifecycle().clone();
                     let brains = committed.brains().to_vec();
                     let _ = committed;
+                    #[cfg(feature = "engine-test-hooks")]
+                    {
+                        let counts = selection.qualification_observation_counts();
+                        assert_eq!(counts[1].observations, u64::from(due));
+                        assert_eq!(counts[1].v4_observations, u64::from(due));
+                    }
                     // This layer acknowledges a successful outer publication; real-step tests cover the barrier.
                     selection.publish_inspector(step_key, |_, _, _| false);
                     let observed = selection

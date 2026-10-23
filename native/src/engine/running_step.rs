@@ -716,6 +716,14 @@ impl RunningStepCoordinator {
         self.control.qualification_sensor_work()
     }
 
+    /// Read only completed calculation work; the loop enforces publication identity.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_counts(
+        &self,
+    ) -> [super::observation_quality::ObservationCounts; 3] {
+        self.control.qualification_observation_counts()
+    }
+
     /// Exact active neural/external width used for coarse output-byte admission.
     pub(crate) fn sensor_input_size(&self) -> usize {
         self.control.sensor_input_size()

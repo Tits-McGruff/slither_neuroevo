@@ -1478,8 +1478,21 @@ p99 and drops 2.925 seconds of wall debt, so timing remains failed. Across 998
 slow steps, existing counters total 10.06 seconds of sensing, 1.04 seconds of
 inference and 4.86 seconds of physics; these are coarse independent observations,
 not per-step percentiles or CPU shares. The four initial families do not
-establish representative maturity, and this live host does not yet report
-all-consumer saturation statistics. Defaults and integrated capacity remain open.
+establish representative maturity; that retained window predates live
+all-consumer saturation accounting. Defaults and integrated capacity remain open.
+
+The live qualification host now records a test-addon-only coherent prefix of
+ordinary published observations for neural, baseline and external consumers.
+Counters reuse existing diagnostics, exclude staged/terminal batches and reused
+shadow/inspector inputs, and distinguish v4 denominators from legacy rows.
+Ray, body and pellet limits have separate counts plus a once-per-vector union.
+Exact integer window subtraction requires both the pooled rate and each active
+consumer class to remain strictly below 1%; empty/legacy-only samples cannot
+pass. The host binds the helper sources and keeps these independently bracketed
+reads separate from the step histogram. Publication, cadence, repeated-query
+noninterference and production-surface isolation are automated checks. This
+instrumentation does not retroactively qualify the retained P1 window or select
+ray defaults.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
