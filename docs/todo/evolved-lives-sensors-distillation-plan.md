@@ -1450,6 +1450,23 @@ remain separate open gates. Existing jobs remain bound to their recorded trainer
 source. Representative maturity, ray limits/defaults and the combined-capacity
 soak remain open.
 
+PyRL `7499f29` removes most of that CPU compensation overhead. CPU widths
+128..512 use one batched set of 16-term partials and an error-corrected Float32
+tree (at most 32 matrices/five levels). The analytic matrix derivative retains
+only original input/weight views and explicitly disables ambient autocast during
+backward. Short CPU rows and all CUDA rows keep the direct operation. Forward,
+gradient, strided-view, threshold/tail and retained-storage tests pass; a source
+edit during optimizer qualification now rejects the report. Fresh 18-case
+Windows CPU/Debian CPU/CUDA gates and the identical original failing export pass
+at unchanged limits; CUDA trained exports remain identical. The compact
+`canonical-cpu-runtime-v1/` evidence binds actual modules, Rust-admitted fixed
+inputs, four order-balanced update pairs per graph/platform and aggregate resource
+brackets. Compared with the preceding compensated implementation, median paired
+update time falls 81%/87% for modest/large-LSTM graphs on Windows and 80%/82%
+on Debian, using two Torch CPU threads. These are actual Adam/TBPTT updates on
+shared hosts. They do not establish current game timing, maturity, ray defaults
+or the combined-capacity soak.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

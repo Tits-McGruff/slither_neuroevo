@@ -2001,3 +2001,24 @@ current integrated timing/soak. The earlier live reports retain their original
 trainer identity. CI now requires the wide recurrent CPU roundtrips. Aggregate
 Windows/running-WSL/Debian/GPU sidecars cover the fresh qualification; privacy
 checks also inspect metadata inside both retained live update-250 students.
+
+The following `canonical-cpu-runtime-v1/` capsule measures the actual optimized
+CPU implementation against its exact preceding source snapshot. Batched
+16-term partials and an error-corrected tree apply at widths 128..512; analytic
+Float32 matrix gradients retain only original inputs and ignore ambient
+autocast. Four adjacent order-balanced pairs on each shared host use identical
+Rust-admitted model bytes, observations, initial recurrence and method-v1
+Adam/TBPTT settings, with two Torch CPU threads. Median paired update time
+falls 81%/87% for modest/large-LSTM graphs on Windows and 80%/82% on Debian.
+This is an optimizer-cost measurement, excluding live producer intake and game
+step/throughput qualification.
+
+Final-source standard/wide 18-case optimizer gates pass on Windows CPU, Debian
+CPU and CUDA at unchanged first/256-delivery tolerances. The original failing
+Debian export also passes both exact frozen native references without retraining;
+all CUDA trained exports match the prior checkpoint. Separate 384-case accuracy
+probes cover the 127/128/129 threshold, odd tails, batch shapes and direct short
+rows. Gradient, strided-view, retained-autograd-storage and ambient-autocast
+regressions are checked in PyRL. A source change during qualification rejects
+the report. Continuous and final aggregate snapshots bracket every timing and
+roundtrip run; the privacy verifier checks every retained JSON document.
