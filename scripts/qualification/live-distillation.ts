@@ -228,6 +228,7 @@ async function run(): Promise<void> {
   let spool: DistillationSpoolClient | undefined; let timer: NodeJS.Timeout | undefined;
   let activePump: Promise<void> | undefined; let pumpError: unknown; let hostPeakRssBytes = process.memoryUsage.rss();
   let stopInspector: (() => Promise<void>) | undefined;
+  let pauseInspector: (() => Promise<void>) | undefined; let resumeInspector: (() => void) | undefined;
   let router: DistillationHttpRouter | undefined;
   const routes = new Map<string, number>(); let forbiddenRequests = 0;
   const server = createServer((request, response) => {
@@ -297,9 +298,16 @@ async function run(): Promise<void> {
     let configRevision = '0000000000000001';
     const receipts = new Map<string, (event: RustBackgroundEvent) => void>();
     /** Correlate only this gate's bounded cold commands; the ordinary pump still handles every event. */
-    const command = (submit: (sequence: string) => void): Promise<RustBackgroundEvent> => new Promise((done, reject) => {
+    const command = (submit: (sequence: string) => void, label = 'control'): Promise<RustBackgroundEvent> => new Promise((done, reject) => {
       let sequence: string | undefined;
-      const timeout = setTimeout(() => {if (sequence) receipts.delete(sequence); reject(new Error('qualification native command deadline'));}, 5000);
+      const timeout = setTimeout(() => {
+        if (sequence) receipts.delete(sequence);
+        const {lifecycle, loopState, generation, completedStep, coordinatorWorkBytes, processedCommands,
+          terminalStepMaxMicros, terminalStepPreparationMicros, faultCode} = native.health();
+        reject(new Error('qualification native command deadline: ' + JSON.stringify({label, sequence,
+          lifecycle, loopState, generation, completedStep, coordinatorWorkBytes, processedCommands,
+          terminalStepMaxMicros, terminalStepPreparationMicros, faultCode})));
+      }, 5000);
       try {
         assert(admission.trySubmitControl(value => {submit(value); sequence = value;}), 'qualification command queue busy');
         assert(sequence); receipts.set(sequence, event => {clearTimeout(timeout); done(event);});
@@ -377,7 +385,7 @@ async function run(): Promise<void> {
       deliveredSamples: 0, maximumWireBytes: 0, lastSampleStep: '0000000000000000'};
     if (libraryFixture) {
       let sequence = '0000000000000000'; let lastDelivery = ''; let needsSelection = true;
-      let nextSelectionAt = 0; let closing = false; let pending: Promise<void> | undefined;
+      let nextSelectionAt = 0; let closing = false; let paused = false; let pending: Promise<void> | undefined;
       /** Poll only the native replaceable cache and reacquire the same evolved owner after retirement. */
       const serviceInspector = async (): Promise<void> => {
         const wire = native.latestInspector(sequence);
@@ -398,14 +406,14 @@ async function run(): Promise<void> {
             inspector.lastSampleStep = sample.sampleStep;
           }
         }
-        if (!closing && needsSelection && !generation.active && performance.now() >= nextSelectionAt) {
+        if (!closing && !paused && needsSelection && !generation.active && performance.now() >= nextSelectionAt) {
           nextSelectionAt = performance.now() + 250;
-          const selected = await command(value => native.submitEntitySelection(value, 'slot', 0, runId, native.health().generation));
+          const selected = await command(value => native.submitEntitySelection(value, 'slot', 0, runId, native.health().generation), 'inspector-selection');
           if (selected.kind === 'commandRejected') {inspector.rejectedScopes++; return;}
           assert.equal(selected.kind, 'entitySelected');
           if (!selected.entitySelection) {inspector.pendingSelections++; return;}
           const result = await command(value => native.submitInspector(value, runId, selected.entitySelection!.token,
-            selected.entitySelection!.snakeId));
+            selected.entitySelection!.snakeId), 'inspector-subscription');
           if (result.kind === 'commandRejected') {inspector.rejectedScopes++; return;}
           assert.equal(result.kind, 'inspectorChanged'); inspector.subscriptions++; needsSelection = false;
         }
@@ -415,6 +423,8 @@ async function run(): Promise<void> {
         pending = serviceInspector().catch(error => {pumpError = error;}).finally(() => {pending = undefined;});
       }, 100);
       stopInspector = async () => {closing = true; clearInterval(inspectorTimer); await pending;};
+      pauseInspector = async () => {paused = true; await pending;};
+      resumeInspector = () => {paused = false; needsSelection = true; nextSelectionAt = 0;};
     }
     const dataset = await capture.start({expectedRunId: runId, expectedConfigRevision: '0000000000000001',
       baselineSlots: Array.from({length: 10}, (_, slot) => slot), pendingBytes: workload ? 16 * 1024 ** 2 : 1024 ** 2,
@@ -484,29 +494,34 @@ async function run(): Promise<void> {
           }
           if (generationBarriers.length < boundaries &&
               performance.now() >= first.afterMs + barrierIntervalMs * (generationBarriers.length + 1)) {
-            const source = await wallRead(native); const beforeReadIndex = reads.length; reads.push(source);
-            const nextGeneration = (BigInt('0x' + source.health.generation) + 1n).toString(16).padStart(16, '0');
-            const accepted = await command(sequence => native.submitFinishGeneration(sequence, randomBytes(16).toString('hex'), runId, source.health.generation));
-            assert.equal(accepted.kind, 'finishGenerationAccepted'); assert(accepted.finishGenerationEffectiveStep);
-            // A fresh deadline bounds the actual native publication, SQLite fsync and resume barrier.
-            const barrierDeadline = performance.now() + 30_000;
-            while (native.health().generation !== nextGeneration || generation.active) {
-              if (pumpError) throw pumpError;
-              assert(performance.now() < barrierDeadline, 'generation durability barrier deadline');
-              await new Promise(done => setTimeout(done, 10));
-            }
-            const target = await wallRead(native); const afterReadIndex = reads.length; reads.push(target);
-            const selected: ManagedCheckpointDescriptor | null = await persistence!.selectCurrent(runId); assert(selected);
-            assert.deepEqual(selected, latestNativeCheckpoint, 'SQLite pointer must equal the actual native publication');
-            const history = await persistence!.readBrowserHistory(runId);
-            const terminal = history.find(row => BigInt(row.gen) === BigInt('0x' + source.health.generation));
-            assert(terminal?.experiment, 'modern generation must durably retain its experiment sidecar');
-            generationBarriers.push({beforeReadIndex, afterReadIndex, effectiveStep: accepted.finishGenerationEffectiveStep,
-              checkpoint: {runId: selected.runId, boundaryKind: selected.boundaryKind, generation: selected.generation,
-                completedStep: selected.completedStep, logicalRootSha256: selected.logicalRootSha256},
-              terminal: {generation: source.health.generation, completedStep: terminal.experiment.completedStep,
-                reason: terminal.experiment.reason, population: terminal.experiment.population, actualSeconds: terminal.experiment.actualSeconds}});
-            console.info('[live-distillation] durable generation', nextGeneration);
+            // Drain already admitted inspector controls before this gate requests a retained generation.
+            // Native capture remains enabled; cache reads continue while publication owns the barrier.
+            await pauseInspector?.();
+            try {
+              const source = await wallRead(native); const beforeReadIndex = reads.length; reads.push(source);
+              const nextGeneration = (BigInt('0x' + source.health.generation) + 1n).toString(16).padStart(16, '0');
+              const accepted = await command(sequence => native.submitFinishGeneration(sequence, randomBytes(16).toString('hex'), runId, source.health.generation), 'finish-generation');
+              assert.equal(accepted.kind, 'finishGenerationAccepted'); assert(accepted.finishGenerationEffectiveStep);
+              // A fresh deadline bounds the actual native publication, SQLite fsync and resume barrier.
+              const barrierDeadline = performance.now() + 30_000;
+              while (native.health().generation !== nextGeneration || generation.active) {
+                if (pumpError) throw pumpError;
+                assert(performance.now() < barrierDeadline, 'generation durability barrier deadline');
+                await new Promise(done => setTimeout(done, 10));
+              }
+              const target = await wallRead(native); const afterReadIndex = reads.length; reads.push(target);
+              const selected: ManagedCheckpointDescriptor | null = await persistence!.selectCurrent(runId); assert(selected);
+              assert.deepEqual(selected, latestNativeCheckpoint, 'SQLite pointer must equal the actual native publication');
+              const history = await persistence!.readBrowserHistory(runId);
+              const terminal = history.find(row => BigInt(row.gen) === BigInt('0x' + source.health.generation));
+              assert(terminal?.experiment, 'modern generation must durably retain its experiment sidecar');
+              generationBarriers.push({beforeReadIndex, afterReadIndex, effectiveStep: accepted.finishGenerationEffectiveStep,
+                checkpoint: {runId: selected.runId, boundaryKind: selected.boundaryKind, generation: selected.generation,
+                  completedStep: selected.completedStep, logicalRootSha256: selected.logicalRootSha256},
+                terminal: {generation: source.health.generation, completedStep: terminal.experiment.completedStep,
+                  reason: terminal.experiment.reason, population: terminal.experiment.population, actualSeconds: terminal.experiment.actualSeconds}});
+              console.info('[live-distillation] durable generation', nextGeneration);
+            } finally {resumeInspector?.();}
           }
           if (performance.now() >= nextRead) {
             assert(reads.length < 4095); reads.push(await wallRead(native)); nextRead = performance.now() + timing.readIntervalMs;
