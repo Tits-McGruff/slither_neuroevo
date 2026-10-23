@@ -228,6 +228,11 @@ jobs:
           python -B scripts/qualification/verify-replicated-ablation.py
           --evidence docs/performance/sensor-v4/heldout-curves-windows-v1
           --previous-evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
+      - name: Recompute retained 8000-update compiled CUDA study
+        if: matrix.node-version == '24.x'
+        run: >-
+          python -B scripts/qualification/verify-replicated-ablation.py
+          --evidence docs/performance/sensor-v4/heldout-curves-cuda8000-windows-v1
       - name: Build native crowded v4 sensing runner
         if: matrix.node-version == '24.x'
         run: cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin crowded-sensor-qualification
