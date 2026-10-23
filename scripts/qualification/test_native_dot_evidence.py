@@ -1,5 +1,6 @@
 """Verify retained inference timing and numeric correction without executing archived code."""
 import array
+import ast
 import gzip
 import hashlib
 import json
@@ -24,6 +25,8 @@ def capsule(name):
     root = BASE / name
     manifest = json.loads((root / "evidence.json").read_text(encoding="utf-8"))
     assert 0 < len(manifest["files"]) <= 64
+    expected_paths = {"evidence.json"} | {name + ".gz" for name in manifest["files"]}
+    assert {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()} == expected_paths
     files = {}
     total = 0
     for name, record in manifest["files"].items():
@@ -64,6 +67,20 @@ def violations(actual, expected, atol, rtol):
     assert len(actual) == len(expected)
     return sum(abs(f32(x - y)) > f32(f32(atol) + f32(f32(rtol) * abs(y)))
                for x, y in zip(actual, expected))
+
+
+def brain_metadata(raw):
+    """Check a bounded raw artifact envelope before reading inert JSON metadata."""
+    header = struct.Struct("<8sIB3xII32s32s")
+    assert header.size <= len(raw) <= 4 * 1024**2
+    magic, length, encoding, count, stored, digest, stored_digest = header.unpack_from(raw)
+    assert magic == b"SLTHBRN1" and encoding == 0 and raw[13:16] == bytes(3)
+    assert 0 < length <= 1024**2 and 0 < count <= 1000000 and stored == count * 4
+    assert len(raw) == header.size + length + stored
+    weights = raw[header.size + length:]
+    assert hashlib.sha256(weights).digest() == digest == stored_digest
+    assert len(floats(weights)) == count
+    return json.loads(raw[header.size:header.size + length])
 
 
 def aggregate_only(test, rows, observer):
@@ -186,6 +203,24 @@ class NativeDotPerformanceEvidenceTests(unittest.TestCase):
             for key, value in self.manifest["workloads"][case]["phaseDeltas"].items():
                 self.assertEqual(str(int(after[key], 16)-int(before[key], 16)), value)
             self.assertEqual(self.manifest["workloads"][case]["phaseDeltas"]["terminalStepSamples"], "3")
+
+    def test_live_students_are_retained_before_disposable_databases_are_removed(self):
+        """Keep the exact update-250 immutable candidates used by every live shadow."""
+        for case in ["P0", "P1"]:
+            raw = self.files["live-" + case + "/student.slither-brain"]
+            digest = sha(raw)
+            self.assertEqual(digest, self.manifest["retainedStudents"][case])
+            report = self.document("live-" + case + "/report.json")
+            metadata = brain_metadata(raw)
+            self.assertEqual(metadata["graphManifest"]["totalParameters"], 494306)
+            self.assertEqual(metadata["graphManifest"]["inputSize"], 504)
+            self.assertEqual(metadata["provenance"]["sourceKind"], "distilled")
+            details = metadata["provenance"]["details"]
+            self.assertEqual(int(details["updates"], 16), self.manifest["retainedStudentUpdates"])
+            self.assertEqual(details["trainerSourceSha256"], report["train"]["trainerSourceSha256"])
+            for boundary in ["before", "after"]:
+                self.assertEqual(len(report["shadows"][boundary]), 4)
+                self.assertTrue(all(x["artifactSha256"] == digest for x in report["shadows"][boundary]))
 
     def test_published_resource_context_excludes_inventories(self):
         """Only aggregate counters survive into these performance receipts."""
@@ -320,6 +355,116 @@ class NativeDotNumericEvidenceTests(unittest.TestCase):
             aggregate_only(self, self.document(name), observer)
 
 
+class CanonicalCpuDotEvidenceTests(unittest.TestCase):
+    """Bind the actual corrected CPU reference to fixed-export and optimizer parity."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Read only confined checksummed data; archived scripts remain inert."""
+        cls.manifest, cls.files = capsule("canonical-cpu-dot-v1")
+        _, cls.previous = capsule("native-dot-numerics-v1")
+
+    def document(self, name):
+        """Decode one admitted JSON file."""
+        return json.loads(self.files[name])
+
+    def test_actual_optimizer_gate_on_all_three_targets(self):
+        """Retain every backend/family after real optimization with the existing bounds."""
+        digest = hashlib.sha256(b"pyrl.canonical-training-source.v1\0")
+        for name in ["canonical_graph.py", "canonical_parity.py", "sequence_distillation.py"]:
+            digest.update(name.encode())
+            digest.update(self.files["pyrl/" + name].replace(b"\r\n", b"\n"))
+        self.assertEqual(digest.hexdigest(), self.manifest["trainerSourceSha256"])
+        expected = {"dense", "mlp", "gru", "lstm", "rru", "mixed",
+                    "large-gru", "large-lstm", "large-rru"}
+        for path in ["windows/cpu-roundtrip.json", "windows/cuda-roundtrip.json",
+                     "debian/cpu-roundtrip.json"]:
+            report = self.document(path)
+            self.assertEqual(report["trainerSourceSha256"], digest.hexdigest())
+            self.assertEqual(report["driverSha256"], sha(self.files["qualify.py"]))
+            self.assertEqual(report["generatorSha256"],
+                             sha(self.files["pyrl/generate_canonical_graph_fixtures.py"]))
+            self.assertEqual(report["dtype"], "Float32")
+            self.assertFalse(report["tf32"])
+            self.assertEqual(len(report["cases"]), 18)
+            self.assertEqual({x["case"] for x in report["cases"]}, expected)
+            for name in expected:
+                cases = [x for x in report["cases"] if x["case"] == name]
+                self.assertEqual({x["backend"] for x in cases}, {"rust-scalar-v1", "rust-sse2-v1"})
+                for case in cases:
+                    self.assertEqual(case["nativeSourceSha256"], self.manifest["nativeSourceSha256"])
+                    self.assertEqual(case["weightsSha256"], case["optimization"]["afterSha256"])
+                    self.assertNotEqual(case["weightsSha256"], case["optimization"]["beforeSha256"])
+                    self.assertEqual(case["optimization"]["trainingSamples"], 2048)
+                    self.assertEqual(case["optimization"]["burnInSamples"], 1024)
+                    for field in ["outputErrorGrowth", "stateErrorGrowth"]:
+                        self.assertEqual([x["step"] for x in case[field]], [1, 64, 128, 256])
+                        self.assertLess(max(x["maxAbs"] for x in case[field]), 1e-3)
+        def comparison_ast(raw):
+            """Ignore line numbers while preserving the complete unchanged comparison code."""
+            return ast.dump(next(x for x in ast.parse(raw).body
+                                 if isinstance(x, ast.FunctionDef) and x.name == "_compare"))
+        self.assertEqual(comparison_ast(self.files["pyrl/canonical_parity.py"]),
+                         comparison_ast(self.previous["pyrl/canonical_parity.py"]))
+        self.assertTrue(self.manifest["roundtripQualified"])
+        self.assertFalse(self.manifest["performanceQualified"])
+        self.assertFalse(self.manifest["fullCapacitySoakQualified"])
+
+    def test_cuda_optimizer_exports_remain_identical(self):
+        """A CPU-only arithmetic correction preserves every prior CUDA trained export."""
+        previous = {(x["case"], x["backend"]): x for x in
+                    json.loads(self.previous["cuda-roundtrip.json"])["cases"]}
+        for case in self.document("windows/cuda-roundtrip.json")["cases"]:
+            old = previous[(case["case"], case["backend"])]
+            self.assertEqual(case["weightsSha256"], old["weightsSha256"])
+            self.assertEqual(case["optimization"], old["optimization"])
+
+    def test_general_accuracy_uses_actual_helper_and_independent_oracle(self):
+        """Cover all CPU matrix shapes without selecting just the formerly failing LSTM."""
+        for platform in ["windows", "debian"]:
+            report = self.document(platform + "/accuracy.json")
+            self.assertFalse(report["prototype"])
+            self.assertEqual(report["block"], 16)
+            self.assertEqual(report["driverSha256"], sha(self.files["accuracy.py"]))
+            self.assertEqual(report["canonicalGraphSha256"], sha(self.files["pyrl/canonical_graph.py"]))
+            rows = report["records"]
+            self.assertEqual(len(rows), 384)
+            self.assertEqual({(x["seed"], x["width"], x["rows"], x["batch"]) for x in rows},
+                             {(seed, width, outputs, batch) for seed in range(4)
+                              for width in [32, 51, 127, 128, 129, 147, 216, 248, 256, 264, 504, 512]
+                              for outputs in [2, 32, 96, 256] for batch in [1, 32]})
+            self.assertLess(max(x["compensatedRelativeSumAbs"] for x in rows), 2 * 2**-23)
+            self.assertLess(sum(x["compensatedMaxAbs"]**2 for x in rows),
+                            sum(x["directMaxAbs"]**2 for x in rows))
+
+    def test_original_debian_export_is_corrected_without_retraining(self):
+        """Compare the identical failing weights and native arrays with the new CPU reference."""
+        report = self.document("fixed-lstm/report.json")
+        self.assertTrue(report["passed"])
+        self.assertTrue(report["fixedExport"])
+        self.assertEqual(report["driverSha256"], sha(self.files["fixed-export.py"]))
+        self.assertEqual(report["torchStatesSha256"], sha(self.files["fixed-lstm/torch-states.f32"]))
+        torch_states = floats(self.files["fixed-lstm/torch-states.f32"])
+        manifest = self.document("fixed-lstm/manifest.json")
+        self.assertEqual(manifest["totalParameters"] * 4, len(self.files["fixed-lstm/weights.f32"]))
+        for backend in ["scalar", "sse2"]:
+            receipt = json.loads(self.previous["debian/" + backend + "-receipt.json"])
+            self.assertEqual(receipt["weightsSha256"], sha(self.files["fixed-lstm/weights.f32"]))
+            row = next(x for x in report["results"] if x["backend"] == "rust-" + backend + "-v1")
+            self.assertEqual(row["nativeReceipt"], receipt)
+            expected = floats(self.previous["debian/" + backend + "-states.f32"])
+            self.assertEqual(violations(torch_states[:192], expected[:192], 1e-5, 1e-4), 0)
+            self.assertEqual(violations(torch_states, expected, 1e-3, 1e-3), 0)
+
+    def test_contemporaneous_resources_remain_aggregate_only(self):
+        """Retain actual Windows/running-WSL/Debian/GPU totals without inventories."""
+        for platform in ["windows", "debian"]:
+            rows = self.document(platform + "/resources.json")
+            self.assertGreaterEqual(len(rows), 2)
+            self.assertEqual([x["sample"] for x in rows], list(range(len(rows))))
+            aggregate_only(self, rows, self.files[platform + "/system-resource-observer.py"])
+
+
 class PublishedDotEvidencePrivacyTests(unittest.TestCase):
     """Reject private host inventories across every retained JSON document."""
 
@@ -338,12 +483,12 @@ class PublishedDotEvidencePrivacyTests(unittest.TestCase):
                 for item in value:
                     visit(item)
 
-        for name in ["native-dot-performance-v1", "native-dot-numerics-v1"]:
+        for name in ["native-dot-performance-v1", "native-dot-numerics-v1", "canonical-cpu-dot-v1"]:
             _, files = capsule(name)
             for path, raw in files.items():
-                if path.endswith(".json"):
+                if path.endswith((".json", ".slither-brain")):
                     with self.subTest(capsule=name, file=path):
-                        visit(json.loads(raw))
+                        visit(brain_metadata(raw) if path.endswith(".slither-brain") else json.loads(raw))
 
 
 if __name__ == "__main__":

@@ -1983,7 +1983,21 @@ and CUDA, including 256-delivery large recurrent cases at unchanged tolerances.
 Debian's 12 standard cases pass, but one large-LSTM first-state value fails
 for each backend; extended 256-step limits still pass. Scoped CPU dispatch
 settings and an actual-optimizer compensated-matmul prototype do not resolve
-the gap. The prototype is rejected, PyRL source remains unchanged, and
-cross-platform extended parity stays open. Automated checks recompute frozen
-first/long failures and reject host/process/command/PID/distribution inventories
-across every retained JSON report; resource observations remain aggregate only.
+the gap at that checkpoint. The prototype is rejected. Automated checks
+recompute frozen first/long failures and reject host/process/command/PID/distribution
+inventories across every retained JSON report; resource observations remain
+aggregate only.
+
+The following `canonical-cpu-dot-v1/` capsule resolves that Debian parity gap
+using PyRL's adopted CPU-only 16-term Float32 partials and compensated sums.
+It retains the original failing LSTM weights and corrected CPU states, checked
+against the identical native scalar/SSE2 arrays without retraining. All 18
+actual optimizer/native-admission/exact-reimport cases pass on Windows CPU,
+Debian CPU and CUDA with unchanged tolerances; every CUDA trained export remains
+identical to the prior checkpoint. Each platform also has 384 independent
+Float64-oracle dot comparisons, and forward/gradient tests cover strided views.
+CPU compensation adds work and does not qualify CPU training throughput or the
+current integrated timing/soak. The earlier live reports retain their original
+trainer identity. CI now requires the wide recurrent CPU roundtrips. Aggregate
+Windows/running-WSL/Debian/GPU sidecars cover the fresh qualification; privacy
+checks also inspect metadata inside both retained live update-250 students.

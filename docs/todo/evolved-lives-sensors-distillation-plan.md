@@ -1427,11 +1427,28 @@ The `native-dot-numerics-v1/` capsule also keeps the unresolved Debian result:
 all 12 standard cases pass, but one large-LSTM first-state value fails for each
 native backend; all extended 256-step bounds pass. Scoped CPU dispatch changes
 do not resolve it. A compensated CPU matmul prototype passes some fixed
-exports but fails the actual optimizer roundtrip and is rejected. PyRL source,
-initialization and tolerances remain unchanged. Cross-platform extended parity,
-representative maturity, ray limits/defaults and integrated timing/soak remain
-open. Retained JSON privacy checks reject process/command/PID inventories,
-host names and distribution identities; resource sidecars contain aggregates.
+exports but fails the actual optimizer roundtrip and is rejected. That native
+checkpoint leaves PyRL source, initialization and tolerances unchanged. Retained
+JSON privacy checks reject process/command/PID inventories, host names and
+distribution identities; resource sidecars contain aggregates.
+
+PyRL `b7f7508` then resolves the extended CPU parity gap with 16-term Float32
+matrix partials and Float32 Neumaier summation for CPU widths of at least 32.
+Short CPU rows and the direct CUDA operation stay unchanged. Forward and gradient
+checks use independent Float64 oracles and strided parameter views. Separate
+384-case Windows/Debian probes reduce worst absolute dot error from
+1.38e-5/2.41e-5 to 2.80e-6. The exact original failing Debian LSTM export passes
+both native backends without retraining. Fresh ordinary generator/optimizer gates
+pass all 18 Windows CPU, 18 Debian CPU and 18 CUDA roundtrips at the original
+first/256-delivery tolerances; every CUDA trained export matches the preceding
+checkpoint. `canonical-cpu-dot-v1/` retains sources, original failing weights,
+corrected states and contemporaneous aggregate resource coverage. PyRL CI now
+generates the wide GRU/LSTM/RRU fixtures with its pinned native dependency and
+requires all 18 CPU roundtrips. CPU compensation adds reduction work; prior live
+windows used the earlier trainer, so CPU throughput and current integrated timing
+remain separate open gates. Existing jobs remain bound to their recorded trainer
+source. Representative maturity, ray limits/defaults and the combined-capacity
+soak remain open.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
