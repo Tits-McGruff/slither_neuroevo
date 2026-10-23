@@ -50,7 +50,7 @@ struct ExecutionNode {
 pub enum InferenceMathBackend {
     /// Reference implementation using ordered scalar `f32` accumulation.
     Scalar,
-    /// Existing four-lane SSE dot kernels selected after runtime detection.
+    /// Four-lane SSE dot kernels; exact reduction order is source/build-bound.
     Sse2,
 }
 
@@ -64,7 +64,7 @@ impl InferenceMathBackend {
         }
     }
 
-    /// Stable evidence and health label.
+    /// Stable evidence/health category; source/build identity pins exact arithmetic.
     pub const fn label(self) -> &'static str {
         match self {
             Self::Scalar => "rust-scalar-v1",
@@ -72,7 +72,7 @@ impl InferenceMathBackend {
         }
     }
 
-    /// Resolve one exact persisted/evidence label to its implementation.
+    /// Resolve the persisted backend category under its recorded source/build contract.
     pub fn from_label(label: &str) -> Option<Self> {
         match label {
             "rust-scalar-v1" => Some(Self::Scalar),
@@ -2192,6 +2192,96 @@ mod tests {
         .expect("wide recurrent graph compiles")
     }
 
+    /// Large mixed-recurrent DAG forces long/tail SIMD rows through every graph operation.
+    fn large_recurrent_graph() -> CompiledGraph {
+        let nodes = [
+            ("in", GraphNodeKind::Input { output_size: 504 }),
+            (
+                "split",
+                GraphNodeKind::Split {
+                    output_sizes: vec![248, 256],
+                },
+            ),
+            (
+                "denseA",
+                GraphNodeKind::Dense {
+                    input_size: 248,
+                    output_size: 32,
+                },
+            ),
+            (
+                "mlpB",
+                GraphNodeKind::Mlp {
+                    input_size: 256,
+                    hidden_sizes: vec![64],
+                    output_size: 32,
+                },
+            ),
+            ("features", GraphNodeKind::Concat),
+            (
+                "gru",
+                GraphNodeKind::Gru {
+                    input_size: 64,
+                    hidden_size: 32,
+                },
+            ),
+            (
+                "lstm",
+                GraphNodeKind::Lstm {
+                    input_size: 64,
+                    hidden_size: 32,
+                },
+            ),
+            (
+                "rru",
+                GraphNodeKind::Rru {
+                    input_size: 64,
+                    hidden_size: 32,
+                },
+            ),
+            ("memory", GraphNodeKind::Concat),
+            (
+                "head",
+                GraphNodeKind::Dense {
+                    input_size: 96,
+                    output_size: 2,
+                },
+            ),
+        ]
+        .into_iter()
+        .map(|(id, kind)| GraphNodeSpec {
+            id: id.to_owned(),
+            kind,
+        })
+        .collect();
+        compile_graph(
+            &GraphSpec {
+                nodes,
+                edges: vec![
+                    edge("in", "split", None, None),
+                    edge("split", "denseA", Some(0), None),
+                    edge("split", "mlpB", Some(1), None),
+                    edge("denseA", "features", None, Some(0)),
+                    edge("mlpB", "features", None, Some(1)),
+                    edge("features", "gru", None, None),
+                    edge("features", "lstm", None, None),
+                    edge("features", "rru", None, None),
+                    edge("gru", "memory", None, Some(0)),
+                    edge("lstm", "memory", None, Some(1)),
+                    edge("rru", "memory", None, Some(2)),
+                    edge("memory", "head", None, None),
+                ],
+                outputs: vec![GraphOutputRef {
+                    node_id: "head".to_owned(),
+                    port: None,
+                }],
+                output_size: 2,
+            },
+            &limits(),
+        )
+        .unwrap()
+    }
+
     /// Construct one graph edge with explicit optional ports.
     fn edge(from: &str, to: &str, from_port: Option<i64>, to_port: Option<i64>) -> GraphEdge {
         GraphEdge {
@@ -2519,6 +2609,72 @@ mod tests {
                 assert_close("scalar/SSE2 recurrent", &next_simd, &next_scalar);
                 scalar_state = next_scalar;
                 simd_state = next_simd;
+            }
+        }
+    }
+
+    /// Compare all outputs/states over 256 deliveries, nonzero starts and a life reset.
+    #[test]
+    fn long_simd_rows_match_scalar_through_large_mixed_recurrence_and_reset() {
+        let graph = large_recurrent_graph();
+        let scalar =
+            GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                .unwrap();
+        let simd = GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Sse2)
+            .unwrap();
+        for seed in [1_u64, 7, 42, 4096] {
+            // Independent test-only stream; authoritative RNGs are not involved.
+            let mut state = seed;
+            let mut next = || {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                (state >> 40) as f32 / 16_777_216.0 - 0.5
+            };
+            let weights = (0..scalar.total_parameters())
+                .map(|_| next() * 0.3)
+                .collect::<Vec<_>>();
+            for initial in [0.0_f32, 0.13] {
+                let mut scalar_state = vec![initial; scalar.total_state_size()];
+                let mut simd_state = scalar_state.clone();
+                let mut scalar_scratch = scratch(&scalar);
+                let mut simd_scratch = scratch(&simd);
+                for step in 0..256 {
+                    if step == 128 {
+                        scalar_state.fill(0.0);
+                        simd_state.fill(0.0);
+                    }
+                    let input = (0..scalar.input_size())
+                        .map(|_| next() * 2.0)
+                        .collect::<Vec<_>>();
+                    let mut scalar_next = vec![f32::NAN; scalar.total_state_size()];
+                    let mut simd_next = scalar_next.clone();
+                    let mut scalar_output = vec![f32::NAN; scalar.output_size()];
+                    let mut simd_output = scalar_output.clone();
+                    scalar
+                        .evaluate(
+                            &weights,
+                            &scalar_state,
+                            &mut scalar_next,
+                            &input,
+                            &mut scalar_output,
+                            &mut scalar_scratch.view(),
+                        )
+                        .unwrap();
+                    simd.evaluate(
+                        &weights,
+                        &simd_state,
+                        &mut simd_next,
+                        &input,
+                        &mut simd_output,
+                        &mut simd_scratch.view(),
+                    )
+                    .unwrap();
+                    assert_close("large scalar/SSE2 output", &simd_output, &scalar_output);
+                    assert_close("large scalar/SSE2 recurrent", &simd_next, &scalar_next);
+                    scalar_state = scalar_next;
+                    simd_state = simd_next;
+                }
             }
         }
     }
