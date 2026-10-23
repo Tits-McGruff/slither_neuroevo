@@ -1,4 +1,4 @@
-//! Internal x86_64 SIMD dot products for authoritative heterogeneous inference.
+//! Internal x86_64 SIMD kernels for authoritative inference and diagnostic species bounds.
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -121,4 +121,105 @@ pub(crate) fn dot_product_mul_sse2(weights: &[f32], left: &[f32], right: &[f32])
     // SAFETY: Equal safe slices prove every pointer is valid for `left.len()`
     // reads. The runtime backend selector has admitted SSE2 for this process.
     unsafe { dense_dot_mul(weights.as_ptr(), left.as_ptr(), right.as_ptr(), left.len()) }
+}
+
+/// Sum squared Float32 differences in Float64 with a reordered positive reduction.
+///
+/// This is an approximate bound input, not an inference kernel or an exact scalar
+/// distance replacement. Callers must guard any decision against reduction error.
+/// Equal safe slices permit read-only aliasing; a mismatch panics before raw loads.
+/// SSE2 is guaranteed by the supported x86_64 targets.
+pub(crate) fn squared_distance_f64_sse2(left: &[f32], right: &[f32]) -> f64 {
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "SIMD distance slice length mismatch"
+    );
+    let mut index = 0;
+    // SAFETY: Both slices have equal lengths. Each iteration reads two complete
+    // four-f32 spans per slice only when index + 8 <= len. The only write is to
+    // the separate two-f64 stack array; inputs may overlap because all are reads.
+    let lanes = unsafe {
+        let mut a = _mm_setzero_pd();
+        let mut b = a;
+        let mut c = a;
+        let mut d = a;
+        while index + 8 <= left.len() {
+            let left0 = _mm_loadu_ps(left.as_ptr().add(index));
+            let right0 = _mm_loadu_ps(right.as_ptr().add(index));
+            let left1 = _mm_loadu_ps(left.as_ptr().add(index + 4));
+            let right1 = _mm_loadu_ps(right.as_ptr().add(index + 4));
+            let low0 = _mm_sub_pd(_mm_cvtps_pd(left0), _mm_cvtps_pd(right0));
+            let high0 = _mm_sub_pd(
+                _mm_cvtps_pd(_mm_movehl_ps(left0, left0)),
+                _mm_cvtps_pd(_mm_movehl_ps(right0, right0)),
+            );
+            let low1 = _mm_sub_pd(_mm_cvtps_pd(left1), _mm_cvtps_pd(right1));
+            let high1 = _mm_sub_pd(
+                _mm_cvtps_pd(_mm_movehl_ps(left1, left1)),
+                _mm_cvtps_pd(_mm_movehl_ps(right1, right1)),
+            );
+            a = _mm_add_pd(a, _mm_mul_pd(low0, low0));
+            b = _mm_add_pd(b, _mm_mul_pd(high0, high0));
+            c = _mm_add_pd(c, _mm_mul_pd(low1, low1));
+            d = _mm_add_pd(d, _mm_mul_pd(high1, high1));
+            index += 8;
+        }
+        let mut lanes = [0.0_f64; 2];
+        _mm_storeu_pd(
+            lanes.as_mut_ptr(),
+            _mm_add_pd(_mm_add_pd(a, b), _mm_add_pd(c, d)),
+        );
+        lanes
+    };
+    let mut total = lanes[0] + lanes[1];
+    for (&a, &b) in left[index..].iter().zip(&right[index..]) {
+        let difference = f64::from(a) - f64::from(b);
+        total += difference * difference;
+    }
+    total
+}
+
+#[cfg(test)]
+mod distance_tests {
+    use super::squared_distance_f64_sse2;
+
+    #[test]
+    fn positive_distance_reduction_covers_tails_aliases_and_float32_extremes() {
+        let patterns = [
+            0.0_f32,
+            -0.0,
+            f32::from_bits(1),
+            -f32::from_bits(1),
+            0.35,
+            -0.35,
+            1.0,
+            -5.0,
+            f32::MAX,
+            -f32::MAX,
+        ];
+        for length in 0..=273 {
+            let left: Vec<_> = (0..length).map(|i| patterns[i % patterns.len()]).collect();
+            let right: Vec<_> = (0..length)
+                .map(|i| patterns[(i + 3) % patterns.len()])
+                .collect();
+            let scalar = left.iter().zip(&right).fold(0.0, |sum, (&a, &b)| {
+                let difference = f64::from(a) - f64::from(b);
+                sum + difference * difference
+            });
+            let actual = squared_distance_f64_sse2(&left, &right);
+            assert!(actual.is_finite());
+            assert!((actual - scalar).abs() <= scalar * 1e-12);
+            assert_eq!(squared_distance_f64_sse2(&left, &left), 0.0);
+        }
+        let tiny = [f32::from_bits(1); 9];
+        let expected = 9.0 * f64::from(tiny[0]).powi(2);
+        assert_eq!(squared_distance_f64_sse2(&tiny, &[0.0; 9]), expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "SIMD distance slice length mismatch")]
+    fn distance_rejects_unequal_lengths_before_loading() {
+        squared_distance_f64_sse2(&[0.0; 9], &[0.0; 8]);
+    }
 }

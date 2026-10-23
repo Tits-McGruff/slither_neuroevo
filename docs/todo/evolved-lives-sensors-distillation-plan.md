@@ -1382,6 +1382,17 @@ hot-cache microbenchmarks, but regresses the 256-wide streaming-bank median by
 runtime and synthetic benchmark sources, paired records and aggregate resource
 context. Generation summary and neural cost remain performance work.
 
+Large-owner species comparisons now have a bounded SSE2 probe using Float64
+differences and positive sums. A conservative rounding guard permits only proven
+far rejection; unsuccessful probes retain the original ordered scalar calculation
+and greedy representative order. An unrepresentative prefix abandons the probe
+when subsequent blocks have low distance. The RMS threshold remains 0.35, and
+statistics, authoritative RNG, selection and reproduction contracts are unchanged.
+Native tests compare complete scalar decisions around cutoff/tail boundaries,
+extreme Float32 values, diverse and clustered owners, plus exact summary statistics.
+This is a performance implementation checkpoint; integrated timing and the
+remaining qualification gates above are still open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

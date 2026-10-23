@@ -22,6 +22,8 @@ pub const TOURNAMENT_SIZE: usize = 5;
 pub const SPECIES_DISTANCE_THRESHOLD: f64 = 0.35;
 /// Bound delayed far-distance rejection while keeping the original scalar sum order.
 const SPECIES_DISTANCE_SCAN_BLOCK: usize = 256;
+/// Speculation is only useful for large owners; short pairs retain one scalar scan.
+const SPECIES_DISTANCE_PROBE_MIN_WEIGHTS: usize = 4096;
 /// Extra per-genome norm storage beyond the previous slot/count species scratch.
 pub(crate) const SPECIES_NORM_BYTES_PER_GENOME: usize = std::mem::size_of::<f64>();
 /// Restrict the norm proof to sums with a small, documented rounding bound.
@@ -1067,6 +1069,54 @@ fn species_norms_prove_close(
     upper_rms * SPECIES_NORM_ROUNDING_GUARD < SPECIES_DISTANCE_THRESHOLD
 }
 
+/// Conservatively reject a distant pair without changing an uncertain decision.
+///
+/// Finite Float32 differences and their Float64 squares stay normal and finite.
+/// Only positive reduction order changes. For N <= 2^30, each path's accumulated
+/// relative error is below 2^-21 using N*epsilon/(1-N*epsilon); difference/square,
+/// final division/sqrt and both reductions fit well within the 1e-4 guard.
+/// Thus a guarded partial sum proves the complete original scalar RMS is far.
+/// Any NaN, near-cutoff or unsuccessful probe leaves the original scalar path.
+///
+/// The first scalar block predicts a work budget only. A subsequent low-energy
+/// block abandons speculation early, avoiding a large extra scan when a close
+/// pair has an unrepresentative prefix. Neither heuristic decides membership.
+fn species_probe_proves_far(left: &[f32], right: &[f32], prefix: f64, far_limit: f64) -> bool {
+    if !(SPECIES_DISTANCE_PROBE_MIN_WEIGHTS..=SPECIES_NORM_MAX_WEIGHTS).contains(&left.len())
+        || prefix
+            <= SPECIES_DISTANCE_THRESHOLD
+                * SPECIES_DISTANCE_THRESHOLD
+                * SPECIES_DISTANCE_SCAN_BLOCK as f64
+                * SPECIES_NORM_ROUNDING_GUARD
+    {
+        return false;
+    }
+    let budget = ((2.0 * far_limit * SPECIES_DISTANCE_SCAN_BLOCK as f64 / prefix).ceil() as usize)
+        .min(left.len())
+        .saturating_sub(SPECIES_DISTANCE_SCAN_BLOCK);
+    let end = SPECIES_DISTANCE_SCAN_BLOCK + budget;
+    let mut sum = prefix;
+    for (a, b) in left[SPECIES_DISTANCE_SCAN_BLOCK..end]
+        .chunks(SPECIES_DISTANCE_SCAN_BLOCK)
+        .zip(right[SPECIES_DISTANCE_SCAN_BLOCK..end].chunks(SPECIES_DISTANCE_SCAN_BLOCK))
+    {
+        let block_sum = crate::simd_kernels::squared_distance_f64_sse2(a, b);
+        sum += block_sum;
+        if sum > far_limit * SPECIES_NORM_ROUNDING_GUARD {
+            return true;
+        }
+        if block_sum
+            < SPECIES_DISTANCE_THRESHOLD
+                * SPECIES_DISTANCE_THRESHOLD
+                * a.len() as f64
+                * SPECIES_NORM_ROUNDING_GUARD
+        {
+            break;
+        }
+    }
+    false
+}
+
 fn genomes_share_species(
     left: &PopulationGenome,
     right: &PopulationGenome,
@@ -1090,10 +1140,11 @@ fn genomes_share_species(
         * left.weights.len() as f64
         * 1.000_001;
     let mut sum_squared = 0.0_f64;
-    for (left_block, right_block) in left
+    for (block_index, (left_block, right_block)) in left
         .weights
         .chunks(SPECIES_DISTANCE_SCAN_BLOCK)
         .zip(right.weights.chunks(SPECIES_DISTANCE_SCAN_BLOCK))
+        .enumerate()
     {
         for (&left_weight, &right_weight) in left_block.iter().zip(right_block) {
             let difference = f64::from(left_weight) - f64::from(right_weight);
@@ -1101,7 +1152,10 @@ fn genomes_share_species(
         }
         // Later nonnegative terms cannot undo a far rejection. Close decisions
         // still use every original addition and the original final sqrt.
-        if sum_squared > far_limit {
+        if sum_squared > far_limit
+            || (block_index == 0
+                && species_probe_proves_far(&left.weights, &right.weights, sum_squared, far_limit))
+        {
             return Ok(false);
         }
     }
@@ -2178,6 +2232,86 @@ mod tests {
             genomes_share_species(&left, &right),
             Err(EvolutionError::PopulationShape { .. })
         ));
+    }
+
+    /// Exercise proof success, guarded fallback and deliberately misleading prefixes.
+    #[test]
+    fn species_simd_probe_preserves_scalar_decisions_for_diverse_and_clustered_owners() {
+        let mut left = source_state(&fixture()).1.remove(0);
+        let mut right = left.clone();
+        for count in [4095, 4096, 4097, 8193, 494_306] {
+            left.weights = vec![0.0; count].into_boxed_slice();
+            right.weights = vec![0.5; count].into_boxed_slice();
+            let far_limit = SPECIES_DISTANCE_THRESHOLD.powi(2) * count as f64 * 1.000_001;
+            let prefix = 0.25 * SPECIES_DISTANCE_SCAN_BLOCK as f64;
+            assert_eq!(
+                species_probe_proves_far(&left.weights, &right.weights, prefix, far_limit),
+                count >= SPECIES_DISTANCE_PROBE_MIN_WEIGHTS
+            );
+            for difference in [
+                f32::from_bits(1),
+                f32::from_bits(0.35_f32.to_bits() - 1),
+                0.35,
+                f32::from_bits(0.35_f32.to_bits() + 1),
+                0.350_01,
+                0.350_1,
+                0.5,
+                f32::MAX,
+            ] {
+                right.weights = vec![difference; count].into_boxed_slice();
+                assert_eq!(
+                    genomes_share_species(&left, &right).unwrap(),
+                    scalar_species(&left, &right),
+                    "count={count}, difference={difference}"
+                );
+            }
+            right.weights = vec![0.0; count].into_boxed_slice();
+            right.weights[..SPECIES_DISTANCE_SCAN_BLOCK].fill(1.0);
+            assert!(!species_probe_proves_far(
+                &left.weights,
+                &right.weights,
+                SPECIES_DISTANCE_SCAN_BLOCK as f64,
+                far_limit
+            ));
+            assert_eq!(
+                genomes_share_species(&left, &right).unwrap(),
+                scalar_species(&left, &right)
+            );
+
+            // Test-only synthetic values; never advance an authoritative RNG stream.
+            for seed in 1..=12_u64 {
+                let mut state = seed;
+                let mut next = || {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    ((state >> 40) as f32 / 16_777_216.0 - 0.5) * 1.1
+                };
+                left.weights = (0..count)
+                    .map(|_| next())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                for clustered in [false, true] {
+                    right.weights = left
+                        .weights
+                        .iter()
+                        .map(|&value| {
+                            if clustered {
+                                value + next() * 0.2
+                            } else {
+                                next()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                    assert_eq!(
+                        genomes_share_species(&left, &right).unwrap(),
+                        scalar_species(&left, &right),
+                        "count={count}, seed={seed}, clustered={clustered}"
+                    );
+                }
+            }
+        }
     }
 
     /// Independent complete scalar distance with no early-exit or block policy.
