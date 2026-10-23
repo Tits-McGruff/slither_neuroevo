@@ -1334,6 +1334,22 @@ teacher-agreement, representative ecology, maturity, cost, profile selection or
 release acceptance. Initial resource coverage is partial, so this evidence
 makes no idle-host performance claim.
 
+Independent final teacher agreement is now measured for those same 21 fixed
+models, using 19,978 delivered rows across 224 synthetic teacher sequences on
+seeds 33..40. CPU evaluation carries recurrence within each native life and
+performs no updates. The frozen generator collects seeds 1..40; only 33..40 enter
+evaluation, with 1..32 explicitly excluded. The
+`final-teacher-agreement-windows-v1/` capsule retains the original native
+corpus/report, imported evaluator sources, all model-level agreement receipts
+and aggregate resource observations; automated checks bind the earlier model
+bytes and recompute coverage, group totals and macro means. Full's macro turn
+MAE is 0.07176 and Core-only's is 0.06572 on these maximum-96-step teacher lives.
+Exact-observation label variation is retained with support counts: the
+stochastic-only repeated group has just eight rows, so it cannot characterize
+general label noise or bound recurrent accuracy. This closes that bounded
+final-seed agreement measurement, while maturity, representative ecology,
+cost/profile selection and full integrated acceptance remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

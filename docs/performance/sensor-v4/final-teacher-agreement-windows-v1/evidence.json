@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "kind": "final-teacher-agreement-evidence-v1",
+  "measurementComplete": true,
+  "maturityQualified": false,
+  "releaseQualified": false,
+  "profileChoice": null,
+  "modelSourceStudy": "final-native-tactics-cuda8000-windows-v1",
+  "modelSourceManifestCanonicalSha256": "6fd0e8b77ecc96cc92a54131915e168d14db19018ab38a6165dd5e05d8bb0cc6",
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "nativeCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
+  "evaluatorCommit": "9107b851953de90e2d6a2f3d6612973fd475084a",
+  "evaluatorSourceFiles": {
+    "pyrl_trainer/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "pyrl_trainer/brain_artifact.py": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+    "pyrl_trainer/canonical_graph.py": "72a80c648ff8058377aaf65f1870b29d9ca20f05e41e9f6a9513574272eb3129",
+    "pyrl_trainer/distillation_transport.py": "0498343d66408ddc1896ffad48777859e3ddac98406885ab25aaa4518f61d0ce",
+    "pyrl_trainer/sensor_contract.py": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+    "pyrl_trainer/sequence_distillation.py": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+    "pyrl_trainer/tactical_ablation.py": "4d252a5317417cc98c23aeaa909c52c03a3fe01bc04a30add9003f590b210506",
+    "pyrl_trainer/tactical_contract.py": "b0ff47fc364f8caaf3b7c6ff0a4dc74bec5e5811d420fd8befa3ff77c9c43390",
+    "pyrl_trainer/tactical_corpus.py": "2ce401f7606333c07ac835ea481cbc853b032c26ba3d3031ebb9ea207463e1ce"
+  },
+  "resourceSamples": {
+    "generation-aggregate-resources.json": 2,
+    "agreement-aggregate-resources.json": 4
+  },
+  "resourceScope": "Aggregate Windows, already-running WSL and GPU counters. Shared-host observations provide context; no idle-host or throughput claim.",
+  "scope": "Frozen generator emits seeds 1..40; evaluation selects only 33..40. No evaluation or selection uses collected seeds 1..32. Predeclared fixed fold-2 models, all three initialization seeds and seven variants. Maximum 96-step synthetic teacher lives; no mature ecology, throughput, normalization/profile choice or release acceptance.",
+  "files": [
+    {
+      "path": "corpus/actions.f32",
+      "bytes": 796992,
+      "sha256": "04baa8fe13b1ef73b545789791aa95b1bfc4df393004b39530d70afdb0eeae7b",
+      "gzipSha256": "7d43b9a587aba0935273ba392e25d48de6a6b44a8008e2332ced08f27ae043a1"
+    },
+    {
+      "path": "corpus/corpus.json",
+      "bytes": 346306,
+      "sha256": "1f25003dafaf66f86f4763b167fb8b484ee4c2aa384e46e1954f571547ab6fa8",
+      "gzipSha256": "c11346deb70d5c600995a884844f7faf9549f0685b69b39b91e56a34d33915f6"
+    },
+    {
+      "path": "corpus/observations.f32",
+      "bytes": 105202944,
+      "sha256": "591c2ad21ec14e2df1889aeea75cc317903b6fdad1975b7a6fd6d878f5289f4a",
+      "gzipSha256": "6dd67168c0a029ceb67c213ebe2310800b6dfb0b37f2b11e769fccf237d82567"
+    },
+    {
+      "path": "corpus/steps.u32",
+      "bytes": 398496,
+      "sha256": "be7aff9316caa6d9c65e2b542ed50ab66c3b617f865354383754b282756b4eae",
+      "gzipSha256": "abb613512c2241853497997ffcd6d82a6cc4d7f261eb39df4a9103f111ea4674"
+    },
+    {
+      "path": "agreement-models/seed-1-core-only.json",
+      "bytes": 11304,
+      "sha256": "62533dac9991da2ea24c68c4eb8c12ce19dd9c1042554337acd058f59f1a8fbc",
+      "gzipSha256": "32ee62c510b67086b8000f291f8f52a31db8e8703c1ee87d506e28dc6294dfbc"
+    },
+    {
+      "path": "agreement-models/seed-1-full.json",
+      "bytes": 11317,
+      "sha256": "63f7dacfedefc3191a0226a4b9b810a7586238bbec4cb83e51b543b0638220f4",
+      "gzipSha256": "8f0ab198b8ed07c76317cb10c393e6e1f9be755b0c9b2ecc528849009dce1581"
+    },
+    {
+      "path": "agreement-models/seed-1-no-bearing.json",
+      "bytes": 11318,
+      "sha256": "4691f2837708280320095f41ce252c6b0e81ec46d7bdb7960379e4598951cfb1",
+      "gzipSha256": "ac8375d64a6ad346b1a0c6199748425925d0e7c0c3868757685b9c201e4f9109"
+    },
+    {
+      "path": "agreement-models/seed-1-no-density.json",
+      "bytes": 11327,
+      "sha256": "e2c2a9373735aba4f2c527565fa7493e9c94a31648555cf826abea1b73ad0e23",
+      "gzipSha256": "e73065cdf26ac6521b11e5898f3aad6bd158c7ccd2f1a5d8fad70e0f61ad70c7"
+    },
+    {
+      "path": "agreement-models/seed-1-no-heading.json",
+      "bytes": 11329,
+      "sha256": "d7114336882cbd14e865deedbf9b1fc42e375a62ff602458dbf78f39d25dd59c",
+      "gzipSha256": "b41d19df95235b3b4e29ae274ae250fc03e4ff1c2166e065bb7dbe16cf75009a"
+    },
+    {
+      "path": "agreement-models/seed-1-no-urgency.json",
+      "bytes": 11317,
+      "sha256": "ae653a6ca7e1d1f2f7a97c3b87d1dc6c3accd438369742d14f5e3b4ae553b5b3",
+      "gzipSha256": "ed93578f05f59645fee819b16cb62aaa5ee68a1b0493243452850a00f363b380"
+    },
+    {
+      "path": "agreement-models/seed-1-no-velocity.json",
+      "bytes": 11325,
+      "sha256": "e2bd81b919a40c75aa3119e6a602fbe4e4c78808a9e81d4383bc75559517fc4f",
+      "gzipSha256": "37f17685d26d46c03f7da450eae714295ff8cdefe7932653360c5638aa1a1a26"
+    },
+    {
+      "path": "agreement-models/seed-2-core-only.json",
+      "bytes": 11298,
+      "sha256": "b270dc77192a3a17a07f11a72d80bb137ce241c1be30b105ef831598778b329d",
+      "gzipSha256": "3a729dbe3e10fe467fd473502b3df4d4a8483e3acba8f94236287a75ecafce22"
+    },
+    {
+      "path": "agreement-models/seed-2-full.json",
+      "bytes": 11314,
+      "sha256": "1cb5ed30cc060ea93b3ea22dcbb7c6740cdf9669ccd118b5501766c35f87810d",
+      "gzipSha256": "0107758949d5a144fdd0771e9d66483be7f1b7a0aa52b99eaa459dff08d17a6e"
+    },
+    {
+      "path": "agreement-models/seed-2-no-bearing.json",
+      "bytes": 11326,
+      "sha256": "4ced3fa5c4f201556774d28dadcde0771b579f0c47862cedee1a17b5afb49e2e",
+      "gzipSha256": "93cddb7cd36b4398dd6899d6ef4e8ce7ed6928d6fc0eec9fbcc4c60e6f6a1744"
+    },
+    {
+      "path": "agreement-models/seed-2-no-density.json",
+      "bytes": 11328,
+      "sha256": "c14a9c452833491ae9f567672639ec948032dc6a61605b377e88b2cfad854bad",
+      "gzipSha256": "852d1424e24881557414349e5e7201cf0712294cc674dcb2438c58f29cc8daa0"
+    },
+    {
+      "path": "agreement-models/seed-2-no-heading.json",
+      "bytes": 11301,
+      "sha256": "4583daf770f359bb10c0746ce5b3acacc28df9003b9d692e0f1825eae71e0066",
+      "gzipSha256": "4d11b9ab6197480b5e7730944fa1261b492855d663d03df62018eee4695a44c0"
+    },
+    {
+      "path": "agreement-models/seed-2-no-urgency.json",
+      "bytes": 11309,
+      "sha256": "772305e5470e776002be445faed3c8e4af433d5bd5dd51c2a0f4d8d0a9365939",
+      "gzipSha256": "21e03926ba527c8ed42f0c8f2a787b2f4bd964488ad608ee2f10004bad7f4faa"
+    },
+    {
+      "path": "agreement-models/seed-2-no-velocity.json",
+      "bytes": 11327,
+      "sha256": "e8b9a5dd5797a8119110b4c6648b5d5b320c1d19efefa5a1824b899f158d79af",
+      "gzipSha256": "00a294d04660c26633346baeec670cc0898dea1e7d43a8cb9e713afc53ff2100"
+    },
+    {
+      "path": "agreement-models/seed-3-core-only.json",
+      "bytes": 11296,
+      "sha256": "084ea868ebe7084aea6aa6c5a0d87fb9e53adb7206aa5696a85dc90c7151412d",
+      "gzipSha256": "fddde7e0d73a4d2142bc5f9bcaeaa03dd21b9d09eb9ac44dd95cdf8d67d56a0f"
+    },
+    {
+      "path": "agreement-models/seed-3-full.json",
+      "bytes": 11307,
+      "sha256": "2c39572545a23426e38f6129cb0d0659e93419f102cedd7d2fec3275938f0e98",
+      "gzipSha256": "cc42fc338b8d65194b2766543a32f6517bbe6e45ef3d445f52ce422a4c134c18"
+    },
+    {
+      "path": "agreement-models/seed-3-no-bearing.json",
+      "bytes": 11327,
+      "sha256": "f1f291295433184617972293938307156ec28d8c34d30b16c82df5bf24652884",
+      "gzipSha256": "35199fc1d5e8470a1bed5fd6ccb767327ff39ef2ad8bdb69a405a9422b4c0c6e"
+    },
+    {
+      "path": "agreement-models/seed-3-no-density.json",
+      "bytes": 11307,
+      "sha256": "141bfde2c64ba25150e4f0b310b34b9a64da3945635e877aecad2247b8135bf4",
+      "gzipSha256": "001df73b22a42f920e84fa7c846f81b0875b6c330e484286e7d533a3e1b6a986"
+    },
+    {
+      "path": "agreement-models/seed-3-no-heading.json",
+      "bytes": 11283,
+      "sha256": "8456132bbd618cea3cf6def24975f7e7f14180ceb721aea544d14ebea0b0ca6d",
+      "gzipSha256": "372f0d8057ad364223f5553a197deeab463aee2c04ddc79899426d7b9af55008"
+    },
+    {
+      "path": "agreement-models/seed-3-no-urgency.json",
+      "bytes": 11305,
+      "sha256": "a2f574bb9d7c31ac2e8e562f21722aa6e1be9d2d69d1d44b80f65738124c4297",
+      "gzipSha256": "78eaf74effcc386ac47ee202e70841814bada6a68743f1a5f985f8407b4de657"
+    },
+    {
+      "path": "agreement-models/seed-3-no-velocity.json",
+      "bytes": 11322,
+      "sha256": "bfe96fb4b71a24f43c82cab8fb0e98c8fe1540cc347bd1e7b30c63b8fded7a9f",
+      "gzipSha256": "c48df2b05738e509a8536b7f53ab6876ccbcc787eea57970424dc2542ad9849e"
+    },
+    {
+      "path": "design.json",
+      "bytes": 1463,
+      "sha256": "017264e5d4db2d0e0ecf49c83829ddbccb23120dff753b8285149fcaa8398c2e",
+      "gzipSha256": "a648077ab8b03cf51b6f6791124413ad22ab506c3c414c4f37f321ff4292903e"
+    },
+    {
+      "path": "teacher-report.json",
+      "bytes": 6715102,
+      "sha256": "aaaf1ef6388e66140a20b7aa5339cc18fc6d84b3303288daf74a19aa96dab741",
+      "gzipSha256": "ae8490ea338f440d8f0e43262281b4c3d3bb832779dc9aa8e849a040c34bca09"
+    },
+    {
+      "path": "agreement-summary.json",
+      "bytes": 275387,
+      "sha256": "df0c7bbc6c128dd2ffe1f2ceb456bdf3bb7d29ccd04a279b0ccc7573fc7e4dac",
+      "gzipSha256": "1ee6be559b3d0e26323c68dee4bf2a53b932b532b707758a38aaf9603cb08cf7"
+    },
+    {
+      "path": "conditional-label-variation.json",
+      "bytes": 1396,
+      "sha256": "910d366fe54dcdce001b724ecaa44e6974730d65d82fb3071e1fb70fd81c2d58",
+      "gzipSha256": "56bf27bb29a85d17ccb98de4443155a70a91617a9e78fe41dc6718fc11720df0"
+    },
+    {
+      "path": "drivers/generate-final-teacher-agreement-cpu-20261023.py",
+      "bytes": 4731,
+      "sha256": "ddea2b11f181a84d79d154634f106a76cb6db4e7427b3c4d88ff3e48621650c7",
+      "gzipSha256": "52ea10c9c9cafae2353548f854eb8d1e4b7f8db499484ed4e6e9b56479e004b8"
+    },
+    {
+      "path": "drivers/evaluate-final-teacher-agreement-cpu-20261023.py",
+      "bytes": 8289,
+      "sha256": "70ef1d64c24a940d7a05a037393520e2b73d496e0bb3fa900b7ae04fee3cbf11",
+      "gzipSha256": "be8aafc40bff25fed1cbd455f60545e2301f706c9307f3ef737caba0a658d80a"
+    },
+    {
+      "path": "drivers/analyze-final-label-variation-20261023.py",
+      "bytes": 2905,
+      "sha256": "a287f35c5ec1af57571cb9d610bdd6ce5ee1e5f7308e8a3715a817df6bfc079b",
+      "gzipSha256": "c2ade0a55555d9536426bf31a05db344f3cbda7ec19760c8bfa3f1d98e351dff"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "gzipSha256": "46b50c321b39e89a491b6727a01628c34245605a30beb3e7414c5e01cff90e6e"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/brain_artifact.py",
+      "bytes": 6125,
+      "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
+      "gzipSha256": "a486c6db878a108da0b96b07babbfcec174597f1023a392afebab14939442a51"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/canonical_graph.py",
+      "bytes": 25104,
+      "sha256": "72a80c648ff8058377aaf65f1870b29d9ca20f05e41e9f6a9513574272eb3129",
+      "gzipSha256": "fbbcaa3b0d276a7d400e34bc26cad40a333d05e43938efd2a27f6282d88ad630"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/distillation_transport.py",
+      "bytes": 20337,
+      "sha256": "0498343d66408ddc1896ffad48777859e3ddac98406885ab25aaa4518f61d0ce",
+      "gzipSha256": "cb651105cff8c8ec2e1b99a1cf7c24caed6522ba7fe3347bc11689e048fe59e1"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/sensor_contract.py",
+      "bytes": 10203,
+      "sha256": "770dff09d17e5be62e07eaa25900deba159f767da567ec0623bbeb29fd63f5a9",
+      "gzipSha256": "7b24856553f2fd3900b755ba5276c9b2cc8152509dc3bb0845f5b3b39c55d68f"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/sequence_distillation.py",
+      "bytes": 17366,
+      "sha256": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+      "gzipSha256": "1febf12ada20ff41bb3fec830bb1292d93650cc3ad41dd7c1c87ea0ec1afd373"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/tactical_ablation.py",
+      "bytes": 9672,
+      "sha256": "4d252a5317417cc98c23aeaa909c52c03a3fe01bc04a30add9003f590b210506",
+      "gzipSha256": "415251bcde25f3fd089c8c6b7b888bae0ff20ea0c93e46c3c7506f25f42bf248"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/tactical_contract.py",
+      "bytes": 667,
+      "sha256": "b0ff47fc364f8caaf3b7c6ff0a4dc74bec5e5811d420fd8befa3ff77c9c43390",
+      "gzipSha256": "13903992359afecdb13b3c78220bb56fe94e8ffadaefdc8f45f71b9c04078c90"
+    },
+    {
+      "path": "evaluator/pyrl_trainer/tactical_corpus.py",
+      "bytes": 8696,
+      "sha256": "2ce401f7606333c07ac835ea481cbc853b032c26ba3d3031ebb9ea207463e1ce",
+      "gzipSha256": "d0abbbee39ae46a517b1cd044a38a60690ce70a47a1219cc46f64c53ae0ae348"
+    },
+    {
+      "path": "system-resource-observer.py",
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    {
+      "path": "generation-aggregate-resources.json",
+      "bytes": 3118,
+      "sha256": "ff24201f483b3f18f3d2de702f270287ce53fe8e6f20b6bc460f48f0c1bbf608",
+      "gzipSha256": "6045dc768d8d8665cad20953fae154abb048cbc60b026d4a46e3d3c6ee9df961"
+    },
+    {
+      "path": "agreement-aggregate-resources.json",
+      "bytes": 6226,
+      "sha256": "230e9f86154c06686e94a68a1e63cbfff301e046019ceff03c3cfdfdf29ead3b",
+      "gzipSha256": "a3730cde8ae55785f1896118715a19b3104856753bbe7dce9f336ab281168c1b"
+    }
+  ]
+}
