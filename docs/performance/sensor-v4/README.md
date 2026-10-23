@@ -1907,3 +1907,17 @@ optimizer-work allowance begins after that measured fill; request timeouts stay
 unchanged. Exact restart must preserve the same requested floor, and sustained
 intake must never drop below it. A selected ceiling without these occupancy
 receipts remains unqualified.
+
+The `final-teacher-agreement-windows-v1/` capsule evaluates all 21 fixed
+fold-2 models from the 8,000-update CUDA study on unseen seeds 33..40, with no
+optimizer work. The frozen native generator emits seeds 1..40, and the evaluator
+excludes 1..32 entirely from its 224 final teacher lives (19,978 delivered rows).
+All seven variants share exactly those rows. CPU evaluation resets recurrence
+per native life and carries it through each maximum-96-step sequence. Full
+averages 0.07176 turn MAE; Core-only averages 0.06572. These are single-fold
+synthetic final-seed measurements, not maturity or production-profile acceptance.
+The retained conditional-label analysis uses exact Float32 observation bytes;
+stochastic-only repetitions cover just eight rows. It makes no recurrent error
+floor claim. CI verifies original model/corpus/source hashes, recomputes all
+scenario/policy aggregates and label-variation statistics, and rejects private
+process/distribution fields in the aggregate resource records.
