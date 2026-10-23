@@ -465,6 +465,147 @@ class CanonicalCpuDotEvidenceTests(unittest.TestCase):
             aggregate_only(self, rows, self.files[platform + "/system-resource-observer.py"])
 
 
+class CanonicalCpuRuntimeEvidenceTests(unittest.TestCase):
+    """Separate faster actual CPU updates from still-unqualified integrated timing."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Load current code/data and exact earlier precision/native references."""
+        cls.manifest, cls.files = capsule("canonical-cpu-runtime-v1")
+        _, cls.previous = capsule("canonical-cpu-dot-v1")
+        _, cls.native = capsule("native-dot-numerics-v1")
+
+    def document(self, name):
+        """Decode admitted original JSON without executing retained source."""
+        return json.loads(self.files[name])
+
+    def test_paired_actual_updates_bind_input_source_and_order(self):
+        """Recompute fixed-input optimizer medians from every order-balanced pair."""
+        self.assertFalse(self.manifest["performanceQualified"])
+        self.assertFalse(self.manifest["fullCapacitySoakQualified"])
+        for platform in ["windows", "debian"]:
+            report = self.document(platform + "/benchmark.json")
+            self.assertFalse(report["prototype"])
+            self.assertEqual(report["driverSha256"], sha(self.files["benchmark-production.py"]))
+            self.assertEqual(report["referenceHelperSha256"], sha(self.previous["pyrl/canonical_graph.py"]))
+            self.assertEqual(report["candidateHelperSha256"], sha(self.files["pyrl/canonical_graph.py"]))
+            self.assertEqual(report["cpuThreads"], 2)
+            self.assertEqual(len(report["records"]), 16)
+            for case in ["modest", "large-lstm"]:
+                native = self.document(platform + "/" + case + "-native.json")
+                self.assertEqual(native["sourceSha256"], self.manifest["nativeSourceSha256"])
+                ratios, reference, candidate = [], [], []
+                for index in range(4):
+                    rows = [x for x in report["records"] if x["case"] == case and x["pass"] == index]
+                    self.assertEqual([x["mode"] for x in rows],
+                                     ["reference", "candidate"] if index in [0, 3] else ["candidate", "reference"])
+                    pair = {x["mode"]: x for x in rows}
+                    for row in rows:
+                        self.assertEqual(row["inputWeightsSha256"], native["weightsSha256"])
+                        self.assertEqual(row["optimization"]["beforeSha256"], native["weightsSha256"])
+                        self.assertNotEqual(row["optimization"]["afterSha256"], native["weightsSha256"])
+                        self.assertEqual(row["optimization"]["trainingSamples"], 2048)
+                        self.assertEqual(row["optimization"]["burnInSamples"], 1024)
+                        self.assertEqual(row["nativeSourceSha256"], self.manifest["nativeSourceSha256"])
+                    a, b = pair["reference"], pair["candidate"]
+                    self.assertEqual((a["inputSize"], a["totalParameters"]), (b["inputSize"], b["totalParameters"]))
+                    self.assertLessEqual(abs(a["optimization"]["loss"] - b["optimization"]["loss"]),
+                                         1e-5 + 1e-5 * abs(a["optimization"]["loss"]))
+                    reference.append(a["seconds"])
+                    candidate.append(b["seconds"])
+                    ratios.append(b["seconds"] / a["seconds"])
+                summary = next(x for x in self.manifest["summary"] if x["platform"] == platform and x["case"] == case)
+                self.assertEqual(summary["medianReferenceSeconds"], statistics.median(reference))
+                self.assertEqual(summary["medianCandidateSeconds"], statistics.median(candidate))
+                self.assertEqual(summary["medianCandidateRatio"], statistics.median(ratios))
+                self.assertLess(summary["medianCandidateRatio"], 1)
+
+    def test_final_source_preserves_every_native_optimizer_roundtrip(self):
+        """All families/backends retain real optimizer updates and the previous hard tolerances."""
+        digest = hashlib.sha256(b"pyrl.canonical-training-source.v1\0")
+        for name in ["canonical_graph.py", "canonical_parity.py", "sequence_distillation.py"]:
+            digest.update(name.encode())
+            digest.update(self.files["pyrl/" + name].replace(b"\r\n", b"\n"))
+        self.assertEqual(digest.hexdigest(), self.manifest["trainerSourceSha256"])
+        expected = {"dense", "mlp", "gru", "lstm", "rru", "mixed", "large-gru", "large-lstm", "large-rru"}
+        for name in ["windows/cpu-roundtrip.json", "windows/cuda-roundtrip.json", "debian/cpu-roundtrip.json"]:
+            report = self.document(name)
+            self.assertEqual(report["trainerSourceSha256"], digest.hexdigest())
+            self.assertEqual(report["driverSha256"], sha(self.files["qualify.py"]))
+            self.assertEqual(report["generatorSha256"], sha(self.previous["pyrl/generate_canonical_graph_fixtures.py"]))
+            self.assertEqual(report["dtype"], "Float32")
+            self.assertFalse(report["tf32"])
+            self.assertEqual(len(report["cases"]), 18)
+            self.assertEqual({(x["case"], x["backend"]) for x in report["cases"]},
+                             {(case, backend) for case in expected
+                              for backend in ["rust-scalar-v1", "rust-sse2-v1"]})
+            for case in report["cases"]:
+                self.assertEqual(case["nativeSourceSha256"], self.manifest["nativeSourceSha256"])
+                self.assertEqual(case["weightsSha256"], case["optimization"]["afterSha256"])
+                self.assertNotEqual(case["weightsSha256"], case["optimization"]["beforeSha256"])
+                for field in ["outputErrorGrowth", "stateErrorGrowth"]:
+                    self.assertEqual([x["step"] for x in case[field]], [1, 64, 128, 256])
+                    self.assertLess(max(x["maxAbs"] for x in case[field]), 1e-3)
+        before = next(x for x in ast.parse(self.previous["pyrl/canonical_parity.py"]).body
+                      if isinstance(x, ast.FunctionDef) and x.name == "_compare")
+        after = next(x for x in ast.parse(self.files["pyrl/canonical_parity.py"]).body
+                     if isinstance(x, ast.FunctionDef) and x.name == "_compare")
+        self.assertEqual(ast.dump(before), ast.dump(after))
+
+    def test_original_failure_stays_fixed_and_cuda_exports_are_identical(self):
+        """Reuse exact old native arrays, not a retrained replacement or a wider limit."""
+        report = self.document("fixed-lstm/report.json")
+        self.assertTrue(report["fixedExport"])
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["driverSha256"], sha(self.files["fixed-export.py"]))
+        actual = floats(self.files["fixed-lstm/torch-states.f32"])
+        self.assertEqual(report["torchStatesSha256"], sha(self.files["fixed-lstm/torch-states.f32"]))
+        for backend in ["scalar", "sse2"]:
+            expected = floats(self.native["debian/" + backend + "-states.f32"])
+            row = next(x for x in report["results"] if x["backend"] == "rust-" + backend + "-v1")
+            self.assertEqual(row["nativeReceipt"], json.loads(self.native["debian/" + backend + "-receipt.json"]))
+            self.assertEqual(violations(actual[:192], expected[:192], 1e-5, 1e-4), 0)
+            self.assertEqual(violations(actual, expected, 1e-3, 1e-3), 0)
+        previous = {(x["case"], x["backend"]): x for x in json.loads(self.previous["windows/cuda-roundtrip.json"])["cases"]}
+        for case in self.document("windows/cuda-roundtrip.json")["cases"]:
+            old = previous[(case["case"], case["backend"])]
+            self.assertEqual(case["optimization"], old["optimization"])
+            self.assertEqual(case["weightsSha256"], old["weightsSha256"])
+
+    def test_accuracy_covers_threshold_tails_batches_and_shapes(self):
+        """Retain broad independent Float64 comparisons including direct short rows."""
+        for platform in ["windows", "debian"]:
+            report = self.document(platform + "/accuracy.json")
+            self.assertFalse(report["prototype"])
+            self.assertEqual(report["driverSha256"], sha(self.files["accuracy.py"]))
+            self.assertEqual(report["canonicalGraphSha256"], sha(self.files["pyrl/canonical_graph.py"]))
+            rows = report["records"]
+            self.assertEqual(len(rows), 384)
+            self.assertEqual({(x["seed"], x["width"], x["rows"], x["batch"]) for x in rows},
+                             {(seed, width, outputs, batch) for seed in range(4)
+                              for width in [32, 51, 127, 128, 129, 147, 216, 248, 256, 264, 504, 512]
+                              for outputs in [2, 32, 96, 256] for batch in [1, 32]})
+            for row in rows:
+                if row["width"] < self.manifest["minimumCpuWidth"]:
+                    self.assertEqual(row["compensatedMaxAbs"], row["directMaxAbs"])
+            self.assertLess(max(x["compensatedRelativeSumAbs"] for x in rows), 2 * 2**-23)
+            self.assertLess(sum(x["compensatedMaxAbs"]**2 for x in rows),
+                            sum(x["directMaxAbs"]**2 for x in rows))
+
+    def test_all_measurements_have_aggregate_resource_brackets(self):
+        """Reject inventories in continuous and final Windows/WSL/Linux/GPU snapshots."""
+        observer = self.files["system-resource-observer.py"]
+        for platform in ["windows", "debian"]:
+            for phase in ["qualification", "benchmark"]:
+                for suffix in ["resources", "after-resources"]:
+                    rows = self.document(platform + "/" + phase + "-" + suffix + ".json")
+                    self.assertGreaterEqual(len(rows), 1)
+                    self.assertEqual([x["sample"] for x in rows], list(range(len(rows))))
+                    if suffix == "after-resources":
+                        self.assertEqual(len(rows), 1)
+                    aggregate_only(self, rows, observer)
+
+
 class PublishedDotEvidencePrivacyTests(unittest.TestCase):
     """Reject private host inventories across every retained JSON document."""
 
@@ -483,7 +624,7 @@ class PublishedDotEvidencePrivacyTests(unittest.TestCase):
                 for item in value:
                     visit(item)
 
-        for name in ["native-dot-performance-v1", "native-dot-numerics-v1", "canonical-cpu-dot-v1"]:
+        for name in ["native-dot-performance-v1", "native-dot-numerics-v1", "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1"]:
             _, files = capsule(name)
             for path, raw in files.items():
                 if path.endswith((".json", ".slither-brain")):

@@ -1,0 +1,215 @@
+{
+  "schemaVersion": 1,
+  "kind": "canonical-cpu-optimizer-runtime-v1",
+  "nativeSourceSha256": "7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156",
+  "slitherCommit": "8d5ee0654224f3c88f8aed3ae52c4d3ca42ef8a3",
+  "pyrlCommit": "7499f297bd35080fdde157b928831fbfb9377a69",
+  "referencePyrlCommit": "b7f7508d57f12e496b83ee8af120b23ef620a6a1",
+  "referenceSourcesFrom": "../canonical-cpu-dot-v1",
+  "frozenNativeFrom": "../native-dot-numerics-v1",
+  "roundtripQualified": true,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "cpuPartialWidth": 16,
+  "minimumCpuWidth": 128,
+  "maximumCpuPartialMatrices": 32,
+  "scope": "Actual source-bound CPU Adam/TBPTT updates on two fixed Rust-admitted synthetic graphs, four adjacent order-balanced pairs per graph and platform, two Torch CPU threads. The previous compensated implementation is restored from its exact snapshot; the candidate is the current module. Batched Float32 partials, an error-corrected tree and analytic Float32 adjoints reduce update time while retaining original-input autograd views. Standard/wide optimizer gates, original frozen failing export, CUDA trained-export equality and independent accuracy/gradient tests retain the original numeric limits. Short CPU/CUDA rows stay direct. Shared-host aggregates do not establish an idle host, game step timing, maturity, integrated capacity or a full soak.",
+  "summary": [
+    {
+      "platform": "windows",
+      "case": "modest",
+      "medianReferenceSeconds": 0.9033639499975834,
+      "medianCandidateSeconds": 0.17056115000741556,
+      "medianCandidateRatio": 0.18555278527194125
+    },
+    {
+      "platform": "windows",
+      "case": "large-lstm",
+      "medianReferenceSeconds": 7.0045676000008825,
+      "medianCandidateSeconds": 0.8959761000005528,
+      "medianCandidateRatio": 0.1277418961796158
+    },
+    {
+      "platform": "debian",
+      "case": "modest",
+      "medianReferenceSeconds": 1.1487567324998054,
+      "medianCandidateSeconds": 0.23590016050002305,
+      "medianCandidateRatio": 0.20310102128694685
+    },
+    {
+      "platform": "debian",
+      "case": "large-lstm",
+      "medianReferenceSeconds": 8.638778338499833,
+      "medianCandidateSeconds": 1.579200762000255,
+      "medianCandidateRatio": 0.18292141237841336
+    }
+  ],
+  "files": {
+    "pyrl/canonical_graph.py": {
+      "bytes": 29527,
+      "sha256": "f79949d642aa667129b6d6e23ebf14bbb69c9ce96ed18b51ebab9629b4ab2ada",
+      "gzipSha256": "6f319601a69a6e867685edd9c395972bbcd0ffc3ca8c36aad9dac1d92345bcb4"
+    },
+    "pyrl/canonical_parity.py": {
+      "bytes": 10599,
+      "sha256": "9b0aa1e3bbccd140e620456d59094c213eba6e7512ad0de6a7a984568c41fd0b",
+      "gzipSha256": "9e5005e2cab1d651f2dc13585966870bc890c74aa09a7bc0af5d9182fa776df8"
+    },
+    "pyrl/sequence_distillation.py": {
+      "bytes": 17366,
+      "sha256": "6f434d655ca69c8fef07f45e94dca48cbfd7bc3e0cd830d54d0c205835e12d54",
+      "gzipSha256": "1febf12ada20ff41bb3fec830bb1292d93650cc3ad41dd7c1c87ea0ec1afd373"
+    },
+    "pyrl/test_canonical_graph.py": {
+      "bytes": 15752,
+      "sha256": "3a392e5867b74672cd2289080d91be7e095086b91fc9e12ce7adbb654e3d7f53",
+      "gzipSha256": "f10216a131064a9190a4169bff9521a4a1fe5c121749d73b8c9325bd85781a0b"
+    },
+    "pyrl/test_canonical_parity.py": {
+      "bytes": 1024,
+      "sha256": "3131a2996a5d6571affcd8c75b38a19e6f3e51c5699ec6543fd61cf2f72ab4b8",
+      "gzipSha256": "92c4b1410d3e76bafe6d40831bfea435ab419c86b6949fb63e42cc6880b78ee0"
+    },
+    "benchmark-production.py": {
+      "bytes": 7169,
+      "sha256": "df335402a0ae52c1e5788cc47b038b88190aed50605dfbbd975c4441a9e5c7e3",
+      "gzipSha256": "6239765dd3115d23938288a7e67bddf7a3a5ac81b002845e35703b34593471ca"
+    },
+    "qualify.py": {
+      "bytes": 3965,
+      "sha256": "b0311fc2796632ac248f38e72c360b3c3e9040067c410f7cd4994f69cfc116fa",
+      "gzipSha256": "82fa21960c336b3cd18f708ef9c6ba363666dd2007c7f8ac7f9db1aaf65fabac"
+    },
+    "accuracy.py": {
+      "bytes": 2285,
+      "sha256": "c98fd0e62e1ad6e39426ca9ea490de9a01562f327e8e0e758255537ad7931031",
+      "gzipSha256": "af47acae9ff71baa8e26cca977321831f658cca786e72ae3b5ce24cf25d6b20f"
+    },
+    "fixed-export.py": {
+      "bytes": 2528,
+      "sha256": "ceb35e5f95d0c68fb70b6390930cf1adc64f21f5881230c9686e16983da5eaa3",
+      "gzipSha256": "c66351676cd4b9b2cda23217915a69706ed5331d1ffa3d8d6c04746a17ef39a1"
+    },
+    "prepare-fixed.py": {
+      "bytes": 1890,
+      "sha256": "67b2f100536305ede430561b6e7f7525e6f6aa00e9f19818432f1bd704087933",
+      "gzipSha256": "8850914bea178bab2e8f667fd4426abfa6de43320cb71f6affc93b1162079489"
+    },
+    "system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "windows/cpu-roundtrip.json": {
+      "bytes": 36024,
+      "sha256": "aa45049f12a806f9c6391b486cabdbef373162a31f35fd9e06cc940509cddc29",
+      "gzipSha256": "88d3e0c44c9063faff266e318c185557f61c99f84a86c387104ff557c4f7eee3"
+    },
+    "windows/cuda-roundtrip.json": {
+      "bytes": 36262,
+      "sha256": "631f2aa66a10974cbb487df0761f2e7d88132f07415ab7ad75529b4841f1d328",
+      "gzipSha256": "bf9ea33004d2aa92b7dac57fad840106e2038b283b0829e48729095a230a8f5d"
+    },
+    "windows/accuracy.json": {
+      "bytes": 116718,
+      "sha256": "89f48cc45ab64a92420addb6aa8e1daff1be2e06b759290cfeaf9ae60701d564",
+      "gzipSha256": "02a9bb770c3afcdec7f2cf760ccee7e7b42c0742be4a5a937f58963681938610"
+    },
+    "windows/benchmark.json": {
+      "bytes": 14014,
+      "sha256": "aa435331a13500dc2cf6f00ca6c0535b2373a8cf0c31d5621b8293b86acf173e",
+      "gzipSha256": "9fa8d78ab5db03230e24aaae477c0e29d8975dc94ad648bbadf2432fc4d54e1d"
+    },
+    "windows/qualification-resources.json": {
+      "bytes": 1568,
+      "sha256": "7c0365bc6bd3d90330a130720297d45aaf22f1c30ca7ea62a9e9d32e78818759",
+      "gzipSha256": "f1d70c4ae03dfa0ba89c877d0216534bb6bb511388b14e42710b5e6266ebda7a"
+    },
+    "windows/qualification-after-resources.json": {
+      "bytes": 1568,
+      "sha256": "a17015a41beb3330bdffd3bc823cda1429aba5dcac4e67faaff008f3fcc00ff8",
+      "gzipSha256": "4ea3263baa90ecafa3c5343251a8f208dcc509ce7188d69238ffe51dde557596"
+    },
+    "windows/benchmark-resources.json": {
+      "bytes": 3134,
+      "sha256": "efd24e71fe478f5e1033944ceeef3971bb74823050df2951c23857df6dfdf594",
+      "gzipSha256": "13a7fcff0d430d7c161b0aa558a98cfd1c94a1674c0c8faa4edfdb25c9c01e68"
+    },
+    "windows/benchmark-after-resources.json": {
+      "bytes": 1567,
+      "sha256": "d3662f6cecb5123752b39b12ef1deee6fa1cfc04f9474c46bfab5db47e5235fe",
+      "gzipSha256": "7653904050066700203ec9ee125e1097ebc3edcdaa59eeac5b1a3c80be92be42"
+    },
+    "windows/modest-native.json": {
+      "bytes": 1035,
+      "sha256": "cb72ffbdcc3275793348604c18ee898915340ce99a16bac62396a9d6e4929951",
+      "gzipSha256": "9f4129a9b1abda73dcd1d610a8632727b1bdc671c06341a7aae16de26b023c56"
+    },
+    "windows/large-lstm-native.json": {
+      "bytes": 1035,
+      "sha256": "e759b9b478c4ad20397eecc56e50f7497a51bd60ad34cb36c246bba5684443d3",
+      "gzipSha256": "040b64e2fca75dd5ab8d7fb7394e32870591580b396339e1e7c023d444c7d24e"
+    },
+    "debian/cpu-roundtrip.json": {
+      "bytes": 34845,
+      "sha256": "8f8243f8c0265b54f6f90578cde153cb00fa727e1a6ca4b8b8c89961e016f70c",
+      "gzipSha256": "0ce64f6e8cc463277bbb6324e9c36d3e16be7636d61f5b340f73de3ec7258885"
+    },
+    "debian/accuracy.json": {
+      "bytes": 112802,
+      "sha256": "7a5bcf3349ff04a6f3c526b8f62c984b81e16ce3a56d1823cadcd37f3a82b99b",
+      "gzipSha256": "4fe27672b39fe5a1559b4a98b784937afa6ba8ddcc1c2d8611ea51f154419dad"
+    },
+    "debian/benchmark.json": {
+      "bytes": 13643,
+      "sha256": "69efbfc047c4a5c3badc85581cbb0ad228a941ee0b6bb72204825918c49689df",
+      "gzipSha256": "335f6aa04059bac4c9811027cbe041de646cc854edf67b4c0546c085890d27d8"
+    },
+    "debian/qualification-resources.json": {
+      "bytes": 961,
+      "sha256": "78ee9c3198802b644dd2480be45a8c1dd5b7b2aa786a6935ee128fe29c49fdf2",
+      "gzipSha256": "79da6d8c9b5946c70b65c14506b55f7716d169ce6b93e22a9e0895229655a50a"
+    },
+    "debian/qualification-after-resources.json": {
+      "bytes": 960,
+      "sha256": "0812e94f040ab18e4e64af6c7ab521277fda14260b6560d0dc42e907828f4045",
+      "gzipSha256": "0b8851a30db35e3650114175ca48e601a4c4d16edb46d59e2b9286094446c1bb"
+    },
+    "debian/benchmark-resources.json": {
+      "bytes": 1920,
+      "sha256": "dd9d3a6e6a182961d45a596d04e428a74e775f5b5c672d8b299cafc0624aa531",
+      "gzipSha256": "80ca356f8fb6301f69f55484d7fad48daaf051172235dd737a2d0b580cb0d736"
+    },
+    "debian/benchmark-after-resources.json": {
+      "bytes": 961,
+      "sha256": "d01bb71ffe7a84f27e2d2ad4025cb19d0396386f8750e629c57185c9a8c5f8c0",
+      "gzipSha256": "417f37ab13e936d2d97533001503e4554fac47d1af15c28f78970c9599fdf430"
+    },
+    "debian/modest-native.json": {
+      "bytes": 1037,
+      "sha256": "4f6bdecbd8f429969f99722d86a58ad4a3b4b18ad65d2467157921116c3b2085",
+      "gzipSha256": "5571f2d9c94ac88d78404b60191f83efc3131633bbbd2448c60029c55db26efc"
+    },
+    "debian/large-lstm-native.json": {
+      "bytes": 1037,
+      "sha256": "acd246509a0a6e515780335a18a5663cabc028a2c1bab3e16d21f465fc5e08ad",
+      "gzipSha256": "1ae669c0f87e083417adea4adbee448164baabfce9d0d17d4de2669d013c8147"
+    },
+    "fixed-lstm/report.json": {
+      "bytes": 4543,
+      "sha256": "bcdf6d2ba89ed9eb33b7407c8898112ed9e4296c613345db3812939bf7959711",
+      "gzipSha256": "e1cf7159c8d843aa71d1b91a0d8a7d95f91c39055a90e9c4d00979fd4aebbed2"
+    },
+    "fixed-lstm/torch-states.f32": {
+      "bytes": 196608,
+      "sha256": "4531c65e42e3d93bda67831394954731d02c0cda26e0a02bb7feeb13a099f8a9",
+      "gzipSha256": "b0209b632a268439d43aa063cc796a19d597d1ae3beed7533f99f63cee83b768"
+    },
+    "fixed-lstm/torch-outputs.f32": {
+      "bytes": 2048,
+      "sha256": "011bc72f132b8459a3fcef0dea57c723997d3f2cc3a365c5a866088189503afc",
+      "gzipSha256": "758d98e0a6d5e61fdf4f097afe2130fd70ee84ca4ae132b748c2fc2fc5d34684"
+    }
+  },
+  "trainerSourceSha256": "6183ea6428ba97f0bdb14530878fb45fda3afca6eb6e11646cd4c3d93d2989a0"
+}
