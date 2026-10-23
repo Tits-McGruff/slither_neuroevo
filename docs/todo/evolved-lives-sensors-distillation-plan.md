@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-22)
+## Implementation progress (2026-10-23)
 
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
@@ -1302,6 +1302,23 @@ from 0.04020 at 6,000 updates to 0.03689 at 8,000; seven of nine Full cells impr
 Core-only's endpoint mean regresses from 0.03183 to 0.03652. These late curves do
 not establish maturity, independent final-seed acceptance or a sensor-profile
 choice. The shared-host study provides no isolated-host performance evidence.
+
+The short Debian large-capacity overlap now passes functional checks with 300
+Motion/B32 genomes of 494,306 parameters, 100 distinct large manual catalog
+originals, an active inspector, four shadows, and a default-window CPU trainer.
+Three durable generations and cold native/metadata restore preserve the full
+catalog and every original; the 101st save rejects without managed publication.
+The trainer passes exact restart and performs 79 further updates. Inspector
+requests drain before a requested generation barrier; the five-second command
+deadline is unchanged. PyRL `418e1bb` fixes valid Rust-portable metadata ingress
+by hashing equation fields in Rust declaration order while retaining strict
+field/value/digest checks and original artifact bytes. The retained
+`live-large-catalog-debian-v1/` capsule binds actual sources and inputs.
+Performance fails: 242 steps over 66.16 observed seconds, 128-ms p95, p99 above
+the 256-ms histogram bound, and 15.22 seconds of dropped wall debt. Replay peaks
+at 83.99 MiB under the configured 2,048-MiB ceiling; the configured 64-GiB spool
+also remains unfilled. Loaded storage, performance and the integrated soak are
+still unqualified.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
