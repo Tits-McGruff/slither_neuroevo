@@ -1072,6 +1072,20 @@ impl PelletSpatialIndex {
         Ok(diagnostics)
     }
 
+    /// Reuse the finite squared norms already admitted by the same bounded query.
+    /// Order and selected records are identical to candidates; no storage is added.
+    pub(crate) fn candidates_with_squared_distance<'a>(
+        &'a self,
+        scratch: &'a PelletQueryScratch,
+    ) -> impl ExactSizeIterator<Item = (&'a IndexedPellet, f64)> + 'a {
+        scratch.candidates.iter().map(|candidate| {
+            (
+                &self.pellets[candidate.pellet],
+                candidate.distance_squared.value(),
+            )
+        })
+    }
+
     /// Iterate pellets from the most recent query without allocation.
     pub fn candidates<'a>(
         &'a self,
@@ -2291,6 +2305,13 @@ mod tests {
                 .map(|pellet| pellet.id)
                 .collect::<Vec<_>>(),
             vec![10, 20]
+        );
+        assert_eq!(
+            index
+                .candidates_with_squared_distance(&scratch)
+                .map(|(pellet, squared)| (pellet.id, squared.to_bits()))
+                .collect::<Vec<_>>(),
+            vec![(10, 100.0_f64.to_bits()), (20, 400.0_f64.to_bits())],
         );
         let warmed_capacity = scratch.candidate_capacity();
         index
