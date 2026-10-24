@@ -46,6 +46,19 @@ class ArtifactRestoreTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             DRIVER.digest(path, maximum=3)
 
+    def test_native_debug_binary_can_exceed_artifact_bound_without_widening_imports(self):
+        """Large Linux executable hashing remains streaming; brain byte limits stay fixed."""
+        path = self.root / "synthetic-debug-binary"
+        with path.open("wb") as stream:
+            stream.truncate(64 * 1024**2 + 1)
+        self.assertEqual(len(DRIVER.executable_digest(path)), 64)
+        with self.assertRaises(RuntimeError):
+            DRIVER.digest(path)
+        with path.open("wb") as stream:
+            stream.truncate(512 * 1024**2 + 1)
+        with self.assertRaises(RuntimeError):
+            DRIVER.executable_digest(path)
+
     def test_restores_exact_bytes_and_preserves_exclusive_output_for_both_formats(self):
         """Both existing archives and replicated content objects remain supported."""
         identity = self.restore()
