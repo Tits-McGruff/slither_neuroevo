@@ -2,7 +2,7 @@
 
 Status: frozen behavioral plan, incorporating the owner's decisions and all accepted review amendments. Created 2026-10-11. Implementation is in progress; completed work and remaining stages are recorded below.
 
-## Implementation progress (2026-10-24)
+## Implementation progress (2026-10-25)
 
 Evidence-storage update: historical `docs/performance/` paths in this log are logical prefixes in the verified external release cache. Their current Git directories contain compact run references; [the catalog and storage policy](../performance/README.md) explain restoration, source provenance and selected regression fixtures. Unique experimental code is retained as explicit base-commit patches. The older `docs/todo/evidence/` records were preserved.
 
@@ -1396,7 +1396,7 @@ extreme Float32 values, diverse and clustered owners, plus exact summary statist
 aggregate Windows/running-WSL/Debian context. Distant streaming comparisons are
 21.6% faster on Debian and 56.2% faster on Windows in the standalone copies.
 Paired complete summary copies preserve every scalar statistic bit and greedy
-bucket: 55-owner cases improve 12.2â€“25.8%, and 300-owner cases 24.9â€“29.2%.
+bucket: 55-owner cases improve 12.2Ã¢â‚¬â€œ25.8%, and 300-owner cases 24.9Ã¢â‚¬â€œ29.2%.
 These use fixed synthetic 494,306-parameter owners; they are not full-runtime
 or idle-host claims. A real P1 window passes exact trainer restart, drop-free
 capture, 100 catalog entries, inspector/four-shadow progress, three durable
@@ -1408,8 +1408,8 @@ Timing, representative maturity and the integrated capacity/soak gates remain op
 Native long SSE2 dot rows now use four independent accumulators. The
 `native-dot-performance-v1/` capsule binds the actual production kernel to
 paired Windows/Debian microbenchmarks and fixed-input native population runs.
-Streaming widths 256/504 improve about 23â€“28% across the two platforms;
-single-worker v3 population passes improve 16â€“28% across P0â€“P3. Short rows
+Streaming widths 256/504 improve about 23Ã¢â‚¬â€œ28% across the two platforms;
+single-worker v3 population passes improve 16Ã¢â‚¬â€œ28% across P0Ã¢â‚¬â€œP3. Short rows
 retain their previous algorithm. Changed Float32 grouping is source/build
 specific; earlier long-horizon gameplay evidence does not establish identical
 trajectories on this revision. Separate real large Motion/B32 windows preserve
@@ -1560,6 +1560,16 @@ does not; Basic/B8 P0 also exposes a teacher-only query failure hidden by its
 pooled rate. `profile-width-wall-debian-v1/` retains the complete witnesses and
 aggregate counters, including observed CPU steal. Target-platform performance
 remains unqualified.
+
+PyRL `5351034` adds atomic, checksum-verified completed-variant checkpoints
+and explicit study resume, with exclusive process ownership and strict source,
+corpus, configuration and numerical-environment identity. Interrupted variants
+restart from initialization while retaining partial files; completed studies stay
+immutable. A real separate-process CPU qualification reuses the completed variant
+and matches uninterrupted optimizer/export bytes, with ordinary native parity and
+gameplay validation. CI requires that proof. The older interrupted Motion/B8
+study remains diagnostic input; no missing curves or completed-study claim is
+reconstructed. Profile choice, maturity and integrated acceptance remain open.
 
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
