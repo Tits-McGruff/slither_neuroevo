@@ -2085,3 +2085,22 @@ driver now requires a positive exact integer memory reservation and rejects
 changes in it before reporting same-budget equivalence; regression cases mutate
 real native receipts to cover missing, lossy, reduced and increased reservations.
 This selects no runtime, sensor or resource defaults.
+
+
+Public resource sidecars now use the bounded
+`scripts/qualification/export-resource-counters.py` guard:
+
+```text
+python -B scripts/qualification/export-resource-counters.py --input LOCAL.jsonl --output PUBLIC.jsonl
+```
+
+The original remains in ignored local scratch. Publish only `PUBLIC.jsonl`.
+The guard refuses local-debug process markers or inventory keys, reconstructs
+known numeric CPU/RAM/GPU/anonymous WSL counters, omits GPU model names and
+replaces arbitrary error/attribution text with fixed descriptions. Vendor
+unavailable cells remain explicit; absent counters cannot establish an idle
+host. It checks the complete bounded input before creating output, refuses
+overwrites and mixed-source/nonmonotonic samples, and prints only counts or
+fixed rejection reasons. Tests cover actual retained Windows/Debian counters,
+private-field injection, late invalid samples and non-overwriting publication.
+This strengthens evidence handling without changing any qualification result.

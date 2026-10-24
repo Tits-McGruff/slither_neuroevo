@@ -287,6 +287,12 @@ every slow or flaky matrix job.
   distribution names and unrelated host process lists stay local in ignored
   scratch; never attach them to GitHub logs, reports, artifacts or commits.
   Detailed collection requires the observer's explicit local-debug flag.
+  Before publishing a resource sidecar, run
+  `scripts/qualification/export-resource-counters.py --input LOCAL.jsonl --output PUBLIC.jsonl`.
+  Publish only the exported counter file. The exporter refuses process-detail
+  markers/private inventory fields and rebuilds typed aggregate fields, omitting
+  GPU model names and arbitrary error/attribution text. Keep the local original
+  in ignored scratch. Missing counters never establish an idle host.
 - Reuse fresh evidence from the immediately preceding checkpoint when the
   current change cannot invalidate it. State the dependency instead of
   reproducing the same benchmark or compatibility run.
