@@ -3,6 +3,9 @@ name: Rewritten feature qualification
 on:
   push:
     branches: [evolved-lives-sensors-distillation]
+    paths:
+      - benchmarks/history-equivalence-20261025.json
+      - .github/workflows/rewritten-feature-qualification.yml
   workflow_dispatch:
 
 jobs:
