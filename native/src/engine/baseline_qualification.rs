@@ -29,6 +29,7 @@ use std::f64::consts::{FRAC_PI_2, PI};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const DT: f64 = 1.0 / 60.0;
 const MAX_SNAKES: usize = 16;
+#[cfg(test)]
 const BINS: usize = 16;
 
 /// Bounded matrix choices; cadence is explicit and never changes frozen v1.
@@ -38,6 +39,8 @@ pub struct TacticalOptions {
     pub steps: u32,
     pub workers: usize,
     pub cadence_seconds: f64,
+    /// Explicit admitted angular width; ordinary production defaults are unaffected.
+    pub bins: usize,
 }
 
 /// Exact first action on identical initial physical geometry for policy comparison.
@@ -534,9 +537,9 @@ fn trial_with_subject(
     mut corpus: Option<&mut super::tactical_corpus::TacticalCorpusWriter>,
     student: Option<&TacticalStudent>,
 ) -> Result<TacticalTrial> {
-    let mut pending_observation = [0.0f32; 264];
+    let mut pending_observation = [0.0f32; 24 + 15 * super::sensor_layout::MAX_SENSOR_BINS];
     let sensor_config = SensorConfig {
-        bins: BINS,
+        bins: options.bins,
         ..SensorConfig::default()
     };
     let sensor = if policy.profile() == SensorProfile::V3 {
@@ -549,6 +552,7 @@ fn trial_with_subject(
             policy.profile(),
         )?
     };
+    let input_width = sensor.layout().input_size;
     let plan = if let Some(student) = student {
         GraphExecutionPlan::build(&student.artifact.graph)?
     } else {
@@ -698,7 +702,7 @@ fn trial_with_subject(
             if report.decision_tail.len() == 32 {
                 report.decision_tail.remove(0);
             }
-            let front = BINS / 2;
+            let front = super::sensors::angle_to_centered_bin(0.0, options.bins);
             report.decision_tail.push(TacticalDecision {
                 step: step + 1,
                 position: [subject.position.x, subject.position.y],
@@ -707,10 +711,10 @@ fn trial_with_subject(
                 boost: decision.boost_request,
                 committed_heading: continuation.committed_heading,
                 commitment_remaining_seconds: continuation.commitment_remaining_seconds,
-                forward_body_encoded: row[24 + 2 * BINS + front],
-                forward_ray_encoded: row[24 + 3 * BINS + front],
-                forward_wall_encoded: row[24 + 4 * BINS + front],
-                forward_head_encoded: row[24 + 5 * BINS + front],
+                forward_body_encoded: row[24 + 2 * options.bins + front],
+                forward_ray_encoded: row[24 + 3 * options.bins + front],
+                forward_wall_encoded: row[24 + 4 * options.bins + front],
+                forward_head_encoded: row[24 + 5 * options.bins + front],
                 urgent_sectors: decision.urgent_sectors,
                 unsafe_route: decision.unsafe_route,
             });
@@ -722,10 +726,10 @@ fn trial_with_subject(
                 let row = delivered
                     .observation(0)
                     .ok_or("missing pending corpus row")?;
-                if row.len() != pending_observation.len() {
+                if row.len() != input_width {
                     return Err("invalid corpus row width".into());
                 }
-                pending_observation.copy_from_slice(row);
+                pending_observation[..input_width].copy_from_slice(row);
                 Some(*decision)
             } else {
                 None
@@ -754,7 +758,7 @@ fn trial_with_subject(
             }
             writer.committed(
                 step + 1,
-                &pending_observation,
+                &pending_observation[..input_width],
                 decision.applied_turn,
                 decision.boost_request,
             )?;
@@ -819,10 +823,13 @@ fn trial_with_subject(
 fn validate_tactical_options(options: TacticalOptions) -> Result<()> {
     if !(1..=64).contains(&options.seed_count)
         || !(1..=600).contains(&options.steps)
+        || !(8..=32).contains(&options.bins)
         || options.workers == 0
         || options.workers > std::thread::available_parallelism()?.get()
     {
-        return Err("tactical bounds: seeds 1..64, steps 1..600, workers 1..available".into());
+        return Err(
+            "tactical bounds: seeds 1..64, steps 1..600, bins 8..32, workers 1..available".into(),
+        );
     }
     BaselineV2Settings {
         mode: BaselineV2Mode::Deterministic,
@@ -842,16 +849,36 @@ pub fn run_tactical_qualification_with_corpus(
     options: TacticalOptions,
     corpus_directory: Option<&std::path::Path>,
 ) -> Result<TacticalReport> {
+    run_tactical_qualification_with_profiled_corpus(
+        options,
+        corpus_directory,
+        SensorProfile::Motion,
+    )
+}
+
+/// Export one explicitly selected Basic/Motion teacher profile at the requested width.
+/// Separate profile corpora retain their actual labels/trajectories; they do not imply
+/// identical cross-profile datasets or select any production sensor default.
+pub fn run_tactical_qualification_with_profiled_corpus(
+    options: TacticalOptions,
+    corpus_directory: Option<&std::path::Path>,
+    corpus_profile: SensorProfile,
+) -> Result<TacticalReport> {
     validate_tactical_options(options)?;
+    if !matches!(corpus_profile, SensorProfile::Basic | SensorProfile::Motion) {
+        return Err("tactical corpus requires v4 Basic or Motion".into());
+    }
     let mut corpus = corpus_directory
-        .map(|root| super::tactical_corpus::TacticalCorpusWriter::new(root, options))
+        .map(|root| {
+            super::tactical_corpus::TacticalCorpusWriter::new(root, options, corpus_profile)
+        })
         .transpose()?;
     let mut trials = Vec::new();
     for scenario in SCENARIOS {
         for seed in 1..=options.seed_count {
             let mut reference = None;
             for policy in POLICIES {
-                let mut result = if matches!(policy, Policy::MotionDet | Policy::MotionStoch) {
+                let mut result = if policy.profile() == corpus_profile {
                     if let Some(writer) = corpus.as_mut() {
                         writer.begin();
                     }
@@ -878,7 +905,7 @@ pub fn run_tactical_qualification_with_corpus(
     if let Some(writer) = corpus {
         writer.finish(options)?;
     }
-    Ok(TacticalReport{version:2,source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),math_backend:super::inference::InferenceMathBackend::detect().label(),sensor_sha256:[super::sensor_contract::SensorContractIdentity::new(SensorProfile::V3,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Basic,BINS)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion,BINS)?.sha256_hex()?],workers:options.workers,seed_count:options.seed_count,maximum_steps:options.steps,v2_cadence_seconds:options.cadence_seconds,bins:BINS,ordinary_ray_limits:[1,256,4096],saturation_ray_limits:[1,1,256],caveat:"Synthetic paired initial geometry; native prefix, actual delivered control/inference, all three physics substeps, food, collisions, effects and baseline death handling. Neural opponents use zero-turn constant Dense policies, with an explicit boosted pursuer in boost-escape. Trials stop on subject death; no respawn, evolution, server, dataset or student agreement is qualified. First-action differences compare identical initial geometry to frozen v1, whose cadence remains fixed-step; later trajectories may diverge. Debug trajectory witnesses apply only within a matching source/build, not across platforms or revisions. Copies and reporting are unmeasured; this is not a real-time cost or universal policy-superiority gate.",trials})
+    Ok(TacticalReport{version:2,source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),math_backend:super::inference::InferenceMathBackend::detect().label(),sensor_sha256:[super::sensor_contract::SensorContractIdentity::new(SensorProfile::V3,options.bins)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Basic,options.bins)?.sha256_hex()?,super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion,options.bins)?.sha256_hex()?],workers:options.workers,seed_count:options.seed_count,maximum_steps:options.steps,v2_cadence_seconds:options.cadence_seconds,bins:options.bins,ordinary_ray_limits:[1,256,4096],saturation_ray_limits:[1,1,256],caveat:"Synthetic paired initial geometry; native prefix, actual delivered control/inference, all three physics substeps, food, collisions, effects and baseline death handling. Neural opponents use zero-turn constant Dense policies, with an explicit boosted pursuer in boost-escape. Trials stop on subject death; no respawn, evolution, server, dataset or student agreement is qualified. First-action differences compare identical initial geometry to frozen v1, whose cadence remains fixed-step; later trajectories may diverge. Debug trajectory witnesses apply only within a matching source/build, not across platforms or revisions. Copies and reporting are unmeasured; this is not a real-time cost or universal policy-superiority gate.",trials})
 }
 
 /// One independently decoded portable artifact, with an explicit constant-opponent head.
@@ -887,19 +914,22 @@ pub struct TacticalStudent {
     opponent_boost_bias: usize,
 }
 impl TacticalStudent {
-    /// Ordinary portable admission plus the bounded Motion/B16 tactical cohort restriction.
+    /// Ordinary portable admission plus v4 Basic/Motion B8..32 and the bounded parameter cap.
     pub fn from_artifact(bytes: &[u8]) -> Result<Self> {
         Self::from_validated(super::brain_artifact::validate_brain_artifact(bytes)?)
     }
     fn from_validated(artifact: super::brain_artifact::ValidatedBrainArtifact) -> Result<Self> {
-        let expected =
-            super::sensor_contract::SensorContractIdentity::new(SensorProfile::Motion, BINS)?
-                .sha256_hex()?;
-        if artifact.canonical_manifest.sensor_sha256 != expected
+        let expected = super::sensor_contract::SensorContractIdentity::new(
+            artifact.sensors.profile,
+            artifact.sensors.bins,
+        )?
+        .sha256_hex()?;
+        if artifact.sensors.profile == SensorProfile::V3
+            || artifact.canonical_manifest.sensor_sha256 != expected
             || artifact.weights.len() > 1_000_000
         {
             return Err(
-                "student tactical cohort requires Motion/B16 and at most one million parameters"
+                "student tactical cohort requires v4 Basic/Motion B8..32 and at most one million parameters"
                     .into(),
             );
         }
@@ -922,6 +952,11 @@ impl TacticalStudent {
             opponent_boost_bias,
         })
     }
+    /// The validated artifact owns the student width when the CLI omits an override.
+    pub const fn sensor_bins(&self) -> usize {
+        self.artifact.sensors.bins
+    }
+
     fn install(&self, state: &mut Fixture, scenario: Scenario) -> Result<()> {
         // Opponents remain zero-turn, with only the explicit escape pursuer boosting.
         for brain in &mut state.brains {
@@ -995,6 +1030,9 @@ pub fn run_student_tactical_qualification(
     if first_seed == 0 || first_seed > 64 || options.seed_count > 65 - first_seed {
         return Err("student tactical seed range must stay within 1..64".into());
     }
+    if options.bins != student.sensor_bins() {
+        return Err("student sensor bins differ from tactical request".into());
+    }
     if options.cadence_seconds != student.artifact.deployment.control_interval_seconds {
         return Err("student deployment cadence differs from tactical request".into());
     }
@@ -1006,7 +1044,11 @@ pub fn run_student_tactical_qualification(
             let mut result = trial_with_subject(
                 scenario,
                 seed,
-                Policy::MotionDet,
+                match student.artifact.sensors.profile {
+                    SensorProfile::Basic => Policy::BasicDet,
+                    SensorProfile::Motion => Policy::MotionDet,
+                    SensorProfile::V3 => return Err("unsupported student profile".into()),
+                },
                 options,
                 None,
                 Some(student),
@@ -1036,14 +1078,23 @@ mod tests {
             steps: 12,
             workers: 1,
             cadence_seconds: 0.06,
+            bins: BINS,
         }
     }
     fn constant_student(profile: SensorProfile, recurrent: bool) -> TacticalStudent {
+        constant_student_for(profile, BINS, recurrent)
+    }
+
+    fn constant_student_for(
+        profile: SensorProfile,
+        bins: usize,
+        recurrent: bool,
+    ) -> TacticalStudent {
         use super::super::training_graph::{
             CanonicalTrainingGraphManifestV1, TrainingDeployment, TrainingLifeStateRule,
         };
         let sensors =
-            super::super::sensor_layout::SensorLayout::for_profile(profile, BINS).unwrap();
+            super::super::sensor_layout::SensorLayout::for_profile(profile, bins).unwrap();
         let width = sensors.input_size;
         let mut nodes = vec![GraphNodeSpec {
             id: "input".into(),
@@ -1120,7 +1171,7 @@ mod tests {
             weights_sha256: "34".repeat(32),
         };
         // Profile rejection is tested separately using the otherwise valid owned artifact.
-        if profile == SensorProfile::Motion {
+        if profile != SensorProfile::V3 {
             TacticalStudent::from_validated(artifact).unwrap()
         } else {
             TacticalStudent {
@@ -1128,6 +1179,37 @@ mod tests {
                 opponent_boost_bias: 0,
             }
         }
+    }
+
+    #[test]
+    fn student_profiles_and_widths_bind_actual_sensing_and_reject_mismatches() {
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in [8, 9, 16, 31, 32] {
+                for recurrent in [false, true] {
+                    let student = constant_student_for(profile, bins, recurrent);
+                    assert_eq!(student.sensor_bins(), bins);
+                    let request = TacticalOptions { bins, ..options() };
+                    let report = run_student_tactical_qualification(request, &student, 1).unwrap();
+                    assert_eq!(report.trials.len(), 14);
+                    for trial in &report.trials {
+                        assert!(trial.observations > 0 && trial.shared_batch_budget_held);
+                        assert_eq!(trial.policy_world_reads, 0);
+                        assert_eq!(trial.behavior_draws, 0);
+                        assert!((trial.first_action.turn - 0.25_f32.tanh()).abs() < 1.0e-6);
+                    }
+                    let mismatch = TacticalOptions {
+                        bins: if bins == 8 { 9 } else { 8 },
+                        ..request
+                    };
+                    assert!(run_student_tactical_qualification(mismatch, &student, 1).is_err());
+                }
+            }
+        }
+        let mut mismatched = constant_student_for(SensorProfile::Motion, 8, false).artifact;
+        mismatched.sensors =
+            super::super::sensor_layout::SensorLayout::for_profile(SensorProfile::Basic, 8)
+                .unwrap();
+        assert!(TacticalStudent::from_validated(mismatched).is_err());
     }
 
     #[test]
@@ -1160,7 +1242,7 @@ mod tests {
         mismatch.cadence_seconds = 0.05;
         assert!(run_student_tactical_qualification(mismatch, &student, 1).is_err());
         assert!(TacticalStudent::from_validated(
-            constant_student(SensorProfile::Basic, false).artifact
+            constant_student(SensorProfile::V3, false).artifact
         )
         .is_err());
         assert!(TacticalStudent::from_artifact(b"not an artifact").is_err());
@@ -1318,6 +1400,158 @@ mod tests {
     }
 
     #[test]
+    fn profiled_corpora_keep_exact_trials_and_bind_dynamic_row_bytes() {
+        use std::fs;
+        for (profile, bins) in [
+            (SensorProfile::Basic, 8),
+            (SensorProfile::Basic, 9),
+            (SensorProfile::Basic, 32),
+            (SensorProfile::Motion, 8),
+            (SensorProfile::Motion, 31),
+            (SensorProfile::Motion, 32),
+        ] {
+            let request = TacticalOptions {
+                bins,
+                steps: 6,
+                ..options()
+            };
+            let root = std::env::temp_dir().join(format!(
+                "slither-profile-corpus-{}-{}-{}",
+                std::process::id(),
+                bins,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+            ));
+            let reference = run_tactical_qualification(request).unwrap();
+            let captured =
+                run_tactical_qualification_with_profiled_corpus(request, Some(&root), profile)
+                    .unwrap();
+            assert_eq!(captured.trials, reference.trials);
+            assert_eq!(captured.bins, bins);
+            let contract =
+                super::super::sensor_contract::SensorContractIdentity::new(profile, bins).unwrap();
+            let width = contract.input_size();
+            let manifest: serde_json::Value =
+                serde_json::from_slice(&fs::read(root.join("corpus.json")).unwrap()).unwrap();
+            assert_eq!(manifest["inputSize"], width);
+            assert_eq!(
+                manifest["sensorCanonicalJson"],
+                String::from_utf8(contract.canonical_bytes().unwrap()).unwrap()
+            );
+            assert_eq!(manifest["sensorSha256"], contract.sha256_hex().unwrap());
+            let observations = fs::read(root.join("observations.f32")).unwrap();
+            let actions = fs::read(root.join("actions.f32")).unwrap();
+            let steps = fs::read(root.join("steps.u32")).unwrap();
+            let expected_policy = if profile == SensorProfile::Basic {
+                "basic-"
+            } else {
+                "motion-"
+            };
+            let expected: Vec<_> = captured
+                .trials
+                .iter()
+                .filter(|trial| trial.policy.starts_with(expected_policy))
+                .collect();
+            let mut next = 0usize;
+            for (sequence, trial) in manifest["sequences"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(&expected)
+            {
+                assert_eq!(sequence["policy"], trial.policy);
+                assert_eq!(sequence["rows"], trial.observations);
+                assert_eq!(sequence["rowOffset"], next);
+                assert_eq!(
+                    sequence["trajectoryWitnessSha256"],
+                    trial.trajectory_witness_sha256
+                );
+                let offset = (next * width + 21) * 4;
+                assert_eq!(
+                    f32::from_le_bytes(observations[offset..offset + 4].try_into().unwrap()),
+                    1.0
+                );
+                assert_eq!(
+                    f32::from_le_bytes(actions[next * 8..next * 8 + 4].try_into().unwrap()),
+                    trial.first_action.turn
+                );
+                assert_eq!(
+                    u32::from_le_bytes(steps[next * 4..next * 4 + 4].try_into().unwrap()),
+                    1
+                );
+                next += trial.observations as usize;
+            }
+            assert_eq!(expected.len(), 28);
+            assert_eq!(manifest["sequences"].as_array().unwrap().len(), 28);
+            assert_eq!(observations.len(), next * width * 4);
+            assert_eq!(manifest["rows"], next);
+            for object in manifest["objects"].as_array().unwrap() {
+                let bytes = fs::read(root.join(object["file"].as_str().unwrap())).unwrap();
+                assert_eq!(object["bytes"], bytes.len());
+                assert_eq!(object["sha256"], format!("{:x}", Sha256::digest(bytes)));
+            }
+            assert!(
+                run_tactical_qualification_with_profiled_corpus(request, Some(&root), profile)
+                    .is_err()
+            );
+            assert_eq!(
+                fs::read(root.join("observations.f32")).unwrap(),
+                observations
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn corpus_width_admission_is_priced_before_creation_and_rejects_layout_changes() {
+        use super::super::tactical_corpus::TacticalCorpusWriter;
+        let root = std::env::temp_dir().join(format!(
+            "slither-profile-admission-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        for bins in [0, 7, 33, usize::MAX] {
+            assert!(run_tactical_qualification_with_profiled_corpus(
+                TacticalOptions { bins, ..options() },
+                Some(&root),
+                SensorProfile::Motion,
+            )
+            .is_err());
+            assert!(!root.exists());
+        }
+        assert!(run_tactical_qualification_with_profiled_corpus(
+            options(),
+            Some(&root),
+            SensorProfile::V3
+        )
+        .is_err());
+        assert!(!root.exists());
+        let request = TacticalOptions {
+            bins: 32,
+            seed_count: 16,
+            steps: 400,
+            ..options()
+        };
+        assert!(TacticalCorpusWriter::new(&root, request, SensorProfile::Motion).is_err());
+        assert!(!root.exists());
+        let small = TacticalOptions { bins: 8, ..request };
+        let mut writer = TacticalCorpusWriter::new(&root, small, SensorProfile::Basic).unwrap();
+        assert!(writer.committed(1, &[0.0; 264], 0.0, false).is_err());
+        writer.committed(1, &[0.0; 72], 0.0, false).unwrap();
+        let mut wrong_profile = trial(Scenario::Wander, 1, Policy::MotionDet, options()).unwrap();
+        wrong_profile.observations = 1;
+        assert!(writer.end(&wrong_profile).is_err());
+        assert!(writer.finish(TacticalOptions { bins: 9, ..small }).is_err());
+        assert!(!root.join("corpus.json").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn corpus_bound_rejects_before_creating_output_and_partial_matrix_cannot_publish() {
         use super::super::tactical_corpus::TacticalCorpusWriter;
         let root = std::env::temp_dir().join(format!(
@@ -1333,7 +1567,8 @@ mod tests {
         large.steps = 600;
         assert!(run_tactical_qualification_with_corpus(large, Some(&root)).is_err());
         assert!(!root.exists());
-        let mut writer = TacticalCorpusWriter::new(&root, options()).unwrap();
+        let mut writer =
+            TacticalCorpusWriter::new(&root, options(), SensorProfile::Motion).unwrap();
         writer.begin();
         let mut row = [0.0; 264];
         row[0] = -0.0;

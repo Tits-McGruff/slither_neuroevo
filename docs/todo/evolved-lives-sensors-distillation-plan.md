@@ -1529,6 +1529,19 @@ capture and memory admission, but its small Windows P1 gain and mixed CPU/p95
 results leave it unselected. `pellet-bin-sort-windows-v1/` retains that study;
 native source is unchanged. Further work moves to profile-width qualification.
 
+Native tactical qualification now supports explicit B8..32 corpus widths and
+Basic/Motion teacher capture, with exact declared row-byte admission before
+creation. Student evaluation uses the artifact's admitted profile/width and
+rejects incompatible overrides. The legacy Motion/B16 default remains, and
+separate profile corpora carry their actual teacher trajectories rather than a
+paired-data claim. All 812 native release tests pass, including source-preserving
+capture, row/digest ownership, odd/max widths and invalid-layout rejection;
+five fresh CLI corpus cases and early-rejection checks also pass. Matching PyRL
+adapters pass the existing 55 corpus/ablation tests, and actual two-update CPU
+studies complete Basic/B8 Full and all seven Motion/B32 variants through native
+initialization, optimizer updates, parity/export and held-out student physics.
+Profile choice, maturity, ray-quality and integrated timing gates remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

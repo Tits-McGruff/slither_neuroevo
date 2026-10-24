@@ -14,8 +14,6 @@ use std::path::{Path, PathBuf};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 /// Independent offline output ceiling; no native runtime/checkpoint limit changes.
 const MAX_BYTES: u64 = 256 * 1024 * 1024;
-const WIDTH: usize = 264;
-const ROW_BYTES: u64 = (WIDTH as u64 + 3) * 4;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,15 +46,25 @@ pub(crate) struct TacticalCorpusWriter {
     previous_step: u32,
     sequence_start: u64,
     maximum_rows: u64,
+    contract: SensorContractIdentity,
 }
 impl TacticalCorpusWriter {
     /// Prove worst-case output admission before exclusively creating any corpus path.
-    pub(crate) fn new(root: &Path, options: TacticalOptions) -> Result<Self> {
+    pub(crate) fn new(
+        root: &Path,
+        options: TacticalOptions,
+        profile: SensorProfile,
+    ) -> Result<Self> {
+        if !matches!(profile, SensorProfile::Basic | SensorProfile::Motion) {
+            return Err("tactical corpus requires a v4 profile".into());
+        }
+        let contract = SensorContractIdentity::new(profile, options.bins)?;
+        let row_bytes = (contract.input_size() as u64 + 3) * 4;
         let maximum_rows = u64::from(options.seed_count)
             .checked_mul(u64::from(options.steps))
             .and_then(|rows| rows.checked_mul(14 * 2))
             .ok_or("tactical corpus row bound overflow")?;
-        if maximum_rows == 0 || maximum_rows > (MAX_BYTES - 1024 * 1024) / ROW_BYTES {
+        if maximum_rows == 0 || maximum_rows > (MAX_BYTES - 1024 * 1024) / row_bytes {
             return Err("tactical corpus worst-case binary plus metadata exceeds 256 MiB".into());
         }
         fs::create_dir(root)?;
@@ -81,6 +89,7 @@ impl TacticalCorpusWriter {
             previous_step: 0,
             sequence_start: 0,
             maximum_rows,
+            contract,
         })
     }
     pub(crate) fn begin(&mut self) {
@@ -95,7 +104,7 @@ impl TacticalCorpusWriter {
         turn: f32,
         boost: bool,
     ) -> Result<()> {
-        if observation.len() != WIDTH
+        if observation.len() != self.contract.input_size()
             || observation.iter().any(|value| !value.is_finite())
             || !turn.is_finite()
             || !(-1.0..=1.0).contains(&turn)
@@ -123,7 +132,22 @@ impl TacticalCorpusWriter {
     }
     pub(crate) fn end(&mut self, trial: &TacticalTrial) -> Result<()> {
         let rows = self.rows - self.sequence_start;
-        if rows != trial.observations || rows == 0 || self.sequences.len() >= 14 * 64 * 2 {
+        let matching_policy = match self.contract.profile() {
+            SensorProfile::Basic => matches!(
+                trial.policy,
+                "basic-v2-deterministic" | "basic-v2-stochastic"
+            ),
+            SensorProfile::Motion => matches!(
+                trial.policy,
+                "motion-v2-deterministic" | "motion-v2-stochastic"
+            ),
+            SensorProfile::V3 => false,
+        };
+        if !matching_policy
+            || rows != trial.observations
+            || rows == 0
+            || self.sequences.len() >= 14 * 64 * 2
+        {
             return Err("tactical corpus does not reconcile delivered decisions".into());
         }
         self.sequences.push(Sequence {
@@ -140,6 +164,9 @@ impl TacticalCorpusWriter {
     }
     /// A final manifest is the completion marker; partial outputs never masquerade as a corpus.
     pub(crate) fn finish(mut self, options: TacticalOptions) -> Result<()> {
+        if options.bins != self.contract.bins() {
+            return Err("tactical corpus layout changed before publication".into());
+        }
         for file in &mut self.files {
             file.flush()?;
             file.get_ref().sync_all()?;
@@ -151,7 +178,10 @@ impl TacticalCorpusWriter {
             .hashes
             .into_iter()
             .zip([
-                ("observations.f32", self.rows * WIDTH as u64 * 4),
+                (
+                    "observations.f32",
+                    self.rows * self.contract.input_size() as u64 * 4,
+                ),
                 ("actions.f32", self.rows * 8),
                 ("steps.u32", self.rows * 4),
             ])
@@ -161,14 +191,14 @@ impl TacticalCorpusWriter {
                 sha256: format!("{:x}", hash.finalize()),
             })
             .collect();
-        let contract = SensorContractIdentity::new(SensorProfile::Motion, 16)?;
+        let contract = self.contract;
         let metadata = serde_json::json!({"schemaVersion":1,"kind":"native-tactical-corpus-v1",
             "sourceSha256":crate::native_addon_source_sha256(),"target":crate::native_addon_build_target(),
             "rustc":crate::native_addon_rustc_version(),"mathBackend":super::inference::InferenceMathBackend::detect().label(),
             "sensorCanonicalJson":String::from_utf8(contract.canonical_bytes()?)?,"sensorSha256":contract.sha256_hex()?,
-            "inputSize":WIDTH,"rows":self.rows,"controlIntervalSeconds":options.cadence_seconds,
+            "inputSize":contract.input_size(),"rows":self.rows,"controlIntervalSeconds":options.cadence_seconds,
             "maximumSteps":options.steps,"seedCount":options.seed_count,"workers":options.workers,
-            "objects":objects,"sequences":self.sequences,"scope":"Synthetic native Motion v2 deterministic/stochastic tactical teachers, real committed observations/actions and complete physical steps. Each sequence starts with zero baseline policy state and ends at death or the bounded horizon. No held/dead rows, resampling, production-world snapshots, trained-population distribution or release qualification is implied."});
+            "objects":objects,"sequences":self.sequences,"scope":"Synthetic native v4 deterministic/stochastic tactical teachers in the declared profile, real committed observations/actions and complete physical steps. Each sequence starts with zero baseline policy state and ends at death or the bounded horizon. No held/dead rows, resampling, production-world snapshots, trained-population distribution or release qualification is implied."});
         let bytes = serde_json::to_vec_pretty(&metadata)?;
         if bytes.len() > 1024 * 1024 {
             return Err("tactical corpus metadata exceeds 1 MiB".into());

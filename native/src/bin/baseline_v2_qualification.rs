@@ -1,6 +1,6 @@
 //! Bounded actual-native tactical batches, with no server or owner database.
 use slither_native::engine::baseline_qualification::{
-    run_student_tactical_qualification, run_tactical_qualification_with_corpus,
+    run_student_tactical_qualification, run_tactical_qualification_with_profiled_corpus,
     StudentTacticalReport, TacticalOptions, TacticalReport, TacticalStudent,
 };
 use std::collections::BTreeMap;
@@ -28,6 +28,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--corpus-directory",
             "--student-artifact",
             "--seed-start",
+            "--bins",
+            "--corpus-profile",
         ]
         .contains(&flag.as_str())
         {
@@ -49,14 +51,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     if std::path::Path::new(output).exists() {
         return Err("report already exists".into());
     }
-    let options = TacticalOptions {
+    let mut options = TacticalOptions {
         seed_count: get("--seed-count", "16").parse()?,
         steps: get("--steps", "180").parse()?,
         workers: get("--workers", "1").parse()?,
         cadence_seconds: get("--cadence", "0.016666666666666666").parse()?,
+        bins: get("--bins", "16").parse()?,
     };
     let report = if let Some(path) = values.get("--student-artifact") {
-        if values.contains_key("--corpus-directory") {
+        if values.contains_key("--corpus-directory") || values.contains_key("--corpus-profile") {
             return Err("student evaluation cannot export teacher corpora".into());
         }
         let file = std::fs::File::open(path)?;
@@ -67,6 +70,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut bytes = Vec::new();
         file.take(maximum + 1).read_to_end(&mut bytes)?;
         let student = TacticalStudent::from_artifact(&bytes)?;
+        if !values.contains_key("--bins") {
+            options.bins = student.sensor_bins();
+        }
         Report::Student(run_student_tactical_qualification(
             options,
             &student,
@@ -76,9 +82,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         if values.contains_key("--seed-start") {
             return Err("--seed-start requires --student-artifact".into());
         }
-        Report::Teacher(run_tactical_qualification_with_corpus(
+        if values.contains_key("--corpus-profile") && !values.contains_key("--corpus-directory") {
+            return Err("--corpus-profile requires --corpus-directory".into());
+        }
+        let profile = match get("--corpus-profile", "motion").as_str() {
+            "basic" => slither_native::engine::sensor_contract::SensorProfile::Basic,
+            "motion" => slither_native::engine::sensor_contract::SensorProfile::Motion,
+            _ => return Err("--corpus-profile requires basic|motion".into()),
+        };
+        Report::Teacher(run_tactical_qualification_with_profiled_corpus(
             options,
             values.get("--corpus-directory").map(std::path::Path::new),
+            profile,
         )?)
     };
     let trials = match &report {

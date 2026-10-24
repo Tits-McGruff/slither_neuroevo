@@ -972,20 +972,25 @@ recomputed from health reads. The same exclusions and production gates apply.
 ## Committed tactical corpus for ablation training
 
 `baseline-v2-qualification` accepts optional `--corpus-directory NEW_DIRECTORY`.
-It exports Motion/B16 deterministic and stochastic teacher observations/actions
-from all 14 native physical fixtures, preserving each scenario/seed/mode as a
+It defaults to Motion/B16 deterministic and stochastic teacher observations/actions.
+Explicit `--bins 8..32` and `--corpus-profile basic|motion` select another admitted
+qualification contract; the profile flag requires a corpus directory. All 14
+native physical fixtures preserve each scenario/seed/mode as a
 separate sequence. Samples are staged at delivery and exported after successful
 complete-step physics; held/dead rows are absent. Capture leaves every tactical
 trajectory/RNG witness unchanged. The existing tactical report stays compatible.
 
-The exclusive directory contains little-endian `observations.f32` (N by 264),
+The exclusive directory contains little-endian `observations.f32` (N by the exact
+declared input width: `24+6B` Basic or `24+15B` Motion),
 `actions.f32` (N by turn/boost-request), and `steps.u32` (N delivered step IDs).
 The final atomic `corpus.json` binds exact object hashes/sizes, canonical sensor
 bytes/digest, cadence, native source/target and contiguous sequence ownership.
 Worst-case binary output plus a 1-MiB metadata reserve must fit an independent
 256-MiB offline ceiling before paths are created. Files are synced before final
 publication; interrupted directories without a valid manifest are incomplete.
-No runtime scratch, checkpoint or spool admission changes.
+No runtime scratch, checkpoint or spool admission changes. Each profile exports
+its actual teacher labels and trajectories; separate profile corpora do not
+establish identical cross-profile datasets.
 
 PyRL's `load_tactical_corpus` verifies this format and exposes read-only arrays;
 `split_by_seed` keeps whole native trajectories out of the training split. A
@@ -1001,8 +1006,10 @@ The same native qualifier accepts `--student-artifact STUDENT.slither-brain`
 with explicit `--seed-start`, `--seed-count`, `--steps`, `--workers`, `--cadence`
 and a new `--output` report. Student mode cannot export a teacher corpus.
 Ordinary portable admission independently rebuilds the graph/packing/sensors;
-this bounded cohort additionally requires Motion/B16, at most one million
-parameters and one terminal Dense2 output. Requested cadence must equal the
+this bounded cohort additionally requires v4 Basic/Motion B8..32, at most one
+million parameters and one terminal Dense2 output. Student mode takes its width
+from the validated artifact when `--bins` is omitted; an explicit override must
+match. Requested cadence must equal the
 artifact's deployment cadence. Seed ranges stay within 1..64 so complete held-out
 corpus seeds can be evaluated without including training geometry.
 
