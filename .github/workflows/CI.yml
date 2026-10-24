@@ -177,6 +177,20 @@ jobs:
           name: trained-sensor-cohorts-${{ matrix.os }}
           path: ${{ runner.temp }}/trained-sensor-cohorts/*.json
           if-no-files-found: warn
+      - name: Native Basic B8 direct-artifact P0/P1 worker continuation
+        if: matrix.node-version == '24.x'
+        run: >-
+          python -B scripts/qualification/trained-sensor-cohorts.py
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --artifact native/fixtures/portable-brain-v1.slither-brain --profile basic --bins 8
+          --directory "${{ runner.temp }}/basic-b8-direct-cohort" --workers 3 --warmup 0 --steps 12
+      - name: Retain native Basic B8 direct-artifact outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: basic-b8-direct-cohort-${{ matrix.os }}
+          path: ${{ runner.temp }}/basic-b8-direct-cohort/*.json
+          if-no-files-found: warn
       - name: Qualification input and retained evidence checks
         if: matrix.node-version == '24.x'
         run: python -B -m unittest discover -s scripts/qualification -p "test_*.py"

@@ -1090,6 +1090,16 @@ fractions and native timings without turning diagnostic results into admission
 or production-default decisions. CI exercises all eight combinations for 12
 steps on Ubuntu/Windows Node 24 using the existing native build.
 
+The driver also accepts explicit `--profile basic|motion --bins 8..32` and
+`--variants full core-only`. Basic supports Full; Motion defaults to the
+existing Full/Core comparison. `--artifact FILE` replaces `--study` to measure
+one newly exported portable brain without constructing an evidence archive.
+Rust still validates the complete artifact before population construction.
+Every successful report must bind the requested profile and width to the exact
+Rust sensor digest in every admitted artifact descriptor; the summary records
+that identity. These options enable separate profile studies and do not make
+independently captured datasets paired observations.
+
 `--trained-cohort INDEX.json` extends the same native constructor to 2..16
 compatible policy families. The bounded index contains `schemaVersion: 1` and
 an ordered `artifacts` array of `{ "file": "seed-1.slither-brain", "sha256":
