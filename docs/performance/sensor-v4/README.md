@@ -2169,3 +2169,23 @@ an idle host or attribute GPU ownership. No process inventory is retained.
 Representative learned policies, tactical/channel ablation, target-platform
 confirmation, loaded capacity and integrated soak remain separate gates.
 No production default or resource envelope changes.
+
+
+The matching Oxygen/Debian screen is retained in
+`profile-width-wall-debian-v1/` with exact platform source bytes and guarded
+aggregate counters. All three P0 windows sustain the clock but fail the timing
+predicate at a 24 ms p99 bucket ceiling. The P1 windows fail timing and clock:
+
+| P1 profile | Minimum sim/wall | p99 bucket ceiling | Dropped wall | Pooled incomplete rays | Pooled query saturation |
+|---|---:|---:|---:|---:|---:|
+| Basic/B8 | 0.643508 | 48 ms | 21.450 s | 0.00226% | 20.375% |
+| Motion/B8 | 0.594518 | 48 ms | 24.372 s | 0.00092% | 15.441% |
+| Motion/B16 | 0.597452 | 64 ms | 24.161 s | 1.00621% | 21.195% |
+
+Both B8 ray predicates pass; all P1 query predicates fail. Basic/B8 P0 also
+fails the teacher query predicate (1.135%) despite a pooled rate of 0.212%.
+Tests preserve that distinction. Aggregate CPU steal advances by about 6.7%
+during the six windows; these observations neither establish an idle host nor
+isolate the cause of the failures. Different completed work and trajectories
+also prevent treating these windows as paired cross-platform comparisons.
+Windows B8 timing results therefore do not establish target-platform acceptance.

@@ -1552,6 +1552,13 @@ ray quality. Guarded aggregate resource sidecars cover concurrent host/WSL load.
 These random-population screens select no default and do not establish maturity
 or integrated acceptance.
 
+The same eight-worker screen on Oxygen fails timing for every profile and
+sustains only 0.59..0.64x in P1. B8 ray quality passes, but P1 query quality
+does not; Basic/B8 P0 also exposes a teacher-only query failure hidden by its
+pooled rate. `profile-width-wall-debian-v1/` retains the complete witnesses and
+aggregate counters, including observed CPU steal. Target-platform performance
+remains unqualified.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

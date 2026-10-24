@@ -1059,8 +1059,11 @@ it('recomputes live all-consumer quality without hiding timing, caps or shared-h
 
 
 /** Compare full real-clock/profile witnesses while preserving every failed quality result. */
-it('recomputes Basic/B8 and Motion/B8 clock windows beside the Motion/B16 control', () => {
-  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/profile-width-wall-windows-v1');
+it.each([
+  {platform: 'windows', capsule: 'profile-width-wall-windows-v1'},
+  {platform: 'debian', capsule: 'profile-width-wall-debian-v1'},
+])('recomputes $platform profile clock windows without hiding failed gates', ({platform, capsule}) => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4', capsule);
   const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
     files: Record<string, FrozenFileReceipt>; slitherCommit: string; nativeSourceSha256: string;
     releaseQualified: boolean; maturityQualified: boolean; profileChoice: null;
@@ -1069,20 +1072,27 @@ it('recomputes Basic/B8 and Motion/B8 clock windows beside the Motion/B16 contro
       timingPassed: boolean; rayPassed: boolean; queryPassed: boolean}>;
   };
   const files = readFrozenFiles(root, manifest.files);
+  const hostFiles = files;
+
   expect(manifest.releaseQualified || manifest.maturityQualified).toBe(false);
   expect(manifest.profileChoice).toBeNull(); expect(manifest.cases).toHaveLength(6);
   expect(manifest.cases.map(row => row.profile + '/' + row.bins + '/' + row.scenario).sort()).toEqual(
     ['basic/8/P0', 'basic/8/P1', 'motion/8/P0', 'motion/8/P1', 'motion/16/P0', 'motion/16/P1'].sort());
   expect(new Set(manifest.cases.map(row => row.report)).size).toBe(6);
   const resources = JSON.parse(files.get('resources.json')!.toString('utf8')) as Record<string, Array<{
-    utc: string; processDetailsIncluded: boolean; observerSourceSha256: string;
+    utc: string; processDetailsIncluded: boolean; observerSourceSha256: string; host: {cpuTicks?: number[]};
   }>>;
   expect(resources['during']).toHaveLength(manifest.resourceSamples.during);
   expect(resources['after']).toHaveLength(manifest.resourceSamples.after);
   const counters = [...resources['during']!, ...resources['after']!];
   for (const counter of counters) {
     expect(counter.processDetailsIncluded).toBe(false);
-    expect(counter.observerSourceSha256).toBe(sha256(files.get('host/system-resource-observer.py')!));
+    expect(counter.observerSourceSha256).toBe(sha256(hostFiles.get('host/system-resource-observer.py')!));
+  }
+  if (platform === 'debian') {
+    const first = resources['during']![0]!.host.cpuTicks!; const last = resources['during']!.at(-1)!.host.cpuTicks!;
+    const delta = last.slice(0, 8).map((value, index) => value - first[index]!);
+    expect(delta[7]! / delta.reduce((sum, value) => sum + value, 0)).toBeCloseTo(0.06686, 4);
   }
   for (const row of manifest.cases) {
     const report = JSON.parse(files.get(row.report)!.toString('utf8')) as {
@@ -1096,10 +1106,11 @@ it('recomputes Basic/B8 and Motion/B8 clock windows beside the Motion/B16 contro
     expect(report.source).toMatchObject({revision: manifest.slitherCommit, nativeSourceSha256: manifest.nativeSourceSha256});
     for (const [key, name] of Object.entries({hostSha256: 'sensor-wall.ts', summarySha256: 'sensorWallSummary.ts',
       observationHelperSha256: 'observationQuality.ts', observationContractSha256: 'observationQualityContract.ts'})) {
-      expect(report.source[key]).toBe(sha256(files.get('host/' + name)!));
+      expect(report.source[key]).toBe(sha256(hostFiles.get('host/' + name)!));
     }
     expect(report.workers).toBe(8); expect(report.requestedSeconds).toBe(60); expect(report.warmupSeconds).toBe(10);
     expect(report.scenario).toBe(row.scenario);
+    expect(report.source['nativeTarget']).toBe(platform === 'windows' ? 'x86_64-pc-windows-msvc' : 'x86_64-unknown-linux-gnu');
     expect(report.workload.request).toMatchObject({profile: row.profile, bins: row.bins, rayCap: 256, rayBatch: 65536});
     const metadata = report.workload.metadata; const contract = metadata.sensorContract;
     expect(metadata.sensorVersion).toBe(4);
@@ -1109,7 +1120,9 @@ it('recomputes Basic/B8 and Motion/B8 clock windows beside the Motion/B16 contro
     expect(metadata.parameterCount).toBe(row.profile === 'basic' ? 12754 : row.bins === 8 ? 17362 : 25042);
     expect(report.summary).toEqual(summarizeSensorWall(report.reads, report.requestedSeconds));
     expect(report.summary.meetsMeasuredGates).toBe(row.timingPassed);
-    expect(report.summary.stepTiming.p99UpperMs).toBe(row.scenario === 'P0' ? 4 : 16);
+    expect(report.summary.stepTiming.p99UpperMs).toBe(platform === 'windows' ? (row.scenario === 'P0' ? 4 : 16)
+      : row.scenario === 'P0' ? 24 : row.bins === 16 ? 64 : 48);
+    if (platform === 'debian') expect(report.summary.meetsRealtimeGate).toBe(row.scenario === 'P0');
     const {before, after, summary} = report.observationQuality;
     expect(before.beforeMs).toBeGreaterThanOrEqual(report.reads[0]!.afterMs);
     expect(after.beforeMs).toBeGreaterThanOrEqual(report.reads.at(-1)!.afterMs);
@@ -1118,12 +1131,17 @@ it('recomputes Basic/B8 and Motion/B8 clock windows beside the Motion/B16 contro
     expect(summary.meetsOrdinaryQueryGate).toBe(row.queryPassed);
     expect(summary.consumers[2]!.rayIncompleteFraction).toBeNull();
     const control = row.profile === 'motion' && row.bins === 16 && row.scenario === 'P1';
-    expect(row.timingPassed).toBe(!control); expect(row.rayPassed).toBe(!control);
-    expect(row.queryPassed).toBe(row.scenario === 'P0');
+    expect(row.timingPassed).toBe(platform === 'windows' && !control); expect(row.rayPassed).toBe(!control);
+    const teacherQueryFailure = platform === 'debian' && row.profile === 'basic' && row.scenario === 'P0';
+    expect(row.queryPassed).toBe(row.scenario === 'P0' && !teacherQueryFailure);
+    if (teacherQueryFailure) {
+      expect(summary.allConsumerQuerySaturatedFraction).toBeLessThan(0.01);
+      expect(summary.consumers[1]!.querySaturatedFraction).toBeGreaterThan(0.01);
+    }
     if (row.scenario === 'P1') {
-      expect(summary.allConsumerQuerySaturatedFraction).toBeGreaterThan(0.3);
-      const pellets = summary.consumers.reduce((sum, consumer) => sum + BigInt(consumer.counts['pelletCappedObservations']), 0n);
-      const capped = summary.consumers.reduce((sum, consumer) => sum + BigInt(consumer.counts['querySaturatedObservations']), 0n);
+      expect(summary.allConsumerQuerySaturatedFraction).toBeGreaterThan(platform === 'windows' ? 0.3 : 0.1);
+      const pellets = summary.consumers.reduce((sum, consumer) => sum + BigInt(consumer.counts['pelletCappedObservations']!), 0n);
+      const capped = summary.consumers.reduce((sum, consumer) => sum + BigInt(consumer.counts['querySaturatedObservations']!), 0n);
       expect(Number(pellets) / Number(capped)).toBeGreaterThan(0.99);
     }
     expect(Date.parse(counters[0]!.utc)).toBeLessThan(Date.parse(report.recordedAt) - 70000);
