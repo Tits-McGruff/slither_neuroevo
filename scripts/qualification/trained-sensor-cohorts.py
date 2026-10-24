@@ -17,9 +17,15 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
-def digest(path):
+def digest(path, maximum=64 * 1024**2):
     """Hash one immutable bounded input or report."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    state, total = hashlib.sha256(), 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(min(1024**2, maximum - total + 1)):
+            total += len(chunk)
+            require(total <= maximum, "measurement input grew past byte admission")
+            state.update(chunk)
+    return state.hexdigest()
 
 
 def extract_artifact(study, evidence, relative, output, replicated):
@@ -46,11 +52,49 @@ def extract_artifact(study, evidence, relative, output, replicated):
     return {"studyPath": relative, "artifactSha256": receipt["sha256"]}
 
 
+def selected_variants(profile, variants, direct=False):
+    """Bound supported comparisons; Basic has no Motion-only channel groups."""
+    selected = variants if variants is not None else (
+        ["full"] if direct or profile == "basic" else ["full", "core-only"])
+    require(profile in {"basic", "motion"} and isinstance(selected, list) and selected
+            and len(set(selected)) == len(selected)
+            and all(variant in {"full", "core-only"} for variant in selected),
+            "unique full/core-only variants required")
+    require(profile != "basic" or selected == ["full"], "Basic supports full only")
+    require(not direct or selected == ["full"], "direct artifact uses the full cohort label")
+    return selected
+
+
+def validate_sensor_report(report, profile, bins, replicated):
+    """Bind requested dimensions to Rust-admitted source descriptors, without parsing brains."""
+    width = 24 + (6 if profile == "basic" else 15) * bins
+    sensor = report["sensorContract"]
+    require(sensor["layoutVersion"] == 4 and sensor["profile"] == profile
+            and type(sensor["bins"]) is int and sensor["bins"] == bins
+            and type(sensor["inputSize"]) is int and sensor["inputSize"] == width,
+            "native sensor profile/width changed")
+    sha = report["sensorSha256"]
+    require(isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{64}", sha),
+            "native sensor digest required")
+    descriptors = ([family["artifact"] for family in report["trainedCohort"]["families"]]
+                   if replicated else [report["trainedArtifact"]])
+    require(descriptors and all(item["sensorSha256"] == sha
+                               and type(item["inputSize"]) is int
+                               and item["inputSize"] == width for item in descriptors),
+            "native source sensor identity changed")
+    return sha
+
+
 def main():
     """Run serial worker pairs; successful measurements never promote defaults."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
-    parser.add_argument("--study", required=True, type=Path)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--study", type=Path)
+    source_group.add_argument("--artifact", type=Path, help="One portable learned brain; Rust validates its complete contract")
+    parser.add_argument("--profile", choices=["basic", "motion"], default="motion")
+    parser.add_argument("--bins", type=int, default=16)
+    parser.add_argument("--variants", nargs="+", choices=["full", "core-only"])
     parser.add_argument("--replicated", action="store_true", help="Mix three initialization seeds per graph from replicated evidence")
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--workers", type=int, default=8)
@@ -63,28 +107,50 @@ def main():
             or not 0 <= args.warmup <= 60000 or args.steps + args.warmup > 60000
             or not 0 <= args.seed <= 0xffffffff):
         parser.error("bounded workers, steps, warmup and u32 seed required")
+    if not 8 <= args.bins <= 32:
+        parser.error("v4 bins must be 8..32")
+    if args.artifact is not None and args.replicated:
+        parser.error("replicated families require retained study evidence")
+    variants = selected_variants(args.profile, args.variants, args.artifact is not None)
     executable = args.executable.resolve(strict=True)
-    study = args.study.resolve(strict=True)
+    study = args.study.resolve(strict=True) if args.study is not None else None
+    direct = args.artifact.resolve(strict=True) if args.artifact is not None else None
+    if direct is not None:
+        require(direct.is_file() and 0 < direct.stat().st_size <= 64 * 1024**2,
+                "bounded ordinary artifact required")
     directory = args.directory.resolve()
     require(executable.is_file(), "native executable required")
     require(shutil.disk_usage(directory.parent).free >= 2 * 1024**3, "native disk reserve required")
     directory.mkdir()  # Exclusive: never reuse or remove owner paths.
     binary_sha = digest(executable)
     script_sha = digest(Path(__file__))
-    evidence_path = study / "evidence.json"
-    require(evidence_path.stat().st_size <= 1024**2, "bounded evidence manifest required")
-    evidence_sha = digest(evidence_path)
-    evidence = json.loads(evidence_path.read_bytes())
-    require(isinstance(evidence["files"], list) and len(evidence["files"]) <= 2048, "bounded evidence inventory required")
+    evidence_path = study / "evidence.json" if study is not None else None
+    evidence_sha, evidence = None, None
+    if evidence_path is not None:
+        require(evidence_path.stat().st_size <= 1024**2, "bounded evidence manifest required")
+        evidence_sha = digest(evidence_path)
+        evidence = json.loads(evidence_path.read_bytes())
+        require(isinstance(evidence["files"], list) and len(evidence["files"]) <= 2048, "bounded evidence inventory required")
     if args.replicated:
         require(evidence["schemaVersion"] == 1 and evidence["kind"] == "replicated-ablation-evidence-v1"
                 and evidence["status"] == "measured", "measured replicated evidence required")
     records, inputs = [], {}
-    source = None
+    source, sensor_sha = None, None
     all_source_files = []
-    for variant in ["full", "core-only"]:
+    for variant in variants:
         source_files = []
-        if args.replicated:
+        if direct is not None:
+            artifact = directory / "full.slither-brain"
+            with direct.open("rb") as stream:
+                opaque = stream.read(64 * 1024**2 + 1)
+            require(0 < len(opaque) <= 64 * 1024**2, "artifact grew past admission")
+            sha = hashlib.sha256(opaque).hexdigest()
+            with artifact.open("xb") as stream:
+                stream.write(opaque)
+            del opaque
+            inputs[variant] = {"artifactSha256": sha}
+            source_files.extend([(artifact, sha), (direct, sha)])
+        elif args.replicated:
             families, entries = [], []
             for seed in (1, 2, 3):
                 relative = f"seed-{seed}-fold-2/{variant}/trained.slither-brain"
@@ -114,7 +180,7 @@ def main():
                 output = directory / (stem + ".json")
                 require(digest(executable) == binary_sha and all(digest(path) == sha for path, sha in source_files), "input changed")
                 command = [str(executable), source_flag, str(artifact), "--scenario", scenario,
-                           "--profile", "motion", "--bins", "16", "--respawn", "on", "--seed", str(args.seed),
+                           "--profile", args.profile, "--bins", str(args.bins), "--respawn", "on", "--seed", str(args.seed),
                            "--workers", str(workers), "--math-backend", "sse2", "--minimum", "1", "--cap", "512",
                            "--batch", "131072", "--baseline", "v2-stochastic", "--baseline-cadence", "0.016666666666666666",
                            "--capture", "on", "--warmup", str(args.warmup), "--steps", str(args.steps),
@@ -136,6 +202,9 @@ def main():
                 require(report["admitted"] and report["version"] == (7 if args.replicated else 6)
                         and report["graphSize"] == ("trained-cohort" if args.replicated else "trained-artifact"),
                         "trained workload admission required")
+                reported_sensor = validate_sensor_report(report, args.profile, args.bins, args.replicated)
+                sensor_sha = sensor_sha or reported_sensor
+                require(reported_sensor == sensor_sha, "sensor identity changed between cohorts")
                 if args.replicated:
                     cohort = report["trainedCohort"]
                     require(cohort["indexSha256"] == inputs[variant]["indexSha256"]
@@ -179,16 +248,20 @@ def main():
                 records.append(row)
                 print(json.dumps(row, sort_keys=True), flush=True)
     require(digest(executable) == binary_sha and digest(Path(__file__)) == script_sha
-            and digest(evidence_path) == evidence_sha
+            and (evidence_path is None or digest(evidence_path) == evidence_sha)
             and all(digest(path) == sha for path, sha in all_source_files), "measurement inputs changed")
+    training_scope = ("Portable learned source; maturity is not inferred. " if direct is not None
+                      else "Trained on short synthetic teacher tactics; maturity is not inferred. ")
     summary = {"version": 1, "measurementComplete": True, "releaseQualified": False,
                "nativeSourceSha256": source, "binarySha256": binary_sha, "scriptSha256": script_sha,
                "studyEvidenceSha256": evidence_sha, "inputs": inputs, "records": records,
+               "sensorProfile": args.profile, "sensorBins": args.bins, "sensorSha256": sensor_sha,
+               "variants": variants,
                "replicatedFamilies": args.replicated, "maturityQualified": False,
                "steps": args.steps, "warmup": args.warmup, "seed": args.seed,
                "caveat": ("Three independently seeded learned policy families per graph. " if args.replicated
-                          else "One cloned learned policy per cohort. ") + "Trained on short synthetic teacher tactics; maturity is not inferred. "
-                         "Evolved life/economic input domain differs from teacher training. Full and core graphs still sense Motion/B16. "
+                          else "One cloned learned policy per cohort. ") + training_scope +
+                         "Evolved life/economic input domain differs from teacher training. Every graph senses the declared full native profile/width. "
                          "Controlled native steps exclude observer/startup/checkpoint, Node/browser/network, background wall debt and trainer contention. "
                          "Serial shared-host timings are descriptive, not a real-clock, representative-population, integrated soak or default-promotion pass. "
                          "Exact worker equality applies only within this source/build/target/seed/configuration."}
