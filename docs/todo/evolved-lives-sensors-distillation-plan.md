@@ -1571,6 +1571,16 @@ gameplay validation. CI requires that proof. The older interrupted Motion/B8
 study remains diagnostic input; no missing curves or completed-study claim is
 reconstructed. Profile choice, maturity and integrated acceptance remain open.
 
+The resumed Motion/B8 seed-1/fold-2 CUDA cell completes all seven 8,000-update
+variants with independent source/artifact/native verification. Full still improves
+in the final 2,000 updates; maturity and profile choice remain open. Compact
+results and checksum-addressed external evidence are linked from PyRL
+`docs/performance/canonical_graph/motion-b8-cuda8000-v1/`. An isolated cached
+pellet-distance prototype passes 813 native tests and exact P0/P1 ABBA witnesses,
+but P1 mean service is flat and sensing is slower. It remains off production;
+`sensor-v4/pellet-distance-screen-20261025/` records the rejected screen without
+source snapshots or generated payloads in Git.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

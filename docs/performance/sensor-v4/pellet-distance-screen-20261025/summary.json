@@ -1,0 +1,56 @@
+{
+  "kind": "paired-pellet-distance-screen-v1",
+  "releaseQualified": false,
+  "selected": false,
+  "candidateCommit": "c73fc59a7773bb3fe3be7b29460fde53508d4bb2",
+  "baselineSourceSha256": "1be436a7c28b73f8eecdc3dcf397a549bc0e46aa095cbf4c0c23536f55fb05b8",
+  "candidateSourceSha256": "20a8168f7d8c4176c717ca669b735ff164d08c56fb90be88e9b1ae848ee33c80",
+  "windowsLibraryTestsPassed": 813,
+  "comparisons": {
+    "P0": {
+      "equivalent": true,
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 3.476948333333333,
+          "sensingMeanMs": 1.1335674999999998,
+          "nativeP95Ms": 4.26285
+        },
+        "candidate": {
+          "nativeMeanMs": 3.4098058333333334,
+          "sensingMeanMs": 1.1748183333333333,
+          "nativeP95Ms": 4.1895500000000006
+        }
+      },
+      "order": [
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline"
+      ]
+    },
+    "P1": {
+      "equivalent": true,
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 14.264332500000002,
+          "sensingMeanMs": 7.799874166666667,
+          "nativeP95Ms": 16.23585
+        },
+        "candidate": {
+          "nativeMeanMs": 14.26230125,
+          "sensingMeanMs": 7.895557916666666,
+          "nativeP95Ms": 16.3452
+        }
+      },
+      "order": [
+        "baseline",
+        "candidate",
+        "candidate",
+        "baseline"
+      ]
+    }
+  },
+  "decision": "Do not adopt: P1 mean service is flat, while median sensing cost rises in both workloads. No Oxygen build warranted by this screen.",
+  "publication": "Release asset downloaded afresh; complete catalog inventory and checksums restored and verified. Aggregate-only resource sidecars; no source snapshots.",
+  "scope": "Shared-host adjacent ABBA Motion/B16 random-modest workloads, seed42, workers4, 600 warmup/1200 measured steps, ray cap256/batch65536. No release timing, profile choice, query-quality or idle-host claim."
+}
