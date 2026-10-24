@@ -1517,6 +1517,13 @@ missing, non-integer or changed native memory reservations; real-receipt mutatio
 tests protect this admission invariant. Further sensing/traversal work and all
 remaining qualification gates stay open.
 
+A bounded resource-sidecar export guard now enforces aggregate-only publication
+for subsequent long-run evidence. Debug inventories/private keys reject before
+output creation; CPU/RAM/GPU/anonymous WSL fields are rebuilt from typed
+allowlists, with unknown vendor/error text excluded. Real retained counters and
+private-field mutation cases exercise the guard. This changes no runtime,
+performance outcome or production default; qualification gates remain open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
