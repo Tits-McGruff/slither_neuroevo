@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-large-cost-investigation-v1",
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "runtimeOptimized": false,
+  "denseRowBatchingSelected": false,
+  "slitherCommit": "5c95dc65227c873e1606115b5cb28bd4bd66409a",
+  "pyrlCommit": "718af48546d66802586343f68f0d0a458fe81392",
+  "nativeSourceSha256": "7e9e22c6afef7fb5258b277575c4aa97220ee63524a4616fb230f7207a02c579",
+  "trainerSourceSha256": "7675d7cbc44076b99106a415015302c89dce934cad3247f224af3de28bfca1eb",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "scope": "Existing native P1/300-large-genome CPU trainer, catalog, inspector, four shadows and three manual generations. Coarse independent native slow/terminal counters explain failed timing, not exact step attribution. A separate bit-exact synthetic affine candidate improves hot-cache kernels but regresses a streaming-bank case; it is not applied to production. Aggregate resources only; microbenchmark has endpoint context rather than idle-host evidence.",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/native-large-costs-debian-v1/evidence.json",
+    "sha256": "c6285ddf59a4549154c70ec8ba53617d1195a40460365fbee87d1ab080500581",
+    "bytes": 9899
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

@@ -1,0 +1,68 @@
+--- /dev/null
++++ b/benchmarks/historical/driver-c778d4db942d.py
+@@ -0,0 +1,65 @@
++"""Paired real native whole-population passes; preserve only aggregate host metadata."""
++from pathlib import Path
++import subprocess,json,statistics,struct,os,hashlib,time
++root=Path(__file__).resolve().parent
++repo=root.parents[2]
++python=r'C:\Users\jlow8\source\repos\PyRL-trainer\.venv\Scripts\python.exe'
++observer=repo/'scripts/qualification/system-resource-observer.py'
++subprocess.run(['rustc','-C','opt-level=3','-C','lto=fat','-C','codegen-units=1','--edition=2021',
++                str(root/'benchmark-production.rs'),'-o',str(root/'benchmark-production.exe')],check=True,capture_output=True)
++watch=subprocess.Popen([python,'-B',str(observer),'--output',str(root/'production.resources.jsonl'),
++ '--interval-seconds','30','--samples','20','--watch-pid',str(os.getpid())],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++records=[]
++output=root/'whole-population';output.mkdir()
++def sanitize(data):
++ data.pop('command',None)
++ allowed=['capturedAtEpochMs','declaration','operatingSystem','architecture','availableParallelism',
++          'cpuModel','totalMemoryBytes','fixtureRssBytes','processPeakRssBytes']
++ data['environment']={k:v for k,v in data['environment'].items() if k in allowed}
++ return data
++try:
++ with (root/'result.production.json').open('x') as stream:
++  subprocess.run([str(root/'benchmark-production.exe')],stdout=stream,check=True,timeout=180)
++ for scenario in ['P0','P1','P2','P3']:
++  reference=root/'reference-stage4-inference-benchmark.exe'
++  candidate=repo/'native/target/release/stage4-inference-benchmark.exe'
++  for pass_number in range(4):
++   old_first=pass_number%4 in (0,3)
++   pair={}
++   for label,runner in ([('reference',reference),('candidate',candidate)] if old_first else [('candidate',candidate),('reference',reference)]):
++    raw=output/(scenario+'-'+str(pass_number)+'-'+label+'.raw.json')
++    subprocess.run([str(runner),'--scenario',scenario,'--math-backend','sse2','--warmup-passes','3',
++      '--passes','20','--environment','development','--output',str(raw)],check=True,capture_output=True,timeout=180)
++    data=sanitize(json.loads(raw.read_text(encoding='utf-8')))
++    saved=output/(scenario+'-'+str(pass_number)+'-'+label+'.json')
++    saved.write_text(json.dumps(data,indent=2)+'\n',encoding='utf-8')
++    pair[label]=data
++   before,after=pair['reference'],pair['candidate']
++   assert before['workload']==after['workload'],scenario
++   assert before['source']['nativeBuildContractSha256']==after['source']['nativeBuildContractSha256']
++   assert before['source']['rustcVersion']==after['source']['rustcVersion']
++   assert after['source']['nativeSourceSha256']=='b066380f41085a83f8aed9445a26475f569c78d72aedcde238a1580aed2f3925'
++   max_errors={}
++   for field in ['outputs','recurrent']:
++    a=before['result']['oneStepComparisonProbe'][field+'F32LeHex']
++    b=after['result']['oneStepComparisonProbe'][field+'F32LeHex']
++    av=struct.unpack('<'+str(len(a)//8)+'f',bytes.fromhex(a))
++    bv=struct.unpack('<'+str(len(b)//8)+'f',bytes.fromhex(b))
++    error=max(abs(x-y) for x,y in zip(av,bv))
++    assert error<=before['result']['oneStepComparisonProbe']['absoluteTolerance'],(scenario,field,error)
++    max_errors[field]=error
++   records.append({'scenario':scenario,'pass':pass_number,'oldFirst':old_first,
++    'referenceMeanMs':before['result']['wholePopulationPassMs']['mean'],
++    'candidateMeanMs':after['result']['wholePopulationPassMs']['mean'],'maxProbeAbs':max_errors})
++ summary=[{'scenario':scenario,'medianCandidateRatio':statistics.median(x['candidateMeanMs']/x['referenceMeanMs'] for x in records if x['scenario']==scenario)} for scenario in ['P0','P1','P2','P3']]
++ report={'kind':'paired-native-population-inference-v1','referenceCommit':'589383adfb229ff46560c3820119ebca77374393',
++  'candidateCommit':'7b375bcf','referenceExecutableSha256':hashlib.sha256(reference.read_bytes()).hexdigest(),
++  'candidateExecutableSha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'records':records,'summary':summary,
++  'scope':'Real single-worker complete heterogeneous native population passes with fixed v3 P0/P1/P2/P3 synthetic inputs, three warmups and twenty measured passes per process. Equal build contracts and immutable workload identities. Not live v4 performance, idle-host or integrated-capacity qualification.',
++  'driverSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
++ (root/'whole-population.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
++ print(json.dumps(summary))
++finally:
++ watch.terminate()
++ try:watch.wait(timeout=10)
++ except subprocess.TimeoutExpired:watch.kill();watch.wait()

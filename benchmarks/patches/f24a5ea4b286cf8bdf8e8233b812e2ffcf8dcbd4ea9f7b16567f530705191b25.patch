@@ -1,0 +1,46 @@
+--- /dev/null
++++ b/benchmarks/historical/fixed-export-f24a5ea4b286.py
+@@ -0,0 +1,43 @@
++"""Compare the corrected CPU reference with both native results for the original failing export."""
++import argparse,hashlib,json,sys
++from pathlib import Path
++parser=argparse.ArgumentParser()
++for name in ["pyrl-root","fixture","native-case","output"]:
++ parser.add_argument("--"+name,type=Path,required=True)
++args=parser.parse_args()
++sys.path.insert(0,str(args.pyrl_root.resolve()))
++from pyrl_trainer.distillation_process import configure_cli_priority
++priority=configure_cli_priority()
++import torch
++from pyrl_trainer.canonical_graph import CanonicalGraph,CanonicalGraphManifest
++from pyrl_trainer.canonical_parity import _floats,_sequence,_compare
++torch.set_num_threads(2)
++args.output.mkdir()
++manifest_path=args.native_case/"rust-scalar-v1/manifest.json"
++manifest=CanonicalGraphManifest.read(manifest_path)
++weights=(args.native_case/"trained.f32").read_bytes()
++model=CanonicalGraph(manifest,weights,"cpu")
++x=_floats(args.fixture/"observations.f32",manifest.input_size,"cpu")
++initial=_floats(args.fixture/"initial-state.f32",manifest.total_state_size,"cpu")
++outputs,states=_sequence(model,x,initial)
++for name,value in [("outputs",outputs),("states",states)]:
++ (args.output/("torch-"+name+".f32")).write_bytes(value.contiguous().numpy().astype("<f4").tobytes())
++(args.output/"weights.f32").write_bytes(weights)
++(args.output/"manifest.json").write_bytes(manifest_path.read_bytes())
++results=[]
++for backend in ["rust-scalar-v1","rust-sse2-v1"]:
++ root=args.native_case/backend
++ receipt=json.loads((root/"receipt.json").read_text())
++ assert receipt["weightsSha256"]==hashlib.sha256(weights).hexdigest()
++ expected=_floats(root/"outputs.f32",2,"cpu")
++ expected_states=_floats(root/"states.f32",manifest.total_state_size,"cpu")
++ results.append({"backend":backend,"nativeReceipt":receipt,
++  "outputErrorGrowth":_compare(outputs,expected,"cpu"),
++  "stateErrorGrowth":_compare(states,expected_states,"cpu")})
++report={"passed":True,"fixedExport":True,"case":"large-lstm","device":"cpu","torchVersion":torch.__version__,
++ "processPriority":priority,"driverSha256":hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
++ "torchOutputsSha256":hashlib.sha256((args.output/"torch-outputs.f32").read_bytes()).hexdigest(),
++ "torchStatesSha256":hashlib.sha256((args.output/"torch-states.f32").read_bytes()).hexdigest(),
++ "results":results}
++(args.output/"report.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
++print(json.dumps({"fixedExport":True,"backends":len(results),"passed":True}))

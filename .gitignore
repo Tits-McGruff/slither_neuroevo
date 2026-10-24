@@ -33,3 +33,7 @@ test_output.txt
 zip_of_shame.tar.gz
 
 .clinic/
+
+# Verified external qualification evidence; never promote cache payloads.
+.cache/qualification-evidence/
+.evidence-pyrl/

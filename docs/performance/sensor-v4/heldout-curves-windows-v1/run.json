@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "kind": "replicated-ablation-evidence-v1",
+  "status": "measured",
+  "slitherImplementationCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
+  "pyrlCommit": "d5fa5d1c055f6fcd2bd290c252bb63e650438c53",
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "matrixSha256": "4f3363ae9bc8fbc59554b52290d9d36829e0ca3804853aaf217f983e80f65bc1",
+  "scope": "Exact nine-cell seven-variant 2,000-update study with held-out curves, frozen sources, native corpus/parity/gameplay and observed 63-model prefix equality. No automatic maturity, profile, real-time or release promotion.",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/heldout-curves-windows-v1/evidence.json",
+    "sha256": "84da08f799b57a6ac1564a09b10a5ba54122d2338ab97cf2c51edb60cefe9e56",
+    "bytes": 493710
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

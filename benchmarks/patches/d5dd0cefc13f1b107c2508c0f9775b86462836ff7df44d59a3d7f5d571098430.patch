@@ -1,0 +1,31 @@
+--- /dev/null
++++ b/benchmarks/historical/prepare-fixed-d5dd0cefc13f.py
+@@ -0,0 +1,28 @@
++"""Recreate the original failing export's native inputs from retained synthetic fixtures."""
++import argparse,gzip,hashlib,json,struct,subprocess
++from pathlib import Path
++p=argparse.ArgumentParser()
++for name in ["evidence-root","directory","runner"]:p.add_argument("--"+name,type=Path,required=True)
++args=p.parse_args()
++root=args.directory.resolve();root.mkdir()
++base=args.evidence_root/"canonical-cpu-dot-v1"
++manifest=json.loads(gzip.decompress((base/"fixed-lstm/manifest.json.gz").read_bytes()))
++weights=gzip.decompress((base/"fixed-lstm/weights.f32.gz").read_bytes())
++old=json.loads(gzip.decompress((base/"fixed-lstm/report.json.gz").read_bytes()))
++(root/"trained.f32").write_bytes(weights)
++width=manifest["inputSize"]
++values=[(((i*1664525+1013904223)&65535)/32767.5-1) for i in range(256*width)]
++states=[((i%17)-8)/64 for i in range(manifest["totalStateSize"])]
++(root/"observations.f32").write_bytes(struct.pack("<"+str(len(values))+"f",*values))
++(root/"initial-state.f32").write_bytes(struct.pack("<"+str(len(states))+"f",*states))
++for backend in ["rust-scalar-v1","rust-sse2-v1"]:
++ request={"schemaVersion":1,"graphSpec":manifest["graphSpec"],"sensorProfile":"motion","bins":32,
++          "controlIntervalSeconds":1/60,"lifeStateRule":"preserve","mathBackend":backend,
++          "weightsPath":"trained.f32","observationsPath":"observations.f32",
++          "initialStatePath":"initial-state.f32"}
++ path=root/(backend+".json");path.write_text(json.dumps(request),encoding="utf-8")
++ subprocess.run([str(args.runner.resolve()),str(path),str(root/backend)],check=True,capture_output=True,timeout=30)
++ receipt=json.loads((root/backend/"receipt.json").read_text())
++ prior=next(x["nativeReceipt"] for x in old["results"] if x["backend"]==backend)
++ assert receipt==prior,"native frozen reference changed"
++print(json.dumps({"fixedExportNativeReferencesExact":True}))

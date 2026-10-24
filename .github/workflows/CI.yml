@@ -168,7 +168,7 @@ jobs:
         run: >-
           python scripts/qualification/trained-sensor-cohorts.py
           --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
-          --study docs/performance/sensor-v4/tactical-ablation-windows-v1
+          --fixtures native/fixtures/learned-cohorts-v1/single/index.json
           --directory "${{ runner.temp }}/trained-sensor-cohorts" --workers 3 --warmup 0 --steps 12
       - name: Retain native trained-policy outcomes
         if: always() && matrix.node-version == '24.x'
@@ -193,13 +193,13 @@ jobs:
           if-no-files-found: warn
       - name: Qualification input and retained evidence checks
         if: matrix.node-version == '24.x'
-        run: python -B -m unittest discover -s scripts/qualification -p "test_*.py"
+        run: python -B scripts/qualification/run-python-tests.py --kind source
       - name: Native mixed learned-family P0/P1 worker continuation
         if: matrix.node-version == '24.x'
         run: >-
           python -B scripts/qualification/trained-sensor-cohorts.py --replicated
           --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
-          --study docs/performance/sensor-v4/replicated-ablation-windows-v1
+          --fixtures native/fixtures/learned-cohorts-v1/replicated/index.json
           --directory "${{ runner.temp }}/mixed-sensor-cohorts" --workers 3 --warmup 0 --steps 12
       - name: Retain native mixed-family outcomes
         if: always() && matrix.node-version == '24.x'
@@ -235,30 +235,6 @@ jobs:
           name: spool-capacity-smoke-${{ matrix.os }}
           path: ${{ runner.temp }}/spool-capacity-smoke.json
           if-no-files-found: warn
-      - name: Python for retained scientific evidence verification
-        if: matrix.node-version == '24.x'
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-      - name: Retained ablation restore boundary tests
-        if: matrix.node-version == '24.x'
-        run: python -B -m unittest discover -s scripts/qualification -p test_verify_replicated_ablation.py
-      - name: Recompute retained replicated native ablation evidence
-        if: matrix.node-version == '24.x'
-        run: >-
-          python -B scripts/qualification/verify-replicated-ablation.py
-          --evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
-      - name: Recompute held-out curves and exact training-prefix equality
-        if: matrix.node-version == '24.x'
-        run: >-
-          python -B scripts/qualification/verify-replicated-ablation.py
-          --evidence docs/performance/sensor-v4/heldout-curves-windows-v1
-          --previous-evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
-      - name: Recompute retained 8000-update compiled CUDA study
-        if: matrix.node-version == '24.x'
-        run: >-
-          python -B scripts/qualification/verify-replicated-ablation.py
-          --evidence docs/performance/sensor-v4/heldout-curves-cuda8000-windows-v1
       - name: Build native crowded v4 sensing runner
         if: matrix.node-version == '24.x'
         run: cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin crowded-sensor-qualification
@@ -323,7 +299,7 @@ jobs:
       - name: Required native authority and calculation-worker contracts
         run: npm run test:native-required -- --reporter=dot
       - name: Unit tests
-        run: npm run test:unit -- --reporter=dot
+        run: npm run test:unit -- --reporter=dot --exclude scripts/qualification/evidence-integrity.test.ts --exclude scripts/qualification/live-window-evidence.test.ts
       - name: Component tests
         run: npm run test:component -- --reporter=dot
       - name: Integration tests
@@ -374,3 +350,47 @@ jobs:
         run: cargo fmt --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml -- --check
       - name: Replay fixture harness Clippy
         run: cargo clippy --locked --manifest-path ../scripts/qualification/teacher-replay-fixture/Cargo.toml --target-dir target -- -D warnings
+
+  historical_evidence:
+    name: Required historical evidence (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      PYRL_SOURCE_REPOSITORY: ${{ github.workspace }}/.evidence-pyrl
+      SLITHER_SOURCE_REPOSITORY: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Maintained evidence and matrix tooling
+        uses: actions/checkout@v4
+        with:
+          repository: Tits-McGruff/PyRL-trainer
+          ref: ac26f9bea5df63f32d9a999aea6b32a78567fb72
+          fetch-depth: 0
+          path: .evidence-pyrl
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Reject accidental experiment payload promotion
+        run: python .evidence-pyrl/pyrl_trainer/evidence_policy.py --root .
+      - name: Fetch, checksum and restore every required historical input
+        run: python .evidence-pyrl/pyrl_trainer/evidence_store.py fetch --catalog docs/performance/catalog.json --cache .cache/qualification-evidence
+      - name: Preserve historical integrity and live-window assertions
+        run: node node_modules/tsx/dist/cli.mjs scripts/run-tests.ts evidence-required --reporter=dot
+      - name: Preserve complete historical Python qualification assertions
+        run: python -B scripts/qualification/run-python-tests.py --kind evidence
+      - name: Recompute retained replicated native ablation evidence
+        run: python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
+      - name: Recompute held-out curves and exact training-prefix equality
+        run: python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/heldout-curves-windows-v1 --previous-evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
+      - name: Recompute retained 8000-update compiled CUDA study
+        run: python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/heldout-curves-cuda8000-windows-v1

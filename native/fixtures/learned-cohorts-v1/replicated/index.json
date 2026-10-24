@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "profile": "motion",
+  "bins": 16,
+  "replicated": true,
+  "variants": {
+    "full": [
+      {
+        "file": "full-1.slither-brain",
+        "sha256": "fb192b82b1e552222fad885095487d62aa85892c4f72cff555314be022b7c359",
+        "origin": "seed-1-fold-2/full/trained.slither-brain"
+      },
+      {
+        "file": "full-2.slither-brain",
+        "sha256": "48b2a1cd777271502aef5cd975ad97dce4d86d2f15059bd1aa08d0159bab944e",
+        "origin": "seed-2-fold-2/full/trained.slither-brain"
+      },
+      {
+        "file": "full-3.slither-brain",
+        "sha256": "9ca76a157bbb476b2f75f51c1f5efa845301d7af1c8c7c278cba04e834395d44",
+        "origin": "seed-3-fold-2/full/trained.slither-brain"
+      }
+    ],
+    "core-only": [
+      {
+        "file": "core-only-1.slither-brain",
+        "sha256": "0a1762235483149d9e0ce82973a8ff0e32c8f66b52aff130572cc34f4d8291c4",
+        "origin": "seed-1-fold-2/core-only/trained.slither-brain"
+      },
+      {
+        "file": "core-only-2.slither-brain",
+        "sha256": "a1ecbcfbd7bffeda2d4a9a39046dbe6c45b44ea9b14ea055b0a2762b66dd1787",
+        "origin": "seed-2-fold-2/core-only/trained.slither-brain"
+      },
+      {
+        "file": "core-only-3.slither-brain",
+        "sha256": "098cffa643ec9c9ab313d20d7a17ab7456b9463524c7bb7df629aaea5c649048",
+        "origin": "seed-3-fold-2/core-only/trained.slither-brain"
+      }
+    ]
+  }
+}

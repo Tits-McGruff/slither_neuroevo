@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "kind": "native-independent-accumulators-performance-v1",
+  "slitherCommit": "7b375bcf6ab5689ce0f740dcbf173eff79a19ff8",
+  "nativeSourceSha256": "b066380f41085a83f8aed9445a26475f569c78d72aedcde238a1580aed2f3925",
+  "sourcesFrom": "../native-large-costs-debian-v1",
+  "selectedAccumulators": 4,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "workloads": {
+    "P0": {
+      "captureDropFree": true,
+      "meetsMeasuredGates": false,
+      "phaseDeltas": {
+        "stepTimingSamples": "2123",
+        "stepTimingTotalMicros": "64138099",
+        "slowStepSamples": "2007",
+        "slowStepControlMicros": "48259304",
+        "slowStepControlIndexMicros": "891913",
+        "slowStepControlNeuralMicros": "43019944",
+        "slowStepControlSensingMicros": "13724216",
+        "slowStepControlInferenceMicros": "29216239",
+        "slowStepWorldMicros": "8406410",
+        "slowStepOtherMicros": "3152088",
+        "terminalStepSamples": "3",
+        "terminalStepTotalMicros": "2575393",
+        "terminalStepControlMicros": "52004",
+        "terminalStepWorldMicros": "9207",
+        "terminalStepPreparationMicros": "2423283",
+        "terminalStepEvolutionMicros": "2420460",
+        "terminalStepEvolutionSummaryMicros": "1003740",
+        "terminalStepEvolutionReproductionMicros": "1339501",
+        "terminalStepAdmissionMicros": "90035",
+        "terminalStepOtherMicros": "864"
+      }
+    },
+    "P1": {
+      "captureDropFree": true,
+      "meetsMeasuredGates": false,
+      "phaseDeltas": {
+        "stepTimingSamples": "155",
+        "stepTimingTotalMicros": "48889514",
+        "slowStepSamples": "152",
+        "slowStepControlMicros": "15492845",
+        "slowStepControlIndexMicros": "194984",
+        "slowStepControlNeuralMicros": "14541223",
+        "slowStepControlSensingMicros": "6501029",
+        "slowStepControlInferenceMicros": "8014875",
+        "slowStepWorldMicros": "2123659",
+        "slowStepOtherMicros": "474718",
+        "terminalStepSamples": "3",
+        "terminalStepTotalMicros": "30798292",
+        "terminalStepControlMicros": "314458",
+        "terminalStepWorldMicros": "30588",
+        "terminalStepPreparationMicros": "29942342",
+        "terminalStepEvolutionMicros": "29937637",
+        "terminalStepEvolutionSummaryMicros": "22771228",
+        "terminalStepEvolutionReproductionMicros": "6701455",
+        "terminalStepAdmissionMicros": "508588",
+        "terminalStepOtherMicros": "2316"
+      }
+    }
+  },
+  "scope": "Actual SSE2 production-kernel copies on Windows/Debian plus paired real Windows single-worker v3 P0/P1/P2/P3 whole-population passes. A distinct pair of real v4 Motion/B32 large-graph P0/P1 trainer/catalog/inspector/four-shadow/three-generation windows remains below timing gates. Live windows are not paired fixed-state speed comparisons. Host/trainer/student sources are reused from the named dependency. Resource observations contain aggregate counters only; endpoint micro context cannot establish an idle host.",
+  "retainedStudentUpdates": 250,
+  "retainedStudents": {
+    "P0": "8c54e325bea268ea010246c576b23621c027b2a493a577f5d20208241221f10a",
+    "P1": "ad5d12a018933867051da5504295f75a40ed39a156d076afb7fd400bb6eea579"
+  },
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/native-dot-performance-v1/evidence.json",
+    "sha256": "090eace0d2cf81815a49f40ec1ce651ddfa981d8f43eb7f5bfbd5ff766935add",
+    "bytes": 16643
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

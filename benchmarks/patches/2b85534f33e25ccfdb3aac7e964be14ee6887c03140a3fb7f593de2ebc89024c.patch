@@ -1,0 +1,150 @@
+--- a/native/src/engine/spatial.rs
++++ b/native/src/engine/spatial.rs
+@@ -1035,9 +1035,7 @@
+                         || worst_retained_distance_squared.get() < unvisited_lower_bound_squared)
+             },
+         )?;
+-        scratch
+-            .candidates
+-            .sort_unstable_by(compare_pellet_candidates);
++        sort_pellet_candidates(&mut scratch.candidates);
+         diagnostics.candidates = scratch.candidates.len();
+         diagnostics.candidate_limit_reached = qualifying.get() > maximum_candidates;
+         Ok(diagnostics)
+@@ -1301,6 +1299,67 @@
+     left.distance_squared
+         .cmp(&right.distance_squared)
+         .then_with(|| left.pellet.cmp(&right.pellet))
++}
++
++/// Preserve the exact (cached distance, pellet ordinal) order without a second buffer.
++///
++/// Large distance groups use in-place most-significant-nibble partitioning.
++/// Shared leading bits are skipped; small or equal-distance groups retain the
++/// comparison sort, including its exact ordinal tie break. Each recursive group
++/// fixes at least one more nibble: at most sixteen radix partitions plus one
++/// comparison leaf can nest. Candidate storage and worker admission are unchanged.
++fn sort_pellet_candidates(values: &mut [PelletCandidate]) {
++    const COMPARISON_LIMIT: usize = 64;
++    if values.len() <= COMPARISON_LIMIT {
++        values.sort_unstable_by(compare_pellet_candidates);
++        return;
++    }
++    let first = values[0].distance_squared.0 as u64;
++    let differing = values.iter().fold(0, |bits, value| {
++        bits | (first ^ value.distance_squared.0 as u64)
++    });
++    if differing == 0 {
++        values.sort_unstable_by(compare_pellet_candidates);
++        return;
++    }
++    let shift = (63 - differing.leading_zeros()) & !3;
++    let digit = |value: &PelletCandidate| {
++        // Bias the signed cached key into unsigned order; no float conversion.
++        (((value.distance_squared.0 as u64 ^ (1 << 63)) >> shift) & 15) as usize
++    };
++    let mut counts = [0usize; 16];
++    for value in values.iter() {
++        counts[digit(value)] += 1;
++    }
++    let mut ends = [0usize; 16];
++    let mut next = [0usize; 16];
++    let mut offset = 0;
++    for bucket in 0..16 {
++        next[bucket] = offset;
++        offset += counts[bucket];
++        ends[bucket] = offset;
++    }
++    for bucket in 0..16 {
++        while next[bucket] < ends[bucket] {
++            let target = digit(&values[next[bucket]]);
++            if target == bucket {
++                next[bucket] += 1;
++            } else {
++                // The histogram guarantees an unfilled target slot: every
++                // earlier filled slot contains its own digit, so an out-of-
++                // bucket item cannot belong to a bucket already at capacity.
++                values.swap(next[bucket], next[target]);
++                next[target] += 1;
++            }
++        }
++    }
++    let mut start = 0;
++    for end in ends {
++        if end - start > 1 {
++            sort_pellet_candidates(&mut values[start..end]);
++        }
++        start = end;
++    }
+ }
+ 
+ /// Keep the smallest `limit` values, promoting to a max-heap only at capacity.
+@@ -1634,6 +1693,68 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++
++    #[test]
++    fn pellet_radix_order_matches_comparison_for_key_extremes_ties_and_heap_inputs() {
++        let mut state = 0x4d59_5df4_d0f3_3173u64;
++        for length in [
++            0, 1, 31, 32, 63, 64, 65, 127, 128, 129, 899, 900, 901, 3000, 4096,
++        ] {
++            for shape in 0..6 {
++                let mut values: Vec<_> = (0..length)
++                    .map(|ordinal| {
++                        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
++                        let key = match shape {
++                            0 => state as i64,
++                            1 => (state & 0xff) as i64,
++                            2 => i64::MIN + (state & 0xffff) as i64,
++                            3 => i64::MAX - (state & 0xffff) as i64,
++                            4 => 0,
++                            _ => (ordinal / 16) as i64,
++                        };
++                        PelletCandidate {
++                            pellet: usize::MAX - ordinal,
++                            distance_squared: DistanceOrderKey(key),
++                        }
++                    })
++                    .collect();
++                let mut expected = values.clone();
++                expected.sort_unstable_by(compare_pellet_candidates);
++                for order in 0..3 {
++                    match order {
++                        0 => {}
++                        1 => values.reverse(),
++                        _ => build_max_heap(&mut values, compare_pellet_candidates),
++                    }
++                    let capacity = values.capacity();
++                    sort_pellet_candidates(&mut values);
++                    assert_eq!(
++                        values, expected,
++                        "length={length} shape={shape} order={order}"
++                    );
++                    assert_eq!(values.capacity(), capacity);
++                }
++            }
++        }
++        // A long shared-prefix chain reaches every radix level before a large
++        // equal-distance leaf; ordinals still break all ties exactly.
++        let mut chain: Vec<_> = (0..1024)
++            .map(|ordinal| PelletCandidate {
++                pellet: usize::MAX - ordinal,
++                distance_squared: DistanceOrderKey(0),
++            })
++            .collect();
++        for bit in 0..64 {
++            chain.push(PelletCandidate {
++                pellet: bit,
++                distance_squared: DistanceOrderKey((1u64 << bit) as i64),
++            });
++        }
++        let mut expected = chain.clone();
++        expected.sort_unstable_by(compare_pellet_candidates);
++        sort_pellet_candidates(&mut chain);
++        assert_eq!(chain, expected);
++    }
+ 
+     #[test]
+     fn cached_distance_order_preserves_ieee_bits_and_legacy_sort_without_growing_candidates() {

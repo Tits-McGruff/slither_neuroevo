@@ -1,0 +1,195 @@
+--- a/native/src/engine/sensors_v4.rs
++++ b/native/src/engine/sensors_v4.rs
+@@ -267,6 +267,8 @@
+         mut trace: Option<&mut super::sensor_trace::SensorTrace>,
+         heads: Option<PreparedV4Heads<'_>>,
+     ) -> Result<V4SensorSample, V4SensorError> {
++        #[cfg(feature = "engine-test-hooks")]
++        let mut phase_profile = profiling::Sample::start();
+         if let Some(trace) = trace.as_deref_mut() {
+             trace.valid = false;
+         }
+@@ -363,6 +365,8 @@
+         scratch.nearest_head.fill(usize::MAX);
+         scratch.head_count.fill(0);
+         scratch.urgency.fill(0.0);
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(0);
+         let pellets = indexed
+             .pellet_index()
+             .collect_sensor_candidates(
+@@ -372,6 +376,8 @@
+                 &mut scratch.pellets,
+             )
+             .map_err(|_| V4SensorError::Spatial)?;
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(1);
+         // Share one stack-only set across dense pellet, body and head queries.
+         // Sparse queries keep their original formula instead of preparing boundaries.
+         let mut sector_bins = (snake.direction.abs() <= TAU
+@@ -397,6 +403,8 @@
+                 scratch.far_food[bin] += strength;
+             }
+         }
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(2);
+         output[22] = flag(pellets.candidate_limit_reached);
+         let broad = radii.near
+             + (snake.radius + indexed.body_index().maximum_owner_radius())
+@@ -411,6 +419,8 @@
+                 &mut scratch.body,
+             )
+             .map_err(|_| V4SensorError::Spatial)?;
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(3);
+         if body.candidate_limit_reached {
+             scratch.body_clearance.fill(0.0);
+         } else {
+@@ -436,6 +446,8 @@
+                 }
+             }
+         }
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(4);
+         let first_ray = SensorRay::new(snake.position, snake.direction - PI, radii.near)
+             .map_err(|_| V4SensorError::Geometry)?;
+         let mut packet = [first_ray; MAX_SENSOR_BINS];
+@@ -488,6 +500,8 @@
+             }
+         }
+         output[23] = flag(body.candidate_limit_reached || incomplete_rays != 0);
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(5);
+         let motion = self.layout.profile() == SensorProfile::Motion;
+         let (forward_x, forward_y) = (snake.direction.cos(), snake.direction.sin());
+         let own_vx = forward_x * snake.speed;
+@@ -571,6 +585,8 @@
+                 }
+             }
+         }
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(6);
+         let mut representatives = [0; MAX_SENSOR_BINS];
+         for bin in 0..bins {
+             output[24 + 5 * bins + bin] = bipolar(scratch.head_clearance[bin] / radii.near);
+@@ -642,6 +658,10 @@
+             trace.body_saturated = body.candidate_limit_reached;
+             trace.valid = true;
+         }
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.lap(7);
++        #[cfg(feature = "engine-test-hooks")]
++        phase_profile.finish();
+         Ok(V4SensorSample {
+             delivery: ObservationDeliveryMarker {
+                 snake_id: snake.id,
+@@ -2296,3 +2316,109 @@
+         }
+     }
+ }
++
++/// Disposable sampled instrumentation, compiled only into this qualification experiment.
++#[cfg(feature = "engine-test-hooks")]
++pub mod profiling {
++    use std::cell::Cell;
++    use std::sync::atomic::{AtomicU64, Ordering};
++    use std::sync::OnceLock;
++    use std::time::Instant;
++    static ENABLED: OnceLock<bool> = OnceLock::new();
++    static SAMPLES: AtomicU64 = AtomicU64::new(0);
++    static QUERY: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
++    thread_local! {static ACTIVE: Cell<bool> = const {Cell::new(false)};}
++    static NANOS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++    thread_local! {static ORDINAL: Cell<u64> = const {Cell::new(0)};}
++    pub struct Sample {
++        last: Option<Instant>,
++        nanos: [u64; 8],
++    }
++    fn enabled() -> bool {
++        *ENABLED.get_or_init(|| std::env::var("SLITHER_V4_PROFILE").as_deref() == Ok("1"))
++    }
++    impl Sample {
++        pub fn start() -> Self {
++            let selected = enabled()
++                && ORDINAL.with(|value| {
++                    let old = value.get();
++                    value.set(old.wrapping_add(1));
++                    old % 64 == 0
++                });
++            ACTIVE.with(|active| active.set(selected));
++            Self {
++                last: selected.then(Instant::now),
++                nanos: [0; 8],
++            }
++        }
++        pub fn lap(&mut self, phase: usize) {
++            if let Some(last) = &mut self.last {
++                let now = Instant::now();
++                self.nanos[phase] =
++                    u64::try_from(now.duration_since(*last).as_nanos()).unwrap_or(u64::MAX);
++                *last = now;
++            }
++        }
++        pub fn finish(self) {
++            if self.last.is_some() {
++                for (target, value) in NANOS.iter().zip(self.nanos) {
++                    target.fetch_add(value, Ordering::Relaxed);
++                }
++                SAMPLES.fetch_add(1, Ordering::Relaxed);
++            }
++        }
++    }
++    impl Drop for Sample {
++        fn drop(&mut self) {
++            ACTIVE.with(|active| active.set(false));
++        }
++    }
++    pub fn query_start() -> Option<Instant> {
++        ACTIVE.with(Cell::get).then(Instant::now)
++    }
++    pub fn query_sort(started: Option<Instant>) -> Option<Instant> {
++        started.map(|start| {
++            let now = Instant::now();
++            QUERY[0].fetch_add(
++                now.duration_since(start).as_nanos() as u64,
++                Ordering::Relaxed,
++            );
++            now
++        })
++    }
++    pub fn query_finish(
++        started: Option<Instant>,
++        entries: usize,
++        retained: usize,
++        qualifying: usize,
++    ) {
++        if let Some(start) = started {
++            QUERY[1].fetch_add(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
++            QUERY[2].fetch_add(1, Ordering::Relaxed);
++            QUERY[3].fetch_add(entries as u64, Ordering::Relaxed);
++            QUERY[4].fetch_add(retained as u64, Ordering::Relaxed);
++            QUERY[5].fetch_add(qualifying as u64, Ordering::Relaxed);
++        }
++    }
++    pub fn reset() {
++        if enabled() {
++            SAMPLES.store(0, Ordering::Relaxed);
++            for value in &QUERY {
++                value.store(0, Ordering::Relaxed);
++            }
++            for value in &NANOS {
++                value.store(0, Ordering::Relaxed);
++            }
++        }
++    }
++    pub fn summary() -> Option<serde_json::Value> {
++        enabled().then(|| serde_json::json!({
++            "queryFields":["traversalNanos","sortNanos","samples","entriesVisited","retainedCandidates","qualifyingCandidates"],
++            "query":QUERY.iter().map(|value|value.load(Ordering::Relaxed)).collect::<Vec<_>>(),
++            "version":2,"sampling":"every 64th evaluation per native thread; measured interval only",
++            "samples":SAMPLES.load(Ordering::Relaxed),
++            "phaseNames":["setup","pelletQuery","pelletEncoding","bodyQuery","bodyEncoding","raysAndRingEncoding","heads","headEncodingAndValidation"],
++            "nanoseconds":NANOS.iter().map(|value|value.load(Ordering::Relaxed)).collect::<Vec<_>>(),
++        }))
++    }
++}

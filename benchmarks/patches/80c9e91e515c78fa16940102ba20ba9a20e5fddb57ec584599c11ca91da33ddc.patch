@@ -1,0 +1,171 @@
+--- /dev/null
++++ b/benchmarks/historical/benchmark-80c9e91e515c.rs
+@@ -0,0 +1,168 @@
++//! Disposable four-row affine experiment. No N-API, game, checkpoint or production source mutation.
++#[path = "simd_kernels.rs"]
++mod reference;
++use std::arch::x86_64::*;
++use std::hint::black_box;
++use std::time::Instant;
++
++/// Preserve each original four-lane accumulation and horizontal/tail order.
++#[inline]
++fn four_rows(weights: &[f32], input: &[f32]) -> [f32; 4] {
++    let stride = input.len().checked_add(1).unwrap();
++    assert_eq!(weights.len(), stride.checked_mul(4).unwrap());
++    let mut i = 0usize;
++    let mut totals = unsafe {
++        let mut a = _mm_setzero_ps();
++        let mut b = _mm_setzero_ps();
++        let mut c = _mm_setzero_ps();
++        let mut d = _mm_setzero_ps();
++        while i + 4 <= input.len() {
++            // All row offsets plus this complete four-element group are below 4*stride.
++            let x = _mm_loadu_ps(input.as_ptr().add(i));
++            a = _mm_add_ps(a, _mm_mul_ps(_mm_loadu_ps(weights.as_ptr().add(i)), x));
++            b = _mm_add_ps(b, _mm_mul_ps(_mm_loadu_ps(weights.as_ptr().add(stride + i)), x));
++            c = _mm_add_ps(c, _mm_mul_ps(_mm_loadu_ps(weights.as_ptr().add(2 * stride + i)), x));
++            d = _mm_add_ps(d, _mm_mul_ps(_mm_loadu_ps(weights.as_ptr().add(3 * stride + i)), x));
++            i += 4;
++        }
++        let mut lanes = [[0.0f32; 4]; 4];
++        _mm_storeu_ps(lanes[0].as_mut_ptr(), a);
++        _mm_storeu_ps(lanes[1].as_mut_ptr(), b);
++        _mm_storeu_ps(lanes[2].as_mut_ptr(), c);
++        _mm_storeu_ps(lanes[3].as_mut_ptr(), d);
++        lanes.map(|v| v[0] + v[1] + v[2] + v[3])
++    };
++    while i < input.len() {
++        for row in 0..4 {
++            totals[row] += weights[row * stride + i] * input[i];
++        }
++        i += 1;
++    }
++    totals
++}
++
++fn original(weights: &[f32], input: &[f32], output: &mut [f32]) {
++    let stride = input.len() + 1;
++    for (row, value) in output.iter_mut().enumerate() {
++        let start = row * stride;
++        *value = (reference::dot_product_sse2(&weights[start..start + input.len()], input)
++                  + weights[start + input.len()]).tanh();
++    }
++}
++
++fn candidate(weights: &[f32], input: &[f32], output: &mut [f32]) {
++    let stride = input.len() + 1;
++    let mut row = 0;
++    while row + 4 <= output.len() {
++        let sums = four_rows(&weights[row * stride..(row + 4) * stride], input);
++        for offset in 0..4 {
++            output[row + offset] = (sums[offset] + weights[(row + offset) * stride + input.len()]).tanh();
++        }
++        row += 4;
++    }
++    for (index, value) in output.iter_mut().enumerate().skip(row) {
++        let start = index * stride;
++        *value = (reference::dot_product_sse2(&weights[start..start + input.len()], input)
++                  + weights[start + input.len()]).tanh();
++    }
++}
++
++fn values(count: usize, salt: usize) -> Vec<f32> {
++    (0..count).map(|i| {
++        match (i + salt) % 97 {
++            0 => -0.0,
++            1 => f32::from_bits(1),
++            2 => -f32::from_bits(1),
++            _ => (((i * 3571 + salt * 1741) % 10007) as f32 - 5003.0) / 16000.0,
++        }
++    }).collect()
++}
++
++fn timed(function: fn(&[f32], &[f32], &mut [f32]), weights: &[f32], input: &[f32],
++         output: &mut [f32], iterations: usize) -> f64 {
++    let started = Instant::now();
++    for _ in 0..iterations {
++        function(black_box(weights), black_box(input), black_box(&mut *output));
++        black_box(&*output);
++    }
++    started.elapsed().as_secs_f64()
++}
++
++fn timed_bank(function: fn(&[f32], &[f32], &mut [f32]), bank: &[Vec<f32>], input: &[f32],
++              output: &mut [f32], iterations: usize) -> f64 {
++    let started = Instant::now();
++    for iteration in 0..iterations {
++        function(black_box(&bank[iteration % bank.len()]), black_box(input), black_box(&mut *output));
++        black_box(&*output);
++    }
++    started.elapsed().as_secs_f64()
++}
++
++fn main() {
++    assert!(reference::runtime_sse2_available());
++    let mut comparisons = 0usize;
++    let mut dot_comparisons = 0usize;
++    for width in [0, 1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 63, 64, 65, 127, 128, 129, 256, 504] {
++        for rows in [1, 2, 3, 4, 5, 7, 8, 17, 64, 256] {
++            let weights = values(rows * (width + 1), 13);
++            let input = values(width, 29);
++            for block in weights.chunks_exact(4 * (width + 1)) {
++                let sums = four_rows(block, &input);
++                for row in 0..4 {
++                    let expected = reference::dot_product_sse2(&block[row * (width + 1)..row * (width + 1) + width], &input);
++                    assert_eq!(sums[row].to_bits(), expected.to_bits(), "raw dot bits differ");
++                    dot_comparisons += 1;
++                }
++            }
++            let mut a = vec![0.0; rows]; let mut b = a.clone();
++            original(&weights, &input, &mut a);
++            candidate(&weights, &input, &mut b);
++            assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()),
++                    "row-wise bits differ at {width}/{rows}");
++            comparisons += rows;
++        }
++    }
++    if std::env::args().nth(1).as_deref() == Some("--check-only") {
++        println!("{{\"exactOutputComparisons\":{comparisons},\"exactDotComparisons\":{dot_comparisons}}}");
++        return;
++    }
++    println!("{{\"kind\":\"affine-four-row-microbenchmark-v1\",\"exactOutputComparisons\":{comparisons},\"exactDotComparisons\":{dot_comparisons},\"records\":[");
++    let mut separator = "";
++    for (width, rows, iterations) in [(504, 256, 2000), (256, 256, 4000), (120, 64, 10000), (64, 16, 20000), (16, 2, 50000)] {
++        let weights = values(rows * (width + 1), 31);
++        let input = values(width, 47);
++        let mut output = vec![0.0; rows];
++        for streaming in [false, true] {
++        if streaming && width < 256 { continue; }
++        let bank: Vec<Vec<f32>> = if streaming {
++            (0..128).map(|salt| values(rows * (width + 1), salt + 100)).collect()
++        } else { Vec::new() };
++        if streaming {
++            let mut check = output.clone();
++            for matrix in &bank {
++                original(matrix, &input, &mut output);
++                candidate(matrix, &input, &mut check);
++                assert!(output.iter().zip(&check).all(|(x, y)| x.to_bits() == y.to_bits()),
++                        "streaming-bank output bits differ");
++            }
++        }
++        let measure = |function: fn(&[f32], &[f32], &mut [f32]), output: &mut [f32]| {
++            if streaming { timed_bank(function, &bank, &input, output, iterations) }
++            else { timed(function, &weights, &input, output, iterations) }
++        };
++        for pass in 0..8 {
++            let old_first = matches!(pass % 4, 0 | 3);
++            let (old, new) = if old_first {
++                (measure(original, &mut output),
++                 measure(candidate, &mut output))
++            } else {
++                let new = measure(candidate, &mut output);
++                (measure(original, &mut output), new)
++            };
++            print!("{separator}{{\"width\":{width},\"rows\":{rows},\"iterations\":{iterations},\"pass\":{pass},\"streaming\":{streaming},\"oldFirst\":{old_first},\"originalSeconds\":{old},\"candidateSeconds\":{new}}}");
++            separator = ",\n";
++        }
++        }
++    }
++    println!("]}}");
++}

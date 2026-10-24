@@ -1,0 +1,147 @@
+--- a/native/src/engine/sensors_v4.rs
++++ b/native/src/engine/sensors_v4.rs
+@@ -365,7 +365,7 @@
+         scratch.urgency.fill(0.0);
+         let pellets = indexed
+             .pellet_index()
+-            .collect_sensor_candidates(
++            .collect_sensor_candidates_unordered(
+                 snake.position,
+                 radii.far,
+                 self.common.effective_pellet_limit(),
+@@ -377,26 +377,34 @@
+         let mut sector_bins = (snake.direction.abs() <= TAU
+             && (pellets.candidates >= bins || world.snakes.len() >= bins))
+             .then(|| CenteredAngularBins::new(snake.direction, bins));
+-        for pellet in indexed.pellet_index().candidates(&scratch.pellets) {
+-            let dx = pellet.position.x - snake.position.x;
+-            let dy = pellet.position.y - snake.position.y;
+-            let distance = dx.hypot(dy);
+-            let bin = sector_bin(
+-                sector_bins.as_ref(),
+-                dx,
+-                dy,
+-                distance,
+-                snake.direction,
++        indexed
++            .pellet_index()
++            .visit_sensor_candidates_by_bin(
++                &mut scratch.pellets,
+                 bins,
+-            );
+-            let strength = (1.0 - distance / radii.far).clamp(0.0, 1.0)
+-                * (pellet.value / cfg.food_value).clamp(0.0, 6.0);
+-            if distance <= radii.near {
+-                scratch.near_food[bin] += strength;
+-            } else {
+-                scratch.far_food[bin] += strength;
+-            }
+-        }
++                |pellet| {
++                    sector_bin_by_components(
++                        sector_bins.as_ref(),
++                        pellet.position.x - snake.position.x,
++                        pellet.position.y - snake.position.y,
++                        snake.direction,
++                        bins,
++                    )
++                },
++                |bin, pellet| {
++                    let dx = pellet.position.x - snake.position.x;
++                    let dy = pellet.position.y - snake.position.y;
++                    let distance = dx.hypot(dy);
++                    let strength = (1.0 - distance / radii.far).clamp(0.0, 1.0)
++                        * (pellet.value / cfg.food_value).clamp(0.0, 6.0);
++                    if distance <= radii.near {
++                        scratch.near_food[bin] += strength;
++                    } else {
++                        scratch.far_food[bin] += strength;
++                    }
++                },
++            )
++            .map_err(|_| V4SensorError::Spatial)?;
+         output[22] = flag(pellets.candidate_limit_reached);
+         let broad = radii.near
+             + (snake.radius + indexed.body_index().maximum_owner_radius())
+@@ -707,6 +715,29 @@
+     }
+     Ok((life_points, assessment, budget))
+ }
++/// Classify without evaluating a norm when a larger guard proves the same interior.
++/// Twice the largest normal component bounds the true hypot with ample rounding
++/// margin. The classifier's binary search is norm-independent; a larger guard can
++/// only decline an interior result. Ambiguous/subnormal/extreme cases use the
++/// original exact norm and v4 fallback before assigning a bucket.
++#[inline]
++fn sector_bin_by_components(
++    classifier: Option<&CenteredAngularBins>,
++    x: f64,
++    y: f64,
++    direction: f64,
++    bins: usize,
++) -> usize {
++    let largest = x.abs().max(y.abs());
++    let upper = 2.0 * largest;
++    if x.is_finite() && y.is_finite() && largest >= f64::MIN_POSITIVE && upper.is_finite() {
++        if let Some(bin) = classifier.and_then(|bins| bins.classify_interior(x, y, upper)) {
++            return bin;
++        }
++    }
++    sector_bin(classifier, x, y, x.hypot(y), direction, bins)
++}
++
+ /// Cheap shared geometry only decides interior bins. Keep v4's exact sine/atan2
+ /// normalization for coincident/boundary/extreme vectors and large restored headings.
+ #[inline]
+@@ -907,6 +938,11 @@
+                         let distance = x.hypot(y);
+                         let expected = angle_to_centered_bin(wrap(y.atan2(x) - direction), bins);
+                         assert_eq!(
++                            sector_bin_by_components(Some(&classifier), x, y, direction, bins),
++                            expected,
++                            "component guard: B={bins} heading={direction} scale={scale} angle={angle}"
++                        );
++                        assert_eq!(
+                             sector_bin(Some(&classifier), x, y, distance, direction, bins),
+                             expected,
+                             "B={bins} heading={direction} scale={scale} angle={angle}"
+@@ -943,6 +979,8 @@
+                                 angle_to_centered_bin(wrap(y.atan2(x) - direction), bins);
+                             assert_eq!(sector_bin(Some(&classifier), x,y,x.hypot(y),direction,bins),
+                                        expected, "B={bins} heading={direction} scale={scale} boundary={boundary} delta={delta}");
++                            assert_eq!(sector_bin_by_components(Some(&classifier), x,y,direction,bins),
++                                       expected, "component boundary: B={bins} heading={direction} scale={scale} boundary={boundary} delta={delta}");
+                         }
+                     }
+                 }
+@@ -958,6 +996,10 @@
+                     let expected = angle_to_centered_bin(wrap(y.atan2(x) - direction), bins);
+                     assert_eq!(
+                         sector_bin(Some(&classifier), x, y, x.hypot(y), direction, bins),
++                        expected
++                    );
++                    assert_eq!(
++                        sector_bin_by_components(Some(&classifier), x, y, direction, bins),
+                         expected
+                     );
+                 }
+@@ -1060,7 +1102,18 @@
+                         let mut near = [0.0; MAX_SENSOR_BINS];
+                         let mut far = [0.0; MAX_SENSOR_BINS];
+                         let cfg = evaluator.common.config();
+-                        for pellet in indexed.pellet_index().candidates(&scratch.pellets) {
++                        let mut reference_pellets = PelletQueryScratch::default();
++                        let reference_query = indexed
++                            .pellet_index()
++                            .collect_sensor_candidates(
++                                world.snakes[0].position,
++                                result.radii.far,
++                                evaluator.common.effective_pellet_limit(),
++                                &mut reference_pellets,
++                            )
++                            .unwrap();
++                        assert_eq!(reference_query, result.diagnostics.pellets);
++                        for pellet in indexed.pellet_index().candidates(&reference_pellets) {
+                             let (dx, dy) = (pellet.position.x, pellet.position.y);
+                             let distance = dx.hypot(dy);
+                             // Independent old v4 bin formula and original ordered accumulation.

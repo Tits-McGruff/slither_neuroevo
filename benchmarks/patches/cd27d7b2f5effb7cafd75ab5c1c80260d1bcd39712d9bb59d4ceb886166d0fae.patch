@@ -1,0 +1,104 @@
+--- /dev/null
++++ b/benchmarks/historical/benchmark-cd27d7b2f5ef.rs
+@@ -0,0 +1,101 @@
++//! Standalone ordered-versus-independent-accumulator probe; no production mutation.
++#![allow(dead_code)]
++#[path="simd_kernels.rs"] mod reference;
++#[path="candidate_kernels.rs"] mod production;
++use std::arch::x86_64::*;
++use std::hint::black_box;
++use std::time::Instant;
++
++/// Equal safe slices bound every complete SSE2 group; inputs remain read-only.
++#[inline]
++fn independent<const ACC:usize>(weights:&[f32],input:&[f32])->f32{
++ assert_eq!(weights.len(),input.len());
++ if input.len()<32{return reference::dot_product_sse2(weights,input);}
++ let mut index=0;
++ // SAFETY: Equal slices prove each load valid; only full ACC*4 groups are read.
++ let mut total=unsafe{
++  let mut sums=[_mm_setzero_ps();ACC];
++  while index+ACC*4<=input.len(){
++   for (j,sum) in sums.iter_mut().enumerate(){
++    *sum=_mm_add_ps(*sum,_mm_mul_ps(_mm_loadu_ps(weights.as_ptr().add(index+j*4)),
++                                   _mm_loadu_ps(input.as_ptr().add(index+j*4))));
++   }
++   index+=ACC*4;
++  }
++  let mut sum=sums[0];
++  for other in &sums[1..]{sum=_mm_add_ps(sum,*other);}
++  while index+4<=input.len(){
++   sum=_mm_add_ps(sum,_mm_mul_ps(_mm_loadu_ps(weights.as_ptr().add(index)),
++                                _mm_loadu_ps(input.as_ptr().add(index))));
++   index+=4;
++  }
++  let mut lanes=[0.0_f32;4];
++  _mm_storeu_ps(lanes.as_mut_ptr(),sum);
++  lanes[0]+lanes[1]+lanes[2]+lanes[3]
++ };
++ while index<input.len(){total+=weights[index]*input[index];index+=1;}
++ total
++}
++fn dot2(w:&[f32],x:&[f32])->f32{independent::<2>(w,x)}
++fn dot4(w:&[f32],x:&[f32])->f32{production::dot_product_sse2(w,x)}
++fn values(count:usize,seed:u64,scale:f32)->Vec<f32>{
++ let mut s=seed;
++ (0..count).map(|_|{s^=s<<13;s^=s>>7;s^=s<<17;
++ ((s>>40)as f32/16_777_216.0-0.5)*scale}).collect()
++}
++fn affine(dot:fn(&[f32],&[f32])->f32,w:&[f32],x:&[f32],out:&mut[f32]){
++ let stride=x.len()+1;
++ for (row,value) in out.iter_mut().enumerate(){
++  let start=row*stride;*value=(dot(&w[start..start+x.len()],x)+w[start+x.len()]).tanh();
++ }
++}
++fn timed(dot:fn(&[f32],&[f32])->f32,bank:&[Vec<f32>],x:&[f32],out:&mut[f32],iterations:usize)->f64{
++ let start=Instant::now();
++ for i in 0..iterations{affine(dot,black_box(&bank[i%bank.len()]),black_box(x),black_box(&mut*out));black_box(&*out);}
++ start.elapsed().as_secs_f64()
++}
++fn main(){
++ let mut comparisons=0;
++ let mut max_raw=[0.0_f64;2];let mut max_tanh=[0.0_f64;2];
++ let mut oracle_old=0.0_f64;let mut oracle_new=[0.0_f64;2];
++ for width in [0,1,3,4,7,8,15,16,17,31,32,33,63,64,65,127,128,129,256,264,504,512,1024]{
++  for seed in 1..=128_u64{
++   for scale in [0.64_f32,10.0]{
++    let w=values(width,seed,scale);let x=values(width,seed+1000,2.0);
++    let old=reference::dot_product_sse2(&w,&x);
++    let exact=w.iter().zip(&x).fold(0.0_f64,|sum,(&a,&b)|sum+f64::from(a)*f64::from(b));
++    oracle_old=oracle_old.max((f64::from(old)-exact).abs());
++    for (j,dot) in [dot2 as fn(&[f32],&[f32])->f32,dot4].into_iter().enumerate(){
++     let new=dot(&w,&x);
++     assert!(new.is_finite());
++     let difference=(f64::from(new)-f64::from(old)).abs();
++     assert!(difference<=1e-5+1e-4*f64::from(old).abs(),"width={width},seed={seed},scale={scale},acc={j}");
++     max_raw[j]=max_raw[j].max(difference);
++     max_tanh[j]=max_tanh[j].max((f64::from(new.tanh())-f64::from(old.tanh())).abs());
++     oracle_new[j]=oracle_new[j].max((f64::from(new)-exact).abs());
++     comparisons+=1;
++    }
++   }
++  }
++ }
++ println!("{{\"kind\":\"independent-dot-accumulator-probe-v1\",\"comparisons\":{comparisons},\"maxRawDifference\":{:?},\"maxTanhDifference\":{:?},\"maxOracleOldError\":{oracle_old},\"maxOracleNewError\":{:?},\"records\":[",max_raw,max_tanh,oracle_new);
++ let mut sep="";
++ for (width,rows,iterations) in [(504,256,2000),(256,256,4000),(120,64,10000),(64,16,20000),(16,2,50000)]{
++  let x=values(width,47,2.0);
++  let mut output=vec![0.0;rows];
++  for streaming in [false,true]{
++   if streaming&&width<256{continue;}
++   let bank:Vec<Vec<f32>>=(0..if streaming{128}else{1}).map(|i|values(rows*(width+1),i+100,0.64)).collect();
++   for (acc,dot) in [(2,dot2 as fn(&[f32],&[f32])->f32),(4,dot4)]{
++    for pass in 0..8{
++     let old_first=matches!(pass%4,0|3);
++     let(old,new)=if old_first{(timed(reference::dot_product_sse2,&bank,&x,&mut output,iterations),timed(dot,&bank,&x,&mut output,iterations))}
++                 else{let new=timed(dot,&bank,&x,&mut output,iterations);(timed(reference::dot_product_sse2,&bank,&x,&mut output,iterations),new)};
++     print!("{sep}{{\"accumulators\":{acc},\"width\":{width},\"rows\":{rows},\"streaming\":{streaming},\"pass\":{pass},\"oldFirst\":{old_first},\"iterations\":{iterations},\"originalSeconds\":{old},\"candidateSeconds\":{new}}}");
++     sep=",\n";
++    }
++   }
++  }
++ }
++ println!("]}}");
++}

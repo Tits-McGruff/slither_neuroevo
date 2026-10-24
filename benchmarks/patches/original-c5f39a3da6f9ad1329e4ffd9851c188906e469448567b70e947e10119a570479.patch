@@ -1,0 +1,96 @@
+diff --git a/native/src/engine/spatial.rs b/native/src/engine/spatial.rs
+index f30b2bb..dd84894 100644
+--- a/native/src/engine/spatial.rs
++++ b/native/src/engine/spatial.rs
+@@ -833,19 +833,12 @@ impl PelletSpatialIndex {
+                 pellet: pellet_index,
+             });
+         }
++        // The record ordinal is already the exact rank of (id, source_index).
++        // Comparing it preserves both ties without indirect pellet-record loads.
+         self.entries.sort_unstable_by(|left, right| {
+             left.key
+                 .cmp(&right.key)
+-                .then_with(|| {
+-                    self.pellets[left.pellet]
+-                        .id
+-                        .cmp(&self.pellets[right.pellet].id)
+-                })
+-                .then_with(|| {
+-                    self.pellets[left.pellet]
+-                        .source_index
+-                        .cmp(&self.pellets[right.pellet].source_index)
+-                })
++                .then_with(|| left.pellet.cmp(&right.pellet))
+         });
+         rebuild_cell_spans(&self.entries, |entry| entry.key, &mut self.cells)?;
+         self.lookup.rebuild(&self.cells)?;
+@@ -2019,6 +2012,68 @@ mod tests {
+         assert_eq!(index.maximum_owner_radius(), 9.0);
+     }
+ 
++    #[test]
++    fn pellet_cell_order_retains_full_width_ids_source_ties_and_rebuild_capacity() {
++        let ids = [u64::MAX, 0, 1_u64 << 63, 7, u64::MAX, 7, 0];
++        let mut index = PelletSpatialIndex::empty();
++        let mut warmed = None;
++        for rotation in 0..ids.len() * 2 {
++            let mut world = WorldState::default();
++            for offset in 0..ids.len() {
++                let item = (rotation + offset) % ids.len();
++                world.pellets.push(PelletState {
++                    id: ids[item],
++                    position: WorldPoint {
++                        x: if item % 2 == 0 { -0.5 } else { 0.5 },
++                        y: 0.0,
++                    },
++                    value: 1.0,
++                    kind: 0,
++                    color: 0,
++                    owner: None,
++                });
++            }
++            if rotation >= ids.len() {
++                world.pellets.reverse();
++            }
++            index.rebuild(&world, 10.0, ids.len()).unwrap();
++            // Build the expected public identities directly from the source world,
++            // independent of canonical record ordinals and the entry comparator.
++            let mut expected: Vec<_> = world
++                .pellets
++                .iter()
++                .enumerate()
++                .map(|(source, pellet)| {
++                    (
++                        if pellet.position.x < 0.0 { -1 } else { 0 },
++                        pellet.id,
++                        source,
++                    )
++                })
++                .collect();
++            expected.sort_unstable();
++            let actual: Vec<_> = index
++                .entries
++                .iter()
++                .map(|entry| {
++                    let pellet = &index.pellets[entry.pellet];
++                    (entry.key.x, pellet.id, pellet.source_index)
++                })
++                .collect();
++            assert_eq!(actual, expected);
++            let capacity = (
++                index.pellets.capacity(),
++                index.entries.capacity(),
++                index.cells.capacity(),
++                index.lookup.span_indices.capacity(),
++            );
++            if let Some(previous) = warmed {
++                assert_eq!(capacity, previous);
++            }
++            warmed = Some(capacity);
++        }
++    }
++
+     #[test]
+     fn pellets_are_nearest_first_with_stable_id_ties() {
+         let world = WorldState {

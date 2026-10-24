@@ -3,10 +3,11 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+from historical_evidence import required_root
 import statistics
 import unittest
 
-ROOT = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4/sensing-profile-debian-v1"
+ROOT = required_root() / "docs/performance/sensor-v4/sensing-profile-debian-v1"
 
 
 class SensingProfileEvidenceTests(unittest.TestCase):

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-evidence-reference-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "logicalPrefix": "docs/performance/sensor-v4/capture-byte-pressure-oxygen-v1/",
+    "files": 5,
+    "bytes": 163360
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json",
+  "qualificationPolicy": "Historical claims require verified release-asset restoration and their maintained audit. This reference confers no additional qualification.",
+  "recordedIdentity": {
+    "qualification.json": {
+      "scriptSha256": "12372fd1d2cce30f184c5652eaaa790c40cbebdc29a8221be163d4b8c595ae2a",
+      "executableSha256": "fb9f8139dec20317e94beff3ff54a30b8cd6edd3e6668f839c85efe231711262",
+      "sourceSha256": "9e913dd9c94249975efa9caf6df1c17fbc277581b90c05b64d24e5c82b7104da"
+    }
+  }
+}

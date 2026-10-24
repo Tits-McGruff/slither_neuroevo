@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-evidence-reference-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "logicalPrefix": "docs/performance/sensor-v4/ray-hierarchy-windows-v1/",
+    "files": 13,
+    "bytes": 322824
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json",
+  "qualificationPolicy": "Historical claims require verified release-asset restoration and their maintained audit. This reference confers no additional qualification.",
+  "recordedIdentity": {
+    "qualification.json": {
+      "scriptSha256": "1224f129a0f7db07f2d95e34b7187946d77acc34c36056cb704ff5281b3a2c00",
+      "binarySha256": "4d66dc70e1b9e77da55e7f7354b4798cea7586046de84192b09ea9e661730d0f",
+      "sourceSha256": "bc056c98b235fb39eb039ac39e73de53bda51f5aa77c6d1138c5eb84d704e8c6",
+      "seed": 42
+    }
+  }
+}

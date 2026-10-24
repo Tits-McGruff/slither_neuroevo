@@ -4,12 +4,13 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+from historical_evidence import required_root
 import re
 import statistics
 import struct
 import unittest
 
-BASE = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4"
+BASE = required_root() / "docs/performance/sensor-v4"
 ROOT = BASE / "final-teacher-agreement-windows-v1"
 SOURCE = BASE / "final-native-tactics-cuda8000-windows-v1"
 VARIANTS = {"full", "core-only", "no-bearing", "no-heading", "no-velocity", "no-urgency", "no-density"}

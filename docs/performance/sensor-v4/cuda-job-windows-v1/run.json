@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "kind": "durable-cuda-job-contention-evidence-v1",
+  "releaseQualified": false,
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "slitherCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
+  "scope": "Actual default CUDA jobs, exact process restart, opaque candidate admission and four native shadows. Shared-host short P0/P1 windows include process startup/restore/shutdown. The observed P0 best-effort window passes; P1 still fails. No causal timing estimate, mature-population, full-capacity, six-hour GPU or default-selection claim.",
+  "sources": {
+    "compiled": {
+      "trainerSourceSha256": "08aef592435816311e734cef6aedee550b6915f042608e245febb4ebf5cdf486",
+      "trainerSourceFiles": [
+        "canonical_graph.py",
+        "sensor_contract.py",
+        "sequence_distillation.py",
+        "distillation_transport.py",
+        "distillation_client.py",
+        "distillation_storage.py",
+        "distillation_replay.py",
+        "distillation_sampling.py",
+        "distillation_job.py",
+        "distillation_checkpoint.py",
+        "distillation_run.py",
+        "brain_artifact.py",
+        "distillation_shadows.py"
+      ]
+    },
+    "best-effort": {
+      "trainerSourceSha256": "05d1901dce46a872f117fa3da2f90e39dab37e13e7ac3eca7e7ecf13b96532be",
+      "trainerSourceFiles": [
+        "canonical_graph.py",
+        "sensor_contract.py",
+        "sequence_distillation.py",
+        "distillation_transport.py",
+        "distillation_client.py",
+        "distillation_storage.py",
+        "distillation_replay.py",
+        "distillation_sampling.py",
+        "distillation_job.py",
+        "distillation_process.py",
+        "distillation_checkpoint.py",
+        "distillation_run.py",
+        "brain_artifact.py",
+        "distillation_shadows.py"
+      ]
+    }
+  },
+  "reports": {
+    "compiled-P0.json": {
+      "sourceVariant": "compiled",
+      "scenario": "P0",
+      "meetsMeasuredGates": false,
+      "pyrlCommit": "3759acde79c331c68518ccac7e0d62c15cddbab0"
+    },
+    "best-effort-P0.json": {
+      "sourceVariant": "best-effort",
+      "scenario": "P0",
+      "meetsMeasuredGates": true,
+      "pyrlCommit": "b9da734b6fef963c2d10b27f78e440575134e1f6"
+    },
+    "best-effort-P1.json": {
+      "sourceVariant": "best-effort",
+      "scenario": "P1",
+      "meetsMeasuredGates": false,
+      "pyrlCommit": "b9da734b6fef963c2d10b27f78e440575134e1f6"
+    }
+  },
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/cuda-job-windows-v1/evidence.json",
+    "sha256": "ce338e89e82154a0b6febf8cbae295fb791c499477f3d2d1fd99deb4d2f9e797",
+    "bytes": 11018
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

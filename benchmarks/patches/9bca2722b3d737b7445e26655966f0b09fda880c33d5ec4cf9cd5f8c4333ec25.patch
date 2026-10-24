@@ -1,0 +1,44 @@
+--- /dev/null
++++ b/benchmarks/historical/run-profile-9bca2722b3d7.py
+@@ -0,0 +1,41 @@
++"""Run three controlled identical-policy cases, with sampling only in the middle."""
++import gzip,hashlib,json,os,subprocess,sys,time
++from pathlib import Path
++checkout=Path(sys.argv[1]).resolve(strict=True)
++root=checkout/'native/target/v4-phase-profile-20261022'
++root.mkdir()
++inputs=root/'inputs'
++inputs.mkdir()
++capsule=checkout/'docs/performance/sensor-v4/live-cohort-debian-v1'
++manifest=json.loads((capsule/'evidence.json').read_text(encoding='utf-8'))
++index_raw=gzip.decompress((capsule/'cohort.json.gz').read_bytes())
++index=json.loads(index_raw)
++for name in ('cohort.json',*(entry['file'] for entry in index['artifacts'])):
++    receipt=manifest['files'][name]
++    assert receipt['bytes']<=256*1024
++    encoded=(capsule/(name+'.gz')).read_bytes()
++    assert hashlib.sha256(encoded).hexdigest()==receipt['gzipSha256']
++    with gzip.open(capsule/(name+'.gz'),'rb') as stream:
++        raw=stream.read(receipt['bytes']+1)
++    assert len(raw)==receipt['bytes'] and hashlib.sha256(raw).hexdigest()==receipt['sha256']
++    (inputs/name).write_bytes(raw)
++binary=checkout/'native/target/release/sensor-v4-qualification'
++common=['--scenario','P1','--profile','motion','--bins','16','--respawn','on',
++        '--seed','42','--workers','8','--math-backend','sse2','--minimum','1',
++        '--cap','512','--batch','131072','--baseline','v2-stochastic',
++        '--baseline-cadence','0.016666666666666666','--capture','on',
++        '--warmup','600','--steps','1800','--environment','oxygen-debian',
++        '--trained-cohort',str(inputs/'cohort.json')]
++records=[]
++for ordinal,enabled in enumerate((False,True,False)):
++    path=root/f'{ordinal}-{"sampled" if enabled else "unsampled"}.json'
++    environment=os.environ.copy()
++    environment['SLITHER_V4_PROFILE']='1' if enabled else '0'
++    started=time.monotonic()
++    subprocess.run([str(binary),*common,'--workspace',str(root/f'workspace-{ordinal}'),
++                    '--output',str(path)],check=True,cwd=checkout,env=environment,timeout=480)
++    report=json.loads(path.read_text(encoding='utf-8'))
++    assert report['admitted'] and report['completedSteps']==2400
++    records.append({'file':path.name,'profiled':enabled,'elapsedSeconds':time.monotonic()-started})
++    print('completed',json.dumps(records[-1]),flush=True)
++(root/'runs.json').write_text(json.dumps(records,indent=2)+'\n',encoding='utf-8')

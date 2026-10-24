@@ -1,0 +1,125 @@
+--- /dev/null
++++ b/benchmarks/historical/benchmark-production-085d54ac3bef.py
+@@ -0,0 +1,122 @@
++"""Measure actual bounded CPU optimizer updates with fixed Rust-admitted graphs."""
++import argparse,gzip,hashlib,json,os,shutil,struct,subprocess,sys,time
++from pathlib import Path
++parser=argparse.ArgumentParser()
++for name in ["pyrl-root","runner","evidence-root","directory","observer","reference-module"]:
++ parser.add_argument("--"+name,type=Path,required=True)
++args=parser.parse_args()
++root=args.directory.resolve();root.mkdir()
++assert shutil.disk_usage(root).free>8*1024**3
++sys.path.insert(0,str(args.pyrl_root.resolve()))
++from pyrl_trainer.distillation_process import configure_cli_priority
++priority=configure_cli_priority()
++import torch
++from pyrl_trainer import canonical_graph as module
++from pyrl_trainer.canonical_graph import CanonicalGraph,CanonicalGraphManifest
++from pyrl_trainer.canonical_parity import _optimize
++from pyrl_trainer.brain_artifact import read_raw_brain_artifact
++torch.set_num_threads(2)
++original=module._affine_dot
++
++import importlib.util
++snapshot=args.reference_module.resolve()
++expected=json.loads((args.evidence_root/"canonical-cpu-dot-v1/evidence.json").read_text())["files"]["pyrl/canonical_graph.py"]["sha256"]
++assert hashlib.sha256(snapshot.read_bytes()).hexdigest()==expected
++spec=importlib.util.spec_from_file_location("pyrl_trainer._cpu_reference",snapshot)
++reference_module=importlib.util.module_from_spec(spec)
++sys.modules[spec.name]=reference_module
++spec.loader.exec_module(reference_module)
++reference=reference_module._affine_dot
++candidate=original
++
++
++def retained(capsule,name):
++ manifest=json.loads((args.evidence_root/capsule/"evidence.json").read_text())
++ receipt=manifest["files"][name]
++ encoded=(args.evidence_root/capsule/(name+".gz")).read_bytes()
++ assert hashlib.sha256(encoded).hexdigest()==receipt["gzipSha256"]
++ raw=gzip.decompress(encoded)
++ assert len(raw)==receipt["bytes"] and hashlib.sha256(raw).hexdigest()==receipt["sha256"]
++ return raw
++
++def fixture(name):
++ folder=root/name;folder.mkdir()
++ if name=="modest":
++  _,manifest,_=read_raw_brain_artifact(retained("live-cohort-debian-v1","full-cuda8000-seed1.slither-brain"))
++  metadata=json.loads(manifest.canonical_json)
++  artifact=retained("live-cohort-debian-v1","full-cuda8000-seed1.slither-brain")
++  header=struct.Struct("<8sIB3xII32s32s");fields=header.unpack_from(artifact)
++  weights=artifact[header.size+fields[1]:]
++  bins=16
++ else:
++  weights=retained("canonical-cpu-dot-v1","fixed-lstm/weights.f32")
++  metadata=json.loads(retained("canonical-cpu-dot-v1","fixed-lstm/manifest.json"))
++  bins=32
++ width=metadata["inputSize"]
++ values=[(((i*1664525+1013904223)&65535)/32767.5-1) for i in range(256*width)]
++ states=[((i%17)-8)/64 for i in range(metadata["totalStateSize"])]
++ (folder/"weights.f32").write_bytes(weights)
++ (folder/"observations.f32").write_bytes(struct.pack("<"+str(len(values))+"f",*values))
++ (folder/"state.f32").write_bytes(struct.pack("<"+str(len(states))+"f",*states))
++ request={"schemaVersion":1,"graphSpec":metadata["graphSpec"],"sensorProfile":"motion","bins":bins,
++ "controlIntervalSeconds":1/60,"lifeStateRule":"preserve","mathBackend":"rust-sse2-v1",
++ "weightsPath":"weights.f32","observationsPath":"observations.f32","initialStatePath":"state.f32"}
++ (folder/"request.json").write_text(json.dumps(request),encoding="utf-8")
++ subprocess.run([str(args.runner.resolve()),str(folder/"request.json"),str(folder/"native")],
++                check=True,capture_output=True,timeout=30)
++ receipt=json.loads((folder/"native/receipt.json").read_text())
++ assert receipt["sourceSha256"]=="7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156"
++ assert (folder/"native/weights.f32").read_bytes()==weights
++ admitted=CanonicalGraphManifest.read(folder/"native/manifest.json")
++ assert admitted.input_size==width and admitted.total_parameters==len(weights)//4
++ x=torch.tensor(values,dtype=torch.float32).reshape(256,width)
++ state=torch.tensor(states,dtype=torch.float32).reshape(1,-1)
++ return admitted,weights,x,state,receipt
++
++watch=subprocess.Popen([sys.executable,"-B",str(args.observer.resolve()),"--output",str(root/"resources.jsonl"),
++ "--interval-seconds","30","--samples","30","--watch-pid",str(os.getpid())],
++ stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++records=[]
++try:
++ deadline=time.monotonic()+60
++ while not (root/"resources.jsonl").exists() or (root/"resources.jsonl").stat().st_size==0:
++  assert watch.poll() is None,"observer exited"
++  assert time.monotonic()<deadline,"observer startup deadline"
++  time.sleep(.1)
++ deadline=time.monotonic()+600
++ modes={"reference":reference,"candidate":candidate}
++ for name in ["modest","large-lstm"]:
++  manifest,weights,x,state,receipt=fixture(name)
++  for mode in ["reference","candidate"]:
++   module._affine_dot=modes[mode]
++   _optimize(CanonicalGraph(manifest,weights,"cpu"),x,state)
++  for index,order in enumerate([["reference","candidate"],["candidate","reference"],
++                              ["candidate","reference"],["reference","candidate"]]):
++   results={}
++   for mode in order:
++    assert time.monotonic()<deadline and watch.poll() is None,"bounded measurement deadline/observer"
++    module._affine_dot=modes[mode]
++    model=CanonicalGraph(manifest,weights,"cpu")
++    started=time.perf_counter()
++    update=_optimize(model,x,state)
++    elapsed=time.perf_counter()-started
++    result={"case":name,"pass":index,"mode":mode,"seconds":elapsed,"optimization":update,
++            "nativeSourceSha256":receipt["sourceSha256"],"inputWeightsSha256":receipt["weightsSha256"],
++            "totalParameters":manifest.total_parameters,"inputSize":manifest.input_size}
++    results[mode]=result;records.append(result)
++    print(json.dumps({"case":name,"pass":index,"mode":mode,"seconds":elapsed}),flush=True)
++   a=results["reference"]["optimization"]["loss"];b=results["candidate"]["optimization"]["loss"]
++   assert abs(a-b)<=1e-5+1e-5*abs(a),"forward accuracy changed"
++ result={"schemaVersion":1,"prototype":False,"torchVersion":torch.__version__,"cpuThreads":2,
++         "processPriority":priority,"records":records,
++         "referenceHelperSha256":hashlib.sha256(snapshot.read_bytes()).hexdigest(),
++         "candidateHelperSha256":hashlib.sha256((args.pyrl_root/"pyrl_trainer/canonical_graph.py").read_bytes()).hexdigest(),"driverSha256":hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
++         "scope":"Paired fixed-input actual Adam/TBPTT updates. The reference is the exact previous compensated CPU implementation; the candidate is the actual current module, using batched Float32 partials, error-corrected tree reduction and analytic matrix gradients. Shared-host aggregates do not establish an idle host or integrated throughput."}
++ (root/"result.json").write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
++finally:
++ module._affine_dot=original
++ watch.terminate()
++ try:watch.wait(timeout=10)
++ except subprocess.TimeoutExpired:watch.kill();watch.wait()
++ subprocess.run([sys.executable,"-B",str(args.observer.resolve()),"--output",str(root/"after-resources.jsonl"),
++                 "--samples","1"],check=True,timeout=60,capture_output=True)

@@ -1,0 +1,31 @@
+--- /dev/null
++++ b/benchmarks/historical/generate-capacity-student-c9695d43a3fc.py
+@@ -0,0 +1,28 @@
++"""Make a manual large student from native fixture weights at the live teacher cadence."""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++from pyrl_trainer.brain_artifact import HEADER, encode_brain_artifact, read_raw_brain_artifact
++from pyrl_trainer.canonical_graph import CanonicalGraphManifest
++
++parser=argparse.ArgumentParser(description=__doc__)
++parser.add_argument('--source',type=Path,required=True)
++parser.add_argument('--output',type=Path,required=True)
++parser.add_argument('--fixture-native-source',required=True)
++args=parser.parse_args()
++data=args.source.read_bytes()
++artifact,manifest,_=read_raw_brain_artifact(data)
++assert manifest.input_size==504 and manifest.total_parameters==494306
++value=json.loads(manifest.canonical_json)
++value['deployment']['controlIntervalSeconds']=1/60
++candidate=CanonicalGraphManifest.from_bytes(json.dumps(value,separators=(',',':')).encode())
++weights=data[HEADER.size+HEADER.unpack_from(data)[1]:]
++packed=encode_brain_artifact(candidate,weights,{'schemaVersion':1,'sourceKind':'manual','details':{
++ 'qualification':'live-large-capacity-student-v1','learned':False,
++ 'fixtureNativeSourceSha256':args.fixture_native_source,'sourceArtifactSha256':artifact.sha256,
++ 'explicitCadenceSeconds':1/60}})
++with args.output.open('xb') as stream:
++    stream.write(packed.data)
++print(json.dumps({'studentArtifactSha256':packed.sha256,
++ 'parameters':candidate.total_parameters,'cadence':candidate.control_interval_seconds}))

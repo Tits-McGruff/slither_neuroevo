@@ -1,0 +1,69 @@
+--- /dev/null
++++ b/benchmarks/historical/run-comparisons-643568e0df47.py
+@@ -0,0 +1,66 @@
++"""Run exact native comparisons beside bounded aggregate resource observations."""
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++
++
++def main():
++    """Own only the comparison/observer children and publish allowlisted counter sidecars."""
++    root = Path(sys.argv[1]).resolve(strict=True)
++    python = sys.executable
++    windows = os.name == "nt"
++    repo = Path.cwd()
++    scripts = repo / "scripts/qualification" if windows else root
++    observer = scripts / "system-resource-observer.py"
++    exporter = scripts / "export-resource-counters.py"
++    driver = scripts / "compare-sensor-workloads.py"
++    baseline = root / ("baseline.exe" if windows else "baseline")
++    candidate = root / ("candidate.exe" if windows else "candidate")
++    if windows:
++        assert not candidate.exists()
++        shutil.copyfile(repo / "native/target/release/sensor-v4-qualification.exe", candidate)
++    flags = subprocess.CREATE_NO_WINDOW if windows else 0
++
++    def snapshot(name):
++        """Keep the local original separate from its strict counter-only public projection."""
++        raw = root / (name + "-local.jsonl")
++        public = root / (name + ".jsonl")
++        subprocess.run([python, "-B", str(observer), "--output", str(raw), "--samples", "1"],
++                       check=True, creationflags=flags)
++        subprocess.run([python, "-B", str(exporter), "--input", str(raw), "--output", str(public)],
++                       check=True, creationflags=flags)
++
++    snapshot("before-resources")
++    for scenario in ["P1", "P0"]:
++        process = subprocess.Popen([
++            python, "-B", str(driver), "--baseline", str(baseline), "--candidate", str(candidate),
++            "--baseline-source", "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
++            "--directory", str(root / scenario), "--scenario", scenario, "--workers", "4",
++            "--ray-cap", "256", "--ray-batch", "65536", "--warmup", "600", "--steps", "1200",
++            "--environment", "development" if windows else "oxygen-debian"], creationflags=flags)
++        raw = root / (scenario + "-resources-local.jsonl")
++        observation = subprocess.Popen([
++            python, "-B", str(observer), "--output", str(raw), "--interval-seconds", "30",
++            "--samples", "120", "--watch-pid", str(process.pid)], creationflags=flags)
++        try:
++            code = process.wait()
++            snapshot(scenario + "-after-resources")
++            if code:
++                raise RuntimeError("native comparison failed")
++        finally:
++            try:
++                observation.wait(timeout=60)
++            except subprocess.TimeoutExpired:
++                observation.terminate()
++                observation.wait(timeout=10)
++                raise
++        subprocess.run([python, "-B", str(exporter), "--input", str(raw),
++                        "--output", str(root / (scenario + "-resources.jsonl"))],
++                       check=True, creationflags=flags)
++    print("Owned comparisons and counter-only exports complete.", flush=True)
++
++
++if __name__ == "__main__":
++    main()

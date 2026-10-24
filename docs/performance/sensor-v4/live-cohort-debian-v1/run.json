@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-learned-cohort-window-evidence-v1",
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "scope": "Four distinct learned Full-graph initial families, CPU trainer and eight native workers; short functional and performance measurement, excluding maximum capacity and maturity.",
+  "slitherCommit": "de0ce7016ad2ff463d45aa6befa380db97c286ee",
+  "pyrlCommit": "b9da734b6fef963c2d10b27f78e440575134e1f6",
+  "nativeSourceSha256": "d12574cfb9c9d59fe53dcf1b91b95461fec6cf990f70dad7211e05ee2eae76ad",
+  "trainerSourceSha256": "169905f384ce2312b7700baab4e8c60945e6f623c2b54fcea8957d0eeb24ac26",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/live-cohort-debian-v1/evidence.json",
+    "sha256": "015c78af355c4ae7ba77cf5678877ceba539826b823b73ed14a3b75825979c7b",
+    "bytes": 6984
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

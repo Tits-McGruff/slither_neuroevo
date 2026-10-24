@@ -1,4 +1,4 @@
-"""Verify retained measured ablations with their archived stdlib-only matrix reader.
+"""Verify retained measured ablations with the maintained stdlib-only matrix reader.
 
 This restores only task-owned scratch. It never trains a model or runs simulation.
 """
@@ -173,13 +173,22 @@ def verify(evidence, previous_evidence=None):
             arguments.extend(["--validation-seed", str(fold)])
         for cell in matrix["cells"]:
             arguments.extend(["--study", str(root / f"seed-{cell['seed']}-fold-{cell['validationSeed']}")])
-        environment = dict(os.environ, PYTHONPATH=str(root), PYTHONNOUSERSITE="1")
-        subprocess.run(arguments, cwd=root, env=environment, check=True, timeout=180)
+        maintained = Path(os.environ.get("PYRL_SOURCE_REPOSITORY", "../PyRL-trainer")).resolve(strict=True)
+        require((maintained / "pyrl_trainer/ablation_matrix.py").is_file(),
+                "Set PYRL_SOURCE_REPOSITORY to the maintained PyRL checkout; archived code is never executed")
+        repository = Path(__file__).resolve().parents[2]
+        environment = dict(os.environ, PYTHONPATH=str(maintained), PYTHONNOUSERSITE="1",
+                           PYRL_SOURCE_REPOSITORY=str(maintained),
+                           SLITHER_SOURCE_REPOSITORY=str(repository),
+                           PYRL_HISTORICAL_SOURCE_PROVENANCE=str(
+                               repository / "docs/performance/source-provenance.json"))
+        subprocess.run(arguments, cwd=maintained, env=environment, check=True, timeout=180)
         require(json.loads((root / "recomputed.json").read_bytes()) == matrix, "recomputed paired matrix differs")
         # The context manager removes only this exclusively created, revalidated root.
         require(root.resolve(strict=True).parent == temporary_root and not root.is_symlink(), "scratch identity changed")
         return {"kind": manifest["kind"], "files": len(records), "cells": matrix["cellCount"],
                 "matrixSha256": manifest["matrixSha256"], "recomputedExact": True,
+                "maintainedReaderSha256": digest(maintained / "pyrl_trainer/ablation_matrix.py"),
                 "releaseQualified": matrix["releaseQualified"], "maturityQualified": matrix["maturityQualified"],
                 **({"prefixComparisonsExact": prefix_comparisons} if prefix_comparisons is not None else {})}
 
@@ -190,7 +199,16 @@ def main():
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--previous-evidence", type=Path)
     args = parser.parse_args()
-    print(json.dumps(verify(args.evidence, args.previous_evidence)))
+    from historical_evidence import required_root  # pylint: disable=import-outside-toplevel
+    def external(path):
+        if path is None:
+            return None
+        repo = Path(__file__).resolve().parents[2]
+        absolute = path.resolve()
+        if absolute.is_relative_to(repo / "docs/performance"):
+            return required_root() / absolute.relative_to(repo)
+        return absolute
+    print(json.dumps(verify(external(args.evidence), external(args.previous_evidence))))
 
 
 if __name__ == "__main__":

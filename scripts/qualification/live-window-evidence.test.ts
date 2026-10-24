@@ -2,7 +2,7 @@ import { summarizeObservationQuality, type ObservationQualityRead } from './obse
 /** Frozen real-clock/job receipts are checked without executing archived code or world state. */
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolveEvidence as resolve } from './historicalEvidence.ts';
 import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';

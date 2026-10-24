@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-loaded-replay-evidence-v1",
+  "largeCatalogOverlapQualified": true,
+  "loadedSpoolQualified": false,
+  "loadedReplayQualified": true,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "maturityQualified": false,
+  "slitherCommit": "3958342f31624774e2c8c2ad4f535087a4103202",
+  "pyrlCommit": "718af48546d66802586343f68f0d0a458fe81392",
+  "nativeSourceSha256": "7e9e22c6afef7fb5258b277575c4aa97220ee63524a4616fb230f7207a02c579",
+  "trainerSourceSha256": "7675d7cbc44076b99106a415015302c89dce934cad3247f224af3de28bfca1eb",
+  "trainerSourceFiles": [
+    "canonical_graph.py",
+    "sensor_contract.py",
+    "sequence_distillation.py",
+    "distillation_transport.py",
+    "distillation_client.py",
+    "distillation_storage.py",
+    "distillation_replay.py",
+    "distillation_sampling.py",
+    "distillation_job.py",
+    "distillation_process.py",
+    "distillation_checkpoint.py",
+    "distillation_run.py",
+    "brain_artifact.py",
+    "distillation_shadows.py"
+  ],
+  "resourceSamples": 57,
+  "resourcePrivacy": "Aggregate Linux/GPU counters only; no application/process inventory. Shared host includes other task-owned qualification setup; no idle-host performance claim.",
+  "scope": "Actual live P0/55 large genomes with at least 2040 MiB charged active-epoch replay under 2048 MiB, default-window CPU training, exact restart, fresh intake, four shadows, 100 manual originals, inspector and three durable generations. Producer ceiling 4 GiB is not full occupancy. No joint 64-GiB load, representative maturity or six-hour acceptance. Native capture reports 216 chunks/13115 samples dropped during setup; the measured window adds no further capture loss. This proves loaded replay accounting/restart, not loss-free capture under setup contention.",
+  "captureLifetimeDropFree": false,
+  "captureWindowDropFree": true,
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/live-loaded-replay-debian-v1/evidence.json",
+    "sha256": "6abfcbbe9e3f4de1b70f08049bd2d9adc28c4c9fd37ebf0efacb3ca0df9cfca0",
+    "bytes": 9172
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

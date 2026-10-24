@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "baselineSlitherCommit": "8a7f22423671d333b4a2889ecd9200fa1b722b94",
+  "baselinePyrlCommit": "1a500ab0ac214f19c02dc1bbd42870eba52fdf98",
+  "nativeSourceSha256": "1230ee387a4b7e6afaab7fda3bbe0567e813b3c50eae992b931a8321264722dd",
+  "studentArtifactSha256": "d19a7f2df7a4c2edccfe3c0f214f1936a483332b273d53b70089b64cccaffe52",
+  "studentArtifact": "../tactical-ablation-windows-v1/full/trained.slither-brain.gz",
+  "sources": {
+    "host.ts.gz": {
+      "sha256": "effc7567dc0e09525927156b0666ada724c1eea982e2e52338d9b6e48455b22e",
+      "gzipSha256": "dcffda2e2f1ed752d6761f6ba5502f213fd70b2382b1443d114be592057209c6"
+    },
+    "trainer.py.gz": {
+      "sha256": "0be719b876636850e3801791783a6ab09c7710b7edf84f1a46be12ff0db42759",
+      "gzipSha256": "36605e989765475aa821102009376b5efc3e5896dcac76072da72569ed0968cd"
+    }
+  },
+  "reports": {
+    "windows-cpu-P1.json.gz": {
+      "sha256": "b26af5efc8f4e8ce4390efe2a5fc7d2cec4c5acc9fa0ea65947d3e0b7cf3d762",
+      "gzipSha256": "8ca145a81420f656c70e0e4061217a5092b93edee79c3b9373b5d5303c646ba2",
+      "device": "cpu",
+      "target": "x86_64-pc-windows-msvc"
+    },
+    "windows-cuda-P1.json.gz": {
+      "sha256": "ed9a8a5abdf0cf1b16250157e16352223bcbeb70f4b3c1df5702cc68f4c2b035",
+      "gzipSha256": "403cadd452d7caa24f2363957d24079dc91ffe8982fc5e77d258c3107f54035b",
+      "device": "cuda:0",
+      "target": "x86_64-pc-windows-msvc"
+    },
+    "debian-cpu-P1.json.gz": {
+      "sha256": "3c8583e6d6fdb0e6daba8b5618ee09dab39b949afc026856c859b44b549bb549",
+      "gzipSha256": "d6cae79ec04965cf9a226f331fc3521fa26a98c996dbba280ce797a28109e1de",
+      "device": "cpu",
+      "target": "x86_64-unknown-linux-gnu"
+    }
+  },
+  "scope": "Seeded random modest 300-individual Motion/B16 world, ten stochastic baseline-v2 teachers, one actual TBPTT/Adam trainer with fresh HTTP intake and four identical learned Rust shadows; 60 active seconds per device/target. Timing failures are retained. No causal CPU/CUDA speed comparison, crowded geometry, mature diverse population, full capacity, soak or production-default claim. Measured trainer and current trainer have identical Python ASTs after line wrapping.",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/trainer-contention-v1/evidence.json",
+    "sha256": "1d63659c965818f96ed6ff85c67febda4eb4763ac12c2abe80ef137ebd1e638b",
+    "bytes": 2186
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

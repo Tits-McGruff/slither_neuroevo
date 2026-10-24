@@ -1,0 +1,170 @@
+--- /dev/null
++++ b/benchmarks/historical/packed-probe-5391595aa2f2.rs
+@@ -0,0 +1,167 @@
++use std::cmp::Ordering; use std::mem::size_of;
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
++struct DistanceOrderKey(i64);
++
++impl DistanceOrderKey {
++    /// Cache the exact legacy comparison transform for one computed distance.
++    fn new(value: f64) -> Self {
++        let bits = value.to_bits() as i64;
++        Self(bits ^ (((bits >> 63) as u64) >> 1) as i64)
++    }
++
++    /// Restore the original distance bits for numeric ring-stop comparisons.
++    fn value(self) -> f64 {
++        let bits = self.0 ^ (((self.0 >> 63) as u64) >> 1) as i64;
++        f64::from_bits(bits as u64)
++    }
++}
++
++
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
++struct PelletCandidate(u128);
++
++impl PelletCandidate {
++    fn new(pellet: usize, distance_squared: f64) -> Self {
++        Self::from_order_key(pellet, DistanceOrderKey::new(distance_squared))
++    }
++
++    fn from_order_key(pellet: usize, distance: DistanceOrderKey) -> Self {
++        let ordered = distance.0 as u64 ^ (1 << 63);
++        Self(((ordered as u128) << 64) | pellet as u128)
++    }
++
++    fn pellet(self) -> usize {
++        self.0 as u64 as usize
++    }
++
++    fn distance_squared(self) -> f64 {
++        DistanceOrderKey(((self.0 >> 64) as u64 ^ (1 << 63)) as i64).value()
++    }
++}
++
++
++
++#[derive(Clone,Copy)] struct Legacy { pellet:usize, distance_squared:DistanceOrderKey }
++
++fn compare_legacy(a:&Legacy,b:&Legacy)->Ordering { a.distance_squared.cmp(&b.distance_squared).then_with(||a.pellet.cmp(&b.pellet)) }
++
++fn build_max_heap<T>(values: &mut [T], compare: fn(&T, &T) -> Ordering) {
++    if values.len() < 2 {
++        return;
++    }
++    for parent in (0..=(values.len() - 2) / 2).rev() {
++        sift_max_heap_down(values, parent, compare);
++    }
++}
++
++fn sift_max_heap_down<T>(values: &mut [T], mut parent: usize, compare: fn(&T, &T) -> Ordering) {
++    loop {
++        let left = parent * 2 + 1;
++        if left >= values.len() {
++            return;
++        }
++        let right = left + 1;
++        let largest =
++            if right < values.len() && compare(&values[left], &values[right]) == Ordering::Less {
++                right
++            } else {
++                left
++            };
++        if compare(&values[parent], &values[largest]) != Ordering::Less {
++            return;
++        }
++        values.swap(parent, largest);
++        parent = largest;
++    }
++}
++
++fn packed_pellet_keys_preserve_every_distance_bit_and_full_width_ordinal_order() {
++        let mut state = 0x4d59_5df4_d0f3_3173u64;
++        let mut expected = Vec::new();
++        for bits in [0u64, 1, 1 << 63, u64::MAX, 0x7ff0_0000_0000_0000] {
++            for ordinal in [0, 1, usize::MAX / 2, usize::MAX] {
++                expected.push((DistanceOrderKey::new(f64::from_bits(bits)), ordinal));
++            }
++        }
++        for _ in 0..16_384 {
++            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
++            let distance = DistanceOrderKey::new(f64::from_bits(state));
++            for ordinal in [0, state as usize, usize::MAX] {
++                let packed = PelletCandidate::from_order_key(ordinal, distance);
++                assert_eq!(packed.pellet(), ordinal);
++                assert_eq!(
++                    packed.distance_squared().to_bits(),
++                    distance.value().to_bits()
++                );
++                expected.push((distance, ordinal));
++            }
++        }
++        let mut actual: Vec<_> = expected
++            .iter()
++            .map(|&(key, ordinal)| PelletCandidate::from_order_key(ordinal, key))
++            .collect();
++        expected.sort_unstable();
++        actual.sort_unstable();
++        let decoded: Vec<_> = actual
++            .into_iter()
++            .map(|candidate| {
++                (
++                    DistanceOrderKey::new(candidate.distance_squared()),
++                    candidate.pellet(),
++                )
++            })
++            .collect();
++        assert_eq!(decoded, expected);
++        assert_eq!(size_of::<PelletCandidate>(), 16);
++    }
++
++
++fn measure(template:&[Legacy], packed:bool, repetitions:usize)->u128 {
++    let mut old=template.to_vec();
++    let source:Vec<_>=template.iter().map(|v|PelletCandidate::from_order_key(v.pellet,v.distance_squared)).collect();
++    let mut new=source.clone();
++    let started=std::time::Instant::now();
++    if packed {
++        for _ in 0..repetitions {
++            new.copy_from_slice(&source);
++            std::hint::black_box(new.as_mut_slice()).sort_unstable();
++            std::hint::black_box(&new);
++        }
++    } else {
++        for _ in 0..repetitions {
++            old.copy_from_slice(template);
++            std::hint::black_box(old.as_mut_slice()).sort_unstable_by(compare_legacy);
++            std::hint::black_box(&old);
++        }
++    }
++    started.elapsed().as_nanos()
++}
++fn main() {
++    packed_pellet_keys_preserve_every_distance_bit_and_full_width_ordinal_order();
++    let mut random=0x4d595df4d0f33173u64;
++    for length in [32usize,64,65,128,256,512,900,2200,3000] {
++        for shape in ["radius","prefix","equal","heap","sorted","reverse"] {
++            let mut template: Vec<_>=(0..length).map(|ordinal| {
++                random=random.wrapping_mul(6364136223846793005).wrapping_add(1);
++                let key=match shape {
++                    "prefix" => (0x4130000000000000u64 | (random & 0xffff)) as i64,
++                    "equal" => 0,
++                    _ => (((random >> 11) as f64) * (1.0/9007199254740992.0) * 1000000.0).to_bits() as i64,
++                };
++                Legacy {pellet:usize::MAX-ordinal,distance_squared:DistanceOrderKey(key)}
++            }).collect();
++            match shape {
++                "heap" => build_max_heap(&mut template,compare_legacy),
++                "sorted" => template.sort_unstable_by(compare_legacy),
++                "reverse" => template.sort_unstable_by(|a,b|compare_legacy(b,a)),
++                _ => {}
++            }
++            let repetitions=(1000000/length).clamp(500,10000);
++            let times=[measure(&template,false,repetitions),measure(&template,true,repetitions),
++                       measure(&template,true,repetitions),measure(&template,false,repetitions)];
++            println!("{{\"length\":{},\"shape\":\"{}\",\"repetitions\":{},\"nanoseconds\":{:?}}}",length,shape,repetitions,times);
++        }
++    }
++}

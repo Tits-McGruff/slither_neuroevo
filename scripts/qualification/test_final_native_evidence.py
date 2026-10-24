@@ -3,11 +3,12 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+from historical_evidence import required_root
 import re
 import statistics
 import unittest
 
-BASE = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4"
+BASE = required_root() / "docs/performance/sensor-v4"
 ROOT = BASE / "final-native-tactics-cuda8000-windows-v1"
 SOURCE = BASE / "heldout-curves-cuda8000-windows-v1"
 METRICS = ("survivingTrials", "survivalSeconds", "foodEarned", "kills")

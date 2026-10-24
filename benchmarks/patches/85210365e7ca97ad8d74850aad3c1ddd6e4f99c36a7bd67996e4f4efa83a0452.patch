@@ -1,0 +1,157 @@
+--- /dev/null
++++ b/benchmarks/historical/run-study-85210365e7ca.py
+@@ -0,0 +1,154 @@
++"""Run the qualified paired learning-curve study from two immutable detached checkouts."""
++from pathlib import Path
++import hashlib
++import json
++import os
++import shutil
++import signal
++import subprocess
++import sys
++import time
++
++BASE = Path(__file__).resolve().parents[2]
++WORKSPACES = BASE.parent / ".qualification-workspaces"
++NATIVE = WORKSPACES / "slither-sensors-e867"
++TRAINER = WORKSPACES / "pyrl-curves-d5fa"
++ROOT = BASE / "native/target/heldout-curve-matrix-20261021"
++JOURNAL = BASE / "native/target/heldout-curve-matrix-20261021.status.json"
++NATIVE_COMMIT = "e8673ff9dd05926f497c73fdc36de5160ed9e51d"
++TRAINER_COMMIT = "d5fa5d1c055f6fcd2bd290c252bb63e650438c53"
++SOURCE = "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d"
++STARTED = time.monotonic()
++DEADLINE = STARTED + 8 * 3600
++FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
++
++
++def need(condition, message):
++    """Keep study identity and resource checks active under any interpreter optimization."""
++    if not condition:
++        raise RuntimeError(message)
++
++
++def sha(path):
++    """Stream immutable runner or report identity."""
++    value = hashlib.sha256()
++    with path.open("rb") as stream:
++        for block in iter(lambda: stream.read(1024 * 1024), b""):
++            value.update(block)
++    return value.hexdigest()
++
++
++def journal(stage, **fields):
++    """Retain bounded task status; final artifacts, not this file alone, establish completion."""
++    value = {"schemaVersion": 1, "stage": stage, "driverPid": os.getpid(),
++             "nativeCommit": NATIVE_COMMIT, "trainerCommit": TRAINER_COMMIT,
++             "nativeSourceSha256": SOURCE, "elapsedSeconds": time.monotonic() - STARTED,
++             **fields}
++    with JOURNAL.open("w", encoding="utf-8") as stream:
++        stream.write(json.dumps(value, indent=2) + "\n")
++        stream.flush()
++        os.fsync(stream.fileno())
++
++
++def capture(arguments, cwd):
++    """Read compact trusted tool output without shell interpolation."""
++    return subprocess.check_output(arguments, cwd=cwd, text=True, creationflags=FLAGS).strip()
++
++
++def frozen():
++    """Both source trees and copied binaries must remain the qualified immutable versions."""
++    for root, revision in ((NATIVE, NATIVE_COMMIT), (TRAINER, TRAINER_COMMIT)):
++        need(capture(["git", "rev-parse", "HEAD"], root) == revision, "frozen checkout revision changed")
++        need(not capture(["git", "status", "--porcelain"], root), "frozen checkout has uncommitted changes")
++    helper = NATIVE / "server/rustEngine/nativeSourceIdentity.ts"
++    code = ("import {computeNativeSourceIdentity} from " + json.dumps(helper.as_posix())
++            + "; console.log(computeNativeSourceIdentity(" + json.dumps((NATIVE / "native").as_posix())
++            + ").sha256)")
++    identity = capture(["node", str(BASE / "node_modules/tsx/dist/cli.mjs"), "-e", code], NATIVE)
++    need(identity == SOURCE, "frozen native source identity differs")
++    for name, path in RUNNERS.items():
++        need(sha(path) == RUNNER_HASHES[name], "frozen native executable changed")
++
++
++def run(arguments, cwd, log, maximum):
++    """Wait on one owned child with a total deadline; terminate its owned process tree on timeout."""
++    remaining = DEADLINE - time.monotonic()
++    need(remaining > 0, "eight-hour study deadline")
++    with log.open("w", encoding="utf-8") as stream:
++        process = subprocess.Popen([str(value) for value in arguments], cwd=cwd,
++                                   stdout=stream, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
++                                   creationflags=FLAGS, start_new_session=os.name != "nt")
++        try:
++            code = process.wait(timeout=min(maximum, remaining))
++        except subprocess.TimeoutExpired:
++            if process.poll() is None:
++                if os.name == "nt":
++                    subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
++                                   stdout=stream, stderr=subprocess.STDOUT, check=False,
++                                   timeout=30, creationflags=FLAGS)
++                else:
++                    os.killpg(process.pid, signal.SIGKILL)
++                process.wait(timeout=30)
++            raise
++    need(code == 0, "study child failed; inspect " + log.name)
++
++
++suffix = ".exe" if os.name == "nt" else ""
++RUNNERS = {name: NATIVE / "native/target/release" / (filename + suffix) for name, filename in
++           (("canonical", "canonical-training-graph"), ("tactical", "baseline-v2-qualification"))}
++RUNNER_HASHES = {name: sha(path) for name, path in RUNNERS.items()}
++try:
++    frozen()
++    ci = json.loads(capture(["gh", "run", "view", "39590321043", "--repo", "Tits-McGruff/PyRL-trainer",
++                             "--json", "status,conclusion"], TRAINER))
++    need(ci["conclusion"] == "success", "required held-out curve checkpoint CI is not successful")
++    need(shutil.disk_usage(BASE / "native/target").free >= 6 * 1024**3,
++         "study must preserve six GiB build/evidence reserve")
++    ROOT.mkdir()
++    shutil.copyfile(__file__, ROOT / "run-study.py")
++    journal("collecting-eight-seed-native-corpus", runnerSha256=RUNNER_HASHES)
++    run([RUNNERS["tactical"], "--seed-count", "8", "--steps", "600", "--workers", "1",
++         "--cadence", "0.016666666666666666", "--output", ROOT / "teachers.json",
++         "--corpus-directory", ROOT / "corpus"], NATIVE, ROOT / "corpus-log.txt", 1800)
++    corpus = json.loads((ROOT / "corpus/corpus.json").read_bytes())
++    need(corpus["sourceSha256"] == SOURCE, "fresh corpus native source differs")
++    directories = []
++    for seed in (1, 2, 3):
++        for fold in (2, 4, 6):
++            frozen()
++            directory = ROOT / f"seed-{seed}-fold-{fold}"
++            journal("training-paired-cell", seed=seed, validationSeed=fold, completedCells=len(directories))
++            budget = min(7200, int(DEADLINE - time.monotonic()) - 60)
++            need(budget >= 60, "insufficient bounded cell time remains")
++            arguments = [sys.executable, "-B", "-m", "pyrl_trainer.tactical_ablation_gate",
++                         "--corpus", ROOT / "corpus", "--canonical-runner", RUNNERS["canonical"],
++                         "--tactical-runner", RUNNERS["tactical"], "--directory", directory,
++                         "--device", "cpu", "--cpu-threads", "2", "--updates", "2000",
++                         "--seed", seed, "--validation-seed", fold, "--batch-sequences", "32",
++                         "--sequence-length", "64", "--burn-in", "32", "--native-steps", "600",
++                         "--native-workers", "1", "--deadline-seconds", budget]
++            for update in (250, 500, 1000, 1500):
++                arguments.extend(["--validation-update", update])
++            run(arguments, TRAINER, ROOT / f"seed-{seed}-fold-{fold}.txt", budget + 30)
++            directories.append(directory)
++    frozen()
++    journal("verifying-complete-paired-matrix", completedCells=len(directories))
++    arguments = [sys.executable, "-B", "-m", "pyrl_trainer.ablation_matrix",
++                 "--updates", "2000", "--output", ROOT / "matrix.json"]
++    for directory in directories:
++        arguments.extend(["--study", directory])
++    for seed in (1, 2, 3):
++        arguments.extend(["--initialization-seed", seed])
++    for fold in (2, 4, 6):
++        arguments.extend(["--validation-seed", fold])
++    run(arguments, TRAINER, ROOT / "matrix-log.txt", 300)
++    matrix = json.loads((ROOT / "matrix.json").read_bytes())
++    need(matrix["cellCount"] == 9 and matrix["replicatedSeedFoldCoverage"], "incomplete paired matrix")
++    for variant in matrix["variants"].values():
++        need([point["update"] for point in variant["heldOutLearningCurve"]]
++             == [0, 250, 500, 1000, 1500, 2000], "incomplete held-out learning curve")
++    journal("measured", completedCells=9, matrixSha256=sha(ROOT / "matrix.json"),
++            releaseQualified=False, maturityQualified=False)
++except Exception as error:
++    journal("failed", error=type(error).__name__ + ": " + str(error)[:2000])
++    raise

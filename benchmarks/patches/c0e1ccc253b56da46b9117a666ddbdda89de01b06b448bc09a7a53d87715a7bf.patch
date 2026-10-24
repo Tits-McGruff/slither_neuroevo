@@ -1,0 +1,41 @@
+--- /dev/null
++++ b/benchmarks/historical/run-profile-c0e1ccc253b5.py
+@@ -0,0 +1,38 @@
++"""Measure the sampled query subdivision against the exact retained learned cohort."""
++from pathlib import Path
++import gzip,hashlib,json,os,shutil,subprocess,time
++checkout=Path("/srv/opt/apps/slither_neuroevo/native/target/evolved-real-clock-20261018/checkout")
++experiment=checkout/"native/target/v4-query-profile-20261022"
++paths={"sensors_v4.rs":"native/src/engine/sensors_v4.rs","sensor_qualification.rs":"native/src/engine/sensor_qualification.rs","sensor_v4_qualification.rs":"native/src/bin/sensor_v4_qualification.rs","spatial.rs":"native/src/engine/spatial.rs"}
++binary=experiment/"query-profile"
++shutil.copyfile(checkout/"native/target/release/sensor-v4-qualification",binary)
++binary.chmod(0o755)
++for name,relative in paths.items():shutil.copyfile(checkout/relative,experiment/"sources"/name)
++output=experiment/"sampled.json"
++assert not output.exists()
++command=[str(binary),"--scenario","P1","--profile","motion","--bins","16","--respawn","on","--seed","42","--workers","8","--math-backend","sse2","--minimum","1","--cap","512","--batch","131072","--baseline","v2-stochastic","--baseline-cadence","0.016666666666666666","--capture","on","--warmup","600","--steps","1800","--environment","oxygen-debian","--trained-cohort",str(checkout/"native/target/v4-phase-profile-20261022/inputs/cohort.json"),"--workspace",str(experiment/"workspace"),"--output",str(output)]
++environment=os.environ.copy();environment["SLITHER_V4_PROFILE"]="1"
++observer=None;child=None
++started=time.monotonic()
++try:
++ with (experiment/"native.log").open("x") as log:
++  child=subprocess.Popen(command,cwd=checkout,env=environment,stdout=log,stderr=subprocess.STDOUT)
++  observer=subprocess.Popen(["python3","-B",str(checkout/"scripts/qualification/system-resource-observer.py"),"--output",str(experiment/"system-resources.jsonl"),"--samples","16","--interval-seconds","30","--watch-pid",str(child.pid)],cwd=checkout,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++  code=child.wait(timeout=480)
++  assert code==0,code
++ report=json.loads(output.read_text())
++ reference=json.loads(gzip.decompress((checkout/"docs/performance/sensor-v4/sensing-profile-debian-v1/profile/1-sampled.json.gz").read_bytes()))
++ assert report["admitted"] and report["completedSteps"]==2400 and report["v4SensingProfile"]["version"]==2
++ for key in ("target","rustc","mathBackend","sensorSha256","parameterCount","continuationSha256","consumerWork","raw","normalized","trainedCohort"):
++  assert report[key]==reference[key],key
++ for key in ("sourceSampleSha256","drainedSampleSha256"):
++  assert report["capture"][key]==reference["capture"][key],key
++ profile=report["v4SensingProfile"]
++ assert profile["query"][2]==profile["samples"] and profile["samples"]>8000
++ summary={"sourceSha256":report["sourceSha256"],"binarySha256":hashlib.sha256(binary.read_bytes()).hexdigest(),"elapsedSeconds":time.monotonic()-started,"exactReferenceWork":True,"v4SensingProfile":profile}
++ (experiment/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
++ print(json.dumps(summary),flush=True)
++finally:
++ if observer is not None and observer.poll() is None:observer.terminate();observer.wait(timeout=10)
++ if child is not None and child.poll() is None:child.kill();child.wait(timeout=10)
++ for name,relative in paths.items():shutil.copyfile(experiment/"originals"/name,checkout/relative)

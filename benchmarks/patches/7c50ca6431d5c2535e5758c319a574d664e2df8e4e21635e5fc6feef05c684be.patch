@@ -1,0 +1,153 @@
+--- /dev/null
++++ b/benchmarks/historical/evaluate-final-teacher-agreement-cpu-20261023-7c50ca6431d5.py
+@@ -0,0 +1,150 @@
++"""Evaluate all fixed final-study models on native teacher rows from unseen seeds, without training."""
++from pathlib import Path
++import gzip
++import hashlib
++import json
++import os
++import statistics
++import subprocess
++import sys
++import time
++
++BASE = Path(__file__).resolve().parents[2]
++TRAINER = BASE.parent / ".qualification-workspaces/pyrl-cuda-window-9107"
++ROOT = BASE / "native/target/final-teacher-agreement-cpu-20261023"
++STUDY = BASE / "docs/performance/sensor-v4/final-native-tactics-cuda8000-windows-v1"
++FLAGS = subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS
++sys.path.insert(0, str(TRAINER))
++import torch
++from pyrl_trainer.brain_artifact import HEADER, read_raw_brain_artifact
++from pyrl_trainer.canonical_graph import CanonicalGraph
++from pyrl_trainer.tactical_ablation import evaluate_agreement
++from pyrl_trainer.tactical_corpus import load_tactical_corpus
++
++STARTED = time.monotonic()
++
++
++def need(condition, message):
++    """Keep bounded identity/partition admission active with optimized interpreters too."""
++    if not condition:
++        raise RuntimeError(message)
++
++
++def sha(value):
++    """Bind exact retained bytes, independent of JSON field ordering."""
++    return hashlib.sha256(value).hexdigest()
++
++
++def write(name, value):
++    """Publish only create-new bounded JSON originals in this task's exclusive workspace."""
++    (ROOT / name).write_text(json.dumps(value, indent=2, allow_nan=False) + "\n",
++                             encoding="utf-8")
++
++
++def source_identity():
++    """Record only imported project source files, without host process or application details."""
++    result = {}
++    for module in tuple(sys.modules.values()):
++        path = getattr(module, "__file__", None)
++        if path:
++            path = Path(path).resolve()
++            if path.is_relative_to(TRAINER) and path.suffix == ".py":
++                result[path.relative_to(TRAINER).as_posix()] = sha(path.read_bytes())
++    return dict(sorted(result.items()))
++
++
++revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=TRAINER,
++                                  text=True, creationflags=FLAGS).strip()
++need(revision == "9107b851953de90e2d6a2f3d6612973fd475084a", "frozen evaluator revision changed")
++need(not subprocess.check_output(["git", "status", "--porcelain"], cwd=TRAINER,
++                                text=True, creationflags=FLAGS).strip(), "frozen evaluator dirty")
++need((ROOT / "corpus-status.json").exists(), "complete native corpus required")
++need(not (ROOT / "agreement-summary.json").exists(), "final evaluation already exists")
++design = json.loads((ROOT / "design.json").read_text(encoding="utf-8"))
++manifest_bytes = (STUDY / "evidence.json").read_bytes().replace(b"\r\n", b"\n")
++manifest = json.loads(manifest_bytes)
++records = {r["path"]: r for r in manifest["files"]}
++
++
++def original(name):
++    """Restore only bounded exact source models and their already fixed design."""
++    record = records[name]
++    need(0 < record["bytes"] <= 2 * 1024**2, "bounded fixed-model input required")
++    encoded = (STUDY / (name + ".gz")).read_bytes()
++    need(sha(encoded) == record["gzipSha256"], "fixed-model archive changed")
++    with gzip.open(STUDY / (name + ".gz"), "rb") as stream:
++        raw = stream.read(record["bytes"] + 1)
++    need(len(raw) == record["bytes"] and sha(raw) == record["sha256"], "fixed-model original changed")
++    return raw
++
++
++selection = json.loads(original("summary.json"))["models"]
++need(len(selection) == 21 and {r["initializationSeed"] for r in selection} == {1, 2, 3},
++     "complete fixed model grid required")
++corpus_bytes = (ROOT / "corpus/corpus.json").read_bytes()
++corpus = load_tactical_corpus(ROOT / "corpus")
++need(corpus.source_sha256 == design["nativeSourceSha256"], "native corpus source changed")
++sequences = tuple(s for s in corpus.sequences if s.seed in design["evaluatedSeeds"])
++need(len(sequences) == 14 * 8 * 2 and {s.seed for s in sequences} == set(range(33, 41)),
++     "incomplete final seed/scenario/policy matrix")
++need(not {s.seed for s in sequences}.intersection(design["sourceTrainingSeeds"]),
++     "final rows overlap training seeds")
++torch.set_num_threads(2)
++torch.set_num_interop_threads(1)
++(ROOT / "agreement-models").mkdir()
++observer = subprocess.Popen(
++    [sys.executable, "-B", str(BASE / "scripts/qualification/system-resource-observer.py"),
++     "--output", str(ROOT / "agreement-aggregate-resources.jsonl"), "--samples", "241",
++     "--interval-seconds", "30", "--watch-pid", str(os.getpid())],
++    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=FLAGS)
++try:
++    ready_deadline = time.monotonic() + 30
++    while not (ROOT / "agreement-aggregate-resources.jsonl").exists() or not (ROOT / "agreement-aggregate-resources.jsonl").stat().st_size:
++        need(observer.poll() is None and time.monotonic() < ready_deadline, "aggregate observer did not start")
++        time.sleep(0.1)
++    sources = source_identity()
++    rows = []
++    for selected in selection:
++        need(time.monotonic() - STARTED < 7200, "bounded final agreement deadline")
++        artifact_data = original(selected["model"])
++        artifact, graph, _provenance = read_raw_brain_artifact(artifact_data)
++        need(artifact.sha256 == selected["modelSha256"], "fixed model identity changed")
++        model = CanonicalGraph(graph, artifact_data[HEADER.size + HEADER.unpack_from(artifact_data)[1]:], "cpu")
++        measured = evaluate_agreement(model, corpus, sequences)
++        need(sha(model.export_weights()) == artifact.weights_sha256, "evaluation changed fixed model weights")
++        need(measured["rows"] == sum(s.rows for s in sequences) and measured["sequences"] == 224,
++             "final evaluation row coverage mismatch")
++        record = {"initializationSeed": selected["initializationSeed"], "variant": selected["variant"],
++                  "modelSha256": artifact.sha256, "weightsSha256": artifact.weights_sha256,
++                  "model": selected["model"], "agreement": measured}
++        name = f"agreement-models/seed-{selected['initializationSeed']}-{selected['variant']}.json"
++        write(name, record)
++        rows.append({**record, "report": name, "reportSha256": sha((ROOT / name).read_bytes())})
++        write("agreement-status.json", {"stage": "evaluating", "models": len(rows),
++                                       "elapsedSeconds": time.monotonic() - STARTED})
++        print("Final agreement models", len(rows), "/ 21", flush=True)
++        need(source_identity() == sources, "imported evaluator source changed")
++    variants = {}
++    for variant in design.get("variants", sorted({r["variant"] for r in rows})):
++        selected = [r["agreement"] for r in rows if r["variant"] == variant]
++        variants[variant] = {metric: {"mean": statistics.mean(r[metric] for r in selected),
++                            "minimum": min(r[metric] for r in selected),
++                            "maximum": max(r[metric] for r in selected)}
++                            for metric in ("turnMse", "turnMae", "boostDisagreement", "loss")}
++    result = {"schemaVersion": 1, "kind": "final-teacher-agreement-v1", "measurementComplete": True,
++              "maturityQualified": False, "releaseQualified": False, "profileChoice": None,
++              "designSha256": sha((ROOT / "design.json").read_bytes()),
++              "corpusMetadataSha256": sha(corpus_bytes), "sourceFiles": sources,
++              "sourceStudyManifestCanonicalSha256": sha(b"slither-evidence-manifest-utf8-lf-v1\0" + manifest_bytes),
++              "device": "cpu", "cpuThreads": 2, "torch": torch.__version__,
++              "python": sys.version.split()[0], "optimizerUpdates": 0,
++              "evaluatedSeeds": list(range(33, 41)), "excludedCollectedSeeds": list(range(1, 33)),
++              "rowsPerModel": sum(s.rows for s in sequences), "sequencesPerModel": len(sequences),
++              "models": rows, "variants": variants, "scope": design["scope"]}
++    write("agreement-summary.json", result)
++    write("agreement-status.json", {"stage": "measured", "models": len(rows),
++                                   "elapsedSeconds": time.monotonic() - STARTED,
++                                   "summarySha256": sha((ROOT / "agreement-summary.json").read_bytes())})
++finally:
++    observer.terminate()
++    observer.wait(timeout=10)

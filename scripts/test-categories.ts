@@ -168,6 +168,11 @@ export const NATIVE_REQUIRED_TEST_FILES = [
 export const TEST_CATEGORIES = {
   ...PRIMARY_TEST_CATEGORIES,
   all: PRIMARY_TEST_CATEGORY_ORDER.flatMap(category => PRIMARY_TEST_CATEGORIES[category]),
+  source: PRIMARY_TEST_CATEGORY_ORDER.flatMap(category => PRIMARY_TEST_CATEGORIES[category])
+    .filter(file => !['scripts/qualification/evidence-integrity.test.ts',
+      'scripts/qualification/live-window-evidence.test.ts'].includes(file)),
+  'evidence-required': ['scripts/qualification/evidence-integrity.test.ts',
+    'scripts/qualification/live-window-evidence.test.ts'],
   'native-required': NATIVE_REQUIRED_TEST_FILES
 } as const;
 

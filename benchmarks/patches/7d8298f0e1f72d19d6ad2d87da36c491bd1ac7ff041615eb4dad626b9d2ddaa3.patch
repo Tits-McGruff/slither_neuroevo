@@ -1,0 +1,98 @@
+--- /dev/null
++++ b/benchmarks/historical/run-pressure-7d8298f0e1f7.py
+@@ -0,0 +1,95 @@
++"""Task-owned P2 fast-respawn/capture-pressure extension; waits for the named P0 soak."""
++from pathlib import Path
++import hashlib,json,os,shutil,subprocess,time
++ROOT=Path('/srv/opt/apps/slither_neuroevo/native/target/evolved-real-clock-20261018/checkout')
++OUTPUT=ROOT/'docs/performance/sensor-v4/P2-pressure-debian-v1'
++STATUS=ROOT/'native/target/P2-pressure-20261021.status.json'
++SOURCE='00c6adb838af9ddff8fa706a23f5854bff7905587bf40a730023a15ab0675689'
++PID=31679
++
++def status(stage,**fields):
++ with STATUS.open('w') as stream:
++  json.dump({'schemaVersion':1,'stage':stage,'nativeSourceSha256':SOURCE,**fields},stream,indent=2)
++  stream.flush();os.fsync(stream.fileno())
++
++def sha(path):
++ h=hashlib.sha256()
++ with path.open('rb') as stream:
++  for part in iter(lambda:stream.read(1024*1024),b''):h.update(part)
++ return h.hexdigest()
++
++try:
++ proc=Path('/proc')/str(PID)
++ if not proc.exists():raise RuntimeError('Expected P0 soak process is not live at queue admission')
++ if (proc/'cwd').resolve()!=ROOT:raise RuntimeError('Unexpected soak process workspace')
++ command=(proc/'cmdline').read_bytes()
++ if b'continuous-soak-P0-debian-20261021' not in command:raise RuntimeError('Unexpected soak process identity')
++ stamp=(proc/'stat').read_text().rsplit(')',1)[1].split()[19]
++ status('waiting-for-P0-soak',requiredPid=PID)
++ while proc.exists():
++  try:
++   if (proc/'stat').read_text().rsplit(')',1)[1].split()[19]!=stamp:break
++  except FileNotFoundError:break
++  time.sleep(10)
++ subprocess.run(['node','node_modules/tsx/dist/cli.mjs','scripts/qualification/verify-soak.ts','--report',
++   'docs/performance/sensor-v4/continuous-soak-debian-v1/P0.json','--require-six-hours'],cwd=ROOT,check=True)
++ if shutil.disk_usage(ROOT).free<3*1024**3:raise RuntimeError('P2 workload must preserve disk reserve')
++ OUTPUT.mkdir()
++ shutil.copyfile(__file__,OUTPUT/'run-pressure.py')
++ binary=ROOT/'native/target/release/sensor-v4-qualification'
++ binary_sha=sha(binary)
++ reports={};receipts=[]
++ for name,workers,drain,chunks in [('fast-w1',1,1,1024),('fast-w3',3,1,1024),('slow-w3',3,600,8)]:
++  if sha(binary)!=binary_sha:raise RuntimeError('Frozen native runner changed')
++  status('measuring-P2-case',case=name,completedCases=len(reports))
++  report=OUTPUT/(name+'.json');workspace=ROOT/'native/target'/('P2-pressure-'+name+'-workspace')
++  args=[str(binary),'--scenario','P0','--profile','motion','--bins','32','--graph','large',
++    '--respawn','on','--seed','42','--workers',str(workers),'--math-backend','sse2',
++    '--minimum','1','--cap','512','--batch','131072','--baseline','v2-stochastic',
++    '--baseline-cadence','0.016666666666666666','--teacher-respawn-delay','0.5',
++    '--capture','on','--capture-drain-steps',str(drain),'--capture-queue-chunks',str(chunks),
++    '--warmup','600','--steps','3600','--environment','oxygen-debian',
++    '--workspace',str(workspace),'--output',str(report)]
++  with (OUTPUT/(name+'.txt')).open('w') as log:
++   subprocess.run(args,cwd=ROOT,stdout=log,stderr=subprocess.STDOUT,timeout=2400,check=True)
++  if report.stat().st_size>4*1024**2:raise RuntimeError('Bounded report required')
++  value=json.loads(report.read_bytes())
++  if not (value['admitted'] and value['sourceSha256']==SOURCE and value['population']==55
++      and value['graphSize']=='large' and value['parameterCount']==494306
++      and value['sensorContract']['inputSize']==504 and value['completedSteps']==4200
++      and value['measuredSteps']==3600 and value['warmupSteps']==600
++      and value['teacherRespawnDelaySeconds']==0.5 and value['sharedBatchBudgetHeld']):
++   raise RuntimeError('Incorrect/incomplete large-graph pressure workload')
++  if workspace.exists():raise RuntimeError('Native task workspace was not reclaimed')
++  capture=value['capture']
++  if not capture['queueAccountingMatches'] or sum(capture['samplesObserved'])==0:
++   raise RuntimeError('Missing capture source/ownership evidence')
++  if name.startswith('fast'):
++   if capture['exactSamplesMatch'] is not True or capture['droppedChunks']!=0:
++    raise RuntimeError('Fast-drain capture did not remain exact')
++  elif capture['droppedChunks']==0 or capture['exactSamplesMatch'] is not None:
++   raise RuntimeError('Slow-drain pressure did not exercise honest whole-chunk loss')
++  if reports:
++   reference=reports['fast-w1']
++   for key in ['sourceSha256','target','rustc','mathBackend','sensorSha256','parameterCount',
++               'continuationSha256','consumerWork','raw','normalized']:
++    if value[key]!=reference[key]:raise RuntimeError('Worker/pressure changed authoritative '+key)
++   for key in ['sourceSampleSha256','samplesObserved','dueTeacherHistogram','productionWatermark']:
++    if capture[key]!=reference['capture'][key]:raise RuntimeError('Pressure changed source capture '+key)
++   if name=='fast-w3' and capture['drainedSampleSha256']!=reference['capture']['drainedSampleSha256']:
++    raise RuntimeError('Parallel fast capture changed exact drained rows')
++  reports[name]=value
++  receipts.append({'case':name,'report':report.name,'sha256':sha(report),
++                   'p95Ms':value['stepCost']['p95Ms'],'peakRssBytes':value['peakRssBytes'],
++                   'droppedChunks':capture['droppedChunks'],'samplesObserved':sum(capture['samplesObserved'])})
++ if sha(binary)!=binary_sha:raise RuntimeError('Native runner changed during measurements')
++ result={'schemaVersion':1,'gate':'P2-fast-respawn-capture-pressure-v1','measurementComplete':True,
++  'releaseQualified':False,'nativeSourceSha256':SOURCE,'nativeBinarySha256':binary_sha,
++  'scriptSha256':sha(Path(__file__)),'reports':receipts,'workerAndPressureContinuationExact':True,
++  'scope':'P2-style 55-individual large Motion/B32 graph, 494306 parameters, ten stochastic teachers with 0.5-second respawn; three controlled-step cases compare single/multiple workers and fast/slow capture draining. Timings retain failures. No real-clock 1x, learned-policy, trainer/shadow, full library, P3 admission change or long-soak claim.'}
++ with (OUTPUT/'summary.json').open('x') as stream:
++  json.dump(result,stream,indent=2,allow_nan=False);stream.write('\n');stream.flush();os.fsync(stream.fileno())
++ status('measured',completedCases=3,summarySha256=sha(OUTPUT/'summary.json'))
++except Exception as error:
++ status('failed',error=type(error).__name__+': '+str(error)[:2000])
++ raise

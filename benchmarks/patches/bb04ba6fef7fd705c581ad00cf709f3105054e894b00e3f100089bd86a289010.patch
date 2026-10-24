@@ -1,0 +1,93 @@
+--- /dev/null
++++ b/benchmarks/historical/generate-final-teacher-agreement-cpu-20261023-bb04ba6fef7f.py
+@@ -0,0 +1,90 @@
++"""Generate bounded native teacher rows for predeclared final-seed agreement only."""
++from pathlib import Path
++import hashlib
++import json
++import os
++import shutil
++import subprocess
++import sys
++import time
++
++BASE = Path(__file__).resolve().parents[2]
++NATIVE = BASE.parent / ".qualification-workspaces/slither-sensors-e867"
++TRAINER = BASE.parent / ".qualification-workspaces/pyrl-cuda-window-9107"
++ROOT = BASE / "native/target/final-teacher-agreement-cpu-20261023"
++RUNNER = NATIVE / "native/target/release/baseline-v2-qualification.exe"
++STARTED = time.monotonic()
++FLAGS = subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS
++
++
++def digest(path):
++    """Hash one bounded source, report or executable without shell interpretation."""
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def frozen():
++    """Preserve the original training source/build instead of relabelling current native binaries."""
++    for checkout, revision in [
++        (NATIVE, "e8673ff9dd05926f497c73fdc36de5160ed9e51d"),
++        (TRAINER, "9107b851953de90e2d6a2f3d6612973fd475084a"),
++    ]:
++        actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout,
++                                         text=True, creationflags=FLAGS).strip()
++        dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=checkout,
++                                        text=True, creationflags=FLAGS).strip()
++        if actual != revision or dirty:
++            raise RuntimeError("frozen source changed")
++    if digest(RUNNER) != "9164808d5166f7a34444a13c94cb534d697ab3843523f78a91704c2767fbc448":
++        raise RuntimeError("frozen native runner changed")
++
++
++frozen()
++if ROOT.exists() or shutil.disk_usage(BASE).free < 10 * 1024**3:
++    raise RuntimeError("exclusive workspace and preserved disk reserve required")
++ROOT.mkdir()
++design = {
++    "schemaVersion": 1, "kind": "final-teacher-agreement-design-v1",
++    "nativeCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
++    "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
++    "trainerCommit": "9107b851953de90e2d6a2f3d6612973fd475084a",
++    "runnerSha256": digest(RUNNER), "steps": 96, "workers": 1,
++    "collectedSeeds": list(range(1, 41)), "evaluatedSeeds": list(range(33, 41)),
++    "sourceTrainingSeeds": list(range(1, 9)), "initializationSeeds": [1, 2, 3],
++    "trainingFold": 2, "device": "cpu", "optimizerUpdates": 0,
++    "scope": "Frozen generator emits seeds 1..40; evaluation selects only 33..40. "
++             "No evaluation or selection uses collected seeds 1..32. "
++             "Predeclared fixed fold-2 models, all three initialization seeds and seven variants. "
++             "Maximum 96-step synthetic teacher lives; no mature ecology, throughput, "
++             "normalization/profile choice or release acceptance."
++}
++(ROOT / "design.json").write_text(json.dumps(design, indent=2) + "\n", encoding="utf-8")
++observer = subprocess.Popen(
++    [sys.executable, "-B", str(BASE / "scripts/qualification/system-resource-observer.py"),
++     "--output", str(ROOT / "aggregate-resources.jsonl"), "--samples", "121",
++     "--interval-seconds", "30", "--watch-pid", str(os.getpid())],
++    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=FLAGS)
++try:
++    ready_deadline = time.monotonic() + 30
++    while not (ROOT / "aggregate-resources.jsonl").exists() or not (ROOT / "aggregate-resources.jsonl").stat().st_size:
++        if observer.poll() is not None or time.monotonic() >= ready_deadline:
++            raise RuntimeError("aggregate observer did not start")
++        time.sleep(0.1)
++    with (ROOT / "native.log").open("x", encoding="utf-8") as log:
++        subprocess.run([str(RUNNER), "--seed-count", "40", "--steps", "96",
++                        "--workers", "1", "--cadence", "0.016666666666666666",
++                        "--corpus-directory", str(ROOT / "corpus"),
++                        "--output", str(ROOT / "teacher-report.json")],
++                       cwd=NATIVE, check=True, timeout=1800, creationflags=FLAGS,
++                       stdout=log, stderr=subprocess.STDOUT)
++    frozen()
++    report = json.loads((ROOT / "teacher-report.json").read_bytes())
++    if report["sourceSha256"] != design["nativeSourceSha256"]:
++        raise RuntimeError("native teacher source mismatch")
++    (ROOT / "corpus-status.json").write_text(json.dumps({
++        "stage": "complete", "elapsedSeconds": time.monotonic() - STARTED,
++        "teacherReportSha256": digest(ROOT / "teacher-report.json"),
++        "designSha256": digest(ROOT / "design.json")}, indent=2) + "\n", encoding="utf-8")
++    print("Final teacher corpus complete", flush=True)
++finally:
++    observer.terminate()
++    observer.wait(timeout=10)

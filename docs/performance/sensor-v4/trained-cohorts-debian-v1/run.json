@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "baseCommit": "bd007aab0755fe723a0bead7e90935ee02d273fd",
+  "nativeSourceSha256": "d49d946ca72487a3271555d58c4ecd5f3de3fb4d20271e3845c719b38c224611",
+  "candidatePatchSha256": "816b0211f4fefd6d257e01ac589c87271df50f2745e26bf4b29958e12fa620c5",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/trained-cohorts-debian-v1/evidence.json",
+    "sha256": "cb5ef68e29e89c8137315af6db5d329b68765102866e269dbc2ed06b47e95908",
+    "bytes": 3793
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

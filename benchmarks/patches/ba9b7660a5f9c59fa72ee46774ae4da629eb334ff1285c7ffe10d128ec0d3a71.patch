@@ -1,0 +1,53 @@
+--- /dev/null
++++ b/benchmarks/historical/analyze-final-label-variation-20261023-ba9b7660a5f9.py
+@@ -0,0 +1,50 @@
++"""Measure exact-observation label variation without claiming a recurrent error floor."""
++from pathlib import Path
++import json
++import struct
++
++ROOT = Path(__file__).resolve().parent / "final-teacher-agreement-cpu-20261023"
++metadata = json.loads((ROOT / "corpus/corpus.json").read_bytes())
++observations = (ROOT / "corpus/observations.f32").read_bytes()
++actions = (ROOT / "corpus/actions.f32").read_bytes()
++groups = {"all": {}, "motion-v2-deterministic": {}, "motion-v2-stochastic": {}}
++rows = 0
++for sequence in metadata["sequences"]:
++    if sequence["seed"] not in range(33, 41):
++        continue
++    for row in range(sequence["rowOffset"], sequence["rowOffset"] + sequence["rows"]):
++        key = observations[row * 1056:(row + 1) * 1056]
++        turn, boost = struct.unpack_from("<ff", actions, row * 8)
++        if len(key) != 1056 or boost not in (0.0, 1.0):
++            raise RuntimeError("complete native observation/action required")
++        for partition in ("all", sequence["policy"]):
++            totals = groups[partition].setdefault(key, [0, 0.0, 0.0, 0])
++            totals[0] += 1
++            totals[1] += turn
++            totals[2] += turn * turn
++            totals[3] += int(boost)
++        rows += 1
++
++result = {}
++for name, cells in groups.items():
++    repeated = [values for values in cells.values() if values[0] > 1]
++    repeated_rows = sum(values[0] for values in repeated)
++    result[name] = {
++        "rows": sum(values[0] for values in cells.values()), "distinctObservations": len(cells),
++        "repeatedGroups": len(repeated), "repeatedRows": repeated_rows,
++        "maximumMultiplicity": max(values[0] for values in cells.values()),
++        "turnVarianceOverRepeatedRows": (sum(max(0.0, sq - total * total / count)
++                                           for count, total, sq, _boost in repeated) / repeated_rows
++                                         if repeated_rows else None),
++        "boostMinorityRateOverRepeatedRows": (sum(min(boost, count - boost)
++                                                 for count, _total, _sq, boost in repeated) / repeated_rows
++                                               if repeated_rows else None)}
++value = {"schemaVersion": 1, "kind": "exact-observation-label-variation-v1",
++         "evaluatedSeeds": list(range(33, 41)), "rows": rows, "groups": result,
++         "scope": "Exact IEEE Float32 observation bytes; no approximate grouping or binning. "
++                  "Singleton observations are excluded from variation estimates. "
++                  "Identical observations may conceal different recurrent histories and strategy state. "
++                  "These descriptive estimates do not bound a recurrent student's attainable error."}
++with (ROOT / "conditional-label-variation.json").open("x", encoding="utf-8") as stream:
++    stream.write(json.dumps(value, indent=2, allow_nan=False) + "\n")
++print(json.dumps(value, indent=2))

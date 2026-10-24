@@ -1,0 +1,1132 @@
+{
+  "profile-width-wall-windows-v1": {
+    "during": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-24T05:06:42.545117+00:00",
+        "platform": "Windows",
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "utilization.gpu [%]": "3 %",
+              "utilization.memory [%]": "6 %",
+              "memory.used [MiB]": "2690 MiB",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "24.74 W",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "host": {
+          "available": true,
+          "cpuPercent": 0,
+          "totalMemoryKiB": 67019172,
+          "freeMemoryKiB": 32581872
+        },
+        "processDetailsIncluded": false,
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 2.7189999999827705,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "available": true,
+              "cpuTicks": [
+                3445684,
+                1093,
+                656964,
+                282122326,
+                8431,
+                0,
+                12473,
+                0,
+                0,
+                0
+              ],
+              "loadAverage": [
+                0.03,
+                0.01,
+                0.0
+              ],
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32155624,
+                "MemAvailable": 32056072,
+                "Buffers": 2584,
+                "Cached": 155584
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "after": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-24T05:17:11.252920+00:00",
+        "platform": "Windows",
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "utilization.gpu [%]": "14 %",
+              "utilization.memory [%]": "9 %",
+              "memory.used [MiB]": "2911 MiB",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.51 W",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "host": {
+          "available": true,
+          "cpuPercent": 33,
+          "totalMemoryKiB": 67019172,
+          "freeMemoryKiB": 31522420
+        },
+        "processDetailsIncluded": false,
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 1.9839999999967404,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "available": true,
+              "cpuTicks": [
+                3446304,
+                1093,
+                657934,
+                283124695,
+                8967,
+                0,
+                12499,
+                0,
+                0,
+                0
+              ],
+              "loadAverage": [
+                0.15,
+                0.03,
+                0.01
+              ],
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 31320712,
+                "MemAvailable": 32048052,
+                "Buffers": 5804,
+                "Cached": 978268
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "profile-width-wall-debian-v1": {
+    "during": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-24T05:22:35.396142+00:00",
+        "platform": "Linux",
+        "gpu": {
+          "available": false,
+          "error": "counter unavailable"
+        },
+        "host": {
+          "available": true,
+          "cpuTicks": [
+            296681,
+            90498,
+            11368,
+            35730107,
+            3835,
+            0,
+            2323,
+            115277,
+            0,
+            0
+          ],
+          "loadAverage": [
+            0.27,
+            0.69,
+            0.42
+          ],
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 13019316,
+            "MemAvailable": 15844628,
+            "Buffers": 72244,
+            "Cached": 2967100
+          }
+        },
+        "processDetailsIncluded": false,
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.006290833996899892,
+        "sample": 0,
+        "observerSourceSha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac"
+      }
+    ],
+    "after": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-24T05:29:46.062727+00:00",
+        "platform": "Linux",
+        "gpu": {
+          "available": false,
+          "error": "counter unavailable"
+        },
+        "host": {
+          "available": true,
+          "cpuTicks": [
+            372620,
+            90498,
+            14068,
+            35984490,
+            3890,
+            0,
+            6153,
+            139717,
+            0,
+            0
+          ],
+          "loadAverage": [
+            4.04,
+            2.2,
+            1.17
+          ],
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 13035312,
+            "MemAvailable": 15880172,
+            "Buffers": 74572,
+            "Cached": 2984900
+          }
+        },
+        "processDetailsIncluded": false,
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.004889962998277042,
+        "sample": 0,
+        "observerSourceSha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac"
+      }
+    ]
+  },
+  "windows": {
+    "before-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:44:50.014656+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 2.187999999994645,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 6,
+          "freeMemoryKiB": 32394244
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2103 MiB",
+              "utilization.gpu [%]": "5 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.30 W",
+              "utilization.memory [%]": "6 %",
+              "temperature.gpu": "30"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441124,
+                1005,
+                637625,
+                251252151,
+                6860,
+                0,
+                12080,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32154252,
+                "MemAvailable": 32053976,
+                "Buffers": 2532,
+                "Cached": 155724
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "P0-after-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:46:44.822515+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.9370000000053551,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 5,
+          "freeMemoryKiB": 32435256
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2106 MiB",
+              "utilization.gpu [%]": "4 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "27.28 W",
+              "utilization.memory [%]": "4 %",
+              "temperature.gpu": "30"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441150,
+                1005,
+                637741,
+                251433681,
+                6863,
+                0,
+                12082,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32160628,
+                "MemAvailable": 32060456,
+                "Buffers": 2580,
+                "Cached": 155732
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "P0-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:46:22.457581+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 1.0310000000172295,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 24,
+          "freeMemoryKiB": 32409888
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2103 MiB",
+              "utilization.gpu [%]": "6 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.45 W",
+              "utilization.memory [%]": "7 %",
+              "temperature.gpu": "30"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441145,
+                1005,
+                637718,
+                251398062,
+                6863,
+                0,
+                12081,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32162756,
+                "MemAvailable": 32062564,
+                "Buffers": 2572,
+                "Cached": 155724
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "P1-after-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:46:17.237267+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 1.0,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 2,
+          "freeMemoryKiB": 32432948
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2105 MiB",
+              "utilization.gpu [%]": "4 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "28.05 W",
+              "utilization.memory [%]": "5 %",
+              "temperature.gpu": "30"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441142,
+                1005,
+                637712,
+                251389661,
+                6862,
+                0,
+                12081,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32161452,
+                "MemAvailable": 32061252,
+                "Buffers": 2564,
+                "Cached": 155732
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "P1-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:44:52.317766+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 1.0310000000172295,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 27,
+          "freeMemoryKiB": 32307332
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2094 MiB",
+              "utilization.gpu [%]": "5 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.15 W",
+              "utilization.memory [%]": "6 %",
+              "temperature.gpu": "30"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441126,
+                1005,
+                637628,
+                251254004,
+                6860,
+                0,
+                12081,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32152752,
+                "MemAvailable": 32052484,
+                "Buffers": 2532,
+                "Cached": 155724
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "debian": {
+    "before-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:48:17.602847+00:00",
+        "platform": "Linux",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.008843373998388415,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "cpuTicks": [
+            135306,
+            90498,
+            7173,
+            19860048,
+            2767,
+            0,
+            1116,
+            58644,
+            0,
+            0
+          ],
+          "available": true,
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 14081460,
+            "MemAvailable": 15899056,
+            "Buffers": 61332,
+            "Cached": 1984860
+          },
+          "loadAverage": [
+            0.05,
+            0.46,
+            0.37
+          ]
+        },
+        "gpu": {
+          "error": "FileNotFoundError",
+          "available": false
+        }
+      }
+    ],
+    "P0-after-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:52:42.122850+00:00",
+        "platform": "Linux",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.005789683000330115,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "cpuTicks": [
+            187857,
+            90498,
+            8144,
+            20016254,
+            2818,
+            0,
+            1971,
+            63303,
+            0,
+            0
+          ],
+          "available": true,
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 14056008,
+            "MemAvailable": 15875800,
+            "Buffers": 61728,
+            "Cached": 1986568
+          },
+          "loadAverage": [
+            1.08,
+            1.21,
+            0.75
+          ]
+        },
+        "gpu": {
+          "error": "FileNotFoundError",
+          "available": false
+        }
+      }
+    ],
+    "P0-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:51:47.752280+00:00",
+        "platform": "Linux",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.005869556000106968,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "cpuTicks": [
+            179218,
+            90498,
+            7734,
+            19982039,
+            2803,
+            0,
+            1725,
+            62003,
+            0,
+            0
+          ],
+          "available": true,
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 14069176,
+            "MemAvailable": 15887976,
+            "Buffers": 61580,
+            "Cached": 1985756
+          },
+          "loadAverage": [
+            1.85,
+            1.35,
+            0.76
+          ]
+        },
+        "gpu": {
+          "error": "FileNotFoundError",
+          "available": false
+        }
+      }
+    ],
+    "P1-after-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:51:29.618562+00:00",
+        "platform": "Linux",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.006031671000528149,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "cpuTicks": [
+            179205,
+            90498,
+            7730,
+            19967557,
+            2802,
+            0,
+            1725,
+            61964,
+            0,
+            0
+          ],
+          "available": true,
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 14061332,
+            "MemAvailable": 15880116,
+            "Buffers": 61568,
+            "Cached": 1985752
+          },
+          "loadAverage": [
+            2.19,
+            1.38,
+            0.76
+          ]
+        },
+        "gpu": {
+          "error": "FileNotFoundError",
+          "available": false
+        }
+      }
+    ],
+    "P1-resources.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:48:17.668433+00:00",
+        "platform": "Linux",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.005354901000828249,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "cpuTicks": [
+            135315,
+            90498,
+            7175,
+            19860089,
+            2767,
+            0,
+            1116,
+            58645,
+            0,
+            0
+          ],
+          "available": true,
+          "memoryKiB": {
+            "MemTotal": 16382176,
+            "MemFree": 14067940,
+            "MemAvailable": 15885536,
+            "Buffers": 61332,
+            "Cached": 1984860
+          },
+          "loadAverage": [
+            0.05,
+            0.46,
+            0.37
+          ]
+        },
+        "gpu": {
+          "error": "FileNotFoundError",
+          "available": false
+        }
+      }
+    ]
+  },
+  "micro": {
+    "micro-before.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:25:35.255311+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 2.125,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 4,
+          "freeMemoryKiB": 31517144
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2102 MiB",
+              "utilization.gpu [%]": "6 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "27.50 W",
+              "utilization.memory [%]": "9 %",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441014,
+                1005,
+                636596,
+                249405886,
+                6845,
+                0,
+                12073,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32154696,
+                "MemAvailable": 32054156,
+                "Buffers": 2256,
+                "Cached": 155504
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "micro-after.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:25:40.763680+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.889999999984866,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 8,
+          "freeMemoryKiB": 31513156
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2099 MiB",
+              "utilization.gpu [%]": "2 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.61 W",
+              "utilization.memory [%]": "8 %",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441016,
+                1005,
+                636604,
+                249412728,
+                6845,
+                0,
+                12074,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32153192,
+                "MemAvailable": 32052776,
+                "Buffers": 2256,
+                "Cached": 155708
+              },
+              "loadAverage": [
+                0.08,
+                0.02,
+                0.01
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "buffered-before.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:30:40.251723+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 1.312999999994645,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 4,
+          "freeMemoryKiB": 32429512
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2099 MiB",
+              "utilization.gpu [%]": "2 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.32 W",
+              "utilization.memory [%]": "4 %",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441044,
+                1005,
+                636870,
+                249892181,
+                6851,
+                0,
+                12075,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32150072,
+                "MemAvailable": 32049716,
+                "Buffers": 2360,
+                "Cached": 155708
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "buffered-after.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:30:43.607752+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.9220000000204891,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 14,
+          "freeMemoryKiB": 32415676
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2098 MiB",
+              "utilization.gpu [%]": "4 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.84 W",
+              "utilization.memory [%]": "7 %",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441045,
+                1005,
+                636874,
+                249896935,
+                6851,
+                0,
+                12075,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32148584,
+                "MemAvailable": 32048236,
+                "Buffers": 2360,
+                "Cached": 155708
+              },
+              "loadAverage": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "packed-before.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:34:19.938954+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 1.375,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 8,
+          "freeMemoryKiB": 32318236
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2099 MiB",
+              "utilization.gpu [%]": "4 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.00 W",
+              "utilization.memory [%]": "5 %",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441065,
+                1005,
+                637066,
+                250243522,
+                6854,
+                0,
+                12078,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32154848,
+                "MemAvailable": 32054500,
+                "Buffers": 2416,
+                "Cached": 155728
+              },
+              "loadAverage": [
+                0.01,
+                0.01,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "packed-after.jsonl": [
+      {
+        "schemaVersion": 1,
+        "utc": "2026-10-23T23:34:23.331943+00:00",
+        "platform": "Windows",
+        "attribution": "GPU totals include all workloads; per-process ownership is not inferred from aggregate counters.",
+        "collectionSeconds": 0.9679999999934807,
+        "sample": 0,
+        "observerSourceSha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+        "processDetailsIncluded": false,
+        "host": {
+          "available": true,
+          "totalMemoryKiB": 67019172,
+          "cpuPercent": 7,
+          "freeMemoryKiB": 32307272
+        },
+        "gpu": {
+          "available": true,
+          "rows": [
+            {
+              "memory.used [MiB]": "2099 MiB",
+              "utilization.gpu [%]": "2 %",
+              "memory.total [MiB]": "16376 MiB",
+              "power.draw [W]": "26.94 W",
+              "utilization.memory [%]": "12 %",
+              "temperature.gpu": "29"
+            }
+          ]
+        },
+        "wsl": {
+          "available": true,
+          "distributions": [
+            {
+              "cpuTicks": [
+                3441066,
+                1005,
+                637071,
+                250248293,
+                6854,
+                0,
+                12078,
+                0,
+                0,
+                0
+              ],
+              "available": true,
+              "memoryKiB": {
+                "MemTotal": 32821428,
+                "MemFree": 32153324,
+                "MemAvailable": 32053012,
+                "Buffers": 2416,
+                "Cached": 155736
+              },
+              "loadAverage": [
+                0.01,
+                0.01,
+                0.0
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

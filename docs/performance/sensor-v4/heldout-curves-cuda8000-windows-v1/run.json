@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "kind": "replicated-ablation-evidence-v1",
+  "status": "measured",
+  "slitherImplementationCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
+  "pyrlCommit": "9107b851953de90e2d6a2f3d6612973fd475084a",
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "matrixSha256": "2885a875e1a9c3476c14a01a3f8bedd06d15722d6cadb92dab3d96ea55e3bebd",
+  "scope": "Nine paired seed/fold cells, seven variants, 8000 compiled CUDA updates each; exact native corpus, opaque initial/end models, held-out curves, native gameplay and 256-delivery parity receipts. Shared-host study; no idle-host timing, maturity, independent final-seed, sensor-default or release qualification.",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/heldout-curves-cuda8000-windows-v1/evidence.json",
+    "sha256": "74fed163137e0482e511104320d2c1b3b98420b800c8b55d53b78171252d74c5",
+    "bytes": 342984
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

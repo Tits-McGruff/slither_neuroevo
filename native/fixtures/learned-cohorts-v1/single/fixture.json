@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "purpose": {
+    "test": "sensorWorkload.native.test.ts and trained-sensor-cohorts.py",
+    "origin": "docs/performance/sensor-v4/tactical-ablation-windows-v1",
+    "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+    "description": "Only learned brains needed for full/core-only single-policy and three-family worker-continuation contracts."
+  },
+  "files": {
+    "full-1.slither-brain": {
+      "bytes": 118579,
+      "sha256": "d19a7f2df7a4c2edccfe3c0f214f1936a483332b273d53b70089b64cccaffe52"
+    },
+    "core-only-1.slither-brain": {
+      "bytes": 84393,
+      "sha256": "1662565dc03fbcd233c1df81d10de48880658e2cf7f2edf183f50c0d91a81a78"
+    }
+  }
+}

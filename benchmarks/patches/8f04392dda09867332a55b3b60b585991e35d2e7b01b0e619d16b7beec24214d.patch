@@ -1,0 +1,415 @@
+--- /dev/null
++++ b/benchmarks/historical/benchmark-summary-8f04392dda09.rs
+@@ -0,0 +1,412 @@
++//! Paired production-summary copies on synthetic large populations; not full-runtime qualification.
++#![allow(dead_code)]
++use std::hint::black_box;
++use std::time::Instant;
++#[path="simd_kernels.rs"] mod simd_kernels;
++const SPECIES_DISTANCE_THRESHOLD:f64=0.35;
++const SPECIES_DISTANCE_SCAN_BLOCK:usize=256;
++const SPECIES_DISTANCE_PROBE_MIN_WEIGHTS:usize=4096;
++const SPECIES_NORM_MAX_WEIGHTS:usize=1<<30;
++const SPECIES_NORM_ROUNDING_GUARD:f64=1.0001;
++#[derive(Debug)]
++enum EvolutionError { PopulationShape{reason:&'static str}, ArithmeticOverflow{context:&'static str}, NonFinite{context:&'static str,slot:usize} }
++struct PopulationGenome<'a>{weights:&'a[f32]}
++#[derive(Debug,PartialEq)]
++struct GenerationSummary {generation:u64,best:f64,average:f64,minimum:f64,species_count:u64,top_species_size:u64,average_weight:f64,weight_variance:f64}
++fn reserve_vec<T>(capacity:usize,_context:&str)->Result<Vec<T>,EvolutionError>{
++ let mut v=Vec::new();v.try_reserve_exact(capacity).unwrap();Ok(v)
++}
++// Ordinary standalone calls have no active job; omit the runtime diagnostic observer hook.
++fn advance_work_progress(_bytes:usize){}
++struct SpeciesRepresentative {
++    /// Source population index, preserving the original representative order.
++    slot: usize,
++    /// Number of genomes assigned to this representative.
++    size: u64,
++    /// Ordered sum of squared weights used only for conservative acceptance.
++    squared_norm: f64,
++}
++
++fn calculate_summary(
++    population: &[PopulationGenome],
++    sorted_slots: &[usize],
++    fitness: &[f64],
++    generation: u64,
++) -> Result<GenerationSummary, EvolutionError> {
++    let first = sorted_slots[0];
++    let last = sorted_slots[sorted_slots.len() - 1];
++    let average =
++        sorted_slots.iter().map(|slot| fitness[*slot]).sum::<f64>() / fitness.len() as f64;
++    let mut representatives: Vec<SpeciesRepresentative> =
++        reserve_vec(sorted_slots.len(), "species representatives")?;
++    let mut sum_absolute = 0.0_f64;
++    let mut sum_absolute_squared = 0.0_f64;
++    let mut weight_count = 0usize;
++    for &slot in sorted_slots {
++        // Count once per owned span; the floating sums retain their original order.
++        weight_count = weight_count
++            .checked_add(population[slot].weights.len())
++            .ok_or(EvolutionError::ArithmeticOverflow {
++                context: "network statistic weight count",
++            })?;
++        let mut squared_norm = 0.0_f64;
++        for &weight in population[slot].weights.iter() {
++            let absolute = f64::from(weight).abs();
++            let squared = absolute * absolute;
++            sum_absolute += absolute;
++            sum_absolute_squared += squared;
++            squared_norm += squared;
++        }
++        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
++        let mut assigned = false;
++        for representative in &mut representatives {
++            let other: &PopulationGenome = &population[representative.slot];
++            if species_norms_prove_close(
++                population[slot].weights.len(),
++                other.weights.len(),
++                squared_norm,
++                representative.squared_norm,
++            ) || genomes_share_species(&population[slot], other)?
++            {
++                representative.size += 1;
++                assigned = true;
++                break;
++            }
++        }
++        if !assigned {
++            representatives.push(SpeciesRepresentative {
++                slot,
++                size: 1,
++                squared_norm,
++            });
++        }
++        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
++    }
++    let (average_weight, weight_variance) = if weight_count == 0 {
++        (0.0, 0.0)
++    } else {
++        let average_weight = sum_absolute / weight_count as f64;
++        (
++            average_weight,
++            (sum_absolute_squared / weight_count as f64 - average_weight * average_weight).max(0.0),
++        )
++    };
++    let summary = GenerationSummary {
++        generation,
++        best: fitness[first],
++        average,
++        minimum: fitness[last],
++        species_count: representatives.len() as u64,
++        top_species_size: representatives
++            .iter()
++            .map(|species| species.size)
++            .max()
++            .unwrap_or(0),
++        average_weight,
++        weight_variance,
++    };
++    if [
++        summary.best,
++        summary.average,
++        summary.minimum,
++        summary.average_weight,
++        summary.weight_variance,
++    ]
++    .iter()
++    .any(|value| !value.is_finite())
++    {
++        return Err(EvolutionError::NonFinite {
++            context: "generation summary",
++            slot: first,
++        });
++    }
++    Ok(summary)
++}
++
++fn species_norms_prove_close(
++    left_count: usize,
++    right_count: usize,
++    left_squared_norm: f64,
++    right_squared_norm: f64,
++) -> bool {
++    if left_count == 0
++        || left_count != right_count
++        || left_count > SPECIES_NORM_MAX_WEIGHTS
++        || !left_squared_norm.is_finite()
++        || !right_squared_norm.is_finite()
++        || left_squared_norm < 0.0
++        || right_squared_norm < 0.0
++    {
++        return false;
++    }
++    let upper_rms =
++        (left_squared_norm.sqrt() + right_squared_norm.sqrt()) / (left_count as f64).sqrt();
++    upper_rms * SPECIES_NORM_ROUNDING_GUARD < SPECIES_DISTANCE_THRESHOLD
++}
++
++fn species_probe_proves_far(left: &[f32], right: &[f32], prefix: f64, far_limit: f64) -> bool {
++    if !(SPECIES_DISTANCE_PROBE_MIN_WEIGHTS..=SPECIES_NORM_MAX_WEIGHTS).contains(&left.len())
++        || prefix
++            <= SPECIES_DISTANCE_THRESHOLD
++                * SPECIES_DISTANCE_THRESHOLD
++                * SPECIES_DISTANCE_SCAN_BLOCK as f64
++                * SPECIES_NORM_ROUNDING_GUARD
++    {
++        return false;
++    }
++    let budget = ((2.0 * far_limit * SPECIES_DISTANCE_SCAN_BLOCK as f64 / prefix).ceil() as usize)
++        .min(left.len())
++        .saturating_sub(SPECIES_DISTANCE_SCAN_BLOCK);
++    let end = SPECIES_DISTANCE_SCAN_BLOCK + budget;
++    let mut sum = prefix;
++    for (a, b) in left[SPECIES_DISTANCE_SCAN_BLOCK..end]
++        .chunks(SPECIES_DISTANCE_SCAN_BLOCK)
++        .zip(right[SPECIES_DISTANCE_SCAN_BLOCK..end].chunks(SPECIES_DISTANCE_SCAN_BLOCK))
++    {
++        let block_sum = crate::simd_kernels::squared_distance_f64_sse2(a, b);
++        sum += block_sum;
++        if sum > far_limit * SPECIES_NORM_ROUNDING_GUARD {
++            return true;
++        }
++        if block_sum
++            < SPECIES_DISTANCE_THRESHOLD
++                * SPECIES_DISTANCE_THRESHOLD
++                * a.len() as f64
++                * SPECIES_NORM_ROUNDING_GUARD
++        {
++            break;
++        }
++    }
++    false
++}
++
++fn genomes_share_species(
++    left: &PopulationGenome,
++    right: &PopulationGenome,
++) -> Result<bool, EvolutionError> {
++    if left.weights.len() != right.weights.len() {
++        return Err(EvolutionError::PopulationShape {
++            reason: "species genomes have incompatible weights",
++        });
++    }
++    if left.weights.is_empty() {
++        // TypeScript computes `Math.sqrt(0 / 0)`, yielding NaN; its `<=`
++        // threshold comparison is then false, so every draw-free genome forms
++        // its own diagnostic species without invalidating evolution.
++        return Ok(false);
++    }
++    // Squared differences are nonnegative. Reject distant genomes early, but
++    // leave a generous guard above the threshold so close comparisons still
++    // take the original complete sum and sqrt path in the same weight order.
++    let far_limit = SPECIES_DISTANCE_THRESHOLD
++        * SPECIES_DISTANCE_THRESHOLD
++        * left.weights.len() as f64
++        * 1.000_001;
++    let mut sum_squared = 0.0_f64;
++    for (block_index, (left_block, right_block)) in left
++        .weights
++        .chunks(SPECIES_DISTANCE_SCAN_BLOCK)
++        .zip(right.weights.chunks(SPECIES_DISTANCE_SCAN_BLOCK))
++        .enumerate()
++    {
++        for (&left_weight, &right_weight) in left_block.iter().zip(right_block) {
++            let difference = f64::from(left_weight) - f64::from(right_weight);
++            sum_squared += difference * difference;
++        }
++        // Later nonnegative terms cannot undo a far rejection. Close decisions
++        // still use every original addition and the original final sqrt.
++        if sum_squared > far_limit
++            || (block_index == 0
++                && species_probe_proves_far(&left.weights, &right.weights, sum_squared, far_limit))
++        {
++            return Ok(false);
++        }
++    }
++    Ok((sum_squared / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD)
++}
++
++fn genomes_share_species_reference(
++    left: &PopulationGenome,
++    right: &PopulationGenome,
++) -> Result<bool, EvolutionError> {
++    if left.weights.len() != right.weights.len() {
++        return Err(EvolutionError::PopulationShape {
++            reason: "species genomes have incompatible weights",
++        });
++    }
++    if left.weights.is_empty() {
++        // TypeScript computes `Math.sqrt(0 / 0)`, yielding NaN; its `<=`
++        // threshold comparison is then false, so every draw-free genome forms
++        // its own diagnostic species without invalidating evolution.
++        return Ok(false);
++    }
++    // Squared differences are nonnegative. Reject distant genomes early, but
++    // leave a generous guard above the threshold so close comparisons still
++    // take the original complete sum and sqrt path in the same weight order.
++    let far_limit = SPECIES_DISTANCE_THRESHOLD
++        * SPECIES_DISTANCE_THRESHOLD
++        * left.weights.len() as f64
++        * 1.000_001;
++    let mut sum_squared = 0.0_f64;
++    for (left_block, right_block) in left
++        .weights
++        .chunks(SPECIES_DISTANCE_SCAN_BLOCK)
++        .zip(right.weights.chunks(SPECIES_DISTANCE_SCAN_BLOCK))
++    {
++        for (&left_weight, &right_weight) in left_block.iter().zip(right_block) {
++            let difference = f64::from(left_weight) - f64::from(right_weight);
++            sum_squared += difference * difference;
++        }
++        // Later nonnegative terms cannot undo a far rejection. Close decisions
++        // still use every original addition and the original final sqrt.
++        if sum_squared > far_limit {
++            return Ok(false);
++        }
++    }
++    Ok((sum_squared / left.weights.len() as f64).sqrt() <= SPECIES_DISTANCE_THRESHOLD)
++}
++
++fn calculate_summary_reference(
++    population: &[PopulationGenome],
++    sorted_slots: &[usize],
++    fitness: &[f64],
++    generation: u64,
++) -> Result<GenerationSummary, EvolutionError> {
++    let first = sorted_slots[0];
++    let last = sorted_slots[sorted_slots.len() - 1];
++    let average =
++        sorted_slots.iter().map(|slot| fitness[*slot]).sum::<f64>() / fitness.len() as f64;
++    let mut representatives: Vec<SpeciesRepresentative> =
++        reserve_vec(sorted_slots.len(), "species representatives")?;
++    let mut sum_absolute = 0.0_f64;
++    let mut sum_absolute_squared = 0.0_f64;
++    let mut weight_count = 0usize;
++    for &slot in sorted_slots {
++        // Count once per owned span; the floating sums retain their original order.
++        weight_count = weight_count
++            .checked_add(population[slot].weights.len())
++            .ok_or(EvolutionError::ArithmeticOverflow {
++                context: "network statistic weight count",
++            })?;
++        let mut squared_norm = 0.0_f64;
++        for &weight in population[slot].weights.iter() {
++            let absolute = f64::from(weight).abs();
++            let squared = absolute * absolute;
++            sum_absolute += absolute;
++            sum_absolute_squared += squared;
++            squared_norm += squared;
++        }
++        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
++        let mut assigned = false;
++        for representative in &mut representatives {
++            let other: &PopulationGenome = &population[representative.slot];
++            if species_norms_prove_close(
++                population[slot].weights.len(),
++                other.weights.len(),
++                squared_norm,
++                representative.squared_norm,
++            ) || genomes_share_species_reference(&population[slot], other)?
++            {
++                representative.size += 1;
++                assigned = true;
++                break;
++            }
++        }
++        if !assigned {
++            representatives.push(SpeciesRepresentative {
++                slot,
++                size: 1,
++                squared_norm,
++            });
++        }
++        advance_work_progress(population[slot].weights.len() * std::mem::size_of::<f32>());
++    }
++    let (average_weight, weight_variance) = if weight_count == 0 {
++        (0.0, 0.0)
++    } else {
++        let average_weight = sum_absolute / weight_count as f64;
++        (
++            average_weight,
++            (sum_absolute_squared / weight_count as f64 - average_weight * average_weight).max(0.0),
++        )
++    };
++    let summary = GenerationSummary {
++        generation,
++        best: fitness[first],
++        average,
++        minimum: fitness[last],
++        species_count: representatives.len() as u64,
++        top_species_size: representatives
++            .iter()
++            .map(|species| species.size)
++            .max()
++            .unwrap_or(0),
++        average_weight,
++        weight_variance,
++    };
++    if [
++        summary.best,
++        summary.average,
++        summary.minimum,
++        summary.average_weight,
++        summary.weight_variance,
++    ]
++    .iter()
++    .any(|value| !value.is_finite())
++    {
++        return Err(EvolutionError::NonFinite {
++            context: "generation summary",
++            slot: first,
++        });
++    }
++    Ok(summary)
++}
++
++
++fn values(count:usize,seed:u64)->Vec<f32>{
++ let mut state=seed;
++ (0..count).map(|_|{state^=state<<13;state^=state>>7;state^=state<<17;
++ ((state>>40)as f32/16_777_216.0-0.5)*1.1}).collect()
++}
++fn equal(a:&GenerationSummary,b:&GenerationSummary){
++ assert_eq!(a,b);
++ for (x,y) in [(a.best,b.best),(a.average,b.average),(a.minimum,b.minimum),
++               (a.average_weight,b.average_weight),(a.weight_variance,b.weight_variance)] {
++  assert_eq!(x.to_bits(),y.to_bits());
++ }
++}
++fn main(){
++ println!("{{\"kind\":\"paired-production-summary-copy-v1\",\"parametersPerGenome\":494306,\"records\":[");
++ let mut sep="";
++ for count in [55usize,300]{
++  for clustered in [false,true]{
++   let weights:Vec<Vec<f32>>=(0..count).map(|slot|{
++    let seed=if clustered{slot/10+1}else{slot+1};
++    let mut weights=values(494306,seed as u64);
++    if clustered {for v in weights.iter_mut().step_by(31){*v+=(slot%10)as f32*0.001;}}
++    weights
++   }).collect();
++   let population:Vec<_>=weights.iter().map(|w|PopulationGenome{weights:w}).collect();
++   let sorted:Vec<_>=(0..count).rev().collect();
++   let fitness:Vec<_>=(0..count).map(|x|x as f64).collect();
++   let expected=calculate_summary_reference(&population,&sorted,&fitness,1).unwrap();
++   equal(&expected,&calculate_summary(&population,&sorted,&fitness,1).unwrap());
++   for pass in 0..4 {
++    let old_first=matches!(pass%4,0|3);
++    let timed=|old:bool|{
++     let start=Instant::now();
++     let summary=if old{calculate_summary_reference(black_box(&population),black_box(&sorted),black_box(&fitness),1)}
++                  else{calculate_summary(black_box(&population),black_box(&sorted),black_box(&fitness),1)}.unwrap();
++     let seconds=start.elapsed().as_secs_f64();
++     equal(&expected,&summary);black_box(summary);seconds
++    };
++    let (old,new)=if old_first{(timed(true),timed(false))}
++                  else{let new=timed(false);(timed(true),new)};
++    print!("{sep}{{\"population\":{count},\"clustered\":{clustered},\"pass\":{pass},\"oldFirst\":{old_first},\"originalSeconds\":{old},\"candidateSeconds\":{new},\"speciesCount\":{},\"topSpeciesSize\":{},\"averageWeightBits\":\"{:016x}\",\"weightVarianceBits\":\"{:016x}\"}}",
++           expected.species_count,expected.top_species_size,expected.average_weight.to_bits(),expected.weight_variance.to_bits());
++    sep=",\n";
++   }
++  }
++ }
++ println!("]}}");
++}

@@ -1,0 +1,55 @@
+--- /dev/null
++++ b/benchmarks/historical/run-comparisons-a4d7628b0c5c.py
+@@ -0,0 +1,52 @@
++"""Run synthetic native comparisons with aggregate-only resource context."""
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++
++def main():
++    """Bracket both supported population sizes; never manage unrelated workloads."""
++    root=Path(sys.argv[1]).resolve()
++    python=sys.executable
++    if os.name=="nt":
++        repo=Path.cwd()
++        observer=repo/"scripts/qualification/system-resource-observer.py"
++        driver=repo/"scripts/qualification/compare-sensor-workloads.py"
++        baseline=root/"baseline.exe"
++        candidate=root/"candidate.exe"
++        shutil.copyfile(repo/"native/target/release/sensor-v4-qualification.exe",candidate)
++    else:
++        observer=root/"system-resource-observer.py"
++        driver=root/"compare-sensor-workloads.py"
++        baseline=root/"baseline"
++        candidate=root/"candidate"
++    flags=subprocess.CREATE_NO_WINDOW if os.name=="nt" else 0
++    def snapshot(name):
++        """Write only default aggregate counters, without detailed process collection."""
++        subprocess.run([python,"-B",str(observer),"--output",str(root/name),"--samples","1"],
++                       check=True,creationflags=flags)
++    snapshot("before-resources.jsonl")
++    observer_process=None
++    for scenario in ["P1","P0"]:
++        process=subprocess.Popen([python,"-B",str(driver),
++            "--baseline",str(baseline),"--candidate",str(candidate),
++            "--baseline-source","6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
++            "--directory",str(root/scenario),"--scenario",scenario,"--workers","4",
++            "--ray-cap","256","--ray-batch","65536","--warmup","600","--steps","1200",
++            "--environment","development" if os.name=="nt" else "oxygen-debian"],creationflags=flags)
++        # Separate bounded observers follow only this exact owned comparison child.
++        observer_process=subprocess.Popen([python,"-B",str(observer),
++            "--output",str(root/(scenario+"-resources.jsonl")),"--interval-seconds","30",
++            "--samples","120","--watch-pid",str(process.pid)],creationflags=flags)
++        try:
++            code=process.wait()
++            snapshot(scenario+"-after-resources.jsonl")
++            if code:
++                raise RuntimeError("native comparison failed")
++        finally:
++            observer_process.wait(timeout=60)
++    print("owned native comparisons and observers complete",flush=True)
++
++if __name__=="__main__":
++    main()

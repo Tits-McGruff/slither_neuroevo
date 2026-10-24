@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-published-observation-quality-v1",
+  "slitherCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+  "nativeSourceSha256": "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
+  "performanceQualified": false,
+  "rayQualityQualified": false,
+  "queryQualityQualified": false,
+  "maturityQualified": false,
+  "fullCapacitySoakQualified": false,
+  "resourceProjection": "Explicit scalar/kernel-counter allowlist; GPU model names are omitted. WSL entries contain only anonymous CPU/load/memory counters, with no distribution identities or process inventories.",
+  "scope": "Windows P1/300 seeded random modest policies, ten stochastic v2 teachers, real scheduler and durable capture. Explicit ray cap 256/batch 65536. Observation prefixes and timing histograms have independent monotonic brackets. Four aggregate Windows/running-WSL/GPU samples bracket this shared-host probe. External controllers, mature policies, trainer/shadows and integrated capacity are excluded.",
+  "rayReuseExperiment": {
+    "adopted": false,
+    "baselineSourceSha256": "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
+    "candidateSourceSha256": "cb8e41caefaef947dae65c3b36efeb3ee52da0aa423845f2dc1dc040548ba4f7",
+    "reason": "Exact continuation, consumer work, raw/normalized histograms and capture match; adjacent ABBA native mean changes by 0.17% and p95 is slightly higher. No meaningful whole-workload improvement is established, so the candidate is reverted.",
+    "scope": "Same Windows P1 random cohort, 600 warmup plus 1200 measured steps per process, four workers, cap 256/batch 65536, actual stochastic teachers and capture. Aggregate-only resource snapshots bracket the ABBA comparison; this is not a real-clock, maturity or production-default gate."
+  },
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/live-observation-quality-windows-v1/evidence.json",
+    "sha256": "46d6b015b82971e5cfe9014325941ca19341134f68affe3418f4328364eeac0e",
+    "bytes": 5953
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

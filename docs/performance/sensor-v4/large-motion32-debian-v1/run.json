@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-evidence-reference-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "logicalPrefix": "docs/performance/sensor-v4/large-motion32-debian-v1/",
+    "files": 7,
+    "bytes": 108170
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json",
+  "qualificationPolicy": "Historical claims require verified release-asset restoration and their maintained audit. This reference confers no additional qualification.",
+  "recordedIdentity": {
+    "native-summary.json": {
+      "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+      "sourceCanonicalLfSha256": {
+        "qualify-large-workload.py": "e98c28d8434dd198be93f2b96512052795e522b2df8a3f599bc72ecd35279317",
+        "qualify-ray-hierarchy.py": "08fba2327152ec6c73b51aa51169518be6857882445ae682906b04772849178d"
+      },
+      "environment": "oxygen-debian",
+      "scope": "Seeded 55-snake large Motion/B32 graph and ten ordinary-delay v2 teachers; actual controlled steps, capture and exact one/multiple-worker continuation. The 300-snake case qualifies existing early rejection only. No larger native checkpoint envelope, trained-policy distribution, 1x wall scheduler, Node/HTTP, trainer/shadow coexistence or integrated soak is qualified."
+    },
+    "summary.json": {
+      "nativeSummaryCanonicalLfSha256": "536155f2dd37f69dbc19c9f520d320850427ee4fc3bf2cae6c1ba3ec5962919f"
+    }
+  }
+}

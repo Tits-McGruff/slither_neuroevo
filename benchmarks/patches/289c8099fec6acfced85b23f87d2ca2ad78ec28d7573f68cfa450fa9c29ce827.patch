@@ -1,0 +1,47 @@
+--- /dev/null
++++ b/benchmarks/historical/accuracy-289c8099fec6.py
+@@ -0,0 +1,44 @@
++"""Compare scoped Float32 CPU chunk compensation with a Float64 oracle."""
++import argparse,hashlib,json,sys
++from pathlib import Path
++parser=argparse.ArgumentParser()
++parser.add_argument("--pyrl-root",type=Path,required=True)
++parser.add_argument("--output",type=Path,required=True)
++args=parser.parse_args()
++sys.path.insert(0,str(args.pyrl_root.resolve()))
++from pyrl_trainer.distillation_process import configure_cli_priority
++priority=configure_cli_priority()
++import torch
++torch.set_num_threads(2)
++
++from pyrl_trainer.canonical_graph import _affine_dot
++
++def stable(left,right):
++ return _affine_dot(left,right.T)
++
++records=[]
++for seed in range(4):
++ generator=torch.Generator().manual_seed(seed)
++ for width in [32,51,127,128,129,147,216,248,256,264,504,512]:
++  for rows in [2,32,96,256]:
++   for batch in [1,32]:
++    x=torch.rand(batch,width,generator=generator)*2-1
++    w=torch.rand(width,rows,generator=generator)*2-1
++    oracle=x.double()@w.double()
++    a=x@w;b=stable(x,w)
++    denom=(x.double().abs()@w.double().abs()).clamp_min(1)
++    records.append({"seed":seed,"width":width,"rows":rows,"batch":batch,
++      "directMaxAbs":(a.double()-oracle).abs().max().item(),
++      "compensatedMaxAbs":(b.double()-oracle).abs().max().item(),
++      "directRelativeSumAbs":((a.double()-oracle).abs()/denom).max().item(),
++      "compensatedRelativeSumAbs":((b.double()-oracle).abs()/denom).max().item()})
++result={"prototype":False,"block":16,"torchVersion":torch.__version__,"processPriority":priority,
++        "driverSha256":hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
++        "canonicalGraphSha256":hashlib.sha256((args.pyrl_root/"pyrl_trainer/canonical_graph.py").read_bytes()).hexdigest(),"records":records}
++args.output.write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
++print(json.dumps({"cases":len(records),
++ "directWorstAbsolute":max(x["directMaxAbs"] for x in records),
++ "compensatedWorstAbsolute":max(x["compensatedMaxAbs"] for x in records),
++ "directWorstScaled":max(x["directRelativeSumAbs"] for x in records),
++ "compensatedWorstScaled":max(x["compensatedRelativeSumAbs"] for x in records),
++ "compensatedLowerSquaredAggregate":sum(x["compensatedMaxAbs"]**2 for x in records)<sum(x["directMaxAbs"]**2 for x in records)}))

@@ -1,0 +1,51 @@
+--- /dev/null
++++ b/benchmarks/historical/probe-compensated-matmul-2206c2c732e2.py
+@@ -0,0 +1,48 @@
++"""Probe compensated Float32 CPU matrix sums on fixed exports; no source-package edits."""
++from pathlib import Path
++import sys,json
++root=Path(__file__).resolve().parent
++sys.path.insert(0,str(root.parents[2]/'native/target/live-replay-occupancy-20261023/pyrl'))
++from pyrl_trainer.distillation_process import configure_cli_priority
++configure_cli_priority()
++import torch
++from pyrl_trainer.canonical_graph import CanonicalGraphManifest,CanonicalGraph
++from pyrl_trainer.canonical_parity import _floats,_sequence
++torch.set_num_threads(2)
++original=torch.Tensor.__matmul__
++reports=[]
++for block in [16,32,64,128,0]:
++ def multiply(left,right):
++  if left.shape[-1]<128:return original(left,right)
++  if block==0:return original(left.double(),right.double()).float()
++  total=torch.zeros(left.shape[0],right.shape[-1],dtype=left.dtype,device=left.device)
++  correction=torch.zeros_like(total)
++  for i in range(0,left.shape[-1],block):
++   part=original(left[...,i:i+block],right[i:i+block])
++   updated=total+part
++   correction=correction+torch.where(total.abs()>=part.abs(),(total-updated)+part,(part-updated)+total)
++   total=updated
++  return total+correction
++ torch.Tensor.__matmul__=multiply
++ records=[]
++ try:
++  for kind in ['gru','lstm','rru']:
++   case=root/'roundtrip-corrected-debian'/('large-'+kind);trained=root/'roundtrip-debian-all'/('cpu-'+kind)
++   manifest=CanonicalGraphManifest.read(trained/'rust-scalar-v1/manifest.json')
++   model=CanonicalGraph(manifest,(trained/'trained.f32').read_bytes(),'cpu')
++   observations=_floats(case/'observations.f32',manifest.input_size,'cpu')
++   initial=_floats(case/'initial-state.f32',manifest.total_state_size,'cpu')
++   actual,states=_sequence(model,observations,initial)
++   for backend in ['rust-scalar-v1','rust-sse2-v1']:
++    expected=_floats(trained/backend/'outputs.f32',2,'cpu')
++    expected_states=_floats(trained/backend/'states.f32',manifest.total_state_size,'cpu')
++    checks={}
++    for name,x,y in [('output',actual,expected),('state',states,expected_states)]:
++     checks[name]={'firstFailures':int(((x[0]-y[0]).abs()>1e-5+1e-4*y[0].abs()).sum()),
++                   'longFailures':int(((x-y).abs()>1e-3+1e-3*y.abs()).sum()),
++                   'firstMaxAbs':(x[0]-y[0]).abs().max().item(),'longMaxAbs':(x-y).abs().max().item()}
++    records.append({'case':kind,'backend':backend,'checks':checks})
++ finally:torch.Tensor.__matmul__=original
++ reports.append({'block':block,'records':records})
++ print(json.dumps({'block':block,'failures':[x for x in records if any(c['firstFailures'] or c['longFailures'] for c in x['checks'].values())]}),flush=True)
++(root/'compensated-cpu-matmul-probes.json').write_text(json.dumps(reports,indent=2)+'\n')

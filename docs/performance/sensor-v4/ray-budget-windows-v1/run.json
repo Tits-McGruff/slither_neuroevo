@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-evidence-reference-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "logicalPrefix": "docs/performance/sensor-v4/ray-budget-windows-v1/",
+    "files": 8,
+    "bytes": 116678
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json",
+  "qualificationPolicy": "Historical claims require verified release-asset restoration and their maintained audit. This reference confers no additional qualification.",
+  "recordedIdentity": {
+    "staging-w10.json": {
+      "status": "rejected",
+      "scope": "Actual standalone native CLI loop-handoff rejection. No completed-step, sensing, capture or wall-clock qualification is claimed. The existing 512-MiB staging ceiling is preserved.",
+      "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+      "nativeExecutableSha256": "282f1baba3b8c6edeb758112a61c464c9181358304efce8e9a5f768c0eabd50a"
+    },
+    "summary.json": {
+      "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+      "scope": "Windows P1 Motion/B16 random-population candidate at cap 512/batch 131072. Exact controlled-step seven/eight-worker continuation and real background clock/spool measurements. Both wall windows sustain 1x but fail the unchanged p99 timing gate. No production defaults, staging/checkpoint ceilings, representative policies, ablation or integrated soak are qualified."
+    }
+  }
+}

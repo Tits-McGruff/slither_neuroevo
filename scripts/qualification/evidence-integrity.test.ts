@@ -3,7 +3,7 @@ import { summarizeSensorWall, type SensorWallRead } from './sensorWallSummary.ts
 import type { DistillationDataset } from '../../src/protocol/distillation.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolveEvidence as resolve } from './historicalEvidence.ts';
 import { gunzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 

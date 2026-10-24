@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "compensated-scalar-native-roundtrip-v1",
+  "nativeSourceSha256": "7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156",
+  "previousSourceSha256": "b066380f41085a83f8aed9445a26475f569c78d72aedcde238a1580aed2f3925",
+  "legacySourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "sourcesFrom": "../native-large-costs-debian-v1",
+  "performanceFrom": "../native-dot-performance-v1",
+  "cpuRoundtrips": 18,
+  "cudaRoundtrips": 18,
+  "roundtripQualified": false,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "scope": "Strict method-v1 optimizer/export/native-admission/reimport parity passes 18 Windows CPU and 18 CUDA cases with unchanged tolerances. Debian standard 12 pass; large LSTM first-state parity fails one value for each native backend, while 256-step bounds and the other extended families pass. The rejected CPU chunk-sum prototype does not resolve actual optimizer roundtrip parity. Two earlier frozen Windows scalar failures reproduce bit-identically on earlier native source and are corrected by Float32 compensated sums. Synthetic numeric fixtures establish no cross-platform gate, maturity, gameplay quality, idle-host or integrated capacity acceptance.",
+  "windowsCpuRoundtripQualified": true,
+  "windowsCudaRoundtripQualified": true,
+  "debianCpuRoundtripQualified": false,
+  "debianStandardRoundtrips": 12,
+  "debianExtendedRoundtrips": 6,
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/native-dot-numerics-v1/evidence.json",
+    "sha256": "b02a281b93a3f2f79515dd2b13fb3c5caa0f1fb14be48e6b5c2cb5ac29dc8cfd",
+    "bytes": 14712
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

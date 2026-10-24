@@ -15,34 +15,9 @@ scripts/stage7/private-filesystem-failures.sh text eol=lf
 play.sh text eol=lf
 scripts/test/launcher-build-cache.sh text eol=lf
 
-# Retain the original bytes hashed by these qualification comparisons.
-docs/performance/sensor-v4/packet-bounds-windows-v1/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
-docs/performance/sensor-v4/ray-split-bins16-windows-v1/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
-docs/performance/sensor-v4/pellet-cell-rank-windows-v1/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
-docs/performance/sensor-v4/pellet-counting-windows-v1/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
-# Unified patch context includes a literal space on otherwise blank lines.
-docs/performance/sensor-v4/*/candidate.patch text eol=lf -whitespace
-
-# Checksummed retention patches preserve unified-diff context and LF bytes.
-docs/performance/distillation/*.patch text eol=lf -whitespace
-
-# Preserve exact measured comparison driver bytes on both targets.
-docs/performance/sensor-v4/head-pair-bound-*/comparison.py -text whitespace=trailing-space,space-before-tab,cr-at-eol
-
-# The learned-cohort receipts bind this immutable study inventory by exact bytes.
-docs/performance/sensor-v4/tactical-ablation-windows-v1/evidence.json text eol=lf
-
-# Capacity receipts hash their exact compact JSON across both target checkouts.
-docs/performance/sensor-v4/checkpoint-capacity-*/*.json text eol=lf
-
-# Repeated handoff receipts retain their checksummed JSON bytes.
-docs/performance/sensor-v4/checkpoint-handoffs-*/*.json text eol=lf
-
-# Shared population-admission receipts retain checksummed cross-platform JSON.
-docs/performance/sensor-v4/population-admission-*/*.json text eol=lf
-
-# Full-catalog/inspector receipts retain their exact checksummed bytes.
-docs/performance/sensor-v4/library-inspector-*/*.json text eol=lf
-
-# Concurrent trainer reports retain their exact manifest across Git checkouts.
-docs/performance/sensor-v4/trainer-contention-v1/*.json text eol=lf
+# Deliberate golden fixtures and reviewable reconstruction patches have stable bytes.
+scripts/qualification/fixtures/**/*.json text eol=lf
+native/fixtures/learned-cohorts-v1/**/*.json text eol=lf
+native/fixtures/learned-cohorts-v1/**/*.slither-brain binary
+docs/performance/**/*.json text eol=lf
+benchmarks/patches/*.patch text eol=lf -whitespace

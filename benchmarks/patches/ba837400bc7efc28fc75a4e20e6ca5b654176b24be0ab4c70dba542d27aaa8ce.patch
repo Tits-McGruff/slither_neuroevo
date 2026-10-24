@@ -1,0 +1,149 @@
+--- /dev/null
++++ b/benchmarks/historical/driver-ba837400bc7e.py
+@@ -0,0 +1,146 @@
++"""Evaluate a predeclared common training fold on disjoint final native gameplay seeds."""
++import gzip
++import hashlib
++import json
++import os
++from pathlib import Path
++import statistics
++import subprocess
++import sys
++import time
++
++BASE = Path(__file__).resolve().parents[2]
++EVIDENCE = BASE / "docs/performance/sensor-v4/heldout-curves-cuda8000-windows-v1"
++NATIVE = BASE.parent / ".qualification-workspaces/slither-sensors-e867"
++ROOT = BASE / "native/target/final-heldout-tactics-cuda8000-20261023"
++JOURNAL = BASE / "native/target/final-heldout-tactics-cuda8000-20261023.status.json"
++RUNNER = NATIVE / "native/target/release/baseline-v2-qualification.exe"
++FLAGS = subprocess.CREATE_NO_WINDOW
++PRIORITY = subprocess.BELOW_NORMAL_PRIORITY_CLASS
++START = time.monotonic()
++
++
++def need(condition, message):
++    """Keep source, artifact and work admission active with optimized interpreters too."""
++    if not condition:
++        raise RuntimeError(message)
++
++
++def sha(path):
++    """Stream immutable model/report/executable identities with bounded memory."""
++    value = hashlib.sha256()
++    with path.open("rb") as source:
++        for data in iter(lambda: source.read(1024 * 1024), b""):
++            value.update(data)
++    return value.hexdigest()
++
++
++def journal(stage, **fields):
++    """Retain only this driver's local progress, separate from measured final artifacts."""
++    JOURNAL.write_text(json.dumps({"stage": stage, "driverPid": os.getpid(),
++        "elapsedSeconds": time.monotonic() - START, **fields}, indent=2) + "\n", encoding="utf-8")
++
++
++manifest = json.loads((EVIDENCE / "evidence.json").read_text(encoding="utf-8"))
++records = {r["path"]: r for r in manifest["files"]}
++
++
++def original(name):
++    """Restore only exact bounded originals from the completed study."""
++    record = records[name]
++    need(type(record["bytes"]) is int and 0 < record["bytes"] <= 2 * 1024**2, "bounded study input")
++    need(record["archive"] == "objects/" + record["sha256"] + ".gz", "content-addressed input")
++    path = EVIDENCE / record["archive"]
++    need(sha(path) == record["gzipSha256"], "study compressed input changed")
++    with gzip.open(path, "rb") as source:
++        data = source.read(record["bytes"] + 1)
++    need(len(data) == record["bytes"] and hashlib.sha256(data).hexdigest() == record["sha256"],
++         "study original input changed")
++    return data
++
++
++matrix = json.loads(original("matrix.json"))
++corpus = json.loads(original("corpus/corpus.json"))
++need(matrix["measurementComplete"] and matrix["cellCount"] == 9 and matrix["updatesPerVariant"] == 8000,
++     "completed source study required")
++training_seeds = sorted({row["seed"] for row in corpus["sequences"]})
++final_seeds = list(range(33, 41))
++need(not set(training_seeds).intersection(final_seeds), "final seeds overlap source corpus")
++need(not ROOT.exists(), "exclusive final study workspace required")
++ROOT.mkdir()
++(ROOT / "models").mkdir()
++(ROOT / "reports").mkdir()
++design = {"schemaVersion": 1, "kind": "final-native-gameplay-design-v1",
++    "sourceMatrixSha256": manifest["matrixSha256"], "sourceNativeCommit": manifest["slitherImplementationCommit"],
++    "sourceNativeSha256": manifest["nativeSourceSha256"], "sourceCorpusSeeds": training_seeds,
++    "trainingFold": 2, "initializationSeeds": [1, 2, 3], "variants": list(matrix["variants"]),
++    "finalSeeds": final_seeds, "steps": 600, "workers": 1,
++    "runnerSha256": matrix["runnerSha256"]["tactical"], "modelSelection": "fixed common fold; no model selection from final results",
++    "scope": "Disjoint final-seed synthetic native gameplay only. No final teacher-agreement, maturity, sensing-cost, real-time, representative ecology or profile/release qualification."}
++(ROOT / "design.json").write_text(json.dumps(design, indent=2) + "\n", encoding="utf-8")
++
++
++def frozen():
++    """Refuse source or binary drift before and after every actual native evaluation."""
++    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=NATIVE, text=True,
++                                      creationflags=FLAGS).strip()
++    dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=NATIVE, text=True,
++                                   creationflags=FLAGS).strip()
++    need(revision == design["sourceNativeCommit"] and not dirty, "frozen native checkout changed")
++    need(sha(RUNNER) == design["runnerSha256"], "frozen native runner changed")
++
++
++try:
++    frozen()
++    rows = []
++    reference = None
++    for seed in design["initializationSeeds"]:
++        for variant in design["variants"]:
++            need(time.monotonic() - START < 7200, "bounded overall final-evaluation deadline")
++            frozen()
++            relative = f"seed-{seed}-fold-2/{variant}/trained.slither-brain"
++            model = ROOT / "models" / f"seed-{seed}-{variant}.slither-brain"
++            model.write_bytes(original(relative))
++            output = ROOT / "reports" / f"seed-{seed}-{variant}.json"
++            journal("evaluating-final-seeds", completed=len(rows), seed=seed, variant=variant)
++            with (ROOT / "native-log.txt").open("a", encoding="utf-8") as log:
++                subprocess.run([str(RUNNER), "--student-artifact", str(model),
++                    "--seed-start", "33", "--seed-count", "8", "--steps", "600", "--workers", "1",
++                    "--cadence", "0.016666666666666666", "--output", str(output)],
++                    cwd=NATIVE, check=True, timeout=600, creationflags=FLAGS | PRIORITY,
++                    stdout=log, stderr=subprocess.STDOUT)
++            frozen()
++            report = json.loads(output.read_bytes())
++            need(report["sourceSha256"] == design["sourceNativeSha256"]
++                 and report["firstSeed"] == 33 and report["seedCount"] == 8
++                 and report["candidate"]["artifactSha256"] == sha(model), "native final report input mismatch")
++            trials = report["trials"]
++            need({t["seed"] for t in trials} == set(final_seeds)
++                 and len(trials) == 14 * 8
++                 and all(t["observations"] > 0 and t["sharedBatchBudgetHeld"] for t in trials),
++                 "incomplete final native trials")
++            if reference is None:
++                reference = report["referenceV1"]
++            need(report["referenceV1"] == reference, "paired physical reference changed")
++            rows.append({"initializationSeed": seed, "variant": variant,
++                "model": model.relative_to(ROOT).as_posix(), "modelSha256": sha(model),
++                "report": output.relative_to(ROOT).as_posix(), "reportSha256": sha(output),
++                "survivingTrials": sum(t["alive"] for t in trials),
++                "survivalSeconds": sum(t["aliveSeconds"] for t in trials),
++                "foodEarned": sum(t["foodEarned"] for t in trials),
++                "kills": sum(t["kills"] for t in trials)})
++    variants = {}
++    for variant in design["variants"]:
++        selected = [r for r in rows if r["variant"] == variant]
++        variants[variant] = {name: {"mean": statistics.mean(r[name] for r in selected),
++            "minimum": min(r[name] for r in selected), "maximum": max(r[name] for r in selected)}
++            for name in ("survivingTrials", "survivalSeconds", "foodEarned", "kills")}
++    summary = {"schemaVersion": 1, "kind": "final-native-gameplay-v1", "measurementComplete": True,
++        "releaseQualified": False, "maturityQualified": False, "profileChoice": None,
++        "designSha256": sha(ROOT / "design.json"), "models": rows, "variants": variants,
++        "scope": design["scope"]}
++    (ROOT / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
++    journal("measured", models=len(rows), summarySha256=sha(ROOT / "summary.json"))
++except Exception as error:
++    journal("failed", error=type(error).__name__ + ": " + str(error)[:2000])
++    raise

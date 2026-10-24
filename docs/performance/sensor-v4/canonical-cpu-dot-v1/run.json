@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "kind": "canonical-cpu-compensated-dot-v1",
+  "nativeSourceSha256": "7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156",
+  "slitherCommit": "101014d994bf7175c102ecc18cde56e1a531322b",
+  "sourcesFrom": "../native-dot-numerics-v1",
+  "roundtripQualified": true,
+  "performanceQualified": false,
+  "fullCapacitySoakQualified": false,
+  "cpuPartialWidth": 16,
+  "minimumCpuWidth": 32,
+  "scope": "Float32 compensated CPU matrix partials resolve the retained Debian large-LSTM first-state gap on the identical frozen export and on fresh actual optimizer/native-admission/exact-reimport gates. Standard and --include-large fixture generation covers 18 cases on Windows CPU, Debian CPU and CUDA. Separate 384-case per-platform Float64-oracle comparisons assess general dot accuracy; forward/gradient tests cover strided views. Direct CUDA math and trained exports are unchanged. This establishes no CPU-throughput, gameplay maturity, integrated capacity, idle-host or cross-build exact-trajectory claim.",
+  "trainerSourceSha256": "1f678a850aeead4810b399fbe0f142b77fce88c478c3b20a494af18ad2ff3f4e",
+  "pyrlCommit": "b7f7508d57f12e496b83ee8af120b23ef620a6a1",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/canonical-cpu-dot-v1/evidence.json",
+    "sha256": "c2a39c9efedf4303476c397224ab9391e3d0f05f6d4bb615ffe521d04fb42095",
+    "bytes": 6489
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

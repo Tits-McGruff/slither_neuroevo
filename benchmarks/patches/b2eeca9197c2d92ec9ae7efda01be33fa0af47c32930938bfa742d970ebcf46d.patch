@@ -1,0 +1,99 @@
+--- /dev/null
++++ b/benchmarks/historical/driver-b2eeca9197c2.py
+@@ -0,0 +1,96 @@
++"""Bounded current-build CPU/CUDA roundtrips with aggregate Windows/WSL/GPU context."""
++import argparse,hashlib,json,os,shutil,struct,subprocess,sys,time
++from pathlib import Path
++p=argparse.ArgumentParser()
++p.add_argument('--pyrl-root',type=Path,required=True)
++p.add_argument('--runner',type=Path,required=True)
++p.add_argument('--directory',type=Path,required=True)
++p.add_argument('--observer',type=Path,required=True)
++args=p.parse_args()
++sys.path.insert(0,str(args.pyrl_root))
++from pyrl_trainer.distillation_process import configure_cli_priority
++priority=configure_cli_priority()
++import torch
++from pyrl_trainer.canonical_parity import run_gate,_case
++from pyrl_trainer.canonical_graph import CanonicalGraphManifest
++import runpy
++torch.set_num_threads(2)
++torch.backends.cuda.matmul.allow_tf32=False
++torch.backends.cudnn.allow_tf32=False
++root=args.directory.resolve()
++root.mkdir()
++assert shutil.disk_usage(root).free>8*1024**3
++expected='7ae9e5293fbad1b7cc232c9e40bfc9033b117fe4bc4468896af9b69b5f52b156'
++probe=root/'probe';probe.mkdir()
++(probe/'observations.f32').write_bytes(bytes(51*4))
++request={'schemaVersion':1,'graphSpec':{'type':'graph','nodes':[
++ {'id':'input','type':'Input','outputSize':51},{'id':'head','type':'Dense','inputSize':51,'outputSize':2}],
++ 'edges':[{'from':'input','to':'head'}],'outputs':[{'nodeId':'head'}],'outputSize':2},
++ 'sensorProfile':'v3','bins':8,'controlIntervalSeconds':0.03,'lifeStateRule':'preserve',
++ 'mathBackend':'rust-scalar-v1','initializationSeed':42,'observationsPath':'observations.f32'}
++(probe/'request.json').write_text(json.dumps(request),encoding='utf-8')
++deadline=time.monotonic()+1800
++while True:
++ out=probe/'output'
++ try:
++  if out.exists(): shutil.rmtree(out)
++  result=subprocess.run([str(args.runner),str(probe/'request.json'),str(out)],capture_output=True,timeout=30)
++  if result.returncode==0 and json.loads((out/'receipt.json').read_text())['sourceSha256']==expected: break
++ except (OSError,subprocess.TimeoutExpired): pass
++ if time.monotonic()>deadline: raise SystemExit('matching canonical graph runner was not ready')
++ time.sleep(10)
++observer=subprocess.Popen([sys.executable,'-B',str(args.observer),'--output',str(root/'aggregate-resources.jsonl'),
++                          '--interval-seconds','30','--samples','30','--watch-pid',str(os.getpid())],
++                          stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++started=time.monotonic()
++try:
++ generation=runpy.run_path(str(args.pyrl_root/'scripts/generate_canonical_graph_fixtures.py'))
++ fixtures=root/'fixtures'
++ generation['generate'](args.runner,fixtures)
++ extras=[]
++ for kind in ['GRU','LSTM','RRU']:
++  case=root/('large-'+kind.lower());case.mkdir()
++  graph={'type':'graph','nodes':[{'id':'input','type':'Input','outputSize':504},
++    {'id':'features','type':'MLP','inputSize':504,'hiddenSizes':[256,256,256,256],'outputSize':256},
++    {'id':'memory','type':kind,'inputSize':256,'hiddenSize':96},
++    {'id':'output','type':'Dense','inputSize':96,'outputSize':2}],
++    'edges':[{'from':'input','to':'features'},{'from':'features','to':'memory'},{'from':'memory','to':'output'}],
++    'outputs':[{'nodeId':'output'}],'outputSize':2}
++  values=[(((i*1664525+1013904223)&65535)/32767.5-1) for i in range(256*504)]
++  (case/'observations.f32').write_bytes(struct.pack('<'+str(len(values))+'f',*values))
++  q={'schemaVersion':1,'graphSpec':graph,'sensorProfile':'motion','bins':32,
++     'controlIntervalSeconds':1/60,'lifeStateRule':'preserve','mathBackend':'rust-scalar-v1',
++     'initializationSeed':42,'observationsPath':'observations.f32'}
++  (case/'request-zero.json').write_text(json.dumps(q),encoding='utf-8')
++  subprocess.run([str(args.runner),str(case/'request-zero.json'),str(case/'zero')],check=True,capture_output=True,timeout=60)
++  manifest=CanonicalGraphManifest.read(case/'zero/manifest.json')
++  initial=[((i%17)-8)/64 for i in range(manifest.total_state_size)]
++  (case/'initial-state.f32').write_bytes(struct.pack('<'+str(len(initial))+'f',*initial))
++  q['initialStatePath']='initial-state.f32'
++  (case/'request-nonzero.json').write_text(json.dumps(q),encoding='utf-8')
++  subprocess.run([str(args.runner),str(case/'request-nonzero.json'),str(case/'nonzero')],check=True,capture_output=True,timeout=60)
++  extras.append((case,kind))
++ for device in ['cpu','cuda']:
++  if device=='cuda':
++   assert torch.cuda.is_available(),'CUDA qualification requires the configured CUDA runtime'
++   available,total=torch.cuda.mem_get_info()
++   assert available>=4608*1024**2,'CUDA free-memory admission failed'
++   torch.cuda.set_per_process_memory_fraction(4096*1024**2/total)
++   torch.cuda.reset_peak_memory_stats()
++  report=run_gate(args.runner,fixtures,device)
++  for case,kind in extras: report['cases'].extend(_case(args.runner,case,'large-'+kind.lower(),device))
++  assert len(report['cases'])==18
++  assert all(x['nativeSourceSha256']==expected for x in report['cases'])
++  report.update({'cpuThreads':2,'processPriority':priority,'scope':'One actual optimizer update and exact flat-weight roundtrip for each supported graph family, including large Motion/B32 GRU/LSTM/RRU; 256-delivery output/state parity. Synthetic numeric qualification only.',
++                 'driverSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()})
++  if device=='cuda': report.update({'deviceMemoryBudgetMiB':4096,'peakReservedDeviceBytes':torch.cuda.max_memory_reserved(),'peakAllocatedDeviceBytes':torch.cuda.max_memory_allocated()})
++  (root/(device+'-roundtrip.json')).write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
++  print(json.dumps({'device':device,'roundtrips':len(report['cases']),
++                    'maxOutputError':max(x['outputErrorGrowth'][-1]['maxAbs'] for x in report['cases']),
++                    'maxStateError':max(x['stateErrorGrowth'][-1]['maxAbs'] for x in report['cases'])}),flush=True)
++finally:
++ observer.terminate()
++ try:observer.wait(timeout=10)
++ except subprocess.TimeoutExpired:observer.kill();observer.wait()
++ (root/'status.json').write_text(json.dumps({'elapsedSeconds':time.monotonic()-started,
++      'cpuComplete':(root/'cpu-roundtrip.json').exists(),'cudaComplete':(root/'cuda-roundtrip.json').exists()})+'\n',encoding='utf-8')

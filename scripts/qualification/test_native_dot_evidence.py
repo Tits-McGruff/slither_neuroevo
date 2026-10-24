@@ -8,13 +8,14 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+from historical_evidence import required_root
 import re
 import statistics
 import struct
 import sys
 import unittest
 
-BASE = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4"
+BASE = required_root() / "docs/performance/sensor-v4"
 
 
 def sha(data):

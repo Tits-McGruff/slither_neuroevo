@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "purpose": {
+    "test": "test_resource_counter_export.py",
+    "description": "One actual guarded aggregate row per workload/platform; complete sequence and sample-count assertions remain required external evidence checks."
+  },
+  "files": {
+    "counters.json": {
+      "bytes": 31593,
+      "sha256": "5b240d037bee57e1ec86b9d283cb7f7b0b37a503c7708df5601d5ba285e53ee7"
+    }
+  }
+}

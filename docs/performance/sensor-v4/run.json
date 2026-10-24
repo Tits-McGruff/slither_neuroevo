@@ -1,0 +1,302 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-evidence-reference-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "logicalPrefix": "docs/performance/sensor-v4/",
+    "files": 50,
+    "bytes": 5159978
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json",
+  "qualificationPolicy": "Historical claims require verified release-asset restoration and their maintained audit. This reference confers no additional qualification.",
+  "recordedIdentity": {
+    "oxygen-p0-motion-16-modest-v2-deterministic-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "413c96cf4b6c10ac86be75df1688dd32d12e64ea75e7e3795005b89e1b2b0820"
+    },
+    "oxygen-p0-motion-16.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "96e6cb25beeb3f49f78d093072fd640ce44f2026c9880482e443fbc1aad0eb24"
+    },
+    "oxygen-p1-basic-16-modest-v2-deterministic-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "475728b3d20d87ef66a5bc39b5309bf7f1f6f6132f7cea955092235bd9e703b0",
+      "continuationSha256": "bc86f81c8a6dfacb16613300992041f2f512a0bc9de7bda29d342df7b066f465"
+    },
+    "oxygen-p1-basic-16.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "475728b3d20d87ef66a5bc39b5309bf7f1f6f6132f7cea955092235bd9e703b0",
+      "continuationSha256": "7eb68a6f4578dfd86a99e1ea4ab0c6bdc05ae8475a64114e5e4b85b69adfc386"
+    },
+    "oxygen-p1-motion-16-modest-v1-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "70ad55479ca58235693be03bddd055cf3ab490a360f46792b644755ce87de82a"
+    },
+    "oxygen-p1-motion-16-modest-v2-deterministic-60hz-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "cc8c6a9cfdcfef7231c67efd9af17a75017171975a5a52d1c76baa3f37297ddf"
+    },
+    "oxygen-p1-motion-16-modest-v2-deterministic-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "f84ed96246a9707525f2552b6d698c1c0f1dac6b5f9ee75079947bd2eb155ad4"
+    },
+    "oxygen-p1-motion-16-modest-v2-stochastic-60hz-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "8313bef335896f7be1f892cb50d62d160fd8eed3ae48d78e6210f93ef837742e"
+    },
+    "oxygen-p1-motion-16-modest-v2-stochastic-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "8bb49a91884382426bc45323c7046d2f86833a6fc9e3916a192e0d036f13c2ca"
+    },
+    "oxygen-p1-motion-16.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "a41da669176c3b8c55d1064439ac31a706f609a852d3a4d0b06db1bbc10c7185"
+    },
+    "oxygen-p1-motion-32-large-v2-deterministic-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "720f053ea688388bb36127259210c2cd0f8fcf6a6e34632d846448019f40bba0",
+      "continuationSha256": null
+    },
+    "oxygen-p1-motion-32.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "720f053ea688388bb36127259210c2cd0f8fcf6a6e34632d846448019f40bba0",
+      "continuationSha256": "93088c8a7fedc6d0cba90b0c0cdd04ebd9d264be7beb7ecd4805fd30c3972bb1"
+    },
+    "oxygen-p1-v3-16-modest-v1-report-v2.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "60687f33f5557598dfb1da88014c87e99068ffac19a389273e9e6922d6190037",
+      "continuationSha256": "4becf56d6decfef732fe8a5d1a1b3e6ecb966000f960bea0ec549ee5c7f6a8b4"
+    },
+    "oxygen-p1-v3-16.json": {
+      "environment": "oxygen-debian",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-unknown-linux-gnu",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "60687f33f5557598dfb1da88014c87e99068ffac19a389273e9e6922d6190037",
+      "continuationSha256": "3a1918b06f3a3efa32ed36068b93839be987d28ae0ea1b9e21b195819b374d4e"
+    },
+    "sensing-cpu-windows-v1.json": {
+      "sourceSha256": "bc056c98b235fb39eb039ac39e73de53bda51f5aa77c6d1138c5eb84d704e8c6",
+      "binarySha256": "08161cb72b8503a001633e477702c88ff581919ebd73b8af419464d027478a0e",
+      "pdbSha256": "b77566e3dced251fcee7e740fac1b745cc43bc21c8ecfec496dece8fa9a4c9b2",
+      "profileSha256": "1eaf34dadc890dabe022dfa5bec8e828a825fb9620329ac5bee849ee47d46d06",
+      "target": "x86_64-pc-windows-msvc"
+    },
+    "windows-p0-motion-16-modest-v2-deterministic-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "2a042ff4cca965ce4801ca51684acc3e8d1f4edd6c2d037c9154382f09d1501f"
+    },
+    "windows-p0-motion-32-leaf4.json": {
+      "environment": "development",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "720f053ea688388bb36127259210c2cd0f8fcf6a6e34632d846448019f40bba0",
+      "continuationSha256": "0f5ade0cd1ea567295757c0b811107b2521f36203138e7aa53cb30654c120262"
+    },
+    "windows-p0-motion16-leaf8.json": {
+      "environment": "development",
+      "sourceSha256": "07832fc49a2d1c3b6cb37d6f09da8dd10373a62df77ff5d8f9ac96ea201bc071",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "edd5877bc049176eafc3c9d613f9e022686cde07289c2df8e473b64fce60e13d"
+    },
+    "windows-p1-basic-16-leaf4.json": {
+      "environment": "development",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "475728b3d20d87ef66a5bc39b5309bf7f1f6f6132f7cea955092235bd9e703b0",
+      "continuationSha256": "a3a488a7fdb572f1085d1a7faac0dc28887475e212ef0662c2de107090945b60"
+    },
+    "windows-p1-basic-16-modest-v2-deterministic-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "475728b3d20d87ef66a5bc39b5309bf7f1f6f6132f7cea955092235bd9e703b0",
+      "continuationSha256": "c9710493f4be2536423f1759e43a1beaae2c7c1654051f36dd4eeceeadde54b4"
+    },
+    "windows-p1-large-motion32.json": {
+      "environment": "development",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "720f053ea688388bb36127259210c2cd0f8fcf6a6e34632d846448019f40bba0",
+      "continuationSha256": null
+    },
+    "windows-p1-motion-16-modest-v1-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "7ec2610c241ab6e32b74b1a934da23303b5f3e98031667597e29202dea59db5e"
+    },
+    "windows-p1-motion-16-modest-v2-deterministic-60hz-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "c1105c02a551b216fcb013dd7f4e75ad8b96b6630b932116824e05aa1eec1e81"
+    },
+    "windows-p1-motion-16-modest-v2-deterministic-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "2118d5053c3b3a21c66bef24b044d6b4fd0419e55ba925063b6d48e4ef43adb8"
+    },
+    "windows-p1-motion-16-modest-v2-stochastic-60hz-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "5c641d668e671078aece49e7af95014496ea450008eab0e5df769157f057b9fb"
+    },
+    "windows-p1-motion-16-modest-v2-stochastic-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "493b69ff3557349fb089edcea83392759db34703dfdc6ff8467e61f0b93feb96"
+    },
+    "windows-p1-motion-32-large-v2-deterministic-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "720f053ea688388bb36127259210c2cd0f8fcf6a6e34632d846448019f40bba0",
+      "continuationSha256": null
+    },
+    "windows-p1-motion-32-leaf4.json": {
+      "environment": "development",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "720f053ea688388bb36127259210c2cd0f8fcf6a6e34632d846448019f40bba0",
+      "continuationSha256": "a83082d51b704c5c437b79541c0e2d747036cf38d3fe128498693d7d35fc35ce"
+    },
+    "windows-p1-motion16-leaf4.json": {
+      "environment": "development",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "7a2b98bf6ca06e5603343afc59adfe6ed7ca15c1875687a89f4254d259fe4bf7"
+    },
+    "windows-p1-motion16-leaf8.json": {
+      "environment": "development",
+      "sourceSha256": "07832fc49a2d1c3b6cb37d6f09da8dd10373a62df77ff5d8f9ac96ea201bc071",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e",
+      "continuationSha256": "605f7cbdaa6c3678b640906e1864f353f0c052f8adeae1105f2c21821b3c70df"
+    },
+    "windows-p1-v3-16-modest-v1-report-v2.json": {
+      "environment": "development",
+      "sourceSha256": "52a79b8f598673064d61d5bde6934409075a341268dbfe49b106ed96ae70ea91",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "60687f33f5557598dfb1da88014c87e99068ffac19a389273e9e6922d6190037",
+      "continuationSha256": "1d3442267ac3d54d8d6d8098d566b9b2ff1b00b451300845eb457f46ec5760c3"
+    },
+    "windows-p1-v3.json": {
+      "environment": "development",
+      "sourceSha256": "0afc99adc8fa2698cac40a9de35e62cb07ed59c0661d2d2df02339f916954f02",
+      "target": "x86_64-pc-windows-msvc",
+      "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "seed": 42,
+      "sensorSha256": "60687f33f5557598dfb1da88014c87e99068ffac19a389273e9e6922d6190037",
+      "continuationSha256": "a0ef6c606117b0b698cd42ad9d2c1ef05f415ccd79318c93e68e4353c45ca35b"
+    }
+  }
+}

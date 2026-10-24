@@ -1,0 +1,96 @@
+--- /dev/null
++++ b/benchmarks/historical/before-driver-0cd55a02151f.py
+@@ -0,0 +1,93 @@
++"""Collect all extended roundtrip failures explicitly; never relax a numeric assertion."""
++import sys,json,os,hashlib,subprocess,time
++from pathlib import Path
++root=Path(__file__).resolve().parent
++sys.path.insert(0,r'C:\Users\jlow8\source\repos\PyRL-trainer')
++from pyrl_trainer.distillation_process import configure_cli_priority
++priority=configure_cli_priority()
++import torch
++from pyrl_trainer.canonical_graph import CanonicalGraphManifest,CanonicalGraph
++from pyrl_trainer.canonical_parity import run_gate,_floats,_sequence,_optimize
++torch.set_num_threads(2)
++torch.backends.cuda.matmul.allow_tf32=False
++torch.backends.cudnn.allow_tf32=False
++runner=root.parent/'release/canonical-training-graph.exe'
++source='b066380f41085a83f8aed9445a26475f569c78d72aedcde238a1580aed2f3925'
++destination=root/'roundtrip-all';destination.mkdir()
++observer=Path(r'C:\Users\jlow8\source\repos\slither_neuroevo\scripts\qualification\system-resource-observer.py')
++watch=subprocess.Popen([sys.executable,'-B',str(observer),'--output',str(destination/'aggregate-resources.jsonl'),
++ '--interval-seconds','30','--samples','30','--watch-pid',str(os.getpid())],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
++
++def checks(actual,expected,device):
++ result={}
++ for name,x,y in [('first',actual[0],expected[0]),('sequence',actual,expected)]:
++  atol=1e-3 if name=='sequence' else 1e-4 if device=='cuda' else 1e-5
++  rtol=1e-3 if name=='sequence' else 1e-4
++  try:torch.testing.assert_close(x,y,atol=atol,rtol=rtol);passed=True
++  except AssertionError:passed=False
++  result[name]={'passed':passed,'atol':atol,'rtol':rtol,'maxAbs':(x-y).abs().max().item(),
++                'mismatchCount':int(((x-y).abs()>atol+rtol*y.abs()).sum())}
++ result['prefixMaxAbs']={str(n):(actual[:n]-expected[:n]).abs().max().item() for n in [1,64,128,256]}
++ return result
++
++try:
++ for device in ['cpu','cuda']:
++  if device=='cuda':
++   assert torch.cuda.is_available()
++   free,total=torch.cuda.mem_get_info()
++   assert free>=4608*1024**2,'CUDA free-memory admission'
++   torch.cuda.set_per_process_memory_fraction(4096*1024**2/total)
++   torch.cuda.reset_peak_memory_stats()
++  report=run_gate(runner,root/'roundtrip/fixtures',device)
++  assert len(report['cases'])==12
++  (destination/(device+'-standard.json')).write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
++  extended=[]
++  for kind in ['gru','lstm','rru']:
++   case=root/'roundtrip'/('large-'+kind)
++   manifest=CanonicalGraphManifest.read(case/'nonzero/manifest.json')
++   model=CanonicalGraph(manifest,(case/'nonzero/weights.f32').read_bytes(),device)
++   observations=_floats(case/'observations.f32',manifest.input_size,device)
++   initial=_floats(case/'initial-state.f32',manifest.total_state_size,device)
++   optimization=_optimize(model,observations,initial)
++   folder=destination/(device+'-'+kind);folder.mkdir()
++   weights=model.export_weights();(folder/'trained.f32').write_bytes(weights)
++   actual,states=_sequence(model,observations,initial)
++   (folder/'torch-outputs.f32').write_bytes(actual.contiguous().numpy().astype('<f4').tobytes())
++   (folder/'torch-states.f32').write_bytes(states.contiguous().numpy().astype('<f4').tobytes())
++   for backend in ['rust-scalar-v1','rust-sse2-v1']:
++    q=json.loads((case/'request-nonzero.json').read_text())
++    q.pop('initializationSeed')
++    q.update({'weightsPath':str(folder/'trained.f32'),'observationsPath':str(case/'observations.f32'),
++              'initialStatePath':str(case/'initial-state.f32'),'mathBackend':backend})
++    request=folder/(backend+'.json');request.write_text(json.dumps(q),encoding='utf-8')
++    out=folder/backend
++    subprocess.run([str(runner),str(request),str(out)],check=True,capture_output=True,timeout=120)
++    returned=(out/'weights.f32').read_bytes();assert returned==weights
++    admitted=CanonicalGraphManifest.read(out/'manifest.json')
++    assert admitted.nodes==manifest.nodes and admitted.outputs==manifest.outputs
++    assert admitted.layout_sha256==manifest.layout_sha256 and admitted.sensor_sha256==manifest.sensor_sha256
++    reimported=CanonicalGraph(admitted,returned,device);assert reimported.export_weights()==returned
++    reoutputs,restates=_sequence(reimported,observations,initial)
++    assert torch.equal(reoutputs,actual) and torch.equal(restates,states)
++    expected=_floats(out/'outputs.f32',2,'cpu');expected_states=_floats(out/'states.f32',manifest.total_state_size,'cpu')
++    receipt=json.loads((out/'receipt.json').read_text())
++    assert receipt['sourceSha256']==source
++    compared={'output':checks(actual,expected,device),'state':checks(states,expected_states,device)}
++    passed=all(check['passed'] for mode in compared.values() for check in [mode['first'],mode['sequence']])
++    extended.append({'case':'large-'+kind,'backend':backend,'nativeSourceSha256':source,'nativeTarget':receipt['buildTarget'],
++       'weightsSha256':receipt['weightsSha256'],'observationsSha256':receipt['observationsSha256'],
++       'initialStateSha256':receipt['initialStateSha256'],'layoutSha256':admitted.layout_sha256,
++       'sensorSha256':admitted.sensor_sha256,'optimization':optimization,'passed':passed,'checks':compared})
++  report.update({'extendedCases':extended,'extendedPassed':all(x['passed'] for x in extended),
++                 'extendedSse2Passed':all(x['passed'] for x in extended if x['backend']=='rust-sse2-v1'),
++                 'cpuThreads':2,'processPriority':priority,
++                 'driverSha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
++                 'scope':'Standard mandatory optimizer gate remains strict. Extended large GRU/LSTM/RRU records every first-step and 256-step failure using unchanged bounds; any failure leaves extendedPassed false.'})
++  if device=='cuda':report.update({'deviceMemoryBudgetMiB':4096,'peakReservedDeviceBytes':torch.cuda.max_memory_reserved(),'peakAllocatedDeviceBytes':torch.cuda.max_memory_allocated()})
++  (destination/(device+'-extended.json')).write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
++  print(json.dumps({'device':device,'standardCases':12,'extendedCases':6,'extendedPassed':report['extendedPassed'],
++        'extendedSse2Passed':report['extendedSse2Passed'],'failures':[{'case':x['case'],'backend':x['backend']} for x in extended if not x['passed']]}),flush=True)
++finally:
++ watch.terminate()
++ try:watch.wait(timeout=10)
++ except subprocess.TimeoutExpired:watch.kill();watch.wait()

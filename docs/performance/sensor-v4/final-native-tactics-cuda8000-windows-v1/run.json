@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "kind": "final-native-gameplay-evidence-v1",
+  "measurementComplete": true,
+  "releaseQualified": false,
+  "maturityQualified": false,
+  "profileChoice": null,
+  "sourceStudy": "heldout-curves-cuda8000-windows-v1",
+  "sourceManifestCanonicalSha256": "69f3fceed1ca2b4b5cdd24cd562c95dfb312031b3a75ce3e4660510ec097c1a1",
+  "sourceMatrixSha256": "2885a875e1a9c3476c14a01a3f8bedd06d15722d6cadb92dab3d96ea55e3bebd",
+  "nativeSourceSha256": "b2828e0390c51138627616d705ba7f59369ee73c39115e17031426bf52d32b8d",
+  "nativeCommit": "e8673ff9dd05926f497c73fdc36de5160ed9e51d",
+  "resourceCoverage": "Aggregate Windows, already-running WSL and GPU counters; first approximately 15 seconds absent. Shared-host observations do not establish idle-host performance.",
+  "scope": "Fixed training fold 2, initialization seeds 1/2/3, seven variants, final seeds 33..40 disjoint from source corpus 1..8. Synthetic native gameplay only; no independent final teacher-agreement, representative ecology, maturity, cost, profile choice or release qualification.",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/final-native-tactics-cuda8000-windows-v1/evidence.json",
+    "sha256": "7e3e94e5854975871bd92c133986155380f1fb60777538da6e0c357ff7164205",
+    "bytes": 13918
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

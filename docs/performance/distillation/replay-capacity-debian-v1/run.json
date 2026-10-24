@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "kind": "historical-evidence-reference-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "logicalPrefix": "docs/performance/distillation/replay-capacity-debian-v1/",
+    "files": 6,
+    "bytes": 29029
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json",
+  "qualificationPolicy": "Historical claims require verified release-asset restoration and their maintained audit. This reference confers no additional qualification.",
+  "recordedIdentity": {
+    "ram-2048.json": {
+      "scope": "Rust-encoded synthetic teacher chunks, real Python decoder/replay and independent-decode in-process restore. The two replay owners coexist during restore; process peak includes both. No HTTP, optimizer, durable trainer checkpoint, live game contention or integrated soak is qualified.",
+      "hostSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68",
+      "trainerSourceSha256": "ca492226599f8c34c2bf2e928cdfb608a6359823d4707da830e388a367d18b83",
+      "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+      "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+      "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+      "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+      "environment": {
+        "python": "3.13.5",
+        "platform": "Linux-6.12.111+deb13-amd64-x86_64-with-glibc2.41",
+        "machine": "x86_64",
+        "numpy": "2.5.3",
+        "torch": "2.14.0+cpu",
+        "pointerBytes": 8,
+        "pythonOptimized": false,
+        "torchCpuThreads": 4
+      },
+      "status": "passed",
+      "retainedSha256": "8bf90a5886deb8815eea217a0612d554cd8e947bc93fab6438ec75a9a67ce487"
+    },
+    "ram-256.json": {
+      "scope": "Rust-encoded synthetic teacher chunks, real Python decoder/replay and independent-decode in-process restore. The two replay owners coexist during restore; process peak includes both. No HTTP, optimizer, durable trainer checkpoint, live game contention or integrated soak is qualified.",
+      "hostSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68",
+      "trainerSourceSha256": "ca492226599f8c34c2bf2e928cdfb608a6359823d4707da830e388a367d18b83",
+      "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+      "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+      "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+      "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+      "environment": {
+        "python": "3.13.5",
+        "platform": "Linux-6.12.111+deb13-amd64-x86_64-with-glibc2.41",
+        "machine": "x86_64",
+        "numpy": "2.5.3",
+        "torch": "2.14.0+cpu",
+        "pointerBytes": 8,
+        "pythonOptimized": false,
+        "torchCpuThreads": 4
+      },
+      "status": "passed",
+      "retainedSha256": "4179d6af77c18f3e4586a9e670a575f173f66569d79a366c958592f93c45a0a9"
+    },
+    "ram-64.json": {
+      "scope": "Rust-encoded synthetic teacher chunks, real Python decoder/replay and independent-decode in-process restore. The two replay owners coexist during restore; process peak includes both. No HTTP, optimizer, durable trainer checkpoint, live game contention or integrated soak is qualified.",
+      "hostSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68",
+      "trainerSourceSha256": "ca492226599f8c34c2bf2e928cdfb608a6359823d4707da830e388a367d18b83",
+      "referenceSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+      "nativeSourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068",
+      "fixtureHostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+      "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+      "environment": {
+        "python": "3.13.5",
+        "platform": "Linux-6.12.111+deb13-amd64-x86_64-with-glibc2.41",
+        "machine": "x86_64",
+        "numpy": "2.5.3",
+        "torch": "2.14.0+cpu",
+        "pointerBytes": 8,
+        "pythonOptimized": false,
+        "torchCpuThreads": 4
+      },
+      "status": "passed",
+      "retainedSha256": "aff230d4fc2b781c78876e22ea40107b78c545ea139a1ad7779625ce40e9c5e3"
+    },
+    "reference.json": {
+      "bundleSha256": "14aad670d0b4a797062d3a7156fe0e528a519f56deb98c54807cf3db5999a2b8",
+      "firstChunkSha256": "a81b730d7384354d8f1a2a31762416eb158705159a0f2d8387d4ca63749edf39",
+      "hostCanonicalLfSha256": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2",
+      "lastChunkSha256": "44f0a49ebbe8f1c5452c0e5bf62b32fc6eed8adec883d39b748af31d9f04a98d",
+      "scope": "Synthetic Rust-encoded replay capacity fixture; no committed-gameplay claim",
+      "sourceSha256": "ac83e5e8cc902d8aeb9305a7a5b568a483f717f479258fcad8b4b8a97c09b068"
+    },
+    "summary.json": {
+      "trainerCommit": "45930119415268cb7d298a0ecd70d905f6ed9da6",
+      "hostGzipSha256": "c55465085ccb56dcf3c53242ed42808bb8938814e48229cfa37434111bbe0de9",
+      "hostSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68",
+      "generatorInputsCanonicalLfSha256": {
+        "Cargo.toml": "1c86b61cb83512c492079c54f57d8288c9cfba10f0dcf0a360fbe1c789f30e4f",
+        "Cargo.lock": "1bee1832aabbf7e333aaea577c71c80eb3d4c0cd49342936f25ccc7e2b553db4",
+        "main.rs": "326646d83a78899e94708c763870915f3d5f43fbd5133fdae97f2c1added48d2"
+      },
+      "referenceCanonicalLfSha256": "63661eaeafc26593a0f5ac4f6e263fcab41326de580a5b23df6454a48b62c895",
+      "scope": "Debian real decoder/replay RAM and independent-decode in-process restore of portable synthetic teacher chunks encoded by Rust on Windows. Two owners coexist during restore. HTTP, optimizer, durable trainer checkpoint peaks, live contention and integrated soak remain open.",
+      "hostCanonicalLfSha256": "1fe0aed37f844c77cd2bbab8f57c28621e4ae2afe9305a42320be937bb901e68"
+    }
+  }
+}

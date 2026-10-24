@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "baselineCommit": "1b61b3e9127c03c2fe8b479a76e23b28bd68445c",
+  "sourceSha256": "208e42d51ad329a7f1a1d924675e341134f500a9930927e314a035b109ac42b5",
+  "candidatePatchSha256": "d5acbd014c4e252675f8c58baa5eec250cb6c906832e46dccc66da1b2885f3e4",
+  "reports": {
+    "compressed.json": "207bcd4195776f12c707f3b15326adf23953052c508c572f6a1a56b5038c3ef3",
+    "raw.json": "c8cb7e764e42325706f5d458dcd98e64cba2e5059d9103442e4681d1c302d319"
+  },
+  "nativeReleaseTests": 784,
+  "scope": "shared native reservation before population allocation, 300 large genomes, live replacement and three exact restored successors with real SQLite commits; libuv ordering and cancellation covered by real HTTP tests at production limits; offline 768 MiB candidate only, no full-library/integrated-contention/soak claim",
+  "retainedPayload": {
+    "catalog": "docs/performance/catalog.json",
+    "originalManifest": "docs/performance/sensor-v4/population-admission-windows-v1/evidence.json",
+    "sha256": "21d5be98bc3a3b766edcce9f4649cc60735e4bb01ec59d1b343cb695412dbdc4",
+    "bytes": 822
+  },
+  "sourceProvenance": "docs/performance/source-provenance.json"
+}

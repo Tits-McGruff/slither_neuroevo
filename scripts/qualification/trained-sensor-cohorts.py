@@ -96,6 +96,7 @@ def main():
     parser.add_argument("--executable", required=True, type=Path)
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--study", type=Path)
+    source_group.add_argument("--fixtures", type=Path, help="Explicit small learned-cohort fixture index")
     source_group.add_argument("--artifact", type=Path, help="One portable learned brain; Rust validates its complete contract")
     parser.add_argument("--profile", choices=["basic", "motion"], default="motion")
     parser.add_argument("--bins", type=int, default=16)
@@ -119,6 +120,10 @@ def main():
     variants = selected_variants(args.profile, args.variants, args.artifact is not None)
     executable = args.executable.resolve(strict=True)
     study = args.study.resolve(strict=True) if args.study is not None else None
+    repository = Path(__file__).resolve().parents[2]
+    if study is not None and study.is_relative_to(repository / "docs/performance"):
+        from historical_evidence import required_root  # pylint: disable=import-outside-toplevel
+        study = required_root() / study.relative_to(repository)
     direct = args.artifact.resolve(strict=True) if args.artifact is not None else None
     if direct is not None:
         require(direct.is_file() and 0 < direct.stat().st_size <= 64 * 1024**2,
@@ -136,15 +141,45 @@ def main():
         evidence_sha = digest(evidence_path)
         evidence = json.loads(evidence_path.read_bytes())
         require(isinstance(evidence["files"], list) and len(evidence["files"]) <= 2048, "bounded evidence inventory required")
-    if args.replicated:
+    if args.replicated and args.fixtures is None:
         require(evidence["schemaVersion"] == 1 and evidence["kind"] == "replicated-ablation-evidence-v1"
                 and evidence["status"] == "measured", "measured replicated evidence required")
+    fixture = None
+    if args.fixtures is not None:
+        fixture = json.loads(args.fixtures.read_bytes())
+        require(fixture["schemaVersion"] == 1 and fixture["profile"] == args.profile
+                and fixture["bins"] == args.bins and fixture["replicated"] == args.replicated,
+                "fixture sensor/family identity differs from requested qualification")
     records, inputs = [], {}
     source, sensor_sha = None, None
     all_source_files = []
     for variant in variants:
         source_files = []
-        if direct is not None:
+        if fixture is not None:
+            entries, families = [], []
+            for record in fixture["variants"][variant]:
+                name = record["file"]
+                require(re.fullmatch(r"[a-z0-9-]+\.slither-brain", name), "confined fixture name required")
+                source_file = args.fixtures.resolve().parent / name
+                require(source_file.is_file() and not source_file.is_symlink()
+                        and 0 < source_file.stat().st_size <= 256 * 1024, "bounded learned fixture required")
+                require(digest(source_file) == record["sha256"], "learned fixture checksum changed")
+                member = directory / name
+                with member.open("xb") as stream:
+                    stream.write(source_file.read_bytes())
+                entries.append({"file": name, "sha256": record["sha256"]})
+                families.append({"artifactSha256": record["sha256"], "fixture": name})
+                source_files.extend([(member, record["sha256"]), (source_file, record["sha256"])])
+            require(len(entries) == (3 if args.replicated else 1), "exact learned family count required")
+            if args.replicated:
+                artifact = directory / (variant + "-cohort.json")
+                artifact.write_text(json.dumps({"schemaVersion": 1, "artifacts": entries}), encoding="utf-8")
+                inputs[variant] = {"families": families, "indexSha256": digest(artifact)}
+                source_files.append((artifact, inputs[variant]["indexSha256"]))
+            else:
+                artifact = directory / entries[0]["file"]
+                inputs[variant] = {"artifactSha256": entries[0]["sha256"]}
+        elif direct is not None:
             artifact = directory / "full.slither-brain"
             with direct.open("rb") as stream:
                 opaque = stream.read(64 * 1024**2 + 1)
