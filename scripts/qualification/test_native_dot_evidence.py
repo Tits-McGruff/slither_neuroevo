@@ -791,6 +791,64 @@ class PelletKeyScreeningEvidenceTests(unittest.TestCase):
             self.driver.require_equivalent(reference, candidate)
 
 
+class PelletBinSortEvidenceTests(unittest.TestCase):
+    """Keep a correct but insufficient whole-workload optimization unselected."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manifest, cls.files = capsule("pellet-bin-sort-windows-v1")
+        for name, filename in [("driver", "compare-sensor-workloads.py"),
+                               ("exporter", "export-resource-counters.py")]:
+            spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            setattr(cls, name, module)
+
+    def test_native_receipts_preserve_work_memory_capture_and_recomputed_costs(self):
+        self.assertFalse(self.manifest["adopted"])
+        self.assertFalse(self.manifest["performanceQualified"])
+        for summary in self.manifest["summary"]:
+            prefix = "windows/" + summary["scenario"] + "/"
+            comparison = json.loads(self.files[prefix + "comparison.json"])
+            self.assertTrue(comparison["equivalent"])
+            self.assertEqual(comparison["scriptSha256"], sha(self.files["compare-sensor-workloads.py"]))
+            reference = None
+            for row in comparison["records"]:
+                raw = self.files[prefix + row["report"]]
+                self.assertEqual(sha(raw), row["reportSha256"])
+                report = json.loads(raw)
+                self.assertEqual(report["sourceSha256"], self.manifest[
+                    "nativeSourceSha256" if row["role"] == "baseline" else "candidateSourceSha256"])
+                self.assertEqual((report["warmupSteps"], report["measuredSteps"], report["completedSteps"]),
+                                 (600, 1200, 1800))
+                self.assertEqual(row["nativeMeanMs"], report["nativePhaseCosts"]["totalMicros"] / 1200 / 1000)
+                self.assertEqual(row["sensingMeanMs"], report["nativePhaseCosts"]["sensingMicros"] / 1200 / 1000)
+                self.assertEqual(row["nativeP95Ms"], report["stepCost"]["p95Ms"])
+                self.assertTrue(report["capture"]["exactSamplesMatch"])
+                if reference is None:
+                    reference = report
+                self.driver.require_equivalent(reference, report)
+            medians = {role: {key: statistics.median(row[key] for row in comparison["records"] if row["role"] == role)
+                              for key in ["nativeMeanMs", "sensingMeanMs", "nativeP95Ms"]}
+                       for role in ["baseline", "candidate"]}
+            cpu = {role: statistics.median(row["processCpuSeconds"] for row in comparison["records"] if row["role"] == role)
+                   for role in medians}
+            self.assertEqual(medians, summary["medians"])
+            self.assertEqual(cpu, summary["medianChildCpuSeconds"])
+            self.assertEqual(summary["nativeMeanRatio"], medians["candidate"]["nativeMeanMs"] / medians["baseline"]["nativeMeanMs"])
+            self.assertEqual(summary["childCpuRatio"], cpu["candidate"] / cpu["baseline"])
+
+    def test_all_resource_sequences_are_already_strict_counter_only_exports(self):
+        resources = json.loads(self.files["windows/resources.json"])
+        self.assertEqual(len(resources), 5)
+        self.assertGreaterEqual(sum(map(len, resources.values())), 7)
+        for rows in resources.values():
+            aggregate_only(self, rows, self.files["system-resource-observer.py"])
+            for row in rows:
+                self.assertEqual(self.exporter.public_snapshot(row), row)
+                self.assertTrue(all("name" not in gpu for gpu in row["gpu"].get("rows", [])))
+
+
 class PublishedDotEvidencePrivacyTests(unittest.TestCase):
     """Reject private host inventories across every retained JSON document."""
 
@@ -814,7 +872,7 @@ class PublishedDotEvidencePrivacyTests(unittest.TestCase):
         for name in ["native-dot-performance-v1", "native-dot-numerics-v1",
                      "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1",
                      "live-precise-cpu-windows-v1", "live-observation-quality-windows-v1",
-                     "pellet-key-screening-v1"]:
+                     "pellet-key-screening-v1", "pellet-bin-sort-windows-v1"]:
             _, files = capsule(name)
             for path, raw in files.items():
                 if path.endswith((".json", ".slither-brain")):
