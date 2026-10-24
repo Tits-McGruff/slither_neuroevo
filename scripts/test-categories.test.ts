@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  EVIDENCE_REQUIRED_TEST_FILES,
   NATIVE_REQUIRED_TEST_FILES,
   PRIMARY_TEST_CATEGORIES,
   PRIMARY_TEST_CATEGORY_ORDER,
@@ -55,4 +56,14 @@ describe(SUITE, () => {
     expect(NATIVE_REQUIRED_TEST_FILES).not.toContain('server/brainPool.test.ts');
     expect(NATIVE_REQUIRED_TEST_FILES.every(file => allFiles.has(file))).toBe(true);
   });
+  it('keeps ordinary units self-contained and historical acceptance explicitly required', () => {
+    for (const file of EVIDENCE_REQUIRED_TEST_FILES) {
+      expect(TEST_CATEGORIES.unit).not.toContain(file);
+      expect(TEST_CATEGORIES.acceptance).toContain(file);
+      expect(TEST_CATEGORIES['evidence-required']).toContain(file);
+      expect(TEST_CATEGORIES.source).not.toContain(file);
+      expect(TEST_CATEGORIES.all).toContain(file);
+    }
+  });
+
 });

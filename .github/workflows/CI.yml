@@ -299,7 +299,7 @@ jobs:
       - name: Required native authority and calculation-worker contracts
         run: npm run test:native-required -- --reporter=dot
       - name: Unit tests
-        run: npm run test:unit -- --reporter=dot --exclude scripts/qualification/evidence-integrity.test.ts --exclude scripts/qualification/live-window-evidence.test.ts
+        run: npm run test:unit -- --reporter=dot
       - name: Component tests
         run: npm run test:component -- --reporter=dot
       - name: Integration tests
@@ -307,7 +307,7 @@ jobs:
       - name: System tests
         run: npm run test:system -- --reporter=dot
       - name: Acceptance tests
-        run: npm run test:acceptance -- --reporter=dot
+        run: npm run test:acceptance -- --reporter=dot --exclude scripts/qualification/evidence-integrity.test.ts --exclude scripts/qualification/live-window-evidence.test.ts
       - name: Regression tests
         run: npm run test:regression -- --reporter=dot
       - name: Security tests

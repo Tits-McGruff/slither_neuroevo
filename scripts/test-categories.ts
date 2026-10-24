@@ -1,3 +1,9 @@
+/** Historical claim audits require the explicitly verified external release cache. */
+export const EVIDENCE_REQUIRED_TEST_FILES = [
+  'scripts/qualification/evidence-integrity.test.ts',
+  'scripts/qualification/live-window-evidence.test.ts'
+] as const;
+
 /** Primary, non-overlapping test layers used for complete-suite accounting. */
 export const PRIMARY_TEST_CATEGORIES = {
   unit: [
@@ -12,8 +18,6 @@ export const PRIMARY_TEST_CATEGORIES = {
     'scripts/stage7/step-window-summary.test.ts',
     'scripts/qualification/sensor-wall-summary.test.ts',
     'scripts/qualification/soak-summary.test.ts',
-    'scripts/qualification/evidence-integrity.test.ts',
-    'scripts/qualification/live-window-evidence.test.ts',
     'scripts/qualification/liveCapacityLibrary.test.ts',
     'scripts/qualification/liveSpoolPrefill.test.ts',
     'scripts/qualification/nativeStepCosts.test.ts',
@@ -119,7 +123,7 @@ export const PRIMARY_TEST_CATEGORIES = {
     'src/main.test.ts'
   ],
   system: ['server/productionCli.system.test.ts', 'server/rustServer.processDeath.native.test.ts'],
-  acceptance: ['server/acceptance.test.ts'],
+  acceptance: ['server/acceptance.test.ts', ...EVIDENCE_REQUIRED_TEST_FILES],
   regression: [
     'src/stack.regression.test.ts',
   ],
@@ -169,10 +173,8 @@ export const TEST_CATEGORIES = {
   ...PRIMARY_TEST_CATEGORIES,
   all: PRIMARY_TEST_CATEGORY_ORDER.flatMap(category => PRIMARY_TEST_CATEGORIES[category]),
   source: PRIMARY_TEST_CATEGORY_ORDER.flatMap(category => PRIMARY_TEST_CATEGORIES[category])
-    .filter(file => !['scripts/qualification/evidence-integrity.test.ts',
-      'scripts/qualification/live-window-evidence.test.ts'].includes(file)),
-  'evidence-required': ['scripts/qualification/evidence-integrity.test.ts',
-    'scripts/qualification/live-window-evidence.test.ts'],
+    .filter(file => !EVIDENCE_REQUIRED_TEST_FILES.some(historical => historical === file)),
+  'evidence-required': EVIDENCE_REQUIRED_TEST_FILES,
   'native-required': NATIVE_REQUIRED_TEST_FILES
 } as const;
 
