@@ -1396,7 +1396,7 @@ extreme Float32 values, diverse and clustered owners, plus exact summary statist
 aggregate Windows/running-WSL/Debian context. Distant streaming comparisons are
 21.6% faster on Debian and 56.2% faster on Windows in the standalone copies.
 Paired complete summary copies preserve every scalar statistic bit and greedy
-bucket: 55-owner cases improve 12.2Ã¢â‚¬â€œ25.8%, and 300-owner cases 24.9Ã¢â‚¬â€œ29.2%.
+bucket: 55-owner cases improve 12.2â€“25.8%, and 300-owner cases 24.9â€“29.2%.
 These use fixed synthetic 494,306-parameter owners; they are not full-runtime
 or idle-host claims. A real P1 window passes exact trainer restart, drop-free
 capture, 100 catalog entries, inspector/four-shadow progress, three durable
@@ -1408,8 +1408,8 @@ Timing, representative maturity and the integrated capacity/soak gates remain op
 Native long SSE2 dot rows now use four independent accumulators. The
 `native-dot-performance-v1/` capsule binds the actual production kernel to
 paired Windows/Debian microbenchmarks and fixed-input native population runs.
-Streaming widths 256/504 improve about 23Ã¢â‚¬â€œ28% across the two platforms;
-single-worker v3 population passes improve 16Ã¢â‚¬â€œ28% across P0Ã¢â‚¬â€œP3. Short rows
+Streaming widths 256/504 improve about 23â€“28% across the two platforms;
+single-worker v3 population passes improve 16â€“28% across P0â€“P3. Short rows
 retain their previous algorithm. Changed Float32 grouping is source/build
 specific; earlier long-horizon gameplay evidence does not establish identical
 trajectories on this revision. Separate real large Motion/B32 windows preserve
