@@ -369,7 +369,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Tits-McGruff/PyRL-trainer
-          ref: ac26f9bea5df63f32d9a999aea6b32a78567fb72
+          ref: 410bac84e654e537d1e0d50f4c0a068a4a9d6114
           fetch-depth: 0
           path: .evidence-pyrl
       - uses: actions/setup-python@v6
@@ -382,6 +382,8 @@ jobs:
       - run: npm ci
       - name: Reject accidental experiment payload promotion
         run: python .evidence-pyrl/pyrl_trainer/evidence_policy.py --root .
+      - name: Reconstruct all source versions and original experimental patches
+        run: python .evidence-pyrl/pyrl_trainer/source_provenance.py --registry docs/performance/source-provenance.json --original-patches benchmarks/historical-patches.json
       - name: Fetch, checksum and restore every required historical input
         run: python .evidence-pyrl/pyrl_trainer/evidence_store.py fetch --catalog docs/performance/catalog.json --cache .cache/qualification-evidence
       - name: Preserve historical integrity and live-window assertions

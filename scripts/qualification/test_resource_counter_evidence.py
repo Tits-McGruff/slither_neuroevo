@@ -47,4 +47,3 @@ class HistoricalResourceCounterTests(unittest.TestCase):
                     self.assertEqual(public.get("wsl"), row.get("wsl"))
                     count += 1
         self.assertGreaterEqual(count, 19)
-
