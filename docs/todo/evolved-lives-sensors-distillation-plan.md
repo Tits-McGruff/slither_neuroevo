@@ -4,6 +4,8 @@ Status: frozen behavioral plan, incorporating the owner's decisions and all acce
 
 ## Implementation progress (2026-10-24)
 
+Evidence-storage update: historical `docs/performance/` paths in this log are logical prefixes in the verified external release cache. Their current Git directories contain compact run references; [the catalog and storage policy](../performance/README.md) explain restoration, source provenance and selected regression fixtures. Unique experimental code is retained as explicit base-commit patches. The older `docs/todo/evidence/` records were preserved.
+
 Stage A is implemented in the current worktree: the 8..604800-second duration
 control/parser, hour-scale timers, generation-scoped manual completion through
 Rust's ordinary terminal transaction, atomic completion chronology, and bounded
@@ -1229,7 +1231,7 @@ PyRL's optional bounded whole-window CUDA acceleration is implemented in
 eager CUDA loss, gradients, weights, recurrent state and Adam moments exactly;
 warmed updates averaged 26.86 versus 278.42 ms on the RTX 4080, while compilation
 made the complete short run slower. A 100-update compiled run passed native
-256-delivery parity. The compact [qualification capsule](https://github.com/Tits-McGruff/PyRL-trainer/tree/9107b851953de90e2d6a2f3d6612973fd475084a/docs/performance/canonical_graph/cuda-window-windows-v1)
+256-delivery parity. The retained [qualification release asset](https://github.com/Tits-McGruff/PyRL-trainer/releases/tag/qualification-evidence-v1-20261024)
 retains measured sources, receipts and the trained parity fixture. Durable CUDA jobs now select the bounded path automatically in PyRL `3759acd`;
 actual separate-process restart and native candidate/shadow handoff pass on the
 RTX 4080. Windows timing reports lack complete contemporaneous Windows/WSL
@@ -1394,7 +1396,7 @@ extreme Float32 values, diverse and clustered owners, plus exact summary statist
 aggregate Windows/running-WSL/Debian context. Distant streaming comparisons are
 21.6% faster on Debian and 56.2% faster on Windows in the standalone copies.
 Paired complete summary copies preserve every scalar statistic bit and greedy
-bucket: 55-owner cases improve 12.2–25.8%, and 300-owner cases 24.9–29.2%.
+bucket: 55-owner cases improve 12.2â€“25.8%, and 300-owner cases 24.9â€“29.2%.
 These use fixed synthetic 494,306-parameter owners; they are not full-runtime
 or idle-host claims. A real P1 window passes exact trainer restart, drop-free
 capture, 100 catalog entries, inspector/four-shadow progress, three durable
@@ -1406,8 +1408,8 @@ Timing, representative maturity and the integrated capacity/soak gates remain op
 Native long SSE2 dot rows now use four independent accumulators. The
 `native-dot-performance-v1/` capsule binds the actual production kernel to
 paired Windows/Debian microbenchmarks and fixed-input native population runs.
-Streaming widths 256/504 improve about 23–28% across the two platforms;
-single-worker v3 population passes improve 16–28% across P0–P3. Short rows
+Streaming widths 256/504 improve about 23â€“28% across the two platforms;
+single-worker v3 population passes improve 16â€“28% across P0â€“P3. Short rows
 retain their previous algorithm. Changed Float32 grouping is source/build
 specific; earlier long-horizon gameplay evidence does not establish identical
 trajectories on this revision. Separate real large Motion/B32 windows preserve

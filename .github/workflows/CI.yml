@@ -369,7 +369,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Tits-McGruff/PyRL-trainer
-          ref: 410bac84e654e537d1e0d50f4c0a068a4a9d6114
+          ref: 13de2215db731bf160e5abb848798679d99c0de7
           fetch-depth: 0
           path: .evidence-pyrl
       - uses: actions/setup-python@v6

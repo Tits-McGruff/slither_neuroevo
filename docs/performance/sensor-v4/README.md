@@ -1,5 +1,7 @@
 # Actual native sensor qualification
 
+Historical directories now retain compact `run.json` references. Full original reports, corpora, profiles, source archives and model collections are preserved in the verified release asset described by [the storage policy](../README.md) and [catalog](../catalog.json). Historical payload paths below resolve inside that external cache. Unique experimental code is preserved as Git/base-commit patches under `benchmarks/patches/`.
+
 Build the bounded workload runner with:
 
 ```powershell
@@ -1766,7 +1768,7 @@ production default ray/detail limits.
 
 ## Retained six-hour live window and durable CUDA jobs
 
-The [Debian six-hour window](live-six-hour-debian-v1/evidence.json) completed
+The [Debian six-hour window](live-six-hour-debian-v1/run.json) completed
 21,600 active trainer seconds, 27,688 optimizer updates, 72 native/SQLite
 generation handoffs and 35 ordinary trainer snapshots. Four learned shadows
 each delivered 846,958 evaluations, capture was drop-free, and replay ownership
@@ -1782,7 +1784,7 @@ is 21.679 seconds. The capsule retains the exact report, frozen sources, cold
 admission receipt and periodic student. Bounded continuous operation is observed;
 the six-hour performance and full-capacity integrated soak remain unqualified.
 
-The [Windows durable CUDA job measurements](cuda-job-windows-v1/evidence.json)
+The [Windows durable CUDA job measurements](cuda-job-windows-v1/run.json)
 use the frozen native `e8673ff` build and real Motion/B16 default jobs. Automatic
 whole-window CUDA execution passes exact process restart, opaque candidate
 admission and four-shadow progress. All recorded training forwards use the
@@ -1811,7 +1813,7 @@ The explicit `--workers` count uses the ordinary available-CPU validator;
 native construction still independently enforces CPU and scratch admission.
 
 
-The [Debian live-cohort window](live-cohort-debian-v1/evidence.json) uses four
+The [Debian live-cohort window](live-cohort-debian-v1/run.json) uses four
 distinct Full-graph policies (two retained 2,000-update models, one verified
 8,000-update CUDA model and the 27,532-update recovered live student). Rust
 admits 75 initial slots per family and reserves 307,093,320 source bytes before
@@ -1830,7 +1832,7 @@ another ceiling rejects before optimizer work. Reports record `replayMiB` and
 each phase's `replayCapacityBytes` separately from occupied/peak replay bytes.
 An admitted large ceiling alone is not a loaded-replay or full-capacity pass.
 
-The [Debian max-ceiling live window](live-replay-ceiling-debian-v1/evidence.json)
+The [Debian max-ceiling live window](live-replay-ceiling-debian-v1/run.json)
 preserves the selected 2048-MiB ceiling through real cold restart and sustain,
 four shadows and two durable generations. It peaks at 104.21 MiB of occupied
 replay and therefore does not qualify a filled buffer or integrated capacity.
@@ -1849,7 +1851,7 @@ currently require fresh native population weights. Reports retain the native
 capacity audit and keep `fullCapacitySoakQualified` false: library/spool fills,
 loaded replay, performance and the integrated six-hour gate still need evidence.
 
-The [compiled CUDA 8,000-update study](heldout-curves-cuda8000-windows-v1/evidence.json)
+The [compiled CUDA 8,000-update study](heldout-curves-cuda8000-windows-v1/run.json)
 retains nine paired initialization/held-out-fold cells and all seven variants:
 63 models and 504,000 actual compiled updates, with zero eager window calls.
 Every model passes its measured 256-delivery native parity prefix; maximum
@@ -1883,7 +1885,7 @@ and records actual delivered neural samples with raw traces. Its selected-owner
 requests remain bounded at four Hz. Reports identify catalog/inspector overlap
 separately and still leave full spool/replay occupancy and soak qualification open.
 
-The [Debian large-population/catalog window](live-large-catalog-debian-v1/evidence.json)
+The [Debian large-population/catalog window](live-large-catalog-debian-v1/run.json)
 uses 300 large Motion/B32 genomes (494,306 parameters each), 100 distinct large
 manual portable originals, one actual selected inspector, four shadows and the
 default 32/32/64 CPU trainer. It completes exact trainer restart, 79 further
@@ -1993,7 +1995,7 @@ large-population improvement.
 The `native-dot-performance-v1/` capsule retains the adopted four-accumulator
 SSE2 kernel, actual source-bound Windows/Debian streaming comparisons, and
 paired native single-worker v3 population timings. Streaming widths 256/504
-improve about 23–28%; fixed-input population cases improve 16–28%. The live
+improve about 23â€“28%; fixed-input population cases improve 16â€“28%. The live
 large Motion/B32 P0/P1 windows retain functional restart/durability success but
 still fail timing (0.521/0.0383 simulated/wall ratios). Their offline 768-MiB
 checkpoint candidate does not select production admission or resource defaults.
