@@ -89,6 +89,20 @@ def child_cpu_after(process, before):
     return (ticks(system) + ticks(user)) / 10_000_000.0
 
 
+def require_equivalent(reference, report):
+    """Reject work or admission changes before crediting a same-budget speed comparison."""
+    for record in (reference, report):
+        reservation = record.get("authoritativeMemoryReservationBytes")
+        require(type(reservation) is int and reservation > 0,
+                "positive native memory reservation required")
+    for key in ["target", "rustc", "mathBackend", "sensorSha256", "parameterCount",
+                "authoritativeMemoryReservationBytes", "continuationSha256",
+                "consumerWork", "raw", "normalized"]:
+        require(reference[key] == report[key], f"comparison changed {key}")
+    for key in ["sourceSampleSha256", "drainedSampleSha256"]:
+        require(reference["capture"][key] == report["capture"][key], f"comparison changed {key}")
+
+
 def parse_args():
     """Require explicit binaries and an exclusively created report directory."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -201,14 +215,11 @@ def main():
             require(sources[role] != sources["baseline"], "candidate is the baseline build")
         if reference is None:
             reference = report
-        for key in ["target", "rustc", "mathBackend", "sensorSha256", "parameterCount", "continuationSha256", "consumerWork", "raw", "normalized"]:
-            require(reference[key] == report[key], f"comparison changed {key}")
+        require_equivalent(reference, report)
         if artifact_sha is not None:
             require(reference["trainedArtifact"] == report["trainedArtifact"], "trained deployment changed")
         if cohort_sha is not None:
             require(reference["trainedCohort"] == report["trainedCohort"], "trained family deployment changed")
-        for key in ["sourceSampleSha256", "drainedSampleSha256"]:
-            require(reference["capture"][key] == report["capture"][key], f"comparison changed {key}")
         phases = report["nativePhaseCosts"]
         require(phases["samples"] == args.steps, "phase sample count mismatch")
         require(sum(value for key, value in phases.items() if key not in ["samples", "totalMicros"]) == phases["totalMicros"], "phase costs do not partition service")

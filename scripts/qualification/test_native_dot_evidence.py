@@ -1,8 +1,10 @@
 """Verify retained inference timing and numeric correction without executing archived code."""
 import array
 import ast
+import copy
 import gzip
 import hashlib
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -723,6 +725,72 @@ class LiveObservationQualityEvidenceTests(unittest.TestCase):
             aggregate_only(self, rows, files["host/system-resource-observer.py"])
 
 
+class PelletKeyScreeningEvidenceTests(unittest.TestCase):
+    """Prefer full native work over isolated primitive gains on both targets."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manifest, cls.files = capsule("pellet-key-screening-v1")
+        spec = importlib.util.spec_from_file_location(
+            "current_sensor_comparison", Path(__file__).with_name("compare-sensor-workloads.py"))
+        cls.driver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.driver)
+
+    def test_actual_native_equivalence_memory_and_recomputed_costs(self):
+        self.assertFalse(self.manifest["adopted"])
+        self.assertFalse(self.manifest["performanceQualified"])
+        for summary in self.manifest["summary"]:
+            prefix = summary["platform"] + "/" + summary["scenario"] + "/"
+            comparison = json.loads(self.files[prefix + "comparison.json"])
+            self.assertTrue(comparison["equivalent"])
+            self.assertEqual(comparison["scriptSha256"],
+                             sha(self.files["compare-sensor-workloads.py"]))
+            reports = []
+            for record in comparison["records"]:
+                raw = self.files[prefix + record["report"]]
+                self.assertEqual(sha(raw), record["reportSha256"])
+                report = json.loads(raw)
+                expected_source = self.manifest[
+                    "nativeSourceSha256" if record["role"] == "baseline" else "candidateSourceSha256"]
+                self.assertEqual(report["sourceSha256"], expected_source)
+                self.assertEqual(report["completedSteps"], 1800)
+                self.assertEqual(report["measuredSteps"], 1200)
+                self.assertEqual(record["nativeMeanMs"], report["nativePhaseCosts"]["totalMicros"] / 1200 / 1000)
+                self.assertEqual(record["sensingMeanMs"], report["nativePhaseCosts"]["sensingMicros"] / 1200 / 1000)
+                self.assertEqual(record["nativeP95Ms"], report["stepCost"]["p95Ms"])
+                self.assertTrue(report["capture"]["exactSamplesMatch"])
+                self.driver.require_equivalent(report if not reports else reports[0], report)
+                reports.append(report)
+            medians = {}
+            cpu = {}
+            for role in ["baseline", "candidate"]:
+                medians[role] = {key: statistics.median(row[key] for row in comparison["records"] if row["role"] == role)
+                                 for key in ["nativeMeanMs", "sensingMeanMs", "nativeP95Ms"]}
+                cpu[role] = statistics.median(row["processCpuSeconds"] for row in comparison["records"] if row["role"] == role)
+            self.assertEqual(medians, summary["medians"])
+            self.assertEqual(cpu, summary["medianChildCpuSeconds"])
+            self.assertEqual(summary["nativeMeanRatio"], medians["candidate"]["nativeMeanMs"] / medians["baseline"]["nativeMeanMs"])
+            self.assertEqual(summary["childCpuRatio"], cpu["candidate"] / cpu["baseline"])
+        for platform in ["windows", "debian", "micro"]:
+            for rows in json.loads(self.files[platform + "/resources.json"]).values():
+                self.assertGreaterEqual(len(rows), 1)
+                aggregate_only(self, rows, self.files["system-resource-observer.py"])
+
+    def test_current_driver_rejects_missing_lossy_or_changed_real_native_reservations(self):
+        reference = json.loads(self.files["windows/P1/0-baseline.json"])
+        reservation = reference["authoritativeMemoryReservationBytes"]
+        for value in [None, 0, -1, True, float(reservation), reservation - 1, reservation + 1]:
+            candidate = copy.deepcopy(reference)
+            candidate["authoritativeMemoryReservationBytes"] = value
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(RuntimeError, "reservation|Reservation"):
+                    self.driver.require_equivalent(reference, candidate)
+        candidate = copy.deepcopy(reference)
+        del candidate["authoritativeMemoryReservationBytes"]
+        with self.assertRaisesRegex(RuntimeError, "reservation"):
+            self.driver.require_equivalent(reference, candidate)
+
+
 class PublishedDotEvidencePrivacyTests(unittest.TestCase):
     """Reject private host inventories across every retained JSON document."""
 
@@ -745,7 +813,8 @@ class PublishedDotEvidencePrivacyTests(unittest.TestCase):
 
         for name in ["native-dot-performance-v1", "native-dot-numerics-v1",
                      "canonical-cpu-dot-v1", "canonical-cpu-runtime-v1",
-                     "live-precise-cpu-windows-v1", "live-observation-quality-windows-v1"]:
+                     "live-precise-cpu-windows-v1", "live-observation-quality-windows-v1",
+                     "pellet-key-screening-v1"]:
             _, files = capsule(name)
             for path, raw in files.items():
                 if path.endswith((".json", ".slither-brain")):

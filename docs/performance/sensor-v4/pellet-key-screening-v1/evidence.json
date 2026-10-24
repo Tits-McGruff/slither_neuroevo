@@ -1,0 +1,285 @@
+{
+  "schemaVersion": 1,
+  "kind": "pellet-key-screening-and-rejected-native-comparison-v1",
+  "baseCommit": "6b4de0fe80c18711b7a9fe378608effb33b42402",
+  "nativeSourceSha256": "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
+  "candidateSourceSha256": "cc063911c544321388929c822761666e0fb159c55482b69130eb4536b0bbefdb",
+  "adopted": false,
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "fullCapacitySoakQualified": false,
+  "scope": "Adjacent ABBA on shared Windows/Debian hosts, P0/P1 random modest policies, ten stochastic teachers and capture, four native workers, 600 warmup/1200 measured steps, explicit cap 256/batch 65536. Exact same-target state, distributions, work, capture and memory reservation are required; cross-platform bit identity is not claimed.",
+  "resourceProjection": "Default aggregate observations rebuilt through a scalar/kernel-counter allowlist. GPU model names, process inventories, WSL distribution identities, commands, PIDs and private host paths are excluded.",
+  "conclusion": "Both radix primitive screens are slower on ordinary random/heap keys. Packed u128 primitive keys improve isolated sorting, but complete native runs show no Windows gain and worse Debian mean service, so all candidates are rejected. Production native source remains the baseline.",
+  "summary": [
+    {
+      "platform": "windows",
+      "scenario": "P0",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 2.999845833333333,
+          "sensingMeanMs": 0.96123625,
+          "nativeP95Ms": 3.358
+        },
+        "candidate": {
+          "nativeMeanMs": 2.995737916666667,
+          "sensingMeanMs": 0.9591458333333334,
+          "nativeP95Ms": 3.3670999999999998
+        }
+      },
+      "medianChildCpuSeconds": {
+        "baseline": 10.6328125,
+        "candidate": 10.84375
+      },
+      "nativeMeanRatio": 0.9986306240737374,
+      "nativeP95Ratio": 1.0027099463966647,
+      "childCpuRatio": 1.0198383541513594
+    },
+    {
+      "platform": "windows",
+      "scenario": "P1",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 11.320922499999998,
+          "sensingMeanMs": 5.847627083333333,
+          "nativeP95Ms": 12.4088
+        },
+        "candidate": {
+          "nativeMeanMs": 11.340236666666666,
+          "sensingMeanMs": 5.840864166666667,
+          "nativeP95Ms": 12.50715
+        }
+      },
+      "medianChildCpuSeconds": {
+        "baseline": 53.0546875,
+        "candidate": 53.9296875
+      },
+      "nativeMeanRatio": 1.0017060594369998,
+      "nativeP95Ratio": 1.0079258268325704,
+      "childCpuRatio": 1.016492416433515
+    },
+    {
+      "platform": "debian",
+      "scenario": "P0",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 7.265473333333333,
+          "sensingMeanMs": 2.4143554166666665,
+          "nativeP95Ms": 10.6244055
+        },
+        "candidate": {
+          "nativeMeanMs": 7.44077375,
+          "sensingMeanMs": 2.356174583333333,
+          "nativeP95Ms": 11.01816
+        }
+      },
+      "medianChildCpuSeconds": {
+        "baseline": 22.492038499999992,
+        "candidate": 22.609116500000006
+      },
+      "nativeMeanRatio": 1.0241278728341627,
+      "nativeP95Ratio": 1.0370613207487234,
+      "childCpuRatio": 1.0052053085361745
+    },
+    {
+      "platform": "debian",
+      "scenario": "P1",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 26.10748583333333,
+          "sensingMeanMs": 14.215821666666667,
+          "nativeP95Ms": 34.575497999999996
+        },
+        "candidate": {
+          "nativeMeanMs": 27.05760958333333,
+          "sensingMeanMs": 14.586469583333333,
+          "nativeP95Ms": 34.833827
+        }
+      },
+      "medianChildCpuSeconds": {
+        "baseline": 113.22675100000002,
+        "candidate": 114.89751949999997
+      },
+      "nativeMeanRatio": 1.0363927708729006,
+      "nativeP95Ratio": 1.0074714469767,
+      "childCpuRatio": 1.014755951974635
+    }
+  ],
+  "files": {
+    "baseline-spatial.rs": {
+      "bytes": 89955,
+      "sha256": "2d3b36d5cc0e4d1dad6e7067503da8e285d3c919648ba5b549fd271d086d382a",
+      "gzipSha256": "9283bcdc5bab2dcf67bcbf998114d430f33628cde1b844b85187f4a409d2d7db"
+    },
+    "candidate-spatial.rs": {
+      "bytes": 91906,
+      "sha256": "fcce0cc1605cb313950dbf435e5b3b98573446592a654515a08fd2080ad3c0e8",
+      "gzipSha256": "d81549cc9b497fc8ea5db0032f9c5b111fab33e15825fdbafff447824598a3cc"
+    },
+    "compare-sensor-workloads.py": {
+      "bytes": 14258,
+      "sha256": "16783dfb377ee8af9dcc9069a8c200b8b197096d17595799d962396523f29d76",
+      "gzipSha256": "657ce05628a90cad3b11a3f2f2d1200fee3627f9a0d85c5b4547a0bed6d5cc27"
+    },
+    "run-comparisons.py": {
+      "bytes": 2516,
+      "sha256": "b7d572694dbb819711815981c8a74fca124e8d3d177bb9c1cde951a177fe2ee2",
+      "gzipSha256": "d834b169406024299f9944c30500d2aa5a0d2b1e3f2bbeb9009477102f2e8edf"
+    },
+    "system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "windows/P0/0-baseline.json": {
+      "bytes": 207527,
+      "sha256": "29dca420e15fc2366445e901a6f99f6835593c61addcda26219570049f9a07e1",
+      "gzipSha256": "06afd8be62b677c7251b27a3e836300c14a3e19804d6f331d3a77051039a00e6"
+    },
+    "windows/P0/1-candidate.json": {
+      "bytes": 207558,
+      "sha256": "1cd0a2b05c820c39bbbd68006ab2ed756b987231693a16a25728744c0099b586",
+      "gzipSha256": "7442851ed97c0ff873d3b9f0f5de1c1441c39cb4facd0f0de14c34d6e6f48b07"
+    },
+    "windows/P0/2-candidate.json": {
+      "bytes": 207557,
+      "sha256": "bc7a737821caf5be05e3e046e987b036ee5089753763c8926b2ea0f73db32e9e",
+      "gzipSha256": "e137f2ebd4865c4b0cac8ca8622eebb06bf8ea5d3325866ed6c63ae28632b335"
+    },
+    "windows/P0/3-baseline.json": {
+      "bytes": 207546,
+      "sha256": "c002868b2dbd0015dc231635b5e83ebd26b62530b4530b8cbb767c59bbe38a97",
+      "gzipSha256": "d9fcb2efaeac5a4da79fd27368c1943ca71ca4ae94c8bc9d23229a0bff682fae"
+    },
+    "windows/P0/comparison.json": {
+      "bytes": 4030,
+      "sha256": "8d8565626c1cc54f80c569ecd9fe69c7f1d90e096a273011f0aeccedb7381ad2",
+      "gzipSha256": "974c1acd9fd76b887e76285083cf6501a0f56dcbe13933ee199cb7af73074d54"
+    },
+    "windows/P1/0-baseline.json": {
+      "bytes": 214535,
+      "sha256": "8e4f848f0b858ffdb547edca9525f32058c39f19f023d416bf46f9d1a2165dc4",
+      "gzipSha256": "e8b5f3192779a779a15b4c8b118f989ac33bf16e69605ef77487c52d7def2d98"
+    },
+    "windows/P1/1-candidate.json": {
+      "bytes": 214640,
+      "sha256": "78d9579ca20dac6cd095b4c2e1e9117654604e985ebb089db4f155727d085679",
+      "gzipSha256": "f288fe1191840dce9a45de0ff087bc01a2689d50e54e20dc1793f5efe4cdadc9"
+    },
+    "windows/P1/2-candidate.json": {
+      "bytes": 214605,
+      "sha256": "14cf68eed2274b710c3adc0d55d2e44c061cd6e9f5cd6b7b7b9decfacf4a32b8",
+      "gzipSha256": "d5dfd903e481c039044c72961faf7c966db1b82bff2b64ced09719d4dc34cfaf"
+    },
+    "windows/P1/3-baseline.json": {
+      "bytes": 214921,
+      "sha256": "927916e9b72e18c3b03435df5656c5cc5a38bbdaf9bdd00ee4fbaf4741c6587c",
+      "gzipSha256": "13c1dd22c80c7b0b812bdaa4acf2a5cc027cf6e4f2cc0ff72876623ebef73115"
+    },
+    "windows/P1/comparison.json": {
+      "bytes": 4042,
+      "sha256": "b39720f1695aecfeebed1a54eb7d5e2fe29ebc0ee5f491f73d67ab9ebefa8238",
+      "gzipSha256": "bb79c72c8d96b2dd2ff0f86f132e8bb22e2a8b21bf6a3300a75f8637ef8de483"
+    },
+    "windows/resources.json": {
+      "bytes": 11651,
+      "sha256": "0ae84490c38710dc43a137377b5aa2e03b0039d643040fa091d41620354d301c",
+      "gzipSha256": "d0095ea666889d042b7084c62007c4005b8d31f3ef2b8af0ab5ed52e30f9ccb0"
+    },
+    "debian/P0/0-baseline.json": {
+      "bytes": 208419,
+      "sha256": "4462ac24838d8d6f238fe7bd5791ec42dbb6e3f2e0a4e5292bbeb49ad15e3c97",
+      "gzipSha256": "5242806ee0177b0b38cd2a6d4661ce6d8a309d59a896624c02c3895e115f6334"
+    },
+    "debian/P0/1-candidate.json": {
+      "bytes": 208348,
+      "sha256": "ca1266857c3e7876133c11b4af1784d6f3e515194385f3bfebc6aa57c5deed5e",
+      "gzipSha256": "9c338894c6014c487ecde1849d2ceeeefb0282052b315d8083fb4af6545909b9"
+    },
+    "debian/P0/2-candidate.json": {
+      "bytes": 208374,
+      "sha256": "718f1c3960196c8d9fdfdad54e063299b114a204baf6a8d2f9da5b7e898fe81f",
+      "gzipSha256": "000fe6074df15c8e5b76c191676b1cb5d48d88ad986e8ef6073b9bffb76ebdc0"
+    },
+    "debian/P0/3-baseline.json": {
+      "bytes": 208377,
+      "sha256": "b1a14c573a60e3222bf710f3fb6953774751e71384b549d18b07c1435d563231",
+      "gzipSha256": "bd583f4e743b01c6648032ffe609fc4eab985acd33867ff230737078509d80ae"
+    },
+    "debian/P0/comparison.json": {
+      "bytes": 3965,
+      "sha256": "321420d431ea4d4cfc20eadfadf17aef6c0fa68b3081e3b20bfb79d9554323c1",
+      "gzipSha256": "779593453724580b949c0173341439647346e6ef5efef72c0798ef135b49c4a1"
+    },
+    "debian/P1/0-baseline.json": {
+      "bytes": 214840,
+      "sha256": "62af97e56d4b32027262bddaf4dcfdd9b4238bc3f09e25f5f50322da0cfd6987",
+      "gzipSha256": "fcb09cbb63407c095b609f19a2103f7b5a031b904bcb40e850466ab01d5f6f47"
+    },
+    "debian/P1/1-candidate.json": {
+      "bytes": 214797,
+      "sha256": "ca22fd8879e2aee019b372984ba0681efc60b2021069ef20ae46182218aff1fe",
+      "gzipSha256": "7e35b75568862ece109c0cac48704675545152ec5aa3eebe413f45d0b290036e"
+    },
+    "debian/P1/2-candidate.json": {
+      "bytes": 214802,
+      "sha256": "f741f5df527603310e8f08c4edc59041c5e1aa5b3a2325f827bc4a5a16e028f0",
+      "gzipSha256": "dbe071420ceeaea674a92d31bc6b339ef13ef487896c71c6577e8a4f3c1f3643"
+    },
+    "debian/P1/3-baseline.json": {
+      "bytes": 214797,
+      "sha256": "7c430ea455cfce83215f2e582f24e8b888cf62c06ddeca6c32dda54f95899159",
+      "gzipSha256": "00ec9ad2ed9d8dcf1dfa7af58c85aba290bb956d09e2f697b38f34a2890fe9ca"
+    },
+    "debian/P1/comparison.json": {
+      "bytes": 3968,
+      "sha256": "e2e9a95860aac9cac3b75a44fbc3626dbf18b7cb9d0342fb6e572f5a4c9840c8",
+      "gzipSha256": "d2abd84cdf25c28d609911c10c4c88a9fe491cfe1cbd69dfd9af82a828974929"
+    },
+    "debian/resources.json": {
+      "bytes": 12681,
+      "sha256": "53b90b8489df6562595d6b93c18934864d2a4104a8365831a0d9e700b7b38f75",
+      "gzipSha256": "d4fbbbdfc445cd792004716ec69a8df638d5ed4ea17f6be8f54851a47c4e6153"
+    },
+    "micro/micro.json": {
+      "bytes": 8749,
+      "sha256": "26a15b217e06bf72638134c643cc409e96a318817aabce8ed16de47b0e84d98e",
+      "gzipSha256": "276fd9d3b1ea21ef397aac6af361844a5c2f88994e7e6c736ff022d403b0215f"
+    },
+    "micro/buffered.json": {
+      "bytes": 8699,
+      "sha256": "3c14e40b9d074e4b54ed64ed0beeafb2f94e1db364a1c2e75b1a5ff3d02bdac4",
+      "gzipSha256": "1411537f0b10d87c096bee61848c07a4e6a8830c48af8b25d9da62bc46133000"
+    },
+    "micro/packed.json": {
+      "bytes": 8703,
+      "sha256": "cad3bdc2405100aaf1db316576a85b291c35d4e31fa4d4a8b704a29cb5ca9024",
+      "gzipSha256": "60f4c85165a75e9103c45e5e6168f00320587fe881481e60f37708e91ee4bf66"
+    },
+    "micro/packed-probe.rs": {
+      "bytes": 6430,
+      "sha256": "bf4d8f18f0c3fae1e033fa3f235ea9e6456dbaf55c9facc1f7cc201bcbb28e2f",
+      "gzipSha256": "4b8f6c2ca5bbbade6847461a48390f141d8efba9490cc10651afd66f9a8933fc"
+    },
+    "micro/sort-probe.rs": {
+      "bytes": 8673,
+      "sha256": "f9a0e3977b86d1474c44d1a37f1b16cf77b94563e7e7b43dfad91d23845e33a0",
+      "gzipSha256": "60cff5a5177c8949ad6849539be9d8041d2568002ab416f4fa71271894e87dca"
+    },
+    "micro/inplace-spatial.rs": {
+      "bytes": 97491,
+      "sha256": "c7f85a453680188b7207db0d69cec254150b9382913202eb80eebc42d6571863",
+      "gzipSha256": "e5cadd8bcded118c50c2cf0de3257a79a12bb56fc8c637bd1e0064110f6a0816"
+    },
+    "micro/buffered-spatial.rs": {
+      "bytes": 95436,
+      "sha256": "a083e7f30f44c7d81589c02c22b66d1fa9af46acd71f36ab48f30d60b197e207",
+      "gzipSha256": "8298d01da8a05f7768c81181cc7008a94cc26192a896736808686d6068194fe2"
+    },
+    "micro/resources.json": {
+      "bytes": 10021,
+      "sha256": "ce308166e2721e2cec31a68f9c1ec725a31d06a962d7c8ddfdeadb09cc180d74",
+      "gzipSha256": "1218f886f655e0338e5b1526e177400542f12a42d473c6c7c753ed083d1be4d2"
+    }
+  }
+}
