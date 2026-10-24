@@ -58,9 +58,10 @@
       "canonicalLfSha256": "d830776ee5dfb892e2da1786c5e317bff253b76187fea0267fe1e77e18dd2f29",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f",
+      "commit": "ca1a2d31aec9ec0468301f8afc56cb133a1bec00",
       "path": "scripts/qualification/spool-capacity-continue.ts",
-      "gitBlob": "fea0d73d2fe85b7bc58934b39204428f25bcb4b6"
+      "gitBlob": "fea0d73d2fe85b7bc58934b39204428f25bcb4b6",
+      "originalCommit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f"
     },
     "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e": {
       "sha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
@@ -68,10 +69,11 @@
       "canonicalLfSha256": "89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/spool-capacity-host-v1-89cf8b06399e.ts",
       "patch": "benchmarks/patches/89cf8b06399e249d6fc424b0005277858fccda8ea96aed59182afc5e3bda831e.patch",
-      "patchSha256": "b2261764565cf9a422e93bfe074cccbe1bba847e47028677369286533c1aec0e"
+      "patchSha256": "b2261764565cf9a422e93bfe074cccbe1bba847e47028677369286533c1aec0e",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb": {
       "sha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb",
@@ -79,10 +81,11 @@
       "canonicalLfSha256": "a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/spool-capacity-host-v2-a5c8b1775665.ts",
       "patch": "benchmarks/patches/a5c8b1775665f209511e554afc1f49ba2c3e519c0bc6d216567e20cfee0449eb.patch",
-      "patchSha256": "efc91eab71d158b37c5bcba5ded7449e094bbfd3198cd0f4900d6d66e139dd6c"
+      "patchSha256": "efc91eab71d158b37c5bcba5ded7449e094bbfd3198cd0f4900d6d66e139dd6c",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "94faf6e23abc3b886d5711a8ac60b0ed92c609c8f58ccb65ed436cec90e5fdb5": {
       "sha256": "94faf6e23abc3b886d5711a8ac60b0ed92c609c8f58ccb65ed436cec90e5fdb5",
@@ -90,9 +93,10 @@
       "canonicalLfSha256": "9caeb455048840236708f4c3c01c9c9a1c4d20d8c4b5ac2053cc14e15cf20509",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f",
+      "commit": "ca1a2d31aec9ec0468301f8afc56cb133a1bec00",
       "path": "scripts/qualification/spool-capacity.ts",
-      "gitBlob": "38c12c7d55d21c3da9007b356a18a8362da5d592"
+      "gitBlob": "38c12c7d55d21c3da9007b356a18a8362da5d592",
+      "originalCommit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f"
     },
     "a79c6a7ea035b34cf8d776e4e4078bb034ec6a6dc9c8dc846f9dbc393a471b89": {
       "sha256": "a79c6a7ea035b34cf8d776e4e4078bb034ec6a6dc9c8dc846f9dbc393a471b89",
@@ -100,9 +104,10 @@
       "canonicalLfSha256": "fa7ff83fa40581c501a956b03d499b985278f622d455470999b105738ad5a10d",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "a2aaf879a80718874b8a614be6800a8c8078d0bb",
+      "commit": "b18a62f140d4183432d410383e7a04f3f5f9bd8f",
       "path": "scripts/qualification/spool-capacity-recover.ts",
-      "gitBlob": "794c7ed3a33fb4cc14cbc830d80c422a09b08846"
+      "gitBlob": "794c7ed3a33fb4cc14cbc830d80c422a09b08846",
+      "originalCommit": "a2aaf879a80718874b8a614be6800a8c8078d0bb"
     },
     "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285": {
       "sha256": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285",
@@ -110,9 +115,10 @@
       "canonicalLfSha256": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f",
+      "commit": "ca1a2d31aec9ec0468301f8afc56cb133a1bec00",
       "path": "scripts/qualification/spoolFixture.ts",
-      "gitBlob": "76bbdb416d1da675106388aa6d111a30056770eb"
+      "gitBlob": "76bbdb416d1da675106388aa6d111a30056770eb",
+      "originalCommit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f"
     },
     "122ea41afa66d6c1142a4e68b7cd32d052961d4d00745d907390bb8d05a8d555": {
       "sha256": "122ea41afa66d6c1142a4e68b7cd32d052961d4d00745d907390bb8d05a8d555",
@@ -120,10 +126,11 @@
       "canonicalLfSha256": "122ea41afa66d6c1142a4e68b7cd32d052961d4d00745d907390bb8d05a8d555",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/spool-startup-io-profile-v1-122ea41afa66.mjs",
       "patch": "benchmarks/patches/122ea41afa66d6c1142a4e68b7cd32d052961d4d00745d907390bb8d05a8d555.patch",
-      "patchSha256": "1237236fab6c591af7fb746978485fe255a8847db9486620c6c100fcc0181760"
+      "patchSha256": "1237236fab6c591af7fb746978485fe255a8847db9486620c6c100fcc0181760",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "c98fd0e62e1ad6e39426ca9ea490de9a01562f327e8e0e758255537ad7931031": {
       "sha256": "c98fd0e62e1ad6e39426ca9ea490de9a01562f327e8e0e758255537ad7931031",
@@ -131,10 +138,11 @@
       "canonicalLfSha256": "289c8099fec6acfced85b23f87d2ca2ad78ec28d7573f68cfa450fa9c29ce827",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/accuracy-289c8099fec6.py",
       "patch": "benchmarks/patches/289c8099fec6acfced85b23f87d2ca2ad78ec28d7573f68cfa450fa9c29ce827.patch",
-      "patchSha256": "48896d863f384002224541e8c1f3a595be0424f2c5dc9c64976f9392bfe09cc5"
+      "patchSha256": "48896d863f384002224541e8c1f3a595be0424f2c5dc9c64976f9392bfe09cc5",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac": {
       "sha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
@@ -142,9 +150,10 @@
       "canonicalLfSha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "e6ab7519cbcb62de0a32a479d632c4df4b5fe21c",
+      "commit": "aa95496285c43e53d39382f8b78fb8210202bab6",
       "path": "scripts/qualification/system-resource-observer.py",
-      "gitBlob": "77f453bba29aaf5aa377861591124a34345c63a5"
+      "gitBlob": "77f453bba29aaf5aa377861591124a34345c63a5",
+      "originalCommit": "e6ab7519cbcb62de0a32a479d632c4df4b5fe21c"
     },
     "ceb35e5f95d0c68fb70b6390930cf1adc64f21f5881230c9686e16983da5eaa3": {
       "sha256": "ceb35e5f95d0c68fb70b6390930cf1adc64f21f5881230c9686e16983da5eaa3",
@@ -152,10 +161,11 @@
       "canonicalLfSha256": "f24a5ea4b286cf8bdf8e8233b812e2ffcf8dcbd4ea9f7b16567f530705191b25",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/fixed-export-f24a5ea4b286.py",
       "patch": "benchmarks/patches/f24a5ea4b286cf8bdf8e8233b812e2ffcf8dcbd4ea9f7b16567f530705191b25.patch",
-      "patchSha256": "0722efcb1439c7320eb421bd948e0c54348435227dbd064bc960d1a60ba3d62b"
+      "patchSha256": "0722efcb1439c7320eb421bd948e0c54348435227dbd064bc960d1a60ba3d62b",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "4764ce6884301369fc050c71984bde250aa272948aec38a60a1bb042f25c5d49": {
       "sha256": "4764ce6884301369fc050c71984bde250aa272948aec38a60a1bb042f25c5d49",
@@ -213,10 +223,11 @@
       "canonicalLfSha256": "57f3ff798278dbbd9fa7a3455ae214b3e23918ae11632f77da48abe3768d6b22",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/qualify-57f3ff798278.py",
       "patch": "benchmarks/patches/57f3ff798278dbbd9fa7a3455ae214b3e23918ae11632f77da48abe3768d6b22.patch",
-      "patchSha256": "8eb68032fea387e1c6aa0afe06c18d26e75064b9bcb685c820d3ba4c9a5d5fd9"
+      "patchSha256": "8eb68032fea387e1c6aa0afe06c18d26e75064b9bcb685c820d3ba4c9a5d5fd9",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9": {
       "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
@@ -224,9 +235,10 @@
       "canonicalLfSha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "e6ab7519cbcb62de0a32a479d632c4df4b5fe21c",
+      "commit": "aa95496285c43e53d39382f8b78fb8210202bab6",
       "path": "scripts/qualification/system-resource-observer.py",
-      "gitBlob": "77f453bba29aaf5aa377861591124a34345c63a5"
+      "gitBlob": "77f453bba29aaf5aa377861591124a34345c63a5",
+      "originalCommit": "e6ab7519cbcb62de0a32a479d632c4df4b5fe21c"
     },
     "df335402a0ae52c1e5788cc47b038b88190aed50605dfbbd975c4441a9e5c7e3": {
       "sha256": "df335402a0ae52c1e5788cc47b038b88190aed50605dfbbd975c4441a9e5c7e3",
@@ -234,10 +246,11 @@
       "canonicalLfSha256": "085d54ac3bef6d5c124b3722bb3262349c2810061a235328ad389e8bf4c4ce10",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/benchmark-production-085d54ac3bef.py",
       "patch": "benchmarks/patches/085d54ac3bef6d5c124b3722bb3262349c2810061a235328ad389e8bf4c4ce10.patch",
-      "patchSha256": "64c3f94559f68d187874c94e90f1cf7f8446932208be217854cae0d1e42ec40a"
+      "patchSha256": "64c3f94559f68d187874c94e90f1cf7f8446932208be217854cae0d1e42ec40a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "67b2f100536305ede430561b6e7f7525e6f6aa00e9f19818432f1bd704087933": {
       "sha256": "67b2f100536305ede430561b6e7f7525e6f6aa00e9f19818432f1bd704087933",
@@ -245,10 +258,11 @@
       "canonicalLfSha256": "d5dd0cefc13f1b107c2508c0f9775b86462836ff7df44d59a3d7f5d571098430",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/prepare-fixed-d5dd0cefc13f.py",
       "patch": "benchmarks/patches/d5dd0cefc13f1b107c2508c0f9775b86462836ff7df44d59a3d7f5d571098430.patch",
-      "patchSha256": "17fb095a1ef8cd10eb08e0e85c44b7fedb891c7b196dbe756b80efd1811445e4"
+      "patchSha256": "17fb095a1ef8cd10eb08e0e85c44b7fedb891c7b196dbe756b80efd1811445e4",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "f79949d642aa667129b6d6e23ebf14bbb69c9ce96ed18b51ebab9629b4ab2ada": {
       "sha256": "f79949d642aa667129b6d6e23ebf14bbb69c9ce96ed18b51ebab9629b4ab2ada",
@@ -296,10 +310,11 @@
       "canonicalLfSha256": "ae50ec7d7efeda690d142e62b8a43c8df138f4f10e3053beb299292e3ba8126e",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/qualify-ae50ec7d7efe.py",
       "patch": "benchmarks/patches/ae50ec7d7efeda690d142e62b8a43c8df138f4f10e3053beb299292e3ba8126e.patch",
-      "patchSha256": "d472fa9972a9583e2eafecc8896f8c5a64b6c27209dea4729a3eca8a44cafe11"
+      "patchSha256": "d472fa9972a9583e2eafecc8896f8c5a64b6c27209dea4729a3eca8a44cafe11",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74": {
       "sha256": "667cb3d9d00402a5cd0aa7980094ab1ec0306b4f561fc814aa76d17c02ea2e74",
@@ -477,9 +492,10 @@
       "canonicalLfSha256": "dc78cb805212e3b866d0d9ee03655018efd7a6c4f909de36a1a259dc7f84b318",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "55376ef264beb165b486ab9af04e1156b4b758d3",
+      "commit": "047c36d41624a9be3150ad20af964edecc9ed63a",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "bb35e7588dcca7b5fd0fdf7ef54490a0341f9ea1"
+      "gitBlob": "bb35e7588dcca7b5fd0fdf7ef54490a0341f9ea1",
+      "originalCommit": "55376ef264beb165b486ab9af04e1156b4b758d3"
     },
     "7d8298f0e1f72d19d6ad2d87da36c491bd1ac7ff041615eb4dad626b9d2ddaa3": {
       "sha256": "7d8298f0e1f72d19d6ad2d87da36c491bd1ac7ff041615eb4dad626b9d2ddaa3",
@@ -487,10 +503,11 @@
       "canonicalLfSha256": "7d8298f0e1f72d19d6ad2d87da36c491bd1ac7ff041615eb4dad626b9d2ddaa3",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-pressure-7d8298f0e1f7.py",
       "patch": "benchmarks/patches/7d8298f0e1f72d19d6ad2d87da36c491bd1ac7ff041615eb4dad626b9d2ddaa3.patch",
-      "patchSha256": "4eaa3fe7bce4e6f70120cfd4eb1a237c496b6253eaac0712befb53d65d1f0040"
+      "patchSha256": "4eaa3fe7bce4e6f70120cfd4eb1a237c496b6253eaac0712befb53d65d1f0040",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "f1e8c20373a75b1ed98725d3dde3024275a4b2e645300a67f5ada986d76be48e": {
       "sha256": "f1e8c20373a75b1ed98725d3dde3024275a4b2e645300a67f5ada986d76be48e",
@@ -498,10 +515,11 @@
       "canonicalLfSha256": "ba837400bc7efc28fc75a4e20e6ca5b654176b24be0ab4c70dba542d27aaa8ce",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/driver-ba837400bc7e.py",
       "patch": "benchmarks/patches/ba837400bc7efc28fc75a4e20e6ca5b654176b24be0ab4c70dba542d27aaa8ce.patch",
-      "patchSha256": "5fb5d580f21717fd07c2f63b5b2db05a64c5f7097c0ed0b77ba0d89915fc82aa"
+      "patchSha256": "5fb5d580f21717fd07c2f63b5b2db05a64c5f7097c0ed0b77ba0d89915fc82aa",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "a287f35c5ec1af57571cb9d610bdd6ce5ee1e5f7308e8a3715a817df6bfc079b": {
       "sha256": "a287f35c5ec1af57571cb9d610bdd6ce5ee1e5f7308e8a3715a817df6bfc079b",
@@ -512,10 +530,11 @@
         49
       ],
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/analyze-final-label-variation-20261023-ba9b7660a5f9.py",
       "patch": "benchmarks/patches/ba9b7660a5f9c59fa72ee46774ae4da629eb334ff1285c7ffe10d128ec0d3a71.patch",
-      "patchSha256": "37090c7e8ac536134a599954d611dc5cea92cee75d7af104947c686d9016045a"
+      "patchSha256": "37090c7e8ac536134a599954d611dc5cea92cee75d7af104947c686d9016045a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "70ef1d64c24a940d7a05a037393520e2b73d496e0bb3fa900b7ae04fee3cbf11": {
       "sha256": "70ef1d64c24a940d7a05a037393520e2b73d496e0bb3fa900b7ae04fee3cbf11",
@@ -526,10 +545,11 @@
         149
       ],
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/evaluate-final-teacher-agreement-cpu-20261023-7c50ca6431d5.py",
       "patch": "benchmarks/patches/7c50ca6431d5c2535e5758c319a574d664e2df8e4e21635e5fc6feef05c684be.patch",
-      "patchSha256": "31627979bb7a492336f9215a2e3842c816592f9aa70cfb42554adefc6a0aa748"
+      "patchSha256": "31627979bb7a492336f9215a2e3842c816592f9aa70cfb42554adefc6a0aa748",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "ddea2b11f181a84d79d154634f106a76cb6db4e7427b3c4d88ff3e48621650c7": {
       "sha256": "ddea2b11f181a84d79d154634f106a76cb6db4e7427b3c4d88ff3e48621650c7",
@@ -540,10 +560,11 @@
         89
       ],
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/generate-final-teacher-agreement-cpu-20261023-bb04ba6fef7f.py",
       "patch": "benchmarks/patches/bb04ba6fef7fd705c581ad00cf709f3105054e894b00e3f100089bd86a289010.patch",
-      "patchSha256": "1560991e0039fa3acfa7f0191c25481c2dcf27c753a7ded4a210fad72d860bf2"
+      "patchSha256": "1560991e0039fa3acfa7f0191c25481c2dcf27c753a7ded4a210fad72d860bf2",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -591,9 +612,10 @@
       "canonicalLfSha256": "ada2297615fc1f008a4494435706d7b3ec0a1002240d097eeca5ea4f6416c7f3",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "93eff22ce4eb455b4d9fd6e422123aaa448ebe0d",
+      "commit": "9d255f44f3cef1fada5bd645443cbfb3b6ac9721",
       "path": "scripts/qualification/compare-sensor-workloads.py",
-      "gitBlob": "c22ea637eb9cd920469b4db51bb801ac53eac256"
+      "gitBlob": "c22ea637eb9cd920469b4db51bb801ac53eac256",
+      "originalCommit": "93eff22ce4eb455b4d9fd6e422123aaa448ebe0d"
     },
     "dab33968dda7eab0acbcd6a4f935a9c66817fcab4548b94a7f0c16f243f23ce2": {
       "sha256": "dab33968dda7eab0acbcd6a4f935a9c66817fcab4548b94a7f0c16f243f23ce2",
@@ -601,9 +623,10 @@
       "canonicalLfSha256": "62ce5dc7659c09f83ecd7a90f13799fb38beed1661c5ce60ae59a2afc6fce987",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "a5f4b5cd0d0fa55d42807b7cb9ee286cf319825b",
+      "commit": "bddb5dd0e378dc3ba726f58d49799ac6903e9516",
       "path": "scripts/qualification/compare-sensor-workloads.py",
-      "gitBlob": "c457acae0c2777a4e4a6efa251aad16306bee950"
+      "gitBlob": "c457acae0c2777a4e4a6efa251aad16306bee950",
+      "originalCommit": "a5f4b5cd0d0fa55d42807b7cb9ee286cf319825b"
     },
     "70a447b7c469912fbe682c569db62c4aac833342c09a7a068147df7f3fc83a50": {
       "sha256": "70a447b7c469912fbe682c569db62c4aac833342c09a7a068147df7f3fc83a50",
@@ -611,9 +634,10 @@
       "canonicalLfSha256": "0ff3f0d9b9bb16ddb505d53c4be297006bd22319d0ba311aa7e99182fe70822e",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85",
+      "commit": "462626105bef73213e48350a9a86930da77a9ed6",
       "path": "scripts/qualification/sensor-wall.ts",
-      "gitBlob": "0bc8ce1c7d0633c862e56eb9f41c99046c32070c"
+      "gitBlob": "0bc8ce1c7d0633c862e56eb9f41c99046c32070c",
+      "originalCommit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85"
     },
     "4b9a810fe1d5234bac9c8793fe1d1890bafcb6112b10e81314c7e157f2e55416": {
       "sha256": "4b9a810fe1d5234bac9c8793fe1d1890bafcb6112b10e81314c7e157f2e55416",
@@ -621,9 +645,10 @@
       "canonicalLfSha256": "4253a9c03213719f7f79a23c3bbf55f70ed56bdf07317912d2585bb4644f60a0",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "61beaa437edbaca052964ba95f6d4fa87a810939",
+      "commit": "5126fc67b6cdb8e4e861a430aa5f14b571674a35",
       "path": "scripts/qualification/sensorWallSummary.ts",
-      "gitBlob": "d18126b65283ab617f01571e7ce0716524e531b1"
+      "gitBlob": "d18126b65283ab617f01571e7ce0716524e531b1",
+      "originalCommit": "61beaa437edbaca052964ba95f6d4fa87a810939"
     },
     "16051b4e2749f2979df862dcf2fc76fc5acca5f0c10726bb02872a4974424960": {
       "sha256": "16051b4e2749f2979df862dcf2fc76fc5acca5f0c10726bb02872a4974424960",
@@ -631,10 +656,11 @@
       "canonicalLfSha256": "0dde95b858b27c24424a8bb6ae887083b420c307cbe0a1d8871f7d84026ca082",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/resume-study-0dde95b858b2.py",
       "patch": "benchmarks/patches/0dde95b858b27c24424a8bb6ae887083b420c307cbe0a1d8871f7d84026ca082.patch",
-      "patchSha256": "79624bdda09fabaa05e173f581687cc7d66647e19e08341d92bde14ab1ffb980"
+      "patchSha256": "79624bdda09fabaa05e173f581687cc7d66647e19e08341d92bde14ab1ffb980",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "31c685c14f8a4f7ca80867ea50ed0858d86e05ab34fb15417e941af213dcb164": {
       "sha256": "31c685c14f8a4f7ca80867ea50ed0858d86e05ab34fb15417e941af213dcb164",
@@ -642,10 +668,11 @@
       "canonicalLfSha256": "9ad211df22115f3e201f104cbc1678a6c2040e3863c6eae97f4d4e983d90b261",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-study-9ad211df2211.py",
       "patch": "benchmarks/patches/9ad211df22115f3e201f104cbc1678a6c2040e3863c6eae97f4d4e983d90b261.patch",
-      "patchSha256": "13d9ae818793c9d5880f69315201fcf9ba1bf959dc75c5b0a901d98a815deb94"
+      "patchSha256": "13d9ae818793c9d5880f69315201fcf9ba1bf959dc75c5b0a901d98a815deb94",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "ea5c9657618089983f6ebd03501413a2f89508ce16902bac2fe330e75b2464ad": {
       "sha256": "ea5c9657618089983f6ebd03501413a2f89508ce16902bac2fe330e75b2464ad",
@@ -773,10 +800,11 @@
       "canonicalLfSha256": "85210365e7ca97ad8d74850aad3c1ddd6e4f99c36a7bd67996e4f4efa83a0452",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-study-85210365e7ca.py",
       "patch": "benchmarks/patches/85210365e7ca97ad8d74850aad3c1ddd6e4f99c36a7bd67996e4f4efa83a0452.patch",
-      "patchSha256": "5a3ee4cc3f749a102cd97e1cc234bd861e662ee7e429cfe784c8ec370bb945e3"
+      "patchSha256": "5a3ee4cc3f749a102cd97e1cc234bd861e662ee7e429cfe784c8ec370bb945e3",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "481caaed3901c4772d93469a5c6c0457b92a2c38cf9284031dd2f98e8a42ab6f": {
       "sha256": "481caaed3901c4772d93469a5c6c0457b92a2c38cf9284031dd2f98e8a42ab6f",
@@ -794,9 +822,10 @@
       "canonicalLfSha256": "e98c28d8434dd198be93f2b96512052795e522b2df8a3f599bc72ecd35279317",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85",
+      "commit": "462626105bef73213e48350a9a86930da77a9ed6",
       "path": "scripts/qualification/qualify-large-workload.py",
-      "gitBlob": "884141dedb20168e8ddf246dfd560e477e3910c9"
+      "gitBlob": "884141dedb20168e8ddf246dfd560e477e3910c9",
+      "originalCommit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85"
     },
     "9e3cc08293c3f1ebd523b09eec61e0a2188e1cdcc15fa849d279e2e05edc9175": {
       "sha256": "9e3cc08293c3f1ebd523b09eec61e0a2188e1cdcc15fa849d279e2e05edc9175",
@@ -804,9 +833,10 @@
       "canonicalLfSha256": "08fba2327152ec6c73b51aa51169518be6857882445ae682906b04772849178d",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85",
+      "commit": "462626105bef73213e48350a9a86930da77a9ed6",
       "path": "scripts/qualification/qualify-ray-hierarchy.py",
-      "gitBlob": "7e1530652e49c3b5c5a1f0c98a14709596c06b84"
+      "gitBlob": "7e1530652e49c3b5c5a1f0c98a14709596c06b84",
+      "originalCommit": "c99935fa0d6019582ff029c2c2a0ccbcc0a5ae85"
     },
     "a14fd3a6b94f01520af6ca40e383525f00944b7321186475a408a5d79c452294": {
       "sha256": "a14fd3a6b94f01520af6ca40e383525f00944b7321186475a408a5d79c452294",
@@ -814,9 +844,10 @@
       "canonicalLfSha256": "a14fd3a6b94f01520af6ca40e383525f00944b7321186475a408a5d79c452294",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "de0ce7016ad2ff463d45aa6befa380db97c286ee",
+      "commit": "37866438da39b67e87e53bea6ea3974146f0b5b1",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "141b779be2ea8ecacf8631db86c64401dd7e7292"
+      "gitBlob": "141b779be2ea8ecacf8631db86c64401dd7e7292",
+      "originalCommit": "de0ce7016ad2ff463d45aa6befa380db97c286ee"
     },
     "675fcf78fd6e1eeaf8f6a6f99d90021a9509be2d57b234e34c6b07be1f728c06": {
       "sha256": "675fcf78fd6e1eeaf8f6a6f99d90021a9509be2d57b234e34c6b07be1f728c06",
@@ -824,9 +855,10 @@
       "canonicalLfSha256": "675fcf78fd6e1eeaf8f6a6f99d90021a9509be2d57b234e34c6b07be1f728c06",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "393759953f0ccde6f93d7210df2ff8e89883ea0e",
+      "commit": "b8c851efe10fa66d0906a9272dbdf2cf2a980398",
       "path": "scripts/qualification/sensorWallSummary.ts",
-      "gitBlob": "8746f1e2519c408aca335db54aef8ebfc0211e39"
+      "gitBlob": "8746f1e2519c408aca335db54aef8ebfc0211e39",
+      "originalCommit": "393759953f0ccde6f93d7210df2ff8e89883ea0e"
     },
     "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5": {
       "sha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
@@ -834,9 +866,10 @@
       "canonicalLfSha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "9afcf6f7ddbadae7d8b5d9ca1288c67625d26637",
+      "commit": "5d77df52a6475eecae685668835b1181cb10db04",
       "path": "scripts/qualification/sensorWallTiming.ts",
-      "gitBlob": "8fe659b823153c08dff0b40c98cf0ff0adc4b9e7"
+      "gitBlob": "8fe659b823153c08dff0b40c98cf0ff0adc4b9e7",
+      "originalCommit": "9afcf6f7ddbadae7d8b5d9ca1288c67625d26637"
     },
     "f40b78dd1c078163967dcea2cfccf31676c149859837f96178d6174355e579ac": {
       "sha256": "f40b78dd1c078163967dcea2cfccf31676c149859837f96178d6174355e579ac",
@@ -954,10 +987,11 @@
       "canonicalLfSha256": "c9695d43a3fc8cc7e8e2db8d49a652ea283c70eb9bd190830fba5da1309d6f09",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/generate-capacity-student-c9695d43a3fc.py",
       "patch": "benchmarks/patches/c9695d43a3fc8cc7e8e2db8d49a652ea283c70eb9bd190830fba5da1309d6f09.patch",
-      "patchSha256": "d9d901e5449d182ae3301633ffad391acfc73c2af64ae90a2505d88cbc838e62"
+      "patchSha256": "d9d901e5449d182ae3301633ffad391acfc73c2af64ae90a2505d88cbc838e62",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "fbc4cea0ca5929bec9d87bb46b6c2f63219bc2a8a4a580e7b7b7bcc6d4b5a00d": {
       "sha256": "fbc4cea0ca5929bec9d87bb46b6c2f63219bc2a8a4a580e7b7b7bcc6d4b5a00d",
@@ -965,9 +999,10 @@
       "canonicalLfSha256": "fbc4cea0ca5929bec9d87bb46b6c2f63219bc2a8a4a580e7b7b7bcc6d4b5a00d",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "09fd53e0d4ab2ffb0a090d94fcac1142a1bdc6f9",
+      "commit": "3cbf2f73bde90c411c3cf7a32d1f64303fff92c1",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "0b7d6892bc4b3c5fc00a9260268d7ee595061770"
+      "gitBlob": "0b7d6892bc4b3c5fc00a9260268d7ee595061770",
+      "originalCommit": "09fd53e0d4ab2ffb0a090d94fcac1142a1bdc6f9"
     },
     "b4aa756eb9ba96a2f61589d59ee3150cb93d81bc9515d8773758ad4048b3a74e": {
       "sha256": "b4aa756eb9ba96a2f61589d59ee3150cb93d81bc9515d8773758ad4048b3a74e",
@@ -975,9 +1010,10 @@
       "canonicalLfSha256": "b4aa756eb9ba96a2f61589d59ee3150cb93d81bc9515d8773758ad4048b3a74e",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "24067d3bc7fff483a1e42c9278308de59c948ef5",
+      "commit": "f37151117ba4fdbb7fb5d866e73d36865c7e20aa",
       "path": "scripts/qualification/liveCapacityLibrary.ts",
-      "gitBlob": "03e6acf64291233aed89451c15d0b6a7a147754f"
+      "gitBlob": "03e6acf64291233aed89451c15d0b6a7a147754f",
+      "originalCommit": "24067d3bc7fff483a1e42c9278308de59c948ef5"
     },
     "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374": {
       "sha256": "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374",
@@ -985,9 +1021,10 @@
       "canonicalLfSha256": "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "3f6271e542b22e2b676acd799d0b45bde653c1e3",
+      "commit": "032e397d3f3a8b81aeabe0c5d0a5350a8609bd81",
       "path": "scripts/qualification/sensorWallSummary.ts",
-      "gitBlob": "d05008899296e0b3184d000870e806faa7eae8e0"
+      "gitBlob": "d05008899296e0b3184d000870e806faa7eae8e0",
+      "originalCommit": "3f6271e542b22e2b676acd799d0b45bde653c1e3"
     },
     "d87458abd1f470c633b990b1a24333be72d5c389c2c1f39fd22a0c736342113d": {
       "sha256": "d87458abd1f470c633b990b1a24333be72d5c389c2c1f39fd22a0c736342113d",
@@ -1015,9 +1052,10 @@
       "canonicalLfSha256": "14a292556ba5e66ab20008783907ce2f6a4a917291855d1749fb32b0878fefde",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "3958342f31624774e2c8c2ad4f535087a4103202",
+      "commit": "89ddedd33c2ea9291e00d91e14f8e77d49f8fb4c",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "538611474269d5635802c0376b887c30eced4d6e"
+      "gitBlob": "538611474269d5635802c0376b887c30eced4d6e",
+      "originalCommit": "3958342f31624774e2c8c2ad4f535087a4103202"
     },
     "9758a3e43711498eccf0b00da8360b689e1ab4d3254781c88bedeb41f0298cbd": {
       "sha256": "9758a3e43711498eccf0b00da8360b689e1ab4d3254781c88bedeb41f0298cbd",
@@ -1025,9 +1063,10 @@
       "canonicalLfSha256": "9758a3e43711498eccf0b00da8360b689e1ab4d3254781c88bedeb41f0298cbd",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "1281718d8f6c8170823cdc0ce4206b4ee1f3e352",
+      "commit": "b25b2bce2d203aef9eb21448cf0f20321805644e",
       "path": "scripts/qualification/liveSpoolPrefill.ts",
-      "gitBlob": "ae03440127bacd0e2ddf64ac77ea2890d34e1a22"
+      "gitBlob": "ae03440127bacd0e2ddf64ac77ea2890d34e1a22",
+      "originalCommit": "1281718d8f6c8170823cdc0ce4206b4ee1f3e352"
     },
     "768d62b86338714a32384ffd3e57da2a51858098ab691c3b02ec71ce5ba7831d": {
       "sha256": "768d62b86338714a32384ffd3e57da2a51858098ab691c3b02ec71ce5ba7831d",
@@ -1045,9 +1084,10 @@
       "canonicalLfSha256": "9a28699ddad138ccc3672f71d5fddb575844aad377618547c65dbc3582d5e9be",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "1281718d8f6c8170823cdc0ce4206b4ee1f3e352",
+      "commit": "b25b2bce2d203aef9eb21448cf0f20321805644e",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "56561b6d3cd29d2d10835d538732b8f76ec12b0b"
+      "gitBlob": "56561b6d3cd29d2d10835d538732b8f76ec12b0b",
+      "originalCommit": "1281718d8f6c8170823cdc0ce4206b4ee1f3e352"
     },
     "4cd1a0e6ec9e93a83a9369d20327914814460f85d13894284741863ae000a35f": {
       "sha256": "4cd1a0e6ec9e93a83a9369d20327914814460f85d13894284741863ae000a35f",
@@ -1055,9 +1095,10 @@
       "canonicalLfSha256": "f01fc6d98ef31d83affb20bf37cd3651c1fa1357b4d9f5edf7d8cbae01a4ff48",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+      "commit": "0a4f60a8add0fbb74f66066f9971140f3f9d9b80",
       "path": "scripts/qualification/observationQuality.ts",
-      "gitBlob": "6c4ebc66b968474f0804e795c7732619526aaa09"
+      "gitBlob": "6c4ebc66b968474f0804e795c7732619526aaa09",
+      "originalCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76"
     },
     "551d7641eab0221c40624638375a2c7cc0ccd6139d18e72a0e9ea035e4f0597b": {
       "sha256": "551d7641eab0221c40624638375a2c7cc0ccd6139d18e72a0e9ea035e4f0597b",
@@ -1065,9 +1106,10 @@
       "canonicalLfSha256": "5769d1a4c3d1838d0c3a0bf20505c79e5b8d15fb37d20509f74b233fcf7974d4",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+      "commit": "0a4f60a8add0fbb74f66066f9971140f3f9d9b80",
       "path": "src/protocol/observationQuality.ts",
-      "gitBlob": "9478d9136bd8662c852c0c552e82e30455ecf9d3"
+      "gitBlob": "9478d9136bd8662c852c0c552e82e30455ecf9d3",
+      "originalCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76"
     },
     "0b09f06398a607c87eae9597c12554d0a9f633dbee8f159de474b1b575b0a847": {
       "sha256": "0b09f06398a607c87eae9597c12554d0a9f633dbee8f159de474b1b575b0a847",
@@ -1075,9 +1117,10 @@
       "canonicalLfSha256": "e783eb6bb8c8c8a4baa757f8b38089415f0cf2e972df7ef9d44ae6b5cb7522c2",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+      "commit": "0a4f60a8add0fbb74f66066f9971140f3f9d9b80",
       "path": "scripts/qualification/sensor-wall.ts",
-      "gitBlob": "3bb3a2954d7e3a3742353ea3a1b77461a531ac28"
+      "gitBlob": "3bb3a2954d7e3a3742353ea3a1b77461a531ac28",
+      "originalCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76"
     },
     "d4122f103a57a6250191c34912ecb7fc056340495acae411098cae45f64b6099": {
       "sha256": "d4122f103a57a6250191c34912ecb7fc056340495acae411098cae45f64b6099",
@@ -1085,9 +1128,10 @@
       "canonicalLfSha256": "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "3f6271e542b22e2b676acd799d0b45bde653c1e3",
+      "commit": "032e397d3f3a8b81aeabe0c5d0a5350a8609bd81",
       "path": "scripts/qualification/sensorWallSummary.ts",
-      "gitBlob": "d05008899296e0b3184d000870e806faa7eae8e0"
+      "gitBlob": "d05008899296e0b3184d000870e806faa7eae8e0",
+      "originalCommit": "3f6271e542b22e2b676acd799d0b45bde653c1e3"
     },
     "d324cfb35a9c21674650693e98e233b1f5abccd2947422581cc02ccec959cc2e": {
       "sha256": "d324cfb35a9c21674650693e98e233b1f5abccd2947422581cc02ccec959cc2e",
@@ -1095,9 +1139,10 @@
       "canonicalLfSha256": "d324cfb35a9c21674650693e98e233b1f5abccd2947422581cc02ccec959cc2e",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "93eff22ce4eb455b4d9fd6e422123aaa448ebe0d",
+      "commit": "9d255f44f3cef1fada5bd645443cbfb3b6ac9721",
       "path": "native/src/engine/sensors_v4.rs",
-      "gitBlob": "cc13c129200633a0ff7b903cc4484d067e813b72"
+      "gitBlob": "cc13c129200633a0ff7b903cc4484d067e813b72",
+      "originalCommit": "93eff22ce4eb455b4d9fd6e422123aaa448ebe0d"
     },
     "1cebf1526b18d0940b4f92893d8892bd72c9940f21f1d47cd4afc6b4190faf9f": {
       "sha256": "1cebf1526b18d0940b4f92893d8892bd72c9940f21f1d47cd4afc6b4190faf9f",
@@ -1105,10 +1150,11 @@
       "canonicalLfSha256": "4f450a9599364280c0fbbc114a4945c5fb553f4ae99eccb719d9f52b0fa3d26d",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/sensors_v4.rs",
       "patch": "benchmarks/patches/4f450a9599364280c0fbbc114a4945c5fb553f4ae99eccb719d9f52b0fa3d26d.patch",
-      "patchSha256": "161e450697de5041932dd9889dbd428c226441ceae73996142b9c83f9f07487b"
+      "patchSha256": "161e450697de5041932dd9889dbd428c226441ceae73996142b9c83f9f07487b",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "73bd72b4ca7d9d6a31337684364eb8c0a24c75b587853d76299cefd6d088994b": {
       "sha256": "73bd72b4ca7d9d6a31337684364eb8c0a24c75b587853d76299cefd6d088994b",
@@ -1116,9 +1162,10 @@
       "canonicalLfSha256": "0e0c76270dd39334f0ab339e73b7fe97de2ae9e5c580abd5ac72af09f0b86a7e",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "3f6271e542b22e2b676acd799d0b45bde653c1e3",
+      "commit": "032e397d3f3a8b81aeabe0c5d0a5350a8609bd81",
       "path": "scripts/qualification/compare-sensor-workloads.py",
-      "gitBlob": "db1d94efcf8cc754572d8dc029a6b1e90b98e829"
+      "gitBlob": "db1d94efcf8cc754572d8dc029a6b1e90b98e829",
+      "originalCommit": "3f6271e542b22e2b676acd799d0b45bde653c1e3"
     },
     "13d0c275b6257c3fad13ea2455a831da67d327c316fd5a51177bb80b929f945b": {
       "sha256": "13d0c275b6257c3fad13ea2455a831da67d327c316fd5a51177bb80b929f945b",
@@ -1126,10 +1173,11 @@
       "canonicalLfSha256": "9924159a4317cb974b6a0365e7d9211c921671884518c62004f4114b3130da7b",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-comparison-9924159a4317.py",
       "patch": "benchmarks/patches/9924159a4317cb974b6a0365e7d9211c921671884518c62004f4114b3130da7b.patch",
-      "patchSha256": "e7fb5e7bb79e9936abf3bb56fdd0889a3cc430e2d583ee1947df8bd30b0f67c9"
+      "patchSha256": "e7fb5e7bb79e9936abf3bb56fdd0889a3cc430e2d583ee1947df8bd30b0f67c9",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "3f4ce13a3ffb0ac25dd2d721b58b3056c9b550df2b96dcdf0926ed0287465b61": {
       "sha256": "3f4ce13a3ffb0ac25dd2d721b58b3056c9b550df2b96dcdf0926ed0287465b61",
@@ -1137,9 +1185,10 @@
       "canonicalLfSha256": "7f6e1cc6f5aa78bf3b4ec9dcd92f141c7a6acc6d2e210eed1ead3322cb5e7b5f",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "9152d3d342161172cf2fd3dc8b37f7be83a2275d",
+      "commit": "67546186cbbc33796c3210b0d3f969fe4726eaba",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "ac3b697648b7dcff902ffff4087d706e9b7f3e5a"
+      "gitBlob": "ac3b697648b7dcff902ffff4087d706e9b7f3e5a",
+      "originalCommit": "9152d3d342161172cf2fd3dc8b37f7be83a2275d"
     },
     "f69be7946b8226f2450fc25f52fadbd9047ba10893e05af2218a9fa4b9e551c8": {
       "sha256": "f69be7946b8226f2450fc25f52fadbd9047ba10893e05af2218a9fa4b9e551c8",
@@ -1147,9 +1196,10 @@
       "canonicalLfSha256": "b4aa756eb9ba96a2f61589d59ee3150cb93d81bc9515d8773758ad4048b3a74e",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "24067d3bc7fff483a1e42c9278308de59c948ef5",
+      "commit": "f37151117ba4fdbb7fb5d866e73d36865c7e20aa",
       "path": "scripts/qualification/liveCapacityLibrary.ts",
-      "gitBlob": "03e6acf64291233aed89451c15d0b6a7a147754f"
+      "gitBlob": "03e6acf64291233aed89451c15d0b6a7a147754f",
+      "originalCommit": "24067d3bc7fff483a1e42c9278308de59c948ef5"
     },
     "a3ec9431647dcadb42f36cf563a39f4044f4ebc32043a3961236b2a3ce768d84": {
       "sha256": "a3ec9431647dcadb42f36cf563a39f4044f4ebc32043a3961236b2a3ce768d84",
@@ -1157,9 +1207,10 @@
       "canonicalLfSha256": "9758a3e43711498eccf0b00da8360b689e1ab4d3254781c88bedeb41f0298cbd",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "1281718d8f6c8170823cdc0ce4206b4ee1f3e352",
+      "commit": "b25b2bce2d203aef9eb21448cf0f20321805644e",
       "path": "scripts/qualification/liveSpoolPrefill.ts",
-      "gitBlob": "ae03440127bacd0e2ddf64ac77ea2890d34e1a22"
+      "gitBlob": "ae03440127bacd0e2ddf64ac77ea2890d34e1a22",
+      "originalCommit": "1281718d8f6c8170823cdc0ce4206b4ee1f3e352"
     },
     "f7d1aab865db1b8a60f1eafac2a768eddd3803eb4ef03865ebd997da74401e37": {
       "sha256": "f7d1aab865db1b8a60f1eafac2a768eddd3803eb4ef03865ebd997da74401e37",
@@ -1167,9 +1218,10 @@
       "canonicalLfSha256": "2b250b8ed58409c0980d7d863188ca10f3542ff66cd2333977ed515b6422bcf7",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "5c95dc65227c873e1606115b5cb28bd4bd66409a",
+      "commit": "2bdc49961f789907b501a3399176a695ae2194ae",
       "path": "scripts/qualification/nativeStepCosts.ts",
-      "gitBlob": "8d1eada3e04a4fad58185290a294a16ef1d84d34"
+      "gitBlob": "8d1eada3e04a4fad58185290a294a16ef1d84d34",
+      "originalCommit": "5c95dc65227c873e1606115b5cb28bd4bd66409a"
     },
     "9c47abe4006f9db93e343c370e2a64e21e6f17ed3e1e2916e87f4699d47f3979": {
       "sha256": "9c47abe4006f9db93e343c370e2a64e21e6f17ed3e1e2916e87f4699d47f3979",
@@ -1177,9 +1229,10 @@
       "canonicalLfSha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "9afcf6f7ddbadae7d8b5d9ca1288c67625d26637",
+      "commit": "5d77df52a6475eecae685668835b1181cb10db04",
       "path": "scripts/qualification/sensorWallTiming.ts",
-      "gitBlob": "8fe659b823153c08dff0b40c98cf0ff0adc4b9e7"
+      "gitBlob": "8fe659b823153c08dff0b40c98cf0ff0adc4b9e7",
+      "originalCommit": "9afcf6f7ddbadae7d8b5d9ca1288c67625d26637"
     },
     "46a6ccd7acfac1a4dac1f6d0c56c530856b1b50159d9c5c5b80b3dda963e672b": {
       "sha256": "46a6ccd7acfac1a4dac1f6d0c56c530856b1b50159d9c5c5b80b3dda963e672b",
@@ -1187,9 +1240,10 @@
       "canonicalLfSha256": "5649f791b079f4bdef0ca172d6e8a8efbc513983fc0daa1c6f3e0aab349b2285",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f",
+      "commit": "ca1a2d31aec9ec0468301f8afc56cb133a1bec00",
       "path": "scripts/qualification/spoolFixture.ts",
-      "gitBlob": "76bbdb416d1da675106388aa6d111a30056770eb"
+      "gitBlob": "76bbdb416d1da675106388aa6d111a30056770eb",
+      "originalCommit": "74c2d1ab49425aa3fd14af8b5398e88d0cebd44f"
     },
     "7041fbb3082c54af15cc47113cbdb9f1b34fc3ceab800883259906dd8a3f3cf6": {
       "sha256": "7041fbb3082c54af15cc47113cbdb9f1b34fc3ceab800883259906dd8a3f3cf6",
@@ -1207,9 +1261,10 @@
       "canonicalLfSha256": "e32b27799d18d8dc34507f57acc5c439abe6a34e150a83e5cc49500f63441972",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "4c6d0e0005110fa8653d0a451b6424653eb4c94b",
+      "commit": "b4a8590bf4583d46fff8a709e68d04c774a374a0",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "6ca23a6f4842b63a1b264c07fc981299f3793664"
+      "gitBlob": "6ca23a6f4842b63a1b264c07fc981299f3793664",
+      "originalCommit": "4c6d0e0005110fa8653d0a451b6424653eb4c94b"
     },
     "27aab7db3575c429acab2102a516d800bfc531e0728d23682f78c27b953ca27e": {
       "sha256": "27aab7db3575c429acab2102a516d800bfc531e0728d23682f78c27b953ca27e",
@@ -1237,9 +1292,10 @@
       "canonicalLfSha256": "96bbcae7222c0e49ed705ec0b07847d0ef5b2f53a13d0ddef03d0acd67c7b335",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "393759953f0ccde6f93d7210df2ff8e89883ea0e",
+      "commit": "b8c851efe10fa66d0906a9272dbdf2cf2a980398",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "bda434d204f4f878b985d8e24fe8cd56380f8a22"
+      "gitBlob": "bda434d204f4f878b985d8e24fe8cd56380f8a22",
+      "originalCommit": "393759953f0ccde6f93d7210df2ff8e89883ea0e"
     },
     "dc4562ae1473f88a45e1ca61c8283ff039741d5c6f2030628346956b6da29301": {
       "sha256": "dc4562ae1473f88a45e1ca61c8283ff039741d5c6f2030628346956b6da29301",
@@ -1247,10 +1303,11 @@
       "canonicalLfSha256": "b443226cd3079dfc58a2094a1a1841958a981fe807ad57bcbf0195db66150370",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/verify-checkpoint-b443226cd307.py",
       "patch": "benchmarks/patches/b443226cd3079dfc58a2094a1a1841958a981fe807ad57bcbf0195db66150370.patch",
-      "patchSha256": "b54ac81da99668b65f919d9d7360f391fa21eca53ed59914f8ac3b0019576abd"
+      "patchSha256": "b54ac81da99668b65f919d9d7360f391fa21eca53ed59914f8ac3b0019576abd",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "ae9d58dd9097e6bd3424f0ff9214c70fe1482e07c89a38523a68be19f3d03cb5": {
       "sha256": "ae9d58dd9097e6bd3424f0ff9214c70fe1482e07c89a38523a68be19f3d03cb5",
@@ -1258,10 +1315,11 @@
       "canonicalLfSha256": "0cd55a02151ff30d7398adff37a01d762b1bdb72f883c89e754db38cd87c1cfe",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/before-driver-0cd55a02151f.py",
       "patch": "benchmarks/patches/0cd55a02151ff30d7398adff37a01d762b1bdb72f883c89e754db38cd87c1cfe.patch",
-      "patchSha256": "9e294d476be22ddf29ee6f4ba72aebf9e4a90449b2d25c76497082a8419dda28"
+      "patchSha256": "9e294d476be22ddf29ee6f4ba72aebf9e4a90449b2d25c76497082a8419dda28",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "7e1ea128cfb523eb27ba436306b6e3b38bf18699fb96807a6234186de88049d7": {
       "sha256": "7e1ea128cfb523eb27ba436306b6e3b38bf18699fb96807a6234186de88049d7",
@@ -1269,10 +1327,11 @@
       "canonicalLfSha256": "f1a8bd5d9b8ab7b4174ab97a2ed4a6b3e2bddce9660a413a1776bba0b0d7a067",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/collect-debian-f1a8bd5d9b8a.py",
       "patch": "benchmarks/patches/f1a8bd5d9b8ab7b4174ab97a2ed4a6b3e2bddce9660a413a1776bba0b0d7a067.patch",
-      "patchSha256": "091766c024d49a835ad0abcd500bff8d65b4451f76e979720d41bcec54139b24"
+      "patchSha256": "091766c024d49a835ad0abcd500bff8d65b4451f76e979720d41bcec54139b24",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "528349db42098e4ceb7747c96e57eb3309af63fa60195ccbc1a2e7b11f51bde7": {
       "sha256": "528349db42098e4ceb7747c96e57eb3309af63fa60195ccbc1a2e7b11f51bde7",
@@ -1280,10 +1339,11 @@
       "canonicalLfSha256": "2206c2c732e2f1f392fbfb7a9514e12e2bbc7fa6782e76d4104f6e2e1c2c0826",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/probe-compensated-matmul-2206c2c732e2.py",
       "patch": "benchmarks/patches/2206c2c732e2f1f392fbfb7a9514e12e2bbc7fa6782e76d4104f6e2e1c2c0826.patch",
-      "patchSha256": "f5ce9abdd8491202e9f05e0e4ea37a6293ed7e871ee42ccb469c8dd174deac5b"
+      "patchSha256": "f5ce9abdd8491202e9f05e0e4ea37a6293ed7e871ee42ccb469c8dd174deac5b",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "dc85bea8000010aa0db5bdc49d2a79f05ca3a293ac689fb4ae3fce4abf9ba50a": {
       "sha256": "dc85bea8000010aa0db5bdc49d2a79f05ca3a293ac689fb4ae3fce4abf9ba50a",
@@ -1291,10 +1351,11 @@
       "canonicalLfSha256": "dc0a9cac8dd2832a9ad22a7bbfb10fed13094ce682b6da2ac26bbcada875bf58",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/probe-cpu-dispatch-dc0a9cac8dd2.py",
       "patch": "benchmarks/patches/dc0a9cac8dd2832a9ad22a7bbfb10fed13094ce682b6da2ac26bbcada875bf58.patch",
-      "patchSha256": "dc499d68fb99069d88ffe3206898091ac8cc664ad86398a4c48b5f9653740eb0"
+      "patchSha256": "dc499d68fb99069d88ffe3206898091ac8cc664ad86398a4c48b5f9653740eb0",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "46ed17b65afeb6f92d03cd35ea0cbfc9368233a2fa6ef13f91fb311b2a288ed7": {
       "sha256": "46ed17b65afeb6f92d03cd35ea0cbfc9368233a2fa6ef13f91fb311b2a288ed7",
@@ -1302,10 +1363,11 @@
       "canonicalLfSha256": "426ba1de69dc1a5f36eccc259d4d044365200a006f5c6209a66b0e8acee05096",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/probe-stable-cpu-optimizer-426ba1de69dc.py",
       "patch": "benchmarks/patches/426ba1de69dc1a5f36eccc259d4d044365200a006f5c6209a66b0e8acee05096.patch",
-      "patchSha256": "620aeb73094f07fa228dc057e104eeda04b1ff184930318b23d73b3f25cc5f02"
+      "patchSha256": "620aeb73094f07fa228dc057e104eeda04b1ff184930318b23d73b3f25cc5f02",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "1aee7a4f9b81f9661d813ea4d9ebb807066d7c452a9b7edac05639badf0bae64": {
       "sha256": "1aee7a4f9b81f9661d813ea4d9ebb807066d7c452a9b7edac05639badf0bae64",
@@ -1313,10 +1375,11 @@
       "canonicalLfSha256": "b2eeca9197c2d92ec9ae7efda01be33fa0af47c32930938bfa742d970ebcf46d",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/driver-b2eeca9197c2.py",
       "patch": "benchmarks/patches/b2eeca9197c2d92ec9ae7efda01be33fa0af47c32930938bfa742d970ebcf46d.patch",
-      "patchSha256": "c250f366001dbefc31864f7000b160371fb6cc8d35607aa2aab117242bea512a"
+      "patchSha256": "c250f366001dbefc31864f7000b160371fb6cc8d35607aa2aab117242bea512a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "38721532072a61a7c947050976967765839005d9750feb9baf420b796b4f2cab": {
       "sha256": "38721532072a61a7c947050976967765839005d9750feb9baf420b796b4f2cab",
@@ -1324,9 +1387,10 @@
       "canonicalLfSha256": "38721532072a61a7c947050976967765839005d9750feb9baf420b796b4f2cab",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "101014d994bf7175c102ecc18cde56e1a531322b",
+      "commit": "0fe5da596751058e58dbb93ca34d93d26585035a",
       "path": "native/src/engine/inference.rs",
-      "gitBlob": "bb0f08d03bc3afa02e6d622bc59fb9e977d5dc23"
+      "gitBlob": "bb0f08d03bc3afa02e6d622bc59fb9e977d5dc23",
+      "originalCommit": "101014d994bf7175c102ecc18cde56e1a531322b"
     },
     "260f3747ce4e876d3cb4896f84eca364ace93580e088aeb423939c99028e8581": {
       "sha256": "260f3747ce4e876d3cb4896f84eca364ace93580e088aeb423939c99028e8581",
@@ -1344,10 +1408,11 @@
       "canonicalLfSha256": "f67b48d418f2ff97182d1187eb3e132fc4d36b4ba6763d934ee4f5393fc59feb",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/live-driver-f67b48d418f2.py",
       "patch": "benchmarks/patches/f67b48d418f2ff97182d1187eb3e132fc4d36b4ba6763d934ee4f5393fc59feb.patch",
-      "patchSha256": "4b500a18f611ab53d3d6b3ddfdab8920d6e039b491bec2da7978bffb37d6376a"
+      "patchSha256": "4b500a18f611ab53d3d6b3ddfdab8920d6e039b491bec2da7978bffb37d6376a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "6567d158b923e374868db55de9da86fd176eea5f091d2e93ad0ccf50d1d05e5d": {
       "sha256": "6567d158b923e374868db55de9da86fd176eea5f091d2e93ad0ccf50d1d05e5d",
@@ -1355,10 +1420,11 @@
       "canonicalLfSha256": "cd27d7b2f5effb7cafd75ab5c1c80260d1bcd39712d9bb59d4ceb886166d0fae",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/benchmark-cd27d7b2f5ef.rs",
       "patch": "benchmarks/patches/cd27d7b2f5effb7cafd75ab5c1c80260d1bcd39712d9bb59d4ceb886166d0fae.patch",
-      "patchSha256": "c4e89f12edf3e6089cecae7dc377335f33ef14c387da286afbc8d863a4585385"
+      "patchSha256": "c4e89f12edf3e6089cecae7dc377335f33ef14c387da286afbc8d863a4585385",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "b3d9afa04f1c54b7d7947c2bc4e0c62a2d4660fa5cd7a7e7214d1a6d68d9735b": {
       "sha256": "b3d9afa04f1c54b7d7947c2bc4e0c62a2d4660fa5cd7a7e7214d1a6d68d9735b",
@@ -1366,9 +1432,10 @@
       "canonicalLfSha256": "b3d9afa04f1c54b7d7947c2bc4e0c62a2d4660fa5cd7a7e7214d1a6d68d9735b",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "7b375bcf6ab5689ce0f740dcbf173eff79a19ff8",
+      "commit": "4294fa5e6804584d329ae57c370f9421cca23873",
       "path": "native/src/simd_kernels.rs",
-      "gitBlob": "4fe6c524f70d8454d8ff8aebd02ae13625eb4224"
+      "gitBlob": "4fe6c524f70d8454d8ff8aebd02ae13625eb4224",
+      "originalCommit": "7b375bcf6ab5689ce0f740dcbf173eff79a19ff8"
     },
     "d95926f6598f815915115c8a5f53bdaff80e018c5dbb566ffe10809015aab32a": {
       "sha256": "d95926f6598f815915115c8a5f53bdaff80e018c5dbb566ffe10809015aab32a",
@@ -1376,9 +1443,10 @@
       "canonicalLfSha256": "d95926f6598f815915115c8a5f53bdaff80e018c5dbb566ffe10809015aab32a",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "2dbf5c9dacbc47cf0430c91fba0800a56e7494b1",
+      "commit": "e280a00ddeaca43b3ef018858cf16d4fcdeaa023",
       "path": "native/src/simd_kernels.rs",
-      "gitBlob": "be83a074e2f2cfd91fb910055b4efabea5f3b5e1"
+      "gitBlob": "be83a074e2f2cfd91fb910055b4efabea5f3b5e1",
+      "originalCommit": "2dbf5c9dacbc47cf0430c91fba0800a56e7494b1"
     },
     "4b5e2a63a2244a25a981a774167120da624b28ae8eeb48f04ab9dc13db9b6373": {
       "sha256": "4b5e2a63a2244a25a981a774167120da624b28ae8eeb48f04ab9dc13db9b6373",
@@ -1386,9 +1454,10 @@
       "canonicalLfSha256": "4b5e2a63a2244a25a981a774167120da624b28ae8eeb48f04ab9dc13db9b6373",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "7b375bcf6ab5689ce0f740dcbf173eff79a19ff8",
+      "commit": "4294fa5e6804584d329ae57c370f9421cca23873",
       "path": "native/src/engine/inference.rs",
-      "gitBlob": "4a227a8f06126fad390a8e1da7092c526b824a53"
+      "gitBlob": "4a227a8f06126fad390a8e1da7092c526b824a53",
+      "originalCommit": "7b375bcf6ab5689ce0f740dcbf173eff79a19ff8"
     },
     "44a94746a88c03061486f016d62ca3227f6c63bca8babdc4625264c3998b3dac": {
       "sha256": "44a94746a88c03061486f016d62ca3227f6c63bca8babdc4625264c3998b3dac",
@@ -1396,10 +1465,11 @@
       "canonicalLfSha256": "c778d4db942d5c27d77373fcb438a244bcaffcb649a57b9ce80adb7e1018009b",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/driver-c778d4db942d.py",
       "patch": "benchmarks/patches/c778d4db942d5c27d77373fcb438a244bcaffcb649a57b9ce80adb7e1018009b.patch",
-      "patchSha256": "2cd2099bc6da18d0d35421e2309937bf05234d9c4506a9b716b02f57cda0e447"
+      "patchSha256": "2cd2099bc6da18d0d35421e2309937bf05234d9c4506a9b716b02f57cda0e447",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "3207c106807aecd2e430f8242d42a12083716333b6bb627313b40a7ee2f4acc3": {
       "sha256": "3207c106807aecd2e430f8242d42a12083716333b6bb627313b40a7ee2f4acc3",
@@ -1407,9 +1477,10 @@
       "canonicalLfSha256": "3207c106807aecd2e430f8242d42a12083716333b6bb627313b40a7ee2f4acc3",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "5c95dc65227c873e1606115b5cb28bd4bd66409a",
+      "commit": "2bdc49961f789907b501a3399176a695ae2194ae",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "c7c5abaf7bc2bc141b9dd46cfb839153bab01537"
+      "gitBlob": "c7c5abaf7bc2bc141b9dd46cfb839153bab01537",
+      "originalCommit": "5c95dc65227c873e1606115b5cb28bd4bd66409a"
     },
     "2b250b8ed58409c0980d7d863188ca10f3542ff66cd2333977ed515b6422bcf7": {
       "sha256": "2b250b8ed58409c0980d7d863188ca10f3542ff66cd2333977ed515b6422bcf7",
@@ -1417,9 +1488,10 @@
       "canonicalLfSha256": "2b250b8ed58409c0980d7d863188ca10f3542ff66cd2333977ed515b6422bcf7",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "5c95dc65227c873e1606115b5cb28bd4bd66409a",
+      "commit": "2bdc49961f789907b501a3399176a695ae2194ae",
       "path": "scripts/qualification/nativeStepCosts.ts",
-      "gitBlob": "8d1eada3e04a4fad58185290a294a16ef1d84d34"
+      "gitBlob": "8d1eada3e04a4fad58185290a294a16ef1d84d34",
+      "originalCommit": "5c95dc65227c873e1606115b5cb28bd4bd66409a"
     },
     "269c0613e72b22806df82fab6db87fd823a14fcdcefe99c6b85e09064b244f7b": {
       "sha256": "269c0613e72b22806df82fab6db87fd823a14fcdcefe99c6b85e09064b244f7b",
@@ -1427,10 +1499,11 @@
       "canonicalLfSha256": "80c9e91e515c78fa16940102ba20ba9a20e5fddb57ec584599c11ca91da33ddc",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/benchmark-80c9e91e515c.rs",
       "patch": "benchmarks/patches/80c9e91e515c78fa16940102ba20ba9a20e5fddb57ec584599c11ca91da33ddc.patch",
-      "patchSha256": "cd611cc98fb54e0690d940b44dde16ef6221d636739a62fb2bace9f8e4a0fbcf"
+      "patchSha256": "cd611cc98fb54e0690d940b44dde16ef6221d636739a62fb2bace9f8e4a0fbcf",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "340c07b8e7bc58df3bb90c05060193250ed1c715afe8847dc241f493e33d04ca": {
       "sha256": "340c07b8e7bc58df3bb90c05060193250ed1c715afe8847dc241f493e33d04ca",
@@ -1448,9 +1521,10 @@
       "canonicalLfSha256": "6adb84cab80af8bea5077cabdb4a4bcd235042d75c8b0de2b4ba2bd67627749c",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "30f4fd1a09cf620e4d462c22c36979b528a5786c",
+      "commit": "47b9305161502c7357e6ea8774f29a9dabbcebcf",
       "path": "scripts/qualification/compare-sensor-workloads.py",
-      "gitBlob": "04487a23bda237e673ff013b8256da8604a1d8c5"
+      "gitBlob": "04487a23bda237e673ff013b8256da8604a1d8c5",
+      "originalCommit": "30f4fd1a09cf620e4d462c22c36979b528a5786c"
     },
     "2d3b36d5cc0e4d1dad6e7067503da8e285d3c919648ba5b549fd271d086d382a": {
       "sha256": "2d3b36d5cc0e4d1dad6e7067503da8e285d3c919648ba5b549fd271d086d382a",
@@ -1458,9 +1532,10 @@
       "canonicalLfSha256": "2d3b36d5cc0e4d1dad6e7067503da8e285d3c919648ba5b549fd271d086d382a",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "938b1b3cfd0592754694195863a80770813adaac",
+      "commit": "85840a23e106eef66dc036fa4a06e9e3c6dffb63",
       "path": "native/src/engine/spatial.rs",
-      "gitBlob": "2ae7772c241ca8cf45357a59b02e33c0b951bbff"
+      "gitBlob": "2ae7772c241ca8cf45357a59b02e33c0b951bbff",
+      "originalCommit": "938b1b3cfd0592754694195863a80770813adaac"
     },
     "a2663cb274dba4a3b0e75621855a58e1c9b00ae2e0249e876439786c1ac6fbd6": {
       "sha256": "a2663cb274dba4a3b0e75621855a58e1c9b00ae2e0249e876439786c1ac6fbd6",
@@ -1468,10 +1543,11 @@
       "canonicalLfSha256": "a2663cb274dba4a3b0e75621855a58e1c9b00ae2e0249e876439786c1ac6fbd6",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/sensors_v4.rs",
       "patch": "benchmarks/patches/a2663cb274dba4a3b0e75621855a58e1c9b00ae2e0249e876439786c1ac6fbd6.patch",
-      "patchSha256": "7bc3c02f023d5a32e202a111660faa2be92279d2a3747fe8785ac27b5136d538"
+      "patchSha256": "7bc3c02f023d5a32e202a111660faa2be92279d2a3747fe8785ac27b5136d538",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "77ef242915bd0668273f681d3fc75efa0b8d49e1dff935c7b64fae550c5d1834": {
       "sha256": "77ef242915bd0668273f681d3fc75efa0b8d49e1dff935c7b64fae550c5d1834",
@@ -1479,10 +1555,11 @@
       "canonicalLfSha256": "77ef242915bd0668273f681d3fc75efa0b8d49e1dff935c7b64fae550c5d1834",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/spatial.rs",
       "patch": "benchmarks/patches/77ef242915bd0668273f681d3fc75efa0b8d49e1dff935c7b64fae550c5d1834.patch",
-      "patchSha256": "da1e4212d77bec12c6cf75a7e881c36c609226b705a6a03247fa4f9ba6db0e8a"
+      "patchSha256": "da1e4212d77bec12c6cf75a7e881c36c609226b705a6a03247fa4f9ba6db0e8a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "f03d5f3ba752f808f60e85567fd9ddbea1447f89f0a365862387daba8822ffc5": {
       "sha256": "f03d5f3ba752f808f60e85567fd9ddbea1447f89f0a365862387daba8822ffc5",
@@ -1490,9 +1567,10 @@
       "canonicalLfSha256": "e540286be909a8261776e0f7ac6d1d123501ffeb6cfdd652fdb2c3940b094c6d",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "1a709e9033d9bb1c2579a12c7aa10e3a401a0858",
+      "commit": "371c6c32c92c712940ab984a533f411f3f850dd5",
       "path": "scripts/qualification/compare-sensor-workloads.py",
-      "gitBlob": "74c68dc2ad230e10c2b076213cc5aeabb51b2fda"
+      "gitBlob": "74c68dc2ad230e10c2b076213cc5aeabb51b2fda",
+      "originalCommit": "1a709e9033d9bb1c2579a12c7aa10e3a401a0858"
     },
     "543488c3ff7abeeda99098ad7d04627703c5fb379891903d63c6f342ce5091f3": {
       "sha256": "543488c3ff7abeeda99098ad7d04627703c5fb379891903d63c6f342ce5091f3",
@@ -1500,9 +1578,10 @@
       "canonicalLfSha256": "d73bce85181e5a4abfc93e6f5992567d3e80ebabbe1e2b051fd38cd0635a724c",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "129db0cc5e3f8c02fcbe75c11de7b0256c5e3407",
+      "commit": "a474e22acaf6711db7f37c78fe57a59ee68bf89f",
       "path": "scripts/qualification/export-resource-counters.py",
-      "gitBlob": "e61760b6ea3451100a42934688b0d93ee4644024"
+      "gitBlob": "e61760b6ea3451100a42934688b0d93ee4644024",
+      "originalCommit": "129db0cc5e3f8c02fcbe75c11de7b0256c5e3407"
     },
     "7e146b7198776f1d3c90497ecc6002add1fcbc986badee7fdd6c33335c55d5b6": {
       "sha256": "7e146b7198776f1d3c90497ecc6002add1fcbc986badee7fdd6c33335c55d5b6",
@@ -1510,10 +1589,11 @@
       "canonicalLfSha256": "643568e0df47af6d5fbb7665542305dc7b4de218c9f24212f8b774877807d286",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-comparisons-643568e0df47.py",
       "patch": "benchmarks/patches/643568e0df47af6d5fbb7665542305dc7b4de218c9f24212f8b774877807d286.patch",
-      "patchSha256": "4ac362b1b4830942e00f8e4304be8c11b90b6ff6b616a7b49d6888449add3fee"
+      "patchSha256": "4ac362b1b4830942e00f8e4304be8c11b90b6ff6b616a7b49d6888449add3fee",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "fcce0cc1605cb313950dbf435e5b3b98573446592a654515a08fd2080ad3c0e8": {
       "sha256": "fcce0cc1605cb313950dbf435e5b3b98573446592a654515a08fd2080ad3c0e8",
@@ -1521,10 +1601,11 @@
       "canonicalLfSha256": "fcce0cc1605cb313950dbf435e5b3b98573446592a654515a08fd2080ad3c0e8",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/spatial.rs",
       "patch": "benchmarks/patches/fcce0cc1605cb313950dbf435e5b3b98573446592a654515a08fd2080ad3c0e8.patch",
-      "patchSha256": "e5a37500e66089840b252dc2a6673f826e5358f2556e1af5014a9d6e5836fd4d"
+      "patchSha256": "e5a37500e66089840b252dc2a6673f826e5358f2556e1af5014a9d6e5836fd4d",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "16783dfb377ee8af9dcc9069a8c200b8b197096d17595799d962396523f29d76": {
       "sha256": "16783dfb377ee8af9dcc9069a8c200b8b197096d17595799d962396523f29d76",
@@ -1532,10 +1613,11 @@
       "canonicalLfSha256": "e3dc428daa70dee73f2efb0eff6c56a8f3dfa4c762f51e306b02686fce1bb9b9",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "scripts/qualification/compare-sensor-workloads.py",
       "patch": "benchmarks/patches/e3dc428daa70dee73f2efb0eff6c56a8f3dfa4c762f51e306b02686fce1bb9b9.patch",
-      "patchSha256": "3d665b5cefd87ff9259dee703609e08c3a5614cede8e7078a08ce78a434b1fab"
+      "patchSha256": "3d665b5cefd87ff9259dee703609e08c3a5614cede8e7078a08ce78a434b1fab",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "a083e7f30f44c7d81589c02c22b66d1fa9af46acd71f36ab48f30d60b197e207": {
       "sha256": "a083e7f30f44c7d81589c02c22b66d1fa9af46acd71f36ab48f30d60b197e207",
@@ -1543,10 +1625,11 @@
       "canonicalLfSha256": "a083e7f30f44c7d81589c02c22b66d1fa9af46acd71f36ab48f30d60b197e207",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/spatial.rs",
       "patch": "benchmarks/patches/a083e7f30f44c7d81589c02c22b66d1fa9af46acd71f36ab48f30d60b197e207.patch",
-      "patchSha256": "4bbc4b9b5f817df5fee9072a0183f99bd39001c6405cec6f3bbcaf77ccf30528"
+      "patchSha256": "4bbc4b9b5f817df5fee9072a0183f99bd39001c6405cec6f3bbcaf77ccf30528",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "c7f85a453680188b7207db0d69cec254150b9382913202eb80eebc42d6571863": {
       "sha256": "c7f85a453680188b7207db0d69cec254150b9382913202eb80eebc42d6571863",
@@ -1554,10 +1637,11 @@
       "canonicalLfSha256": "2b85534f33e25ccfdb3aac7e964be14ee6887c03140a3fb7f593de2ebc89024c",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/spatial.rs",
       "patch": "benchmarks/patches/2b85534f33e25ccfdb3aac7e964be14ee6887c03140a3fb7f593de2ebc89024c.patch",
-      "patchSha256": "91820fa84fba1af1bab324302ef8b288c4aa1a0d8694c40b14730e2a1a63c765"
+      "patchSha256": "91820fa84fba1af1bab324302ef8b288c4aa1a0d8694c40b14730e2a1a63c765",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "bf4d8f18f0c3fae1e033fa3f235ea9e6456dbaf55c9facc1f7cc201bcbb28e2f": {
       "sha256": "bf4d8f18f0c3fae1e033fa3f235ea9e6456dbaf55c9facc1f7cc201bcbb28e2f",
@@ -1565,10 +1649,11 @@
       "canonicalLfSha256": "5391595aa2f2503ae233e29b2fb4b7b9f92e850ceaa8778c00768976ff48aed7",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/packed-probe-5391595aa2f2.rs",
       "patch": "benchmarks/patches/5391595aa2f2503ae233e29b2fb4b7b9f92e850ceaa8778c00768976ff48aed7.patch",
-      "patchSha256": "3a7f480348d69a38189114dec4e18f245e625fdb242f6f88f9ac033014155cd8"
+      "patchSha256": "3a7f480348d69a38189114dec4e18f245e625fdb242f6f88f9ac033014155cd8",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "f9a0e3977b86d1474c44d1a37f1b16cf77b94563e7e7b43dfad91d23845e33a0": {
       "sha256": "f9a0e3977b86d1474c44d1a37f1b16cf77b94563e7e7b43dfad91d23845e33a0",
@@ -1576,10 +1661,11 @@
       "canonicalLfSha256": "066daf7fdd0729736c62bdb50359f52dfce19c381bdce0ee251407186d6a8c75",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/sort-probe-066daf7fdd07.rs",
       "patch": "benchmarks/patches/066daf7fdd0729736c62bdb50359f52dfce19c381bdce0ee251407186d6a8c75.patch",
-      "patchSha256": "d2366ed979304f3158326494438efdd3531fa024adf41f6a0a93473eda4656ae"
+      "patchSha256": "d2366ed979304f3158326494438efdd3531fa024adf41f6a0a93473eda4656ae",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "b7d572694dbb819711815981c8a74fca124e8d3d177bb9c1cde951a177fe2ee2": {
       "sha256": "b7d572694dbb819711815981c8a74fca124e8d3d177bb9c1cde951a177fe2ee2",
@@ -1587,10 +1673,11 @@
       "canonicalLfSha256": "a4d7628b0c5c5f3a272e71ce2754581d36ab9e0fe4a23b5b9a04bfdf5fc00a01",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-comparisons-a4d7628b0c5c.py",
       "patch": "benchmarks/patches/a4d7628b0c5c5f3a272e71ce2754581d36ab9e0fe4a23b5b9a04bfdf5fc00a01.patch",
-      "patchSha256": "2b64a668de2dc509aeb90427aad64ce52489f89dec3ee60a65f39e902643a2a6"
+      "patchSha256": "2b64a668de2dc509aeb90427aad64ce52489f89dec3ee60a65f39e902643a2a6",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "d73bce85181e5a4abfc93e6f5992567d3e80ebabbe1e2b051fd38cd0635a724c": {
       "sha256": "d73bce85181e5a4abfc93e6f5992567d3e80ebabbe1e2b051fd38cd0635a724c",
@@ -1598,9 +1685,10 @@
       "canonicalLfSha256": "d73bce85181e5a4abfc93e6f5992567d3e80ebabbe1e2b051fd38cd0635a724c",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "129db0cc5e3f8c02fcbe75c11de7b0256c5e3407",
+      "commit": "a474e22acaf6711db7f37c78fe57a59ee68bf89f",
       "path": "scripts/qualification/export-resource-counters.py",
-      "gitBlob": "e61760b6ea3451100a42934688b0d93ee4644024"
+      "gitBlob": "e61760b6ea3451100a42934688b0d93ee4644024",
+      "originalCommit": "129db0cc5e3f8c02fcbe75c11de7b0256c5e3407"
     },
     "f01fc6d98ef31d83affb20bf37cd3651c1fa1357b4d9f5edf7d8cbae01a4ff48": {
       "sha256": "f01fc6d98ef31d83affb20bf37cd3651c1fa1357b4d9f5edf7d8cbae01a4ff48",
@@ -1608,9 +1696,10 @@
       "canonicalLfSha256": "f01fc6d98ef31d83affb20bf37cd3651c1fa1357b4d9f5edf7d8cbae01a4ff48",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+      "commit": "0a4f60a8add0fbb74f66066f9971140f3f9d9b80",
       "path": "scripts/qualification/observationQuality.ts",
-      "gitBlob": "6c4ebc66b968474f0804e795c7732619526aaa09"
+      "gitBlob": "6c4ebc66b968474f0804e795c7732619526aaa09",
+      "originalCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76"
     },
     "5769d1a4c3d1838d0c3a0bf20505c79e5b8d15fb37d20509f74b233fcf7974d4": {
       "sha256": "5769d1a4c3d1838d0c3a0bf20505c79e5b8d15fb37d20509f74b233fcf7974d4",
@@ -1618,9 +1707,10 @@
       "canonicalLfSha256": "5769d1a4c3d1838d0c3a0bf20505c79e5b8d15fb37d20509f74b233fcf7974d4",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "ab8ec837362c722b30f37906b96b4fc9c1054f76",
+      "commit": "0a4f60a8add0fbb74f66066f9971140f3f9d9b80",
       "path": "src/protocol/observationQuality.ts",
-      "gitBlob": "9478d9136bd8662c852c0c552e82e30455ecf9d3"
+      "gitBlob": "9478d9136bd8662c852c0c552e82e30455ecf9d3",
+      "originalCommit": "ab8ec837362c722b30f37906b96b4fc9c1054f76"
     },
     "405eb2c36de1b0dbf46dbf7f1153b9a869b2d2e6c6804ddacc7d6054b53e53c3": {
       "sha256": "405eb2c36de1b0dbf46dbf7f1153b9a869b2d2e6c6804ddacc7d6054b53e53c3",
@@ -1638,9 +1728,10 @@
       "canonicalLfSha256": "3dc970540e63951e5e615ff39b7c71ed6e7910bf8c24ec5bd5245c6b9beebd1a",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "214708f27eb25ad647a5aa4ef0897b6d6cc9bbde",
+      "commit": "462afcc1d696dd74f3949f77b69619360b9aabef",
       "path": "scripts/qualification/sensor-wall.ts",
-      "gitBlob": "a98a9916a0627a476572ed39c8d916b79dadc1dd"
+      "gitBlob": "a98a9916a0627a476572ed39c8d916b79dadc1dd",
+      "originalCommit": "214708f27eb25ad647a5aa4ef0897b6d6cc9bbde"
     },
     "5dc3f33b1eb2c83712b2e2d0c36e9767f934e33e03adcd452563818eb2ccad44": {
       "sha256": "5dc3f33b1eb2c83712b2e2d0c36e9767f934e33e03adcd452563818eb2ccad44",
@@ -1658,10 +1749,11 @@
       "canonicalLfSha256": "8864a9d5c4ac459b43ad1960a931b31b441136c6375e2d5ace329778eb53e3e9",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/comparison-8864a9d5c4ac.py",
       "patch": "benchmarks/patches/8864a9d5c4ac459b43ad1960a931b31b441136c6375e2d5ace329778eb53e3e9.patch",
-      "patchSha256": "3ed14eee5dc6480ef3a95ca8a3bbc6cc5c9770c5bbd4fb2e883c0734d82a83a9"
+      "patchSha256": "3ed14eee5dc6480ef3a95ca8a3bbc6cc5c9770c5bbd4fb2e883c0734d82a83a9",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "0a9ae7e221a09a23abda34b5f91d1031ffc097af7454aa87590d9723b1f6b37a": {
       "sha256": "0a9ae7e221a09a23abda34b5f91d1031ffc097af7454aa87590d9723b1f6b37a",
@@ -1689,10 +1781,11 @@
       "canonicalLfSha256": "f0059272828b8a9def6ef639307bb1c99a41538ea278c62fbab5a15a22ff6b43",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-study-f0059272828b.py",
       "patch": "benchmarks/patches/f0059272828b8a9def6ef639307bb1c99a41538ea278c62fbab5a15a22ff6b43.patch",
-      "patchSha256": "b4b468bf1a3870dcb35649c9e8cba2dd3160381533c7a28b4706854be5a9c90f"
+      "patchSha256": "b4b468bf1a3870dcb35649c9e8cba2dd3160381533c7a28b4706854be5a9c90f",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "b001a687a48eafb1344d6c91bda1799f4badf4933af0568e3f4694e0a707cce3": {
       "sha256": "b001a687a48eafb1344d6c91bda1799f4badf4933af0568e3f4694e0a707cce3",
@@ -1700,10 +1793,11 @@
       "canonicalLfSha256": "922e2cd7e20b0f5e14684177cd4f21995f16e6a8aa5ffb805bb52f8c08d4e4bb",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/compare-driver-922e2cd7e20b.py",
       "patch": "benchmarks/patches/922e2cd7e20b0f5e14684177cd4f21995f16e6a8aa5ffb805bb52f8c08d4e4bb.patch",
-      "patchSha256": "b92056f9df23a3d423c01dd8b912f6b8e3f2b26253d5a571337bdb210c57f4e1"
+      "patchSha256": "b92056f9df23a3d423c01dd8b912f6b8e3f2b26253d5a571337bdb210c57f4e1",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "944949b50a88fc5aae8d1ec3d705ddf37c5a84fa6ba526f4c0b0284992c6cd50": {
       "sha256": "944949b50a88fc5aae8d1ec3d705ddf37c5a84fa6ba526f4c0b0284992c6cd50",
@@ -1711,10 +1805,11 @@
       "canonicalLfSha256": "3447b27850babd809a9d7962cc8898e0e7f7483f594af592db58ccf69bccee7e",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/sensor_qualification.rs",
       "patch": "benchmarks/patches/3447b27850babd809a9d7962cc8898e0e7f7483f594af592db58ccf69bccee7e.patch",
-      "patchSha256": "cce394fc922630bc78cd2364c0ac304b1c0e039b79a9b0e9c4e7dfdec24803a2"
+      "patchSha256": "cce394fc922630bc78cd2364c0ac304b1c0e039b79a9b0e9c4e7dfdec24803a2",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "9814526141e8a941dc013a17d467f8822bd05acbef0e2d3d582ac9b1b2678be3": {
       "sha256": "9814526141e8a941dc013a17d467f8822bd05acbef0e2d3d582ac9b1b2678be3",
@@ -1722,10 +1817,11 @@
       "canonicalLfSha256": "b8e21576d2e1eda1b747edba1395dd7867c58ee20f1f3e12c6b45c9123f9b69e",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/bin/sensor_v4_qualification.rs",
       "patch": "benchmarks/patches/b8e21576d2e1eda1b747edba1395dd7867c58ee20f1f3e12c6b45c9123f9b69e.patch",
-      "patchSha256": "7b6740f9b4af6f9b72f2c5928b149ff4ec37d7866e211e0152fa036523955570"
+      "patchSha256": "7b6740f9b4af6f9b72f2c5928b149ff4ec37d7866e211e0152fa036523955570",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "21ecdbef4c4c01441b5258a5df160a321982825074ebc8de1ecec6fe18a41393": {
       "sha256": "21ecdbef4c4c01441b5258a5df160a321982825074ebc8de1ecec6fe18a41393",
@@ -1733,10 +1829,11 @@
       "canonicalLfSha256": "21ecdbef4c4c01441b5258a5df160a321982825074ebc8de1ecec6fe18a41393",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/sensors_v4.rs",
       "patch": "benchmarks/patches/21ecdbef4c4c01441b5258a5df160a321982825074ebc8de1ecec6fe18a41393.patch",
-      "patchSha256": "bda5b064a45f1d4a83b2fb463b696286076686398d9f395cd3f988b4b5977b18"
+      "patchSha256": "bda5b064a45f1d4a83b2fb463b696286076686398d9f395cd3f988b4b5977b18",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "3e069b53c60f3574e03eed15605295c6cb9756ba3187ec8f407ce592e02610f9": {
       "sha256": "3e069b53c60f3574e03eed15605295c6cb9756ba3187ec8f407ce592e02610f9",
@@ -1744,10 +1841,11 @@
       "canonicalLfSha256": "9bca2722b3d737b7445e26655966f0b09fda880c33d5ec4cf9cd5f8c4333ec25",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-profile-9bca2722b3d7.py",
       "patch": "benchmarks/patches/9bca2722b3d737b7445e26655966f0b09fda880c33d5ec4cf9cd5f8c4333ec25.patch",
-      "patchSha256": "d261022d08b4efaaef40de3e01bbcb1c4bf8fa1183b486b1395095cbbf390e23"
+      "patchSha256": "d261022d08b4efaaef40de3e01bbcb1c4bf8fa1183b486b1395095cbbf390e23",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "3a935041eef18a6563e493f6d2bae4f684ec4bdbdb288ab169ff551e8f4fc1de": {
       "sha256": "3a935041eef18a6563e493f6d2bae4f684ec4bdbdb288ab169ff551e8f4fc1de",
@@ -1755,10 +1853,11 @@
       "canonicalLfSha256": "c0e1ccc253b56da46b9117a666ddbdda89de01b06b448bc09a7a53d87715a7bf",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/run-profile-c0e1ccc253b5.py",
       "patch": "benchmarks/patches/c0e1ccc253b56da46b9117a666ddbdda89de01b06b448bc09a7a53d87715a7bf.patch",
-      "patchSha256": "b3164a129db07996ca7c84bdad1a68481856c030b5db1b13cef19b7dc990cb3a"
+      "patchSha256": "b3164a129db07996ca7c84bdad1a68481856c030b5db1b13cef19b7dc990cb3a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "ffdf6a1aa1206b3cea2879c6ce1d90babe8d7a49049e20ec967c74317d5d55f0": {
       "sha256": "ffdf6a1aa1206b3cea2879c6ce1d90babe8d7a49049e20ec967c74317d5d55f0",
@@ -1766,10 +1865,11 @@
       "canonicalLfSha256": "ffdf6a1aa1206b3cea2879c6ce1d90babe8d7a49049e20ec967c74317d5d55f0",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/sensors_v4.rs",
       "patch": "benchmarks/patches/ffdf6a1aa1206b3cea2879c6ce1d90babe8d7a49049e20ec967c74317d5d55f0.patch",
-      "patchSha256": "5ead584c6fdc369ef099f2ba4a352524891461ab4b30797fef6e12e9b2516f5a"
+      "patchSha256": "5ead584c6fdc369ef099f2ba4a352524891461ab4b30797fef6e12e9b2516f5a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "dc299ba17db0cfbc460a623747f0a7c085c1679330ad431a01babf87d182e11f": {
       "sha256": "dc299ba17db0cfbc460a623747f0a7c085c1679330ad431a01babf87d182e11f",
@@ -1777,10 +1877,11 @@
       "canonicalLfSha256": "dc299ba17db0cfbc460a623747f0a7c085c1679330ad431a01babf87d182e11f",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "native/src/engine/spatial.rs",
       "patch": "benchmarks/patches/dc299ba17db0cfbc460a623747f0a7c085c1679330ad431a01babf87d182e11f.patch",
-      "patchSha256": "a40d8f587e67c2fb228afc2de46888719237831b7a3b92c864e70557ce2779ee"
+      "patchSha256": "a40d8f587e67c2fb228afc2de46888719237831b7a3b92c864e70557ce2779ee",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "57161930559900312537676a45e40026bdc27350ec5f550b09cbf13c4b32f5c4": {
       "sha256": "57161930559900312537676a45e40026bdc27350ec5f550b09cbf13c4b32f5c4",
@@ -1788,9 +1889,10 @@
       "canonicalLfSha256": "3244e377cf686b44de82f8072bd50dbeee2c11cde1220c1404b8f3c58a3578aa",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "9b684da90db957e9cdf77ad2181e998245487764",
+      "commit": "1a585ebd21a7daa88deb10ba2b5c24a597301145",
       "path": "scripts/qualification/system-resource-observer.py",
-      "gitBlob": "9e784cff00811c22560bfe4de2e0a6396fca9454"
+      "gitBlob": "9e784cff00811c22560bfe4de2e0a6396fca9454",
+      "originalCommit": "9b684da90db957e9cdf77ad2181e998245487764"
     },
     "dc5b36e5ed700baa4eba08c86a65817243d27548a30a2d848c9af628cf950467": {
       "sha256": "dc5b36e5ed700baa4eba08c86a65817243d27548a30a2d848c9af628cf950467",
@@ -1798,10 +1900,11 @@
       "canonicalLfSha256": "ce85e963f97ac7f88dac9e0d9e82186317f48b236bf19b50cf03c77768734fa0",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/benchmark-production-ce85e963f97a.rs",
       "patch": "benchmarks/patches/ce85e963f97ac7f88dac9e0d9e82186317f48b236bf19b50cf03c77768734fa0.patch",
-      "patchSha256": "1e1a588135816ec1281fc46cab55dfdc52c2a3888766cdbd8423ee3e42abbf7a"
+      "patchSha256": "1e1a588135816ec1281fc46cab55dfdc52c2a3888766cdbd8423ee3e42abbf7a",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "3b4b6c19f79f1ef5fda2c1a373b9ed89255f4cfb00d631bb8ebbb6b011e299e6": {
       "sha256": "3b4b6c19f79f1ef5fda2c1a373b9ed89255f4cfb00d631bb8ebbb6b011e299e6",
@@ -1809,10 +1912,11 @@
       "canonicalLfSha256": "8f04392dda09867332a55b3b60b585991e35d2e7b01b0e619d16b7beec24214d",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/benchmark-summary-8f04392dda09.rs",
       "patch": "benchmarks/patches/8f04392dda09867332a55b3b60b585991e35d2e7b01b0e619d16b7beec24214d.patch",
-      "patchSha256": "7c7651848e4a642ce66419d90aae803ba0dbef3ad4f8c441757b165a6e25b27f"
+      "patchSha256": "7c7651848e4a642ce66419d90aae803ba0dbef3ad4f8c441757b165a6e25b27f",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
     },
     "6e6410c0b9c339f84771af756e1982581dc8e87ef2c37c1de4803c069846eea3": {
       "sha256": "6e6410c0b9c339f84771af756e1982581dc8e87ef2c37c1de4803c069846eea3",
@@ -1830,9 +1934,10 @@
       "canonicalLfSha256": "22d775d6115202a98154bdb27945c3b366ceeb3d3e92a54578a2bca32f5cd59d",
       "lineEndings": "lf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "2dbf5c9dacbc47cf0430c91fba0800a56e7494b1",
+      "commit": "e280a00ddeaca43b3ef018858cf16d4fcdeaa023",
       "path": "native/src/engine/evolution.rs",
-      "gitBlob": "c8f18869f03dceca328481b10dbcf0ef51d153e0"
+      "gitBlob": "c8f18869f03dceca328481b10dbcf0ef51d153e0",
+      "originalCommit": "2dbf5c9dacbc47cf0430c91fba0800a56e7494b1"
     },
     "44ee2c765dd8b72ecb9f863daee9af14cfd30470b7987e06514325e91b453121": {
       "sha256": "44ee2c765dd8b72ecb9f863daee9af14cfd30470b7987e06514325e91b453121",
@@ -1880,9 +1985,10 @@
       "canonicalLfSha256": "82d48cfb3ba5e8c2035a9ed5fada9b5535a03f443d3eefbd21a51397f45ce340",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "292086cca07f7bd23a2cdba9152d7ae5a8e7552e",
+      "commit": "5b680fed6b2d3effc6b83f951a0ca29d5af253f0",
       "path": "scripts/qualification/trained-sensor-cohorts.py",
-      "gitBlob": "c6e56b2ce7d843772f5d11f0ebaeb5b17636669e"
+      "gitBlob": "c6e56b2ce7d843772f5d11f0ebaeb5b17636669e",
+      "originalCommit": "292086cca07f7bd23a2cdba9152d7ae5a8e7552e"
     },
     "3c1abb2cb543ac02621722aef676e91f7a8b407082738cbf11d7a54c54c8d033": {
       "sha256": "3c1abb2cb543ac02621722aef676e91f7a8b407082738cbf11d7a54c54c8d033",
@@ -1900,9 +2006,10 @@
       "canonicalLfSha256": "9b0c748203f595baffa223116b11dd1f29bbe82eb356c944f9e85848b37c6980",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "19889936f4b9177f91b9f7c36c46fb45afcd0b3a",
+      "commit": "23da98ea244a396917d34f50b3d91e4d320825dd",
       "path": "scripts/qualification/live-distillation.ts",
-      "gitBlob": "47bffffcf9e1b620e3646595d1796a73a60f1007"
+      "gitBlob": "47bffffcf9e1b620e3646595d1796a73a60f1007",
+      "originalCommit": "19889936f4b9177f91b9f7c36c46fb45afcd0b3a"
     },
     "024207e8514b99ae1f62b6f38340ede5d6731705f9ee8352f1cda3442474f944": {
       "sha256": "024207e8514b99ae1f62b6f38340ede5d6731705f9ee8352f1cda3442474f944",
@@ -1920,10 +2027,39 @@
       "canonicalLfSha256": "faf122748029bee373620c7ae147efc83195962da4e45070855c7b2982543741",
       "lineEndings": "crlf",
       "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
-      "commit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
       "path": "benchmarks/historical/trainer-faf122748029.py",
       "patch": "benchmarks/patches/faf122748029bee373620c7ae147efc83195962da4e45070855c7b2982543741.patch",
-      "patchSha256": "95c1c4d212ba7ca7ac6b1fcc7bb7028f5683ee968b303927f0c20ef91168358b"
+      "patchSha256": "95c1c4d212ba7ca7ac6b1fcc7bb7028f5683ee968b303927f0c20ef91168358b",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779"
+    },
+    "9002311493ca81e53212713d3f911a184540d42e43f8f82a7727defc448ad457": {
+      "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
+      "path": "native/src/engine/sensors_v4.rs",
+      "patch": "benchmarks/patches/9002311493ca81e53212713d3f911a184540d42e43f8f82a7727defc448ad457.patch",
+      "patchSha256": "63a08f0bf7dab227c600d53ada795234689218493b1cab462ec5dc98868199a0",
+      "sha256": "9002311493ca81e53212713d3f911a184540d42e43f8f82a7727defc448ad457",
+      "canonicalLfSha256": "9002311493ca81e53212713d3f911a184540d42e43f8f82a7727defc448ad457",
+      "bytes": 105189,
+      "lineEndings": "lf",
+      "purpose": "Unfinished pellet-distance optimization preserved from the pre-cleanup app checkpoint; reconstruction-only experimental source.",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "origin": "Pre-cleanup app checkpoint tree 637f7b9ff2d05e7d5bd8d64586df40cf29f628d9"
+    },
+    "914ed8ec1c231d39db319e7c662426faa4ae762b776035f2315c99237710a837": {
+      "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+      "commit": "4919ea3fd0dda42a1d23fb0b7db6502ace416d54",
+      "path": "native/src/engine/spatial.rs",
+      "patch": "benchmarks/patches/914ed8ec1c231d39db319e7c662426faa4ae762b776035f2315c99237710a837.patch",
+      "patchSha256": "3ce4d6a8f6f84a788ac2f8a16f0fb67aa2a036c789ac2b35fc00e75bae9cb19f",
+      "sha256": "914ed8ec1c231d39db319e7c662426faa4ae762b776035f2315c99237710a837",
+      "canonicalLfSha256": "914ed8ec1c231d39db319e7c662426faa4ae762b776035f2315c99237710a837",
+      "bytes": 90801,
+      "lineEndings": "lf",
+      "purpose": "Unfinished pellet-distance optimization preserved from the pre-cleanup app checkpoint; reconstruction-only experimental source.",
+      "originalCommit": "883935ee763f832ff3d783f8aad5f3f121ca7779",
+      "origin": "Pre-cleanup app checkpoint tree 637f7b9ff2d05e7d5bd8d64586df40cf29f628d9"
     }
   },
   "historicalPaths": {
@@ -2806,5 +2942,6 @@
     "docs/performance/sensor-v4/trained-cohorts-windows-v1/trained-sensor-cohorts.py.gz#trained-sensor-cohorts.py": "fa2e3151da56329e3187a8e0edd38c0030283176e4c50ef83dba4a88a8164abb",
     "docs/performance/sensor-v4/trainer-contention-v1/host.ts.gz": "effc7567dc0e09525927156b0666ada724c1eea982e2e52338d9b6e48455b22e",
     "docs/performance/sensor-v4/trainer-contention-v1/trainer.py.gz": "0be719b876636850e3801791783a6ab09c7710b7edf84f1a46be12ff0db42759"
-  }
+  },
+  "historyEquivalenceMap": "benchmarks/history-equivalence-20261025.json"
 }

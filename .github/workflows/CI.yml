@@ -382,6 +382,8 @@ jobs:
       - run: npm ci
       - name: Reject accidental experiment payload promotion
         run: python .evidence-pyrl/pyrl_trainer/evidence_policy.py --root .
+      - name: Verify rewritten history and reject obsolete reachable evidence
+        run: python scripts/qualification/verify-history-cleanup.py
       - name: Reconstruct all source versions and original experimental patches
         run: python .evidence-pyrl/pyrl_trainer/source_provenance.py --registry docs/performance/source-provenance.json --original-patches benchmarks/historical-patches.json
       - name: Fetch, checksum and restore every required historical input
