@@ -8,6 +8,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { availableParallelism, cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mlpParamCount, gruParamCount, headParamCount } from '../../src/brains/parameterCounts.ts';
+import { sensorLayoutFromContract } from '../../src/protocol/sensors.ts';
 import { DEFAULT_CONFIG } from '../../server/config.ts';
 import { validateRustCalculationWorkers } from '../../server/rustWorkers.ts';
 import { loadPanicBinding } from '../../server/test/panicRuntime.ts';
@@ -89,11 +91,15 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch'].includes(key) &&
+    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch', '--profile', '--bins'].includes(key) &&
       value !== undefined && !args.has(key), 'invalid or duplicate qualification argument');
     args.set(key, value);
   }
   const scenario = args.get('--scenario'); assert(scenario === 'P0' || scenario === 'P1', '--scenario P0|P1 required');
+  const profile = args.get('--profile') ?? 'motion';
+  assert(profile === 'basic' || profile === 'motion', 'profile must be basic|motion');
+  const bins = Number(args.get('--bins') ?? 16);
+  assert(Number.isSafeInteger(bins) && bins >= 8 && bins <= 32, 'bins must be 8..32');
   const outputArgument = args.get('--report'); assert(outputArgument, '--report required');
   const output = resolve(outputArgument); assert(!existsSync(output), 'qualification report already exists');
   const workers = validateRustCalculationWorkers(Number(args.get('--workers') ?? Math.min(DEFAULT_CONFIG.rustCalculationWorkers, availableParallelism())));
@@ -121,7 +127,7 @@ async function run(): Promise<void> {
   let report: unknown;
   try {
     await mkdir(managed); await admitDiskOperation(managed, CHECKPOINT_DISK_ADMISSION_REQUEST);
-    const request = {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap, rayBatch, workload: scenario};
+    const request = {profile, bins, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap, rayBatch, workload: scenario};
     await session.initializeBaselineV2ForTest(request);
     const metadata = parseRustStartupMetadata(session.startupMetadata());
     const settings = new Map(metadata.settings.map(entry => [entry.path, entry.value]));
@@ -130,7 +136,12 @@ async function run(): Promise<void> {
       ['brain.controlDt', 1 / 60], ['baselineBots.respawnDelay', 20], ['observer.earlyEndMode', 2], ['world.pelletOverflow', 1]] as const) {
       assert.equal(settings.get(path), value, 'qualification setting ' + path);
     }
-    assert.equal(metadata.parameterCount, 25042); assert.equal(metadata.sensorVersion, 4);
+    assert.equal(metadata.sensorVersion, 4); assert(metadata.sensorContract);
+    const layout = sensorLayoutFromContract(metadata.sensorContract);
+    assert.equal(layout.profile, profile); assert.equal(layout.bins, bins);
+    const expectedParameters = mlpParamCount([layout.inputSize, 64, 64]) +
+      gruParamCount(64, 16) + headParamCount(16, 2);
+    assert.equal(metadata.parameterCount, expectedParameters);
     assert.equal(metadata.mathBackend, 'rust-sse2-v1'); assert.equal(metadata.fixedStepSeconds, 1 / 60); assert(metadata.sensorContract);
     assert(metadata.maximumFrameBytes <= 64 * 1024 ** 2, 'bounded qualification frame admission');
     persistence = new CheckpointPersistenceClient({databasePath: join(root, 'game.sqlite'), managedRootPath: managed});

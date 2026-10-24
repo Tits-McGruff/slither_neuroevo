@@ -882,8 +882,14 @@ without asserting that an older build's timings describe the current source.
 ## Larger ray allowance, unchanged timing and memory gates
 
 `sensor-wall.ts` accepts explicit `--ray-cap` and `--ray-batch` within the native
-qualification constructor's existing bounds; defaults remain 256/65,536. The
-candidate below uses 512/131,072, Motion/B16, 300 modest brains, ordinary v2
+qualification constructor's existing bounds; defaults remain 256/65,536.
+Explicit `--profile basic|motion --bins 8..32` selects another candidate layout;
+omission preserves Motion/B16. Rust still constructs the graph and sensors.
+The harness validates the returned canonical profile/width and independently
+prices the modest graph before starting the clock. Each report preserves the
+exact request and Rust metadata. CI exercises Basic/B8 and Motion/B8 P1 windows
+on both targets; the measurements remain diagnostic and select no default.
+The candidate below uses 512/131,072, Motion/B16, 300 modest brains, ordinary v2
 teachers and unlimited evolved respawn. Both controlled runs use 600 warmup and
 3,600 measured steps on the same Windows target/source.
 
@@ -2131,3 +2137,35 @@ child CPU rises 5.5%. The candidate passes 810 release native tests but is
 reverted before additional platform timing. Exact variants, reports and seven
 strict counter-only resource exports are retained. No runtime/default changes
 result; profile-width and representative-policy qualification remain open.
+
+
+## Profile widths under the Windows real clock
+
+`profile-width-wall-windows-v1/` retains six current-source 60-second windows
+after ten seconds of warmup: Basic/B8, Motion/B8 and Motion/B16, each at P0/P1,
+eight native workers and unchanged ray cap/batch 256/65,536. These are separate
+seeded random modest populations with ten ordinary stochastic teachers, durable
+run-start storage, committed capture and frame copies. Trajectories differ;
+this is screening evidence rather than a paired causal ablation.
+
+| P1 profile | Minimum sim/wall | p99 bucket ceiling | Dropped wall | Pooled incomplete rays | Pooled query saturation |
+|---|---:|---:|---:|---:|---:|
+| Basic/B8 | 1.000033 | 16 ms | 0 | 0.00705% | 39.526% |
+| Motion/B8 | 1.000042 | 16 ms | 0 | 0.01591% | 41.601% |
+| Motion/B16 | 0.994264 | 16 ms | 343,667 us | 3.70470% | 41.553% |
+
+Both B8 P1 windows pass the existing clock/timing and ray-quality predicates,
+including separate neural and teacher ray counters. All three P0 windows pass
+those predicates with a 4 ms p99 ceiling and zero incomplete rays. Every P1
+window fails the separate query-quality predicate, predominantly because of
+pellet detail caps. External observations are absent and stay unqualified.
+The Motion/B16 control also fails the clock/debt and neural/pooled ray gates.
+
+Exact host sources and full counters are checksummed; tests recompute wall and
+observation summaries instead of trusting pass flags. Sixteen guarded aggregate
+resource observations cover Windows CPU/RAM, overall GPU and available anonymous
+WSL kernel counters, including an after-window capture. This does not establish
+an idle host or attribute GPU ownership. No process inventory is retained.
+Representative learned policies, tactical/channel ablation, target-platform
+confirmation, loaded capacity and integrated soak remain separate gates.
+No production default or resource envelope changes.

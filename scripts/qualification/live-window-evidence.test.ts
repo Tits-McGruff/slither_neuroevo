@@ -1056,3 +1056,79 @@ it('recomputes live all-consumer quality without hiding timing, caps or shared-h
   expect(Date.parse(resources[0]!.utc)).toBeLessThan(Date.parse(report.recordedAt) - report.requestedSeconds * 1000);
   expect(Date.parse(resources.at(-1)!.utc)).toBeGreaterThan(Date.parse(report.recordedAt));
 });
+
+
+/** Compare full real-clock/profile witnesses while preserving every failed quality result. */
+it('recomputes Basic/B8 and Motion/B8 clock windows beside the Motion/B16 control', () => {
+  const root = resolve(import.meta.dirname, '../../docs/performance/sensor-v4/profile-width-wall-windows-v1');
+  const manifest = JSON.parse(readFileSync(resolve(root, 'evidence.json'), 'utf8')) as {
+    files: Record<string, FrozenFileReceipt>; slitherCommit: string; nativeSourceSha256: string;
+    releaseQualified: boolean; maturityQualified: boolean; profileChoice: null;
+    resourceSamples: {during: number; after: number};
+    cases: Array<{report: string; profile: string; bins: number; scenario: string;
+      timingPassed: boolean; rayPassed: boolean; queryPassed: boolean}>;
+  };
+  const files = readFrozenFiles(root, manifest.files);
+  expect(manifest.releaseQualified || manifest.maturityQualified).toBe(false);
+  expect(manifest.profileChoice).toBeNull(); expect(manifest.cases).toHaveLength(6);
+  expect(manifest.cases.map(row => row.profile + '/' + row.bins + '/' + row.scenario).sort()).toEqual(
+    ['basic/8/P0', 'basic/8/P1', 'motion/8/P0', 'motion/8/P1', 'motion/16/P0', 'motion/16/P1'].sort());
+  expect(new Set(manifest.cases.map(row => row.report)).size).toBe(6);
+  const resources = JSON.parse(files.get('resources.json')!.toString('utf8')) as Record<string, Array<{
+    utc: string; processDetailsIncluded: boolean; observerSourceSha256: string;
+  }>>;
+  expect(resources['during']).toHaveLength(manifest.resourceSamples.during);
+  expect(resources['after']).toHaveLength(manifest.resourceSamples.after);
+  const counters = [...resources['during']!, ...resources['after']!];
+  for (const counter of counters) {
+    expect(counter.processDetailsIncluded).toBe(false);
+    expect(counter.observerSourceSha256).toBe(sha256(files.get('host/system-resource-observer.py')!));
+  }
+  for (const row of manifest.cases) {
+    const report = JSON.parse(files.get(row.report)!.toString('utf8')) as {
+      recordedAt: string; requestedSeconds: number; warmupSeconds: number; scenario: string; workers: number;
+      source: Record<string, string>; reads: SensorWallRead[]; summary: ReturnType<typeof summarizeSensorWall>;
+      workload: {request: {profile: string; bins: number; rayCap: number; rayBatch: number};
+        metadata: {sensorVersion: number; parameterCount: number; sensorContract: {canonicalJson: string; sha256: string}}};
+      observationQuality: {before: ObservationQualityRead; after: ObservationQualityRead;
+        summary: ReturnType<typeof summarizeObservationQuality>};
+    };
+    expect(report.source).toMatchObject({revision: manifest.slitherCommit, nativeSourceSha256: manifest.nativeSourceSha256});
+    for (const [key, name] of Object.entries({hostSha256: 'sensor-wall.ts', summarySha256: 'sensorWallSummary.ts',
+      observationHelperSha256: 'observationQuality.ts', observationContractSha256: 'observationQualityContract.ts'})) {
+      expect(report.source[key]).toBe(sha256(files.get('host/' + name)!));
+    }
+    expect(report.workers).toBe(8); expect(report.requestedSeconds).toBe(60); expect(report.warmupSeconds).toBe(10);
+    expect(report.scenario).toBe(row.scenario);
+    expect(report.workload.request).toMatchObject({profile: row.profile, bins: row.bins, rayCap: 256, rayBatch: 65536});
+    const metadata = report.workload.metadata; const contract = metadata.sensorContract;
+    expect(metadata.sensorVersion).toBe(4);
+    expect(contract.sha256).toBe(createHash('sha256').update('slither.sensor-contract.v1\0').update(contract.canonicalJson).digest('hex'));
+    expect(JSON.parse(contract.canonicalJson)).toMatchObject({profile: row.profile, bins: row.bins,
+      inputSize: 24 + (row.profile === 'basic' ? 6 : 15) * row.bins});
+    expect(metadata.parameterCount).toBe(row.profile === 'basic' ? 12754 : row.bins === 8 ? 17362 : 25042);
+    expect(report.summary).toEqual(summarizeSensorWall(report.reads, report.requestedSeconds));
+    expect(report.summary.meetsMeasuredGates).toBe(row.timingPassed);
+    expect(report.summary.stepTiming.p99UpperMs).toBe(row.scenario === 'P0' ? 4 : 16);
+    const {before, after, summary} = report.observationQuality;
+    expect(before.beforeMs).toBeGreaterThanOrEqual(report.reads[0]!.afterMs);
+    expect(after.beforeMs).toBeGreaterThanOrEqual(report.reads.at(-1)!.afterMs);
+    expect(summary).toEqual(summarizeObservationQuality(before, after));
+    expect(summary.meetsOrdinaryRayGate).toBe(row.rayPassed);
+    expect(summary.meetsOrdinaryQueryGate).toBe(row.queryPassed);
+    expect(summary.consumers[2]!.rayIncompleteFraction).toBeNull();
+    const control = row.profile === 'motion' && row.bins === 16 && row.scenario === 'P1';
+    expect(row.timingPassed).toBe(!control); expect(row.rayPassed).toBe(!control);
+    expect(row.queryPassed).toBe(row.scenario === 'P0');
+    if (row.scenario === 'P1') {
+      expect(summary.allConsumerQuerySaturatedFraction).toBeGreaterThan(0.3);
+      const pellets = summary.consumers.reduce((sum, consumer) => sum + BigInt(consumer.counts['pelletCappedObservations']), 0n);
+      const capped = summary.consumers.reduce((sum, consumer) => sum + BigInt(consumer.counts['querySaturatedObservations']), 0n);
+      expect(Number(pellets) / Number(capped)).toBeGreaterThan(0.99);
+    }
+    expect(Date.parse(counters[0]!.utc)).toBeLessThan(Date.parse(report.recordedAt) - 70000);
+    expect(Date.parse(counters.at(-1)!.utc)).toBeGreaterThan(Date.parse(report.recordedAt));
+    expect(counters.filter(counter => Date.parse(counter.utc) >= Date.parse(report.recordedAt) - 60000 &&
+      Date.parse(counter.utc) <= Date.parse(report.recordedAt)).length).toBeGreaterThanOrEqual(1);
+  }
+});
