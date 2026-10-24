@@ -112,6 +112,14 @@ jobs:
           --bin baseline-v2-qualification -- --seed-count 4 --steps 180 --workers 1
           --cadence "0.016666666666666666" --output "${{ runner.temp }}/baseline-v2-tactics.json"
           --corpus-directory "${{ runner.temp }}/baseline-v2-corpus"
+      - name: Native tactical Basic/B8 and Motion/B32 corpus contracts
+        if: matrix.node-version == '24.x'
+        shell: bash
+        run: |
+          runner="native/target/release/baseline-v2-qualification"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then runner="$runner.exe"; fi
+          "$runner" --seed-count 2 --steps 12 --workers 1 --bins 8 --corpus-profile basic --output "${{ runner.temp }}/basic-b8-tactics.json" --corpus-directory "${{ runner.temp }}/basic-b8-corpus"
+          "$runner" --seed-count 2 --steps 12 --workers 1 --bins 32 --corpus-profile motion --output "${{ runner.temp }}/motion-b32-tactics.json" --corpus-directory "${{ runner.temp }}/motion-b32-corpus"
       - name: Retain native tactical outcomes
         if: always()
         uses: actions/upload-artifact@v4
@@ -120,6 +128,10 @@ jobs:
           path: |
             ${{ runner.temp }}/baseline-v2-tactics.json
             ${{ runner.temp }}/baseline-v2-corpus/
+            ${{ runner.temp }}/basic-b8-tactics.json
+            ${{ runner.temp }}/basic-b8-corpus/
+            ${{ runner.temp }}/motion-b32-tactics.json
+            ${{ runner.temp }}/motion-b32-corpus/
           if-no-files-found: warn
       - name: Native committed capture batch
         run: >-
