@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "kind": "rejected-pellet-bin-sort-native-comparison-v1",
+  "baseCommit": "129db0cc5e3f8c02fcbe75c11de7b0256c5e3407",
+  "nativeSourceSha256": "6205b45fcf296375269c2fc7c75ea321f61a90393650dcfff54c365f0f71a37f",
+  "candidateSourceSha256": "c20a34770a34d6b716527e6af63fdd2eabaa15cdbf8734190daf7d1e8d2995be",
+  "adopted": false,
+  "performanceQualified": false,
+  "maturityQualified": false,
+  "fullCapacitySoakQualified": false,
+  "summary": [
+    {
+      "scenario": "P0",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 3.0381962500000004,
+          "sensingMeanMs": 0.9688591666666666,
+          "nativeP95Ms": 3.4138
+        },
+        "candidate": {
+          "nativeMeanMs": 2.9869025000000002,
+          "sensingMeanMs": 0.9420825,
+          "nativeP95Ms": 3.3610999999999995
+        }
+      },
+      "medianChildCpuSeconds": {
+        "baseline": 10.1640625,
+        "candidate": 10.71875
+      },
+      "nativeMeanRatio": 0.9831170386047313,
+      "childCpuRatio": 1.0545734050730207
+    },
+    {
+      "scenario": "P1",
+      "medians": {
+        "baseline": {
+          "nativeMeanMs": 11.349930416666666,
+          "sensingMeanMs": 5.850419166666667,
+          "nativeP95Ms": 12.427600000000002
+        },
+        "candidate": {
+          "nativeMeanMs": 11.292561249999999,
+          "sensingMeanMs": 5.788995,
+          "nativeP95Ms": 12.5096
+        }
+      },
+      "medianChildCpuSeconds": {
+        "baseline": 54.125,
+        "candidate": 52.9765625
+      },
+      "nativeMeanRatio": 0.9949454168826952,
+      "childCpuRatio": 0.9787817551963048
+    }
+  ],
+  "files": {
+    "baseline-spatial.rs": {
+      "bytes": 89955,
+      "sha256": "2d3b36d5cc0e4d1dad6e7067503da8e285d3c919648ba5b549fd271d086d382a",
+      "gzipSha256": "9283bcdc5bab2dcf67bcbf998114d430f33628cde1b844b85187f4a409d2d7db"
+    },
+    "baseline-sensors_v4.rs": {
+      "bytes": 95238,
+      "sha256": "d324cfb35a9c21674650693e98e233b1f5abccd2947422581cc02ccec959cc2e",
+      "gzipSha256": "0b6de3513d8a5b1a0d629f81b50dae7d5ab0dea8c13bdd1af707fad64d8e5684"
+    },
+    "candidate-spatial.rs": {
+      "bytes": 97197,
+      "sha256": "77ef242915bd0668273f681d3fc75efa0b8d49e1dff935c7b64fae550c5d1834",
+      "gzipSha256": "86022d093b650ce690bd3dcf2c1d6b04623c51cb17359f3e78ef6ee41ad23ce7"
+    },
+    "candidate-sensors_v4.rs": {
+      "bytes": 97933,
+      "sha256": "a2663cb274dba4a3b0e75621855a58e1c9b00ae2e0249e876439786c1ac6fbd6",
+      "gzipSha256": "706902919b13130719c110106fa4daeeb9355c62f4fa742b33fa892cd67a4783"
+    },
+    "run-comparisons.py": {
+      "bytes": 3160,
+      "sha256": "7e146b7198776f1d3c90497ecc6002add1fcbc986badee7fdd6c33335c55d5b6",
+      "gzipSha256": "5fb3892eb3cb9a23f9a8d3d0bd200876ac6c40d50c62102bf50bc4233439049d"
+    },
+    "compare-sensor-workloads.py": {
+      "bytes": 14704,
+      "sha256": "f03d5f3ba752f808f60e85567fd9ddbea1447f89f0a365862387daba8822ffc5",
+      "gzipSha256": "aa6d93c3724206dba76a61109054aa84492658a1fa140292df0d47d9ed694f53"
+    },
+    "system-resource-observer.py": {
+      "bytes": 10213,
+      "sha256": "050c5ce5acc982abe5285468a8e3a528aa9442ea36913bdf948a9d27c322bbe9",
+      "gzipSha256": "9154c9b1672a52926e98d634155dbc99ca87391668d0006053a0c1afdf0cd64d"
+    },
+    "export-resource-counters.py": {
+      "bytes": 11067,
+      "sha256": "543488c3ff7abeeda99098ad7d04627703c5fb379891903d63c6f342ce5091f3",
+      "gzipSha256": "e2baba9b5f3acf7ad79f4f36db4d8761c70207bb65538422c5a0c5ef339f818f"
+    },
+    "windows/P0/comparison.json": {
+      "bytes": 4039,
+      "sha256": "83dea8ffd9df17182d6d2d5515bca1e8723b69747e886edd7916dc2660b3d6c4",
+      "gzipSha256": "3c2f89e2e7cbcef732e4d8448cb0923290a505b4b00f0a5b525875f4389158db"
+    },
+    "windows/P0/0-baseline.json": {
+      "bytes": 207559,
+      "sha256": "82e6de236aca35b7a972813bfd46e42c53a1d3beca229fd353b03ff2e69f700f",
+      "gzipSha256": "e974b200d68e74fa1bc433c87c5565e13c42d0bfed9e34db27de00fa68d461ea"
+    },
+    "windows/P0/1-candidate.json": {
+      "bytes": 207564,
+      "sha256": "a2291cc944809f59570c0f8ffe33302d1f849caa2aade6b3571526b4354c87fa",
+      "gzipSha256": "6228fd1f1dda61053b5650ac9c93b42bd491da62d27b244395c6da2ce3fc93da"
+    },
+    "windows/P0/2-candidate.json": {
+      "bytes": 207530,
+      "sha256": "b2fee0df331c9417fdbed21aa681260e9e084ff6f5b2e1a9df49f39a991480a0",
+      "gzipSha256": "2a746586fb8de9b9bff5d8701d3499ec8441179e9d64a2ee97bacb522d103173"
+    },
+    "windows/P0/3-baseline.json": {
+      "bytes": 207580,
+      "sha256": "a6b38c524950314160e9e29e6e66a38c03e55b8073f9c2765d02683f46535d71",
+      "gzipSha256": "4fe7ffc3bd68c82a5083059a400693d8811e53c2e17703fc429037cec0f912f8"
+    },
+    "windows/P1/comparison.json": {
+      "bytes": 4060,
+      "sha256": "c754389ad1de085e6b1f63e79d4dfa48eba1a1b1c0935464134e76faceff2e1a",
+      "gzipSha256": "2b18ed145dd01358b3f637e90439fce5787e3d17de039285f765f493b35a144f"
+    },
+    "windows/P1/0-baseline.json": {
+      "bytes": 214952,
+      "sha256": "d6d1f292f9fc6d50fec93bd9027495f21c65fc62b96931c3fbad4c9d9df486be",
+      "gzipSha256": "644f2b03ac90d3506d6c447f64ac5641a952ccd0accc31ff20878b80eba6f8ca"
+    },
+    "windows/P1/1-candidate.json": {
+      "bytes": 214584,
+      "sha256": "2de07ad106533b430f709d333355012e3878eeae4b662a03c848960207de59fa",
+      "gzipSha256": "1ed84963df31c7ae7b2f2d3b828ab7d7e3216256113dd510ed2ee9bf46e50f34"
+    },
+    "windows/P1/2-candidate.json": {
+      "bytes": 214580,
+      "sha256": "3353d8abaf3dee43635f902ce8e5aabf1812c323581271ac4d89dc70ee276b53",
+      "gzipSha256": "72e842a9bcb1db998ece2cfa456f577406ae61b766a8f2dac219dfbe15957ebd"
+    },
+    "windows/P1/3-baseline.json": {
+      "bytes": 214580,
+      "sha256": "a28e6cba7bfeb7a18b06d1e54c6eec02f5bf49f6e5a0a772bc06551772ecbd15",
+      "gzipSha256": "8f72f4264dc9d83df70822eabc586f0805abf4b80bd963884b906c3711b00cd5"
+    },
+    "windows/resources.json": {
+      "bytes": 6610,
+      "sha256": "61a764489770c0a98d2549b16982ed97e459f56c5ed3af09294c1db7ef9a73d4",
+      "gzipSha256": "0324a9187a2d6e77e8a48a159f833ff2c1f3bb6522347feb82b756fa06ae7ae6"
+    }
+  },
+  "caveat": "In-place bin partition preserves each bin's exact original accumulation order without new heap storage. Windows P1 service gain is small with higher p95; P0 child CPU rises. The candidate is reverted before further platform timing. Shared-host aggregate brackets do not establish an idle host. No runtime, profile, ray, scratch or checkpoint default changes."
+}

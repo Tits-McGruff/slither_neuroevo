@@ -2104,3 +2104,13 @@ overwrites and mixed-source/nonmonotonic samples, and prints only counts or
 fixed rejection reasons. Tests cover actual retained Windows/Debian counters,
 private-field injection, late invalid samples and non-overwriting publication.
 This strengthens evidence handling without changing any qualification result.
+
+
+`pellet-bin-sort-windows-v1/` rejects a further in-place food-sector partition.
+It preserves exact selected pellets, per-bin addition order, complete native
+continuation, teacher bytes and memory reservation. In adjacent P0/P1 ABBA runs,
+P1 mean improves only 0.5% with slightly higher p95; P0 mean improves 1.7% while
+child CPU rises 5.5%. The candidate passes 810 release native tests but is
+reverted before additional platform timing. Exact variants, reports and seven
+strict counter-only resource exports are retained. No runtime/default changes
+result; profile-width and representative-policy qualification remain open.

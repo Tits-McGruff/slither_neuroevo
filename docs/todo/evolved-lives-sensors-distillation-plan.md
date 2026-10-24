@@ -1524,6 +1524,11 @@ allowlists, with unknown vendor/error text excluded. Real retained counters and
 private-field mutation cases exercise the guard. This changes no runtime,
 performance outcome or production default; qualification gates remain open.
 
+An in-place food-bin sorting candidate also preserves exact work, continuation,
+capture and memory admission, but its small Windows P1 gain and mixed CPU/p95
+results leave it unselected. `pellet-bin-sort-windows-v1/` retains that study;
+native source is unchanged. Further work moves to profile-width qualification.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems
