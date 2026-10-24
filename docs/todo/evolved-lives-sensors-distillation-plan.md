@@ -1508,6 +1508,15 @@ distributions, work and capture in adjacent ABBA runs but changes native mean
 only 0.17% with slightly higher p95; it is reverted and retained in the same
 capsule. Native behavior, limits and defaults remain unchanged.
 
+Pellet sorting screens also leave native source unchanged. Two radix variants
+lose at the primitive stage; a reversible 16-byte packed key improves isolated
+sorting but produces flat Windows service and worse Debian P0/P1 mean service
+in exact-work ABBA comparisons. `pellet-key-screening-v1/` retains both-target
+reports and aggregate resource brackets. The comparison harness now rejects
+missing, non-integer or changed native memory reservations; real-receipt mutation
+tests protect this admission invariant. Further sensing/traversal work and all
+remaining qualification gates stay open.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

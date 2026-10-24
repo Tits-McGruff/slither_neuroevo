@@ -2064,3 +2064,24 @@ service changes from 11.3695 to 11.3502 ms (0.17%), while p95 changes from
 the candidate is reverted. Both exact source files, raw reports, comparison
 driver and counter-only resource brackets are retained. Current native source
 and defaults remain unchanged.
+
+The `pellet-key-screening-v1/` study rejects two radix sort primitives and a
+packed 128-bit distance/ordinal key. The packed key preserves every field bit,
+the 16-byte candidate width and complete same-target native continuation,
+sensor work/distributions, capture hashes and memory reservation on Windows and
+Debian. Its isolated sort gains do not carry through to actual gameplay:
+
+| Target | P0 native mean, baseline/candidate ms | P1 native mean, baseline/candidate ms |
+|---|---:|---:|
+| Windows | 2.99985 / 2.99574 | 11.32092 / 11.34024 |
+| Debian | 7.26547 / 7.44077 | 26.10749 / 27.05761 |
+
+Each cell uses adjacent ABBA, four workers, seed 42, 600 warmup plus 1,200
+measured steps, ten stochastic teachers/capture and cap 256/batch 65,536.
+Child CPU also rises modestly; shared-host counter brackets remain aggregate
+only. All candidates are reverted. Exact source variants, primitive screens,
+native reports and comparison tools are retained. The current comparison
+driver now requires a positive exact integer memory reservation and rejects
+changes in it before reporting same-budget equivalence; regression cases mutate
+real native receipts to cover missing, lossy, reduced and increased reservations.
+This selects no runtime, sensor or resource defaults.
