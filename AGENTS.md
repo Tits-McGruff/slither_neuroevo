@@ -204,6 +204,12 @@ source identity, all JS layers, native multiworker overlay, browser/type/lint,
 and separate rustfmt/Clippy. Dependency guards verify retired paths are absent
 and surviving client/server/metadata/tools cannot reach simulation execution.
 
+The controlled sensor CLI and `scripts/qualification/sensor-wall.ts` accept
+`--pellet-checks` and `--segment-checks` only as an explicit pair within the
+existing 100..3000/200..4000 bounds. Omission retains normalized defaults. These
+qualification overrides are recorded in returned native settings/reports; they
+select no production default or successful timing/query-quality outcome.
+
 ### Verification cadence and usage efficiency
 
 Use the cheapest validation that can disprove the current change, then widen

@@ -91,6 +91,8 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             "--scenario",
             "--profile",
             "--bins",
+            "--pellet-checks",
+            "--segment-checks",
             "--graph",
             "--trained-artifact",
             "--respawn",
@@ -211,7 +213,21 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             "--trained-cohort supplies its graph; omit artifact, graph and soak overrides".into(),
         );
     }
+    let query_limits = match (
+        values.get("--pellet-checks"),
+        values.get("--segment-checks"),
+    ) {
+        (None, None) => None,
+        (Some(pellets), Some(segments)) => Some(
+            slither_native::engine::sensor_qualification::QueryDetailLimits::new(
+                pellets.parse()?,
+                segments.parse()?,
+            )?,
+        ),
+        _ => return Err("--pellet-checks and --segment-checks must be supplied together".into()),
+    };
     let options = SensorQualificationOptions {
+        query_limits,
         trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
         population: match required("--scenario")? {
             "P0" => 55,

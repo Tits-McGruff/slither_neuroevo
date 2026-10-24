@@ -278,6 +278,13 @@ jobs:
           node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
           --scenario P1 --profile motion --bins 8 --seconds 60 --warmup-seconds 10
           --report "${{ runner.temp }}/sensor-wall-motion-b8-P1.json"
+      - name: Real-clock Motion B8 maximum query-detail screen
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --profile motion --bins 8 --seconds 60 --warmup-seconds 10
+          --pellet-checks 3000 --segment-checks 4000
+          --report "${{ runner.temp }}/sensor-wall-motion-b8-max-detail-P1.json"
       - name: Retain real-clock sensor outcomes
         if: always() && matrix.node-version == '24.x'
         uses: actions/upload-artifact@v4

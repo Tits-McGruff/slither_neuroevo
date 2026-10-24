@@ -425,6 +425,7 @@ mod tests {
     }
     fn options() -> SensorQualificationOptions {
         SensorQualificationOptions {
+            query_limits: None,
             population: 55,
             profile: super::super::sensor_contract::SensorProfile::Basic,
             bins: 8,

@@ -28,9 +28,44 @@ pub const MAX_QUALIFICATION_STEPS: usize = 60_000;
 /// Fixed histogram resolution, with explicit under/overflow counters.
 const HISTOGRAM_BUCKETS: usize = 32;
 
+/// Explicit qualification-only choices within the existing numeric settings bounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryDetailLimits {
+    /// Existing food-detail admission, shared by native neural and teacher consumers.
+    pub pellet_checks: usize,
+    /// Existing body-detail admission; collision traversal remains independent.
+    pub segment_checks: usize,
+}
+
+impl QueryDetailLimits {
+    /// Reject invalid work before population allocation or workspace access.
+    pub fn new(pellet_checks: usize, segment_checks: usize) -> Result<Self, &'static str> {
+        let limits = Self {
+            pellet_checks,
+            segment_checks,
+        };
+        limits.validate()?;
+        Ok(limits)
+    }
+
+    fn validate(self) -> Result<(), &'static str> {
+        if !(100..=3_000).contains(&self.pellet_checks)
+            || !(200..=4_000).contains(&self.segment_checks)
+        {
+            return Err(
+                "query detail limits require pellet checks 100..3000 and segment checks 200..4000",
+            );
+        }
+        Ok(())
+    }
+}
+
 /// Every resource/work choice is explicit; these are not production defaults.
 #[derive(Clone, Debug)]
 pub struct SensorQualificationOptions {
+    /// None retains the existing normalized production settings without an override.
+    pub query_limits: Option<QueryDetailLimits>,
     pub population: usize,
     pub profile: SensorProfile,
     pub bins: usize,
@@ -253,6 +288,9 @@ impl NativePhysicsPhaseTotals {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SensorQualificationReport {
+    /// Present only when the caller explicitly selects a bounded query-detail pair.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_detail_limits: Option<QueryDetailLimits>,
     pub version: u32,
     pub native_phase_costs: NativePhaseCostTotals,
     /// Same 16,667-microsecond boundary used by production slow-step health.
@@ -469,6 +507,11 @@ pub(crate) fn sensor_workload_spec(
     options: &SensorQualificationOptions,
     trained: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<(Vec<FreshRunSettingUpdate>, GraphSpec), super::fresh_run::FreshRunError> {
+    if let Some(limits) = options.query_limits {
+        limits
+            .validate()
+            .map_err(|error| super::fresh_run::FreshRunError::Settings(error.into()))?;
+    }
     if !matches!(options.population, 55 | 300) {
         return Err(super::fresh_run::FreshRunError::Settings(
             "qualification workload must be P0/P1".into(),
@@ -502,6 +545,19 @@ pub(crate) fn sensor_workload_spec(
                 entry.value = NormalizedSettingValue::Integer(options.bins as i64)
             }
             _ => {}
+        }
+    }
+    if let Some(limits) = options.query_limits {
+        for entry in &mut settings {
+            match entry.path.as_str() {
+                "sense.maxPelletChecks" => {
+                    entry.value = NormalizedSettingValue::Integer(limits.pellet_checks as i64)
+                }
+                "sense.maxSegmentChecks" => {
+                    entry.value = NormalizedSettingValue::Integer(limits.segment_checks as i64)
+                }
+                _ => {}
+            }
         }
     }
     if let Some(artifact) = trained {
@@ -744,6 +800,9 @@ fn run_with_sources(
     observer_enabled: bool,
     cohort: Option<super::trained_cohort::TrainedCohort>,
 ) -> Result<SensorQualificationReport, String> {
+    if let Some(limits) = options.query_limits {
+        limits.validate()?;
+    }
     if !options.teacher_respawn_delay_seconds.is_finite()
         || !(0.5..=60.0).contains(&options.teacher_respawn_delay_seconds)
     {
@@ -789,6 +848,7 @@ fn run_with_sources(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
+        query_detail_limits: options.query_limits,
         version:if cohort.is_some() {7}else if trained.is_some() {6}else{5},trained_cohort:cohort.as_ref().map(|value|value.descriptor(options.population)),trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
@@ -970,6 +1030,57 @@ mod tests {
     use super::*;
     use sha2::Digest;
 
+    #[test]
+    fn query_detail_admission_preserves_defaults_and_projects_both_settings() {
+        let mut options = super::super::checkpoint_capacity::capacity_workload_options(55, false);
+        let original = sensor_workload_spec(&options, None).unwrap().0;
+        let value = |updates: &[FreshRunSettingUpdate], path| {
+            updates
+                .iter()
+                .find(|entry| entry.path == path)
+                .unwrap()
+                .value
+        };
+        assert_eq!(value(&original, "sense.maxPelletChecks"), 900.0);
+        assert_eq!(value(&original, "sense.maxSegmentChecks"), 2200.0);
+        for (pellets, segments) in [(100, 200), (3000, 4000)] {
+            options.query_limits = Some(QueryDetailLimits::new(pellets, segments).unwrap());
+            let selected = sensor_workload_spec(&options, None).unwrap().0;
+            assert_eq!(value(&selected, "sense.maxPelletChecks"), pellets as f64);
+            assert_eq!(value(&selected, "sense.maxSegmentChecks"), segments as f64);
+            for entry in &original {
+                if entry.path != "sense.maxPelletChecks" && entry.path != "sense.maxSegmentChecks" {
+                    assert_eq!(value(&selected, entry.path.as_str()), entry.value);
+                }
+            }
+        }
+        for (pellet_checks, segment_checks) in [
+            (0, 200),
+            (99, 200),
+            (3001, 200),
+            (100, 199),
+            (100, 4001),
+            (usize::MAX, usize::MAX),
+        ] {
+            assert!(QueryDetailLimits::new(pellet_checks, segment_checks).is_err());
+            options.query_limits = Some(QueryDetailLimits {
+                pellet_checks,
+                segment_checks,
+            });
+            assert!(sensor_workload_spec(&options, None).is_err());
+            assert!(
+                run_sensor_qualification(&options, Path::new("unused-invalid-query-detail"))
+                    .unwrap_err()
+                    .contains("query detail")
+            );
+        }
+        options.query_limits = None;
+        let restored = sensor_workload_spec(&options, None).unwrap().0;
+        for entry in &original {
+            assert_eq!(value(&restored, entry.path.as_str()), entry.value);
+        }
+    }
+
     /// Exclusive native-only scratch; never a user database or retained archive.
     struct Scratch(std::path::PathBuf);
 
@@ -1005,6 +1116,7 @@ mod tests {
             Some(super::super::baseline_v2::BaselineV2Mode::Stochastic),
         ] {
             let mut options = SensorQualificationOptions {
+                query_limits: None,
                 population: 55,
                 profile: SensorProfile::Motion,
                 bins: 8,
@@ -1107,6 +1219,7 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/portable-brain-v1.slither-brain");
         let artifact = load_trained_artifact(&path).unwrap();
         let mut options = SensorQualificationOptions {
+            query_limits: None,
             population: 55,
             profile: SensorProfile::Basic,
             bins: 8,
@@ -1266,6 +1379,7 @@ mod tests {
     fn actual_capture_bytes_and_authority_match_across_fast_slow_and_parallel_runs() {
         use super::super::capture_qualification::CaptureQualificationOptions;
         let mut options = SensorQualificationOptions {
+            query_limits: None,
             population: 55,
             profile: SensorProfile::Motion,
             bins: 16,

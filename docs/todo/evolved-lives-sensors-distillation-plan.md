@@ -1581,6 +1581,12 @@ but P1 mean service is flat and sensing is slower. It remains off production;
 `sensor-v4/pellet-distance-screen-20261025/` records the rejected screen without
 source snapshots or generated payloads in Git.
 
+Native controlled-step and real-clock qualification now accept an explicit paired
+pellet/body detail limit within the existing settings bounds, with early native
+admission and returned-settings verification. Omission preserves defaults.
+CI records a Motion/B8 maximum-detail P1 window alongside the existing windows;
+these diagnostic results do not select limits or relax timing/query gates.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

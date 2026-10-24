@@ -1453,9 +1453,11 @@ impl ExperimentalStage6aFreshRunSession {
             "rayBatch",
             "workload",
             "trainedCohort",
+            "pelletChecks",
+            "segmentChecks",
         ];
         let names = request.get_property_names()?;
-        if !matches!(names.get_array_length()?, 7..=9) {
+        if !matches!(names.get_array_length()?, 7..=11) {
             return Err(Error::new(
                 Status::InvalidArg,
                 "qualification requires exact fields",
@@ -1551,6 +1553,23 @@ impl ExperimentalStage6aFreshRunSession {
         } else {
             None
         };
+        let query_limits = match (
+            request.has_own_property("pelletChecks")?,
+            request.has_own_property("segmentChecks")?,
+        ) {
+            (false, false) => None,
+            (true, true) if workload_population.is_some() => Some(
+                crate::engine::sensor_qualification::QueryDetailLimits::new(
+                    integer("pelletChecks", 100.0, 3000.0)?,
+                    integer("segmentChecks", 200.0, 4000.0)?,
+                )
+                .map_err(|error| Error::new(Status::InvalidArg, error))?,
+            ),
+            _ => return Err(Error::new(
+                Status::InvalidArg,
+                "query detail limits require both pelletChecks/segmentChecks and a P0/P1 workload",
+            )),
+        };
         self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
         if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
             self.active_operation
@@ -1572,6 +1591,7 @@ impl ExperimentalStage6aFreshRunSession {
                     ray_work,
                     workload_population,
                     trained_cohort,
+                    query_limits,
                 ),
                 inner: Arc::clone(&self.inner),
                 active_operation: Arc::clone(&self.active_operation),
@@ -1821,6 +1841,7 @@ enum FreshRunInitialization {
         crate::engine::ray_work::RayWorkLimits,
         Option<usize>,
         Option<PathBuf>,
+        Option<crate::engine::sensor_qualification::QueryDetailLimits>,
     ),
     #[cfg(feature = "engine-test-hooks")]
     Capacity {
@@ -1952,10 +1973,12 @@ impl Task for InitializeExperimentalFreshRunTask {
                     ray_work,
                     workload_population,
                     trained_cohort,
+                    query_limits,
                 ) => {
                     if let Some(population) = workload_population {
                         let options =
                             crate::engine::sensor_qualification::SensorQualificationOptions {
+                                query_limits: *query_limits,
                                 population: *population,
                                 profile: *profile,
                                 bins: *bins,

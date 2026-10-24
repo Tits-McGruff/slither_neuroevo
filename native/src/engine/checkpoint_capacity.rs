@@ -102,6 +102,7 @@ pub fn capacity_workload_options(
     large_graph: bool,
 ) -> super::sensor_qualification::SensorQualificationOptions {
     super::sensor_qualification::SensorQualificationOptions {
+        query_limits: None,
         population,
         profile: super::sensor_contract::SensorProfile::Motion,
         bins: 32,
@@ -605,6 +606,7 @@ mod tests {
     #[test]
     fn p3_resource_audit_uses_metadata_only_and_preserves_production_limits() {
         let options = super::super::sensor_qualification::SensorQualificationOptions {
+            query_limits: None,
             population: 300,
             profile: super::super::sensor_contract::SensorProfile::Motion,
             bins: 32,

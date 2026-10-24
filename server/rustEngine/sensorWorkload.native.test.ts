@@ -19,10 +19,33 @@ interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
       rayBatch: number; envelopeMiB?: number}): Promise<unknown>;
   /** Explicit P0/P1 select the same modest native graph as the sensor benchmark. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
-    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string}): Promise<{trainedCohortJson?: string}>;
+    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string;
+    /** Optional paired food-detail bound within the existing setting range. */
+    pelletChecks?: number;
+    /** Optional paired body-detail bound within the existing setting range. */
+    segmentChecks?: number}): Promise<{trainedCohortJson?: string}>;
 }
 /** Known explicit ray admission; these are fixture choices, not production defaults. */
 const request = {profile: 'motion', bins: 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 256, rayBatch: 65536};
+
+it('admits explicit bounded query detail limits in actual native settings after rejected requests', async () => {
+  const binding = loadPanicBinding();
+  const Constructor = binding.ExperimentalStage6aFreshRunSession as new (run: string, seed: string, memory: string, workers: number) => QualifiedSession;
+  const session = new Constructor('query-limits-' + randomBytes(8).toString('hex'), '0000002a', '0000000100000000', 1);
+  for (const limits of [{pelletChecks: 3000}, {segmentChecks: 4000}, {pelletChecks: 99, segmentChecks: 4000},
+    {pelletChecks: 3001, segmentChecks: 4000}, {pelletChecks: 3000, segmentChecks: 199},
+    {pelletChecks: 3000, segmentChecks: 4001}, {pelletChecks: NaN, segmentChecks: 4000},
+    {pelletChecks: 900.5, segmentChecks: 2200}]) {
+    expect(() => session.initializeBaselineV2ForTest({...request, workload: 'P0', ...limits})).toThrow(/query|integer/u);
+    expect(session.snapshot()).toMatchObject({phase: 'created'});
+  }
+  expect(() => session.initializeBaselineV2ForTest({...request, pelletChecks: 3000, segmentChecks: 4000})).toThrow(/workload/u);
+  await session.initializeBaselineV2ForTest({...request, profile: 'basic', bins: 8, workload: 'P0', pelletChecks: 3000, segmentChecks: 4000});
+  const settings = new Map(parseRustStartupMetadata(session.startupMetadata()).settings.map(entry => [entry.path, entry.value]));
+  expect(settings.get('sense.maxPelletChecks')).toBe(3000);
+  expect(settings.get('sense.maxSegmentChecks')).toBe(4000);
+  expect(session.snapshot()).toMatchObject({completedStep: '0000000000000000', checkpointPublished: false, authorityPublished: false});
+}, 15000);
 
 for (const [workload, population, workers] of [['P0', 55, 1], ['P1', 300, 3]] as const) {
   it('admits the complete ' + workload + ' modest native workload with explicit ray admission', async () => {

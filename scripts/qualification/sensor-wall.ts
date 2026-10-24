@@ -31,7 +31,11 @@ import { summarizeSensorWall, type SensorWallRead } from './sensorWallSummary.ts
 interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
   /** Select the same modest P0/P1 graph/settings builder as the controlled-step host. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
-    rayMinimum: number; rayCap: number; rayBatch: number; workload: string}): Promise<unknown>;
+    rayMinimum: number; rayCap: number; rayBatch: number; workload: string;
+    /** Explicit existing food-detail bound; paired with segmentChecks. */
+    pelletChecks?: number;
+    /** Explicit existing body-detail bound; paired with pelletChecks. */
+    segmentChecks?: number}): Promise<unknown>;
 }
 /** Production-sized bounded queues without any external controller. */
 const INIT: ExperimentalEngineInit = {contractVersion: 1, maxInboundBatches: 16, maxInboundCommands: 16,
@@ -91,7 +95,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch', '--profile', '--bins'].includes(key) &&
+    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch', '--profile', '--bins', '--pellet-checks', '--segment-checks'].includes(key) &&
       value !== undefined && !args.has(key), 'invalid or duplicate qualification argument');
     args.set(key, value);
   }
@@ -109,6 +113,14 @@ async function run(): Promise<void> {
   const rayCap = Number(args.get('--ray-cap') ?? 256); const rayBatch = Number(args.get('--ray-batch') ?? 65536);
   assert(Number.isSafeInteger(rayCap) && rayCap >= 1 && rayCap <= 1_000_000, 'ray cap must be 1..1000000');
   assert(Number.isSafeInteger(rayBatch) && rayBatch >= 512 && rayBatch <= 10_000_000, 'ray batch must be 512..10000000');
+  assert.equal(args.has('--pellet-checks'), args.has('--segment-checks'), 'query detail limits must be supplied together');
+  const queryLimits = args.has('--pellet-checks') ? {
+    pelletChecks: Number(args.get('--pellet-checks')), segmentChecks: Number(args.get('--segment-checks'))
+  } : undefined;
+  if (queryLimits) {
+    assert(Number.isSafeInteger(queryLimits.pelletChecks) && queryLimits.pelletChecks >= 100 && queryLimits.pelletChecks <= 3000, 'pellet checks must be 100..3000');
+    assert(Number.isSafeInteger(queryLimits.segmentChecks) && queryLimits.segmentChecks >= 200 && queryLimits.segmentChecks <= 4000, 'segment checks must be 200..4000');
+  }
   const hostPath = fileURLToPath(import.meta.url); const summaryPath = fileURLToPath(new URL('./sensorWallSummary.ts', import.meta.url));
   const hostSha256 = await digest(hostPath); const summarySha256 = await digest(summaryPath);
   const observationHelperPath = fileURLToPath(new URL('./observationQuality.ts', import.meta.url));
@@ -127,10 +139,14 @@ async function run(): Promise<void> {
   let report: unknown;
   try {
     await mkdir(managed); await admitDiskOperation(managed, CHECKPOINT_DISK_ADMISSION_REQUEST);
-    const request = {profile, bins, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap, rayBatch, workload: scenario};
+    const request = {profile, bins, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap, rayBatch, workload: scenario, ...queryLimits};
     await session.initializeBaselineV2ForTest(request);
     const metadata = parseRustStartupMetadata(session.startupMetadata());
     const settings = new Map(metadata.settings.map(entry => [entry.path, entry.value]));
+    if (queryLimits) {
+      assert.equal(settings.get('sense.maxPelletChecks'), queryLimits.pelletChecks);
+      assert.equal(settings.get('sense.maxSegmentChecks'), queryLimits.segmentChecks);
+    }
     for (const [path, value] of [['snakeCount', scenario === 'P0' ? 55 : 300], ['baselineBots.count', 10],
       ['evolvedRespawn.enabled', true], ['generationSeconds', 604800], ['simSpeed', 1],
       ['brain.controlDt', 1 / 60], ['baselineBots.respawnDelay', 20], ['observer.earlyEndMode', 2], ['world.pelletOverflow', 1]] as const) {
