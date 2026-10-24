@@ -28,6 +28,11 @@ def digest(path, maximum=64 * 1024**2):
     return state.hexdigest()
 
 
+def executable_digest(path):
+    """Hash the native tool including Linux debug information, with one-MiB read storage."""
+    return digest(path, maximum=512 * 1024**2)
+
+
 def extract_artifact(study, evidence, relative, output, replicated):
     """Restore opaque checksummed bytes; Rust remains the artifact admission authority."""
     matches = [item for item in evidence["files"] if item["path"] == relative]
@@ -122,7 +127,7 @@ def main():
     require(executable.is_file(), "native executable required")
     require(shutil.disk_usage(directory.parent).free >= 2 * 1024**3, "native disk reserve required")
     directory.mkdir()  # Exclusive: never reuse or remove owner paths.
-    binary_sha = digest(executable)
+    binary_sha = executable_digest(executable)
     script_sha = digest(Path(__file__))
     evidence_path = study / "evidence.json" if study is not None else None
     evidence_sha, evidence = None, None
@@ -178,7 +183,7 @@ def main():
             for workers in [1, args.workers]:
                 stem = f"{variant}-{scenario}-w{workers}"
                 output = directory / (stem + ".json")
-                require(digest(executable) == binary_sha and all(digest(path) == sha for path, sha in source_files), "input changed")
+                require(executable_digest(executable) == binary_sha and all(digest(path) == sha for path, sha in source_files), "input changed")
                 command = [str(executable), source_flag, str(artifact), "--scenario", scenario,
                            "--profile", args.profile, "--bins", str(args.bins), "--respawn", "on", "--seed", str(args.seed),
                            "--workers", str(workers), "--math-backend", "sse2", "--minimum", "1", "--cap", "512",
@@ -247,7 +252,7 @@ def main():
                        "observations": report["observations"], "peakRssBytes": report["peakRssBytes"]}
                 records.append(row)
                 print(json.dumps(row, sort_keys=True), flush=True)
-    require(digest(executable) == binary_sha and digest(Path(__file__)) == script_sha
+    require(executable_digest(executable) == binary_sha and digest(Path(__file__)) == script_sha
             and (evidence_path is None or digest(evidence_path) == evidence_sha)
             and all(digest(path) == sha for path, sha in all_source_files), "measurement inputs changed")
     training_scope = ("Portable learned source; maturity is not inferred. " if direct is not None
