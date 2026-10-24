@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "kind": "profile-width-wall-evidence-v1",
+  "slitherCommit": "e3ef608f567df2f81fd1bf8951532fe2bd6cf7a3",
+  "nativeSourceSha256": "1be436a7c28b73f8eecdc3dcf397a549bc0e46aa095cbf4c0c23536f55fb05b8",
+  "releaseQualified": false,
+  "maturityQualified": false,
+  "profileChoice": null,
+  "resourceSamples": {
+    "during": 15,
+    "after": 1
+  },
+  "cases": [
+    {
+      "report": "basic-b8-P0.json",
+      "profile": "basic",
+      "bins": 8,
+      "scenario": "P0",
+      "timingPassed": false,
+      "rayPassed": true,
+      "queryPassed": false
+    },
+    {
+      "report": "basic-b8-P1.json",
+      "profile": "basic",
+      "bins": 8,
+      "scenario": "P1",
+      "timingPassed": false,
+      "rayPassed": true,
+      "queryPassed": false
+    },
+    {
+      "report": "motion-b8-P0.json",
+      "profile": "motion",
+      "bins": 8,
+      "scenario": "P0",
+      "timingPassed": false,
+      "rayPassed": true,
+      "queryPassed": true
+    },
+    {
+      "report": "motion-b8-P1.json",
+      "profile": "motion",
+      "bins": 8,
+      "scenario": "P1",
+      "timingPassed": false,
+      "rayPassed": true,
+      "queryPassed": false
+    },
+    {
+      "report": "motion-b16-P0.json",
+      "profile": "motion",
+      "bins": 16,
+      "scenario": "P0",
+      "timingPassed": false,
+      "rayPassed": true,
+      "queryPassed": true
+    },
+    {
+      "report": "motion-b16-P1.json",
+      "profile": "motion",
+      "bins": 16,
+      "scenario": "P1",
+      "timingPassed": false,
+      "rayPassed": false,
+      "queryPassed": false
+    }
+  ],
+  "files": {
+    "basic-b8-P0.json": {
+      "bytes": 214039,
+      "sha256": "907fd7564fbdbd565beca87256a221b65134e203b5f6430c53cbd4e1106f3fdf",
+      "gzipSha256": "9ff12c59c82818a4bebc552460e1ec3e3fc49bfd0f47c5ec14ad433bde14d4ac"
+    },
+    "basic-b8-P1.json": {
+      "bytes": 211648,
+      "sha256": "5caf2f6340a3de1952a279d7509de27b98fd34add16735d259f2336aa2b5b544",
+      "gzipSha256": "e505c2d09c82ea3330c6f397baa05ab56602843952296706fef9c34b13352e50"
+    },
+    "motion-b8-P0.json": {
+      "bytes": 224355,
+      "sha256": "22fe1eef97e0fe9c442df6c7de46066abcae097ff26a2083131e34c6e51911e3",
+      "gzipSha256": "a061e7e1ee88c34926b07400671067be700a66c01b3ad5f2fe0e45cebf5fbbf6"
+    },
+    "motion-b8-P1.json": {
+      "bytes": 220905,
+      "sha256": "9dbffcd4ad4d97e65a58a16006a99f58a1044be4c190890a76643b9198aff1bd",
+      "gzipSha256": "8c1dec7a84b181a3a29cf38394d3000bca71a2c860f5bfceedeee17a258d5bb3"
+    },
+    "motion-b16-P0.json": {
+      "bytes": 232406,
+      "sha256": "11f42f6271186e3189c07156a874f579050303d6ae4fe28f081c89105a5bb559",
+      "gzipSha256": "e8d9c30c595460980473c1b3a70ee2c5eddd23bee04954cde90c56bc8880a66e"
+    },
+    "motion-b16-P1.json": {
+      "bytes": 228988,
+      "sha256": "f664c0e9d3b840b145d9437c30fb8bf2ab89eb667fbc97484ba6a64a9d5105f6",
+      "gzipSha256": "4c9d60848ae0c41f86f3008bb69737ed3f9bc1667e94ab63e0bd2f1fd4942025"
+    },
+    "resources.json": {
+      "bytes": 16794,
+      "sha256": "89b661c682d47ea42ccf3f9eb8b7916bd2d7c1c862a3ebd1762f80714b2149b4",
+      "gzipSha256": "eaea589562658479d585d48279b48a76ff83c3f3282c55a1e0199ee6cc5d287d"
+    },
+    "host/sensor-wall.ts": {
+      "bytes": 22561,
+      "sha256": "decb7c7c0374ca6445ea568eb9109f75958d34331b428f27f3237f73a83a5d33",
+      "gzipSha256": "62ce3ed8c536c34609f86866a67e19f68415e7014faf5dc1ad649f4d8526bd89"
+    },
+    "host/sensorWallSummary.ts": {
+      "bytes": 8396,
+      "sha256": "02909cffa18c19981bd39eb19d6b8729cf7ac67f2a034982aa40d8c0d9fb2374",
+      "gzipSha256": "c9fd3cb49c54cfae71d4a1566a14f2fc891524b72ceb1b442e07b43ed2ae87c1"
+    },
+    "host/sensorWallTiming.ts": {
+      "bytes": 869,
+      "sha256": "7fa18f61158599bc5a6b1de70da5a047fe33b18732805925709b286f127c73c5",
+      "gzipSha256": "863182efc5f76146ed34bce8f3366f374aadb271d83f73daa16d6dee67231aaa"
+    },
+    "host/observationQuality.ts": {
+      "bytes": 7250,
+      "sha256": "f01fc6d98ef31d83affb20bf37cd3651c1fa1357b4d9f5edf7d8cbae01a4ff48",
+      "gzipSha256": "58a3d0971a04959ba50ab3c9afa8ef12c0bba3d6ff542a81b582eaba527e19e0"
+    },
+    "host/observationQualityContract.ts": {
+      "bytes": 2170,
+      "sha256": "5769d1a4c3d1838d0c3a0bf20505c79e5b8d15fb37d20509f74b233fcf7974d4",
+      "gzipSha256": "f8b8f6e456584b3ebaa9f0eaddf951338dbbfea461f90815c0036b567954f0c7"
+    },
+    "host/parameterCounts.ts": {
+      "bytes": 1746,
+      "sha256": "405eb2c36de1b0dbf46dbf7f1153b9a869b2d2e6c6804ddacc7d6054b53e53c3",
+      "gzipSha256": "a1e3ca768c2737943d664b59beecc30fd00d27d3fb134efc7752cfbf260115fd"
+    },
+    "host/sensors.ts": {
+      "bytes": 11938,
+      "sha256": "5dc3f33b1eb2c83712b2e2d0c36e9767f934e33e03adcd452563818eb2ccad44",
+      "gzipSha256": "60067cd8fc9d55baa702beeb12f9bac52430c112a79b8e079338b9520d14f544"
+    },
+    "host/system-resource-observer.py": {
+      "bytes": 9992,
+      "sha256": "c991c38511b0d9d795c8abde5d0d147cd7cf3930fb8037bd4630b0df12a964ac",
+      "gzipSha256": "64aa8b71faeeee2a8840e4aba558fb9b53a5222025a3cbb1a1b1437c39942011"
+    },
+    "host/export-resource-counters.py": {
+      "bytes": 10824,
+      "sha256": "d73bce85181e5a4abfc93e6f5992567d3e80ebabbe1e2b051fd38cd0635a724c",
+      "gzipSha256": "32c9a6dce01a04e5345b26ad4aa735e5b22155f95fcdd0a345d3e894be7d6731"
+    }
+  }
+}

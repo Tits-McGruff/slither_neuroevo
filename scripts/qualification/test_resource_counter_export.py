@@ -203,22 +203,24 @@ class PublicResourceCounterTests(unittest.TestCase):
 
     def test_profile_clock_resource_receipts_contain_only_guarded_aggregate_counters(self):
         """Re-export every actual Windows/WSL row without admitting an inventory field."""
-        root = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4/profile-width-wall-windows-v1"
-        manifest = json.loads((root / "evidence.json").read_bytes())
-        receipt = manifest["files"]["resources.json"]
-        encoded = (root / "resources.json.gz").read_bytes()
-        self.assertEqual(hashlib.sha256(encoded).hexdigest(), receipt["gzipSha256"])
-        with gzip.open(root / "resources.json.gz", "rb") as stream:
-            raw = stream.read(receipt["bytes"] + 1)
-        self.assertEqual(len(raw), receipt["bytes"])
-        self.assertEqual(hashlib.sha256(raw).hexdigest(), receipt["sha256"])
-        sequences = json.loads(raw)
-        self.assertEqual({key: len(value) for key, value in sequences.items()},
-                         manifest["resourceSamples"])
-        for rows in sequences.values():
-            for row in rows:
-                self.assertEqual(EXPORTER.public_snapshot(row), row)
-                self.assertFalse(row["processDetailsIncluded"])
+        base = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4"
+        for capsule in ("profile-width-wall-windows-v1", "profile-width-wall-debian-v1"):
+            root = base / capsule
+            manifest = json.loads((root / "evidence.json").read_bytes())
+            receipt = manifest["files"]["resources.json"]
+            encoded = (root / "resources.json.gz").read_bytes()
+            self.assertEqual(hashlib.sha256(encoded).hexdigest(), receipt["gzipSha256"])
+            with gzip.open(root / "resources.json.gz", "rb") as stream:
+                raw = stream.read(receipt["bytes"] + 1)
+            self.assertEqual(len(raw), receipt["bytes"])
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), receipt["sha256"])
+            sequences = json.loads(raw)
+            self.assertEqual({key: len(value) for key, value in sequences.items()},
+                             manifest["resourceSamples"])
+            for rows in sequences.values():
+                for row in rows:
+                    self.assertEqual(EXPORTER.public_snapshot(row), row)
+                    self.assertFalse(row["processDetailsIncluded"])
 
     def test_real_retained_windows_debian_and_micro_counters_are_accepted(self):
         root = Path(__file__).resolve().parents[2] / "docs/performance/sensor-v4/pellet-key-screening-v1"
