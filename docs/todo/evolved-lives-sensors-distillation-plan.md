@@ -1542,6 +1542,16 @@ studies complete Basic/B8 Full and all seven Motion/B32 variants through native
 initialization, optimizer updates, parity/export and held-out student physics.
 Profile choice, maturity, ray-quality and integrated timing gates remain open.
 
+The real-clock harness now accepts explicit Basic/Motion B8..32 and verifies
+the returned native layout and modest parameter count. Six Windows P0/P1
+windows retain full timing/observation witnesses in
+`profile-width-wall-windows-v1/`. Both B8 P1 windows pass the existing clock,
+timing and active-class ray predicates at unchanged 256/65,536 limits; all P1
+windows still fail query quality, and Motion/B16 also drops wall debt and fails
+ray quality. Guarded aggregate resource sidecars cover concurrent host/WSL load.
+These random-population screens select no default and do not establish maturity
+or integrated acceptance.
+
 The behavioral contracts below are settled. Ray-work values, the final pre-release v4 layout following ablation, checkpoint admission, and resource defaults explicitly marked for qualification are evidence gates. They must be resolved through the specified measurements before release, not silently chosen during implementation. There are no remaining unselected product alternatives in the initial scope.
 
 ## 1. Architectural boundaries and current systems

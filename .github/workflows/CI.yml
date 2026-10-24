@@ -290,6 +290,18 @@ jobs:
           node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
           --scenario P1 --seconds 60 --warmup-seconds 10 --ray-cap 512 --ray-batch 131072
           --report "${{ runner.temp }}/sensor-wall-P1.json"
+      - name: Real-clock Basic B8 P1 profile contract (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --profile basic --bins 8 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-basic-b8-P1.json"
+      - name: Real-clock Motion B8 P1 profile contract (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --profile motion --bins 8 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-motion-b8-P1.json"
       - name: Retain real-clock sensor outcomes
         if: always() && matrix.node-version == '24.x'
         uses: actions/upload-artifact@v4
