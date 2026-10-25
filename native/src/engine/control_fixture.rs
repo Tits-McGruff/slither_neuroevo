@@ -820,7 +820,7 @@ fn execute_boundary(
         for value in batch.observations() {
             capture.observation_hash.update(value.to_le_bytes());
         }
-        for values in batch.outputs().chunks_exact(2) {
+        for values in batch.outputs().as_chunks::<2>().0 {
             capture.output_hash.update(values[0].to_le_bytes());
             capture.output_hash.update(values[1].to_le_bytes());
             capture

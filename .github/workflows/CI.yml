@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   HUSKY: 0
   CARGO_TERM_COLOR: always
@@ -63,6 +67,10 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build:client
+      - uses: actions/setup-python@v6
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        with:
+          python-version: '3.12'
       - name: Regenerate shared contracts
         if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
         run: |
@@ -83,4 +91,4 @@ jobs:
         with:
           workspaces: native
       - run: cargo fmt --manifest-path native/Cargo.toml -- --check
-      - run: cargo clippy --manifest-path native/Cargo.toml --features engine-test-hooks -- -D warnings
+      - run: cargo clippy --manifest-path native/Cargo.toml --features engine-test-hooks,contract-schema -- -D warnings

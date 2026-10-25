@@ -168,7 +168,7 @@ describeNetworkSuite('Rust process-death recovery', () => {
     try {
       // Include nonignored new source modules so working-tree builds are reproducible.
       // Owner config/databases and build caches remain excluded by Git ignore rules.
-      const sources = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'src', 'server', 'native', 'package.json'],
+      const sources = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', 'src', 'server', 'native', 'contracts/types.ts', 'package.json'],
         { encoding: 'utf8' }).split('\0').filter(Boolean);
       for (const source of sources) {
         const destination = join(root, source);
