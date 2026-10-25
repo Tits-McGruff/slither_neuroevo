@@ -167,3 +167,46 @@ no failed trajectory/source bundle is added to Git.
 Full output remains local at ignored
 `data/benchmarks/stage-d-quality-20261025/tactical-b16-exact-cadence.json`, SHA-256
 `d7e4d0d715f0afdd452056188ca9d1871ace3505c6d6c659abd73d6d8cea5983`.
+
+
+## Post-selection CUDA live throughput (2026-10-26)
+
+The existing live host at clean Slither `cf65ee9667eb9a3e3a31d6931e85d2203abe5ec2`
+and clean PyRL `221cd6af46dfe38152ab2b32dbc3aefc7e64465b` exercised the selected
+Motion/B16 query tuple with five Rust workers, 55 random evolved owners,
+ten stochastic v2 teachers, evolved respawn enabled, a 256-MiB replay ceiling,
+a 4-GiB producer quota and four separately stateful native shadows. It used
+Windows MSVC/Rust 1.92, Python 3.12.10 and Torch 2.14.0+cu126, Float32 with TF32
+off, two trainer CPU threads, batch 32, burn-in 32 and BPTT 64. The starting
+student was the existing deliberate `learned-cohorts-v1/single/full-1` fixture.
+
+The first process saved update 125 and its update-126 numeric witness; a fresh
+process reproduced that witness exactly and reached update 250. A third process
+then performed 727 more optimizer updates in 60.016 active seconds (12.11/s),
+using 1,448,870 training samples. Each shadow advanced by 1,604 observations.
+The complete measured window, including trainer startup/restore/shutdown, was
+65.181 seconds with 3,911 native steps, 1.000031 sim/wall ratio, zero discarded
+wall debt, no overload and a 6-ms p99 upper histogram bound. Neural and baseline
+observations had zero query/ray saturation. External-controller traffic was not
+part of this window; it was measured separately above.
+
+Producer/storage/resolution settled at chunk 1,073 without native/spool drops.
+The trainer cursor advanced 15 -> 431 while the producer advanced 651 -> 1,073:
+its existing backlog changed 636 -> 642 chunks. This proves ongoing intake and
+optimizer progress, not catch-up or a long-run bound on data age. Replay peaked
+at 56.025 MiB; host RSS at 187.840 MiB; trainer RSS at 1,718.781 MiB; Torch device
+allocation/reservation at 19.859/46 MiB. Final retained diagnostics were 66.890 MiB.
+
+Six contemporaneous exported aggregate observations cover Windows, running WSL
+and overall GPU use. Sampled host CPU was 7..34%; aggregate GPU use was 2..57%
+and VRAM 1,408..1,847 MiB, including unrelated workloads. These snapshots do not
+attribute ownership or establish an idle host. This short integration window
+does not establish student maturity, crowded geometry, maximum capacity or a
+six-hour soak. No trained candidate was promoted as a controller or library entry.
+
+Full outputs remain ignored at `data/benchmarks/stage-h-live-20261026/`:
+`cuda-p0.json` SHA-256 `fe71399e180a580e1bf501344aec9280ab05f97b9e791b5344c6e8a1366db36b`;
+`resources.public.jsonl` SHA-256
+`dbab8a2ee3a1c6f9e5dd1129706b45dce7a9838f5813276c99ea8a15d3b05b08`.
+The disposable runtime/checkpoint/capture workspace was removed after verification;
+the report and aggregate sidecar remain locally. No source/model bundle enters Git.
