@@ -126,6 +126,8 @@ pub struct StateAdmissionPolicy {
     pub expected_build_contract_sha256: String,
     /// Stable math backend identity included in exact-continuation scope.
     pub expected_math_backend: String,
+    /// A bounded restore-only alternative. Running admission normally stays exact.
+    pub allowed_math_backends: Vec<String>,
     /// Versioned path-and-value-kind layout expected for normalized settings.
     pub expected_settings_schema_sha256: String,
     /// Explicit additional schema fingerprints; empty for frozen and running admission.
@@ -1541,7 +1543,7 @@ impl AuthoritativeState {
         self.candidate.identity.rustc_version = policy.expected_rustc_version.clone();
         self.candidate.identity.build_contract_sha256 =
             policy.expected_build_contract_sha256.clone();
-        self.candidate.identity.math_backend = policy.expected_math_backend.clone();
+        // Recovery changes build identity, not the recorded scalar/SSE2 arithmetic.
         Self::validate_and_own(self.candidate, self.graph, policy)
     }
 
@@ -2609,6 +2611,7 @@ fn successor_admission_policy(
         expected_build_contract_sha256: source.identity.build_contract_sha256.clone(),
         expected_math_backend: source.identity.math_backend.clone(),
         allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: source.config.settings_schema_sha256.clone(),
     }
 }
@@ -4010,6 +4013,17 @@ fn validate_policy(policy: &StateAdmissionPolicy) -> Result<(), StateError> {
         "admission.expected_math_backend",
         &policy.expected_math_backend,
     )?;
+    if policy.allowed_math_backends.len() > 1
+        || policy.allowed_math_backends.iter().any(|backend| {
+            backend == &policy.expected_math_backend
+                || super::inference::InferenceMathBackend::from_label(backend).is_none()
+        })
+    {
+        return invalid(
+            "admission.allowed_math_backends",
+            "at most one distinct supported arithmetic alternative",
+        );
+    }
     validate_sha256(
         "admission.expected_settings_schema_sha256",
         &policy.expected_settings_schema_sha256,
@@ -4100,7 +4114,10 @@ fn validate_identity(
     let incompatible = identity.target_triple != policy.expected_target_triple
         || identity.build_profile != policy.expected_build_profile
         || identity.build_class != policy.expected_build_class
-        || identity.math_backend != policy.expected_math_backend;
+        || (identity.math_backend != policy.expected_math_backend
+            && !policy
+                .allowed_math_backends
+                .contains(&identity.math_backend));
     let not_exact = identity.source_revision != policy.expected_source_revision
         || identity.engine_build_id != policy.expected_engine_build_id
         || identity.source_sha256 != policy.expected_source_sha256
@@ -6064,6 +6081,7 @@ mod tests {
                 "sha256:3333333333333333333333333333333333333333333333333333333333333333".into(),
             expected_math_backend: "rust-scalar-v1".into(),
             allowed_settings_schema_sha256: Vec::new(),
+            allowed_math_backends: Vec::new(),
             expected_settings_schema_sha256: normalized_settings_schema_hash(&test_settings(1))
                 .expect("test settings schema must hash"),
         }

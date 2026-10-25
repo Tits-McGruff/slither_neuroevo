@@ -89,6 +89,70 @@ pub struct FreshRunSettingUpdate {
     pub value: f64,
 }
 
+/// Qualified defaults apply only to genuinely new configurations. Recorded
+/// v3/v1 settings continue through their existing explicit constructors.
+fn selected_fresh_default_settings() -> Result<Vec<super::state::NormalizedSetting>, FreshRunError>
+{
+    let mut settings =
+        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    super::sensor_contract::SensorContractIdentity::new(
+        super::sensor_contract::SensorProfile::Motion,
+        16,
+    )
+    .and_then(|contract| contract.record_v4_settings(&mut settings))
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    super::ray_work::RayWorkLimits::new(1, 256, 65536, 512)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?
+        .record_settings(&mut settings);
+    super::baseline_v2::BaselineV2Settings {
+        mode: super::baseline_v2::BaselineV2Mode::Stochastic,
+        control_interval_seconds: 1.0 / 60.0,
+    }
+    .record_settings(&mut settings)
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    settings
+        .iter_mut()
+        .find(|setting| setting.path == "sense.maxPelletChecks")
+        .ok_or_else(|| FreshRunError::Settings("default pellet work setting is missing".into()))?
+        .value = NormalizedSettingValue::Integer(3000);
+    Ok(settings)
+}
+
+/// Only scalar settings cross the fresh-construction interface; Rust derives the digest.
+fn numeric_fresh_settings(
+    settings: Vec<super::state::NormalizedSetting>,
+) -> Vec<FreshRunSettingUpdate> {
+    settings
+        .into_iter()
+        .filter_map(|setting| {
+            Some(FreshRunSettingUpdate {
+                path: setting.path,
+                value: match setting.value {
+                    NormalizedSettingValue::Bool(value) => f64::from(value),
+                    NormalizedSettingValue::Integer(value) => value as f64,
+                    NormalizedSettingValue::Float(value) => value,
+                    NormalizedSettingValue::Text(_) => return None,
+                },
+            })
+        })
+        .collect()
+}
+
+/// One production initial boundary, using the qualified graph/profile and SSE2 path.
+pub fn prepare_default_fresh_run(
+    request: Stage6aP0FreshRunRequest,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let settings = selected_fresh_default_settings()?;
+    let contract = super::sensor_contract::SensorContractIdentity::from_settings(&settings)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    prepare_configured_fresh_run_with_math(
+        request,
+        &numeric_fresh_settings(settings),
+        super::graph::default_stack_graph_spec(contract.input_size()),
+        InferenceMathBackend::Sse2,
+    )
+}
+
 /// One already-decoded legacy genome admitted for a population-only import.
 #[derive(Debug)]
 pub struct LegacyPopulationGenome {
@@ -155,11 +219,28 @@ pub fn prepare_configured_fresh_run_with_settings_and_graph(
     settings: &[FreshRunSettingUpdate],
     graph: GraphSpec,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_configured_fresh_run_with_math(request, settings, graph, InferenceMathBackend::Scalar)
+}
+
+/// Reset/New Run preserves the arithmetic backend captured with its held source.
+pub(crate) fn prepare_configured_fresh_run_with_math(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let defaults;
+    let settings = if settings.is_empty() {
+        defaults = numeric_fresh_settings(selected_fresh_default_settings()?);
+        defaults.as_slice()
+    } else {
+        settings
+    };
     let modern = settings.is_empty()
         || settings
             .iter()
             .any(|setting| setting.path == "evolvedRespawn.contractVersion");
-    let prepared = if settings
+    let mut prepared = if settings
         .iter()
         .any(|setting| setting.path == "sense.layoutVersion" && setting.value == 4.0)
     {
@@ -167,6 +248,8 @@ pub fn prepare_configured_fresh_run_with_settings_and_graph(
     } else {
         prepare_fresh_boundary(request, settings, graph, modern)?
     };
+    prepared.candidate.identity.math_backend = math.label().into();
+    prepared.admission_policy.expected_math_backend = math.label().into();
     PendingRunStartTransition::admit(
         prepared.candidate,
         prepared.graph,
@@ -427,6 +510,7 @@ pub(crate) fn prepare_sensor_qualification_checkpoint_restore_with_limits(
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
     let mut policy = production_restore_policy(memory_ceiling_bytes, true)?;
     policy.expected_math_backend = math.label().into();
+    policy.allowed_math_backends.clear();
     let pending = PendingRunStartTransition::restore_committed(
         managed_directory,
         descriptor,
@@ -1280,6 +1364,7 @@ fn current_build_policy(
         expected_build_contract_sha256: crate::native_addon_build_contract_sha256(),
         expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
         allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     }
 }
@@ -1299,6 +1384,9 @@ fn production_restore_policy(
     ))?;
     let mut policy =
         current_build_policy(memory_ceiling_bytes, legacy, require_exact_build_identity);
+    policy
+        .allowed_math_backends
+        .push(InferenceMathBackend::Sse2.label().into());
     policy.allowed_settings_schema_sha256.push(modern);
     for mut settings in [
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
@@ -2637,6 +2725,89 @@ mod tests {
     }
 
     #[test]
+    fn qualified_fresh_defaults_restore_with_the_recorded_sse2_backend() {
+        let mut fresh = prepare_default_fresh_run(request(42)).unwrap();
+        let metadata = fresh.startup_metadata_json().unwrap();
+        let decoded: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+        assert_eq!(decoded["sensorVersion"], 4);
+        assert_eq!(decoded["mathBackend"], InferenceMathBackend::Sse2.label());
+        let settings = numeric_metadata_settings(&metadata);
+        for (path, value) in [
+            ("sense.profile", 1.0),
+            ("sense.bubbleBins", 16.0),
+            ("sense.maxPelletChecks", 3000.0),
+            ("sense.maxSegmentChecks", 2200.0),
+            ("sense.rayMinimum", 1.0),
+            ("sense.rayCap", 256.0),
+            ("sense.rayBatch", 65536.0),
+            ("sense.rayMaximumDue", 512.0),
+            ("baselineBots.controlVersion", 2.0),
+            ("baselineBots.mode", 1.0),
+            ("baselineBots.controlDt", 1.0 / 60.0),
+            ("generationSeconds", 240.0),
+            ("evolvedRespawn.enabled", 0.0),
+        ] {
+            assert_eq!(
+                settings
+                    .iter()
+                    .find(|setting| setting.path == path)
+                    .unwrap()
+                    .value,
+                value
+            );
+        }
+        let directory = TestDirectory::create("qualified-fresh-defaults");
+        let descriptor = fresh
+            .publish_checkpoint(
+                directory.path(),
+                CheckpointOperationId::parse("abcdefabcdefabcdefabcdefabcdefab").unwrap(),
+            )
+            .unwrap();
+        let mut restored = prepare_stage6a_p0_checkpoint_restore(
+            directory.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+        )
+        .unwrap();
+        assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+        let recovered = prepare_stage6a_p0_compatible_checkpoint_restore(
+            directory.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+        )
+        .unwrap()
+        .into_committed_recovery_branch("sse2-recovery".into())
+        .unwrap();
+        let recovered_metadata: serde_json::Value =
+            serde_json::from_str(&recovered.startup_metadata_json().unwrap()).unwrap();
+        assert_eq!(
+            recovered_metadata["mathBackend"],
+            InferenceMathBackend::Sse2.label()
+        );
+        for math in [InferenceMathBackend::Scalar, InferenceMathBackend::Sse2] {
+            let reset = prepare_configured_fresh_run_with_math(
+                request(42),
+                &settings,
+                super::super::graph::default_stack_graph_spec(264),
+                math,
+            )
+            .unwrap();
+            let reset_metadata: serde_json::Value =
+                serde_json::from_str(&reset.startup_metadata_json().unwrap()).unwrap();
+            assert_eq!(reset_metadata["mathBackend"], math.label());
+            assert_eq!(reset_metadata["settings"], decoded["settings"]);
+        }
+        fresh.acknowledge_persistence(&descriptor).unwrap();
+        for transition in [&mut fresh, &mut restored] {
+            transition.publish_running_authority().unwrap();
+            transition
+                .publish_first_scheduled_frame_v1(&mut Vec::new())
+                .unwrap();
+            assert_eq!(transition.completed_step(), 1);
+        }
+    }
+
+    #[test]
     fn configured_fresh_life_contract_is_complete_and_preserves_frozen_numeric_initialization() {
         let legacy =
             prepare_stage6a_p0_boundary(request(42), &[], typescript_default_graph_spec()).unwrap();
@@ -3850,13 +4021,11 @@ mod tests {
             )
             .unwrap();
         let original = std::fs::read(managed.path().join(&descriptor.relative_filename)).unwrap();
-        // Ordinary scalar admission remains strict; explicit qualification never disables exact build checks.
-        assert!(prepare_stage6a_p0_checkpoint_restore(
-            managed.path(),
-            &descriptor,
-            TEST_MEMORY_CEILING
-        )
-        .is_err());
+        // Production supports recorded SSE2; an explicit qualification request remains exact.
+        let ordinary =
+            prepare_stage6a_p0_checkpoint_restore(managed.path(), &descriptor, TEST_MEMORY_CEILING)
+                .unwrap();
+        assert_eq!(ordinary.startup_metadata_json().unwrap(), metadata);
         assert!(prepare_sensor_qualification_checkpoint_restore(
             managed.path(),
             &descriptor,

@@ -911,7 +911,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({
-      owner, maxControllers: MAX_CONTROLLERS,
+      owner, metadata: () => activeMetadata, maxControllers: MAX_CONTROLLERS,
       send: (id, message) => sockets.sendJsonTo(Number(BigInt(`0x${id}`)), message),
       event(event) {
         routing.event(event);

@@ -1576,6 +1576,7 @@ mod tests {
             expected_build_contract_sha256: source.identity.build_contract_sha256.clone(),
             expected_math_backend: source.identity.math_backend.clone(),
             allowed_settings_schema_sha256: Vec::new(),
+            allowed_math_backends: Vec::new(),
             expected_settings_schema_sha256: source.config.settings_schema_sha256.clone(),
         }
     }

@@ -279,12 +279,14 @@ device.
 
 - **Reset-only settings** include population and baseline-bot counts. Apply
   them with **Apply and reset** within the existing UI limits.
-- **Sensor version** selects frozen v3 or candidate v4. V4 exposes **V4 information**
+- **Sensor version** selects frozen v3 or v4. V4 exposes **V4 information**
   (Basic/Motion) and explicit ray-work limits, including **V4 observation capacity**.
   **Baseline algorithm** v2 requires
   v4 sensors; its **Baseline variation** and **V2 decision interval** apply on reset.
-  Inactive controls are disabled and are not submitted. Current fresh defaults
-  remain v3/v1 while v4 selection qualification is open. A custom graph must have
+  Inactive controls are disabled and are not submitted. Fresh runs use Motion/B16, baseline v2 stochastic at 1/60 s, and SSE2.
+  The selected pellet/segment budgets are 3000/2200; v4 rays use minimum 1,
+  cap 256, batch 65536 and observation capacity 512. Recorded/imported runs
+  retain their settings and scalar/SSE2 arithmetic. A custom graph must have
   the selected sensor input width; an incompatible graph blocks reset with guidance.
   **Use stack controls** explicitly leaves custom-graph mode while preserving
   other pending settings, then **Apply and reset** starts the new population.
@@ -299,7 +301,12 @@ The earlier combined implementation is preserved in the [retirement archive](doc
 
 ## Measured workloads and limits
 
-The retained Rust measurements use Oxygen's Ryzen 7 2700/Debian host at
+Fresh Motion/B16 defaults are covered by the [Windows/Oxygen P0 selection
+measurements](docs/performance/sensor-v4/stage-d-mixed-consumers-20261025.md).
+The table below retains earlier frozen-v3 results; it does not qualify the wider
+v4 large-graph envelope.
+
+The retained v3 Rust measurements use Oxygen's Ryzen 7 2700/Debian host at
 1x simulation speed, with 3,500 target pellets and ten baseline bots.
 Population snakes have individually owned neural weights. The
 large graph has 402,914 parameters per snake; the P3 startup probe uses a
@@ -962,8 +969,9 @@ Use GRU for smoother, more deliberate behavior.
 
 The **Distillation** tab appears when the connected server supports diagnostic
 capture. **Start teacher capture** requires an explicitly admitted v4 sensor
-profile, a v2 baseline and at least one configured teacher. Ordinary production
-defaults remain frozen v3/v1 while candidate qualification is open.
+profile, a v2 baseline and at least one configured teacher. Fresh runs select Motion/B16 and baseline v2 stochastic; capture remains off
+until explicitly started. Frozen v3/v1 remains selectable and existing saves
+keep their recorded profile.
 
 Enter existing zero-based teacher slots in increasing comma-separated order,
 then start capture explicitly. **Refresh status** lists retained captures and

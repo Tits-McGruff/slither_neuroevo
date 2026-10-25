@@ -1,9 +1,11 @@
 # Stage D mixed-consumer selection measurements (2026-10-25)
 
-Motion/B16 remains a candidate. Windows passes the measured P0 timing and query
-criteria. Oxygen sustains P0 real time with zero discarded wall debt, but misses
-the existing 16.667 ms p99 step criterion at one, five and eight workers. These
-windows do not establish final default promotion or baseline policy maturity.
+Motion/B16 meets the owner-selected P0 sustained-real-time and query-quality
+criteria on Windows and Oxygen: no accumulating/discarded wall debt and zero
+observed query/ray saturation in each active consumer class. Oxygen p99 is
+reported as a 24 ms upper histogram bound, above the nominal 16.667 ms reference;
+the owner explicitly removed that reference as a separate hard promotion gate.
+These windows do not establish learned-policy maturity or integrated soak/capacity qualification.
 P1 is an overload measurement, not a hard real-time promotion gate, as specified
 by the owner in the revised plan.
 
@@ -103,3 +105,65 @@ fixtures or a new permanent archive. The manual qualification workflow retains
 routine outputs through CI artifacts. This compact summary is the only new
 checked-in performance record; no source snapshots or experiment bundles are
 created.
+
+
+## B16 tactical profile check
+
+A bounded quality comparison at clean source
+`342dba41028a57237a9570865bf585e7fdc25e06` ran the existing native tactical driver:
+14 scenarios × four seeds × five policy/profile variants, at most 180 fixed
+steps (three simulated seconds) per trial. Windows MSVC, Rust 1.92.0, release
+`engine-test-hooks`, SSE2, one calculation worker, B16 and exact v2 cadence 1/60 s.
+No corpus was generated. These are synthetic trajectories, not timing results.
+
+```sh
+cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin baseline-v2-qualification -- --seed-count 4 --steps 180 --workers 1 --bins 16 --cadence '0.016666666666666666' --output OUTPUT.json
+```
+
+Survivors out of four seeds are shown below. Deterministic and stochastic v2
+had the same survival counts in this batch; their actions and boost spending
+were not identical. Frozen v1 uses its original v3 observation/control path.
+
+| Scenario | Frozen v1 | Basic v2, either mode | Motion v2, either mode |
+|---|---:|---:|---:|
+| Open wander | 4 | 4 | 4 |
+| Approaching | 0 | 0 | 4 |
+| Receding | 0 | 4 | 4 |
+| Crossing | 0 | 0 | 4 |
+| Near head-on | 0 | 0 | 0 |
+| Corridor | 4 | 4 | 4 |
+| Crowd opening | 4 | 4 | 3 |
+| Wall escape | 0 | 4 | 4 |
+| Food/body trap | 0 | 4 | 4 |
+| Smaller intercept | 4 | 4 | 4 |
+| Larger threat | 4 | 4 | 4 |
+| Boost escape | 4 | 4 | 4 |
+| Predicted crossing | 0 | 0 | 4 |
+| Deliberately saturated rays | 4 | 1 | 1 |
+
+Across the 13 ordinary scenarios, each v2 mode survived 47/52 Motion trials
+or 36/52 Basic trials, versus 24/52 for frozen v1. Motion's extra information
+helped the approaching/crossing cases, with a tradeoff in crowd-opening seed 4
+(body death at step 40). The near head-on fixture starts opponents about 45
+units apart; every policy died by step five. Avoidability was not established.
+No policy actually intercepted the smaller target within the three-second
+horizon, so survival there does not establish pursuit success.
+
+Every v2 trial reported zero privileged policy world reads, and every shared
+ray budget held. Deterministic v2 consumed zero behavior draws; stochastic
+Basic/Motion consumed 138/140 respectively. Ordinary cases had no incomplete
+v2 observations. The stress case deliberately reduces ray limits to
+minimum/cap/batch 1/1/256; each v2 variant recorded 453 incomplete observations
+and three deaths across its four stress trials. The ordinary fixture limits
+are 1/256/4096 for at most 16 snakes; this is not a loaded P0 budget comparison.
+
+Together with the mixed-consumer P0 windows, this supports the selected
+Motion/B16 fresh default while exposing specific limitations. Four seeded synthetic geometries, constant-control
+opponents and short horizons do not establish population-policy maturity,
+student quality, universal superiority or integrated soak/capacity qualification.
+The scenarios and seeds remain reproducible from maintained driver source;
+no failed trajectory/source bundle is added to Git.
+
+Full output remains local at ignored
+`data/benchmarks/stage-d-quality-20261025/tactical-b16-exact-cadence.json`, SHA-256
+`d7e4d0d715f0afdd452056188ca9d1871ace3505c6d6c659abd73d6d8cea5983`.

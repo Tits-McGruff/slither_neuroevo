@@ -17,8 +17,8 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 const GRAPH: GraphSpec = {
   type: 'graph', outputSize: 2,
   nodes: [
-    { id: 'input', type: 'Input', outputSize: 83 },
-    { id: 'dense', type: 'Dense', inputSize: 83, outputSize: 8 },
+    { id: 'input', type: 'Input', outputSize: 264 },
+    { id: 'dense', type: 'Dense', inputSize: 264, outputSize: 8 },
     { id: 'gru', type: 'GRU', inputSize: 8, hiddenSize: 4 },
     { id: 'lstm', type: 'LSTM', inputSize: 4, hiddenSize: 4 },
     { id: 'rru', type: 'RRU', inputSize: 4, hiddenSize: 4 },

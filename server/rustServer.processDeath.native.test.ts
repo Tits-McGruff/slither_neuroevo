@@ -459,7 +459,7 @@ describeNetworkSuite('Rust process-death recovery', () => {
               setup!.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
               // Twelve large brains retain a real >8 MiB archive and an observable
               // unfinished encoding interval without turning setup into a P2 load test.
-              setup!.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(83),
+              setup!.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(264),
                 settings: { snakeCount: 12, simSpeed: 1 },
                 updates: [{ path: 'baselineBots.count', value: 0 }] }));
             } else if (message.type === 'stateReplaced') {

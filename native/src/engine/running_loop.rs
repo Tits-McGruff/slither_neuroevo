@@ -1293,10 +1293,20 @@ impl RunningAuthorityLoop {
         slot: &super::contract::PreparedImportSlot,
     ) -> Result<(), RunningAuthorityLoopError> {
         self.require_action_state("stage a prepared import", RunningAuthorityLoopState::Ready)?;
-        slot.reserve_admission(
+        slot.reserve_admission_with_math(
             self.authority.memory_ceiling_bytes(),
             self.authority.memory_estimate().total_bytes,
             self.authority.world_epoch(),
+            Some(
+                super::inference::InferenceMathBackend::from_label(
+                    &self.authority.state().identity.math_backend,
+                )
+                .ok_or_else(|| {
+                    RunningAuthorityLoopError::PopulationWork(
+                        "source arithmetic is unsupported".into(),
+                    )
+                })?,
+            ),
         )
         .map_err(RunningAuthorityLoopError::PopulationWork)?;
         self.population_work_slot = Some(slot.clone());

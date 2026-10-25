@@ -75,7 +75,7 @@ export const CFG_DEFAULT = {
     // 360° "bubble" sensing around the head.
     // The bubble radius increases with snake length using the same zoom curve
     // as the follow camera (larger snakes see farther).
-    layoutVersion: 'v3' as SensorLayoutVersion,
+    layoutVersion: 'v4' as SensorLayoutVersion,
     profile: 'motion' as SensorV4Profile,
     // Explicit candidate drafts, submitted only when v4 is selected.
     rayMinimum: 1, rayCap: 256, rayBatch: 65536, rayMaximumDue: 512,
@@ -94,13 +94,13 @@ export const CFG_DEFAULT = {
 
     // Caps on work per snake per tick when the local region is extremely dense.
     // These apply to bubble food/hazard sensing.
-    maxPelletChecks: 900,
+    maxPelletChecks: 3000,
     maxSegmentChecks: 2200
   },
   // Brain configuration.
   // Input size is derived from the active sensor layout.
   brain: {
-    ...defaultStackBrain(getSensorLayout(16).inputSize),
+    ...defaultStackBrain(getSensorLayout(16, 'v4', 'motion').inputSize),
     graphSpec: null as GraphSpec | null,
 
     // Brain is evaluated on a fixed controller timestep independent of physics substeps.
@@ -124,7 +124,7 @@ export const CFG_DEFAULT = {
     rruInitGateBias: 0.1
   },
   baselineBots: {
-    algorithm: 1,
+    algorithm: 2,
     behaviorMode: 1,
     controlDt: 1 / 60,
     count: 10,

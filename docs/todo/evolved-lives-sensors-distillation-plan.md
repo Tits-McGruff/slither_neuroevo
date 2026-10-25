@@ -211,7 +211,7 @@ Default layers remain:
 |---|---|
 | Recorded checkpoint/import | Preserve recorded contracts/settings; only explicit provenance-labelled compatibility handling. |
 | Reset/New Run from selected configuration | Preserve configuration. Reset repeats seed; New Run selects new seed. Neither silently changes sensor/teacher. |
-| New configuration using current defaults | v4 Motion, 16 bins, baseline v2 stochastic, respawn off, 240 seconds once those defaults have passed their required release qualification. |
+| New configuration using current defaults | v4 Motion, 16 bins, baseline v2 stochastic at 1/60 s, SSE2, respawn off, 240 seconds. Recorded/imported configurations retain their own settings and arithmetic backend. |
 
 Recorded/imported settings take precedence over fresh defaults. Browser drafts never override authoritative welcome values. Frozen v3/v1 compatibility remains selectable.
 
@@ -352,7 +352,9 @@ Ray work remains bounded and fair over canonical observation owners. `RayWorkLim
 
 Production ray/profile defaults must be selected from representative quality and performance evidence, including active consumer classes, rather than by theoretical limits alone. Qualification candidates may include the existing cap/batch ranges, but this is a manual/release benchmark task, not routine CI.
 
-V4 default promotion requires P0 qualification on both Windows and Oxygen. P1 remains a required representative overload/stress measurement: record throughput, latency/real-time factor and resource behavior, and verify that degradation is controlled rather than pathological. P1 real-time performance is not a hard promotion gate unless measurements establish that P1 represents an ordinary expected production workload rather than an intentionally heavier case.
+V4 default promotion requires P0 qualification on both Windows and Oxygen. P0 must sustain real time with no accumulated/discarded wall debt, no query/ray saturation and acceptable query quality. Report p99 step latency explicitly; 16.667 ms is a nominal reference, not a separate hard promotion gate unless a product requirement establishes a hard per-step deadline. P1 remains a required representative overload/stress measurement: record throughput, latency/real-time factor and resource behavior, and verify that degradation is controlled rather than pathological. P1 real-time performance is not a hard promotion gate unless measurements establish that P1 represents an ordinary expected production workload rather than an intentionally heavier case.
+
+The selected fresh tuple is Motion/B16, pellet/segment checks 3000/2200, ray minimum/cap/batch 1/256/65536 and maximum due capacity 512, with baseline v2 stochastic at 1/60 s and SSE2. [Windows/Oxygen mixed-consumer measurements and the bounded tactical batch](../performance/sensor-v4/stage-d-mixed-consumers-20261025.md) support this selection. P1 remains measured overload; integrated soak/capacity and learned-policy quality are separate gates. Existing v4 canonical bytes retain their original revision-zero `candidate` marker for identity compatibility; default promotion does not reinterpret those bytes or change their semantics.
 
 Structural graph/sensor descriptions shared with PyRL belong in the shared contracts layer where practical. Slither-specific geometry and semantic checks remain in Slither.
 

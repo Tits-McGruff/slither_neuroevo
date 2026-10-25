@@ -22,13 +22,14 @@ describe('real-clock v4 qualification accounting', () => {
     expect(result.progress.minimumSimulatedWallRatio).toBeLessThan(1);
     expect(result.meetsMeasuredGates).toBe(true);
   });
-  it('keeps actual throughput separate from the existing p99 timing criterion', () => {
+  it('reports p99 without treating it as a hard real-time promotion deadline', () => {
     const result = summarizeSensorWall([read(1000, 60, true), read(61002, 3660, true)], 60);
     expect(result.meetsRealtimeGate).toBe(true);
-    expect(result.meetsExistingStepTimingGate).toBe(false);
-    expect(result.meetsMeasuredGates).toBe(false);
+    expect(result.withinNominalStepP99).toBe(false);
+    expect(result.meetsMeasuredGates).toBe(true);
   });
   it('records insufficient progress, debt and intermediate overload as failed measurements', () => {
+    expect(summarizeSensorWall([read(1000, 60), read(61002, 3600)], 60).meetsRealtimeGate).toBe(false);
     expect(summarizeSensorWall([read(1000, 60), read(61002, 3500)], 60).meetsRealtimeGate).toBe(false);
     const debt = read(61002, 3660); debt.health.schedulerDroppedWallMicros = hex(1);
     expect(summarizeSensorWall([read(1000, 60), debt], 60).meetsRealtimeGate).toBe(false);
@@ -65,7 +66,7 @@ describe('durable generation wall-window accounting', () => {
     const result = summarizeSensorWall(reads, 60, {runId: 'qualified-run', barriers});
     expect(result.progress.deltaSteps).toBe('3540');
     expect(result.progress.minimumWallSeconds).toBeCloseTo(60.001);
-    expect(result.meetsRealtimeGate).toBe(true);
+    expect(result.meetsRealtimeGate).toBe(false);
     reads[3]!.health.completedStep = hex(3300); reads[3]!.health.schedulerCompletedSteps = hex(3300);
     reads[3]!.health.stepTimingSamples = hex(3300); reads[3]!.health.stepTimingBucketCounts = [hex(3300), hex(0), hex(0)];
     expect(summarizeSensorWall(reads, 60, {runId: 'qualified-run', barriers}).meetsRealtimeGate).toBe(false);

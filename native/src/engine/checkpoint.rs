@@ -5756,6 +5756,7 @@ mod tests {
             expected_build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
             expected_math_backend: "scalar-test".into(),
             allowed_settings_schema_sha256: Vec::new(),
+            allowed_math_backends: Vec::new(),
             expected_settings_schema_sha256: settings_schema_sha256,
         }
     }

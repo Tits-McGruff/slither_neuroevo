@@ -58,7 +58,7 @@ A physical evolved life may be replaced while population slot, genome and popula
 
 Preserve Protocol 2 compatibility unless a deliberate protocol revision is made. God Mode kill follows ordinary death semantics; God Mode move translates the complete body within bounds.
 
-V3 sensors remain the frozen compatibility layout. V4 Basic/Motion structural identities, profile/bin widths and ray-work settings are governed by the active feature plan and Rust canonical sensor metadata. Until release/default-selection qualification promotes new defaults, preserve the currently admitted production defaults. Do not silently change recorded/imported settings.
+V3 sensors remain the frozen compatibility layout. V4 Basic/Motion structural identities, profile/bin widths and ray-work settings are governed by the active feature plan and Rust canonical sensor metadata. Fresh defaults are Motion/B16 with baseline v2 stochastic at 1/60 s and SSE2, selected by Windows/Oxygen P0 real-time and query-quality qualification. P99 is reported, not a separate per-step deadline gate. Do not silently change recorded/imported settings.
 
 Pure graph schema/compiler/editor, stack builder and parameter-count presentation may remain TypeScript. Graph execution belongs only to Rust. Ports are zero-based; Split sizes sum to inputs; Concat ordering is explicit; outputs total two; graph keys and parameter/state layouts are persistence/interoperability boundaries.
 

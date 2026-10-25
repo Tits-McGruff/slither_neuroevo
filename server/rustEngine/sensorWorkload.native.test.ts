@@ -163,7 +163,7 @@ it('rejects a live capacity request before population allocation and allows an a
   expect(session.snapshot()).toMatchObject({completedStep: '0000000000000000', checkpointPublished: false, authorityPublished: false});
 }, 15000);
 
-it('publishes and independently restores the large Motion/B32 candidate without changing production restore admission', async () => {
+it('restores a fitting large Motion/B32 SSE2 checkpoint through qualified and ordinary admission', async () => {
   const root = mkdtempSync(join(tmpdir(), 'slither-live-cohort-'));
   try {
     await admitDiskOperation(root, checkpointDiskAdmissionRequest(768n * 1024n ** 2n));
@@ -172,7 +172,7 @@ it('publishes and independently restores the large Motion/B32 candidate without 
     const runId = 'live-capacity-large-' + randomBytes(8).toString('hex');
     const session = new Constructor(runId, '0000002a', '0000000100000000', 1);
     const initialized = await session.initializeCapacityForTest({...capacityRequest, population: 55, envelopeMiB: 768, rawFallback: true});
-    const audit = JSON.parse(initialized.capacityAuditJson) as {limits: {maxTotalDecodedBytes: number}};
+    const audit = JSON.parse(initialized.capacityAuditJson) as {decodedBytes: number; limits: {maxTotalDecodedBytes: number}};
     expect(audit).toMatchObject({population: 55, parametersPerGenome: 494306,
       decodedEnvelopeFits: true, twoStateBudgetFits: true, numericPayloadAllocated: false,
       workerScratchBytes: 512 * 1024 ** 2, checkpointScratchBytes: 512 * 1024 ** 2});
@@ -194,8 +194,12 @@ it('publishes and independently restores the large Motion/B32 candidate without 
     expect(parseRustStartupMetadata(restored.startupMetadata())).toEqual(metadata);
     expect(restored.snapshot()).toMatchObject({generation: descriptor.generation, completedStep: descriptor.completedStep});
     const ordinary = new Constructor(runId, '0000002a', '0000000100000000', 1);
-    await expect(ordinary.initializeFromCheckpoint(root, descriptor)).rejects.toThrow();
-    expect(ordinary.snapshot()).toMatchObject({phase: 'created'});
+    // SSE2 is now production-supported. This 55-brain boundary also fits the
+    // unchanged 512-MiB production envelope; the 300-brain rejection above remains.
+    expect(audit.decodedBytes).toBeLessThan(512 * 1024 ** 2);
+    await ordinary.initializeFromCheckpoint(root, descriptor);
+    expect(parseRustStartupMetadata(ordinary.startupMetadata())).toEqual(metadata);
+    expect(ordinary.snapshot()).toMatchObject({phase: 'durableBoundary', authorityPublished: false});
   } finally {
     cleanupCohort(root);
   }

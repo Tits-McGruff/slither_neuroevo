@@ -372,8 +372,19 @@ describeNetworkSuite('Rust server real sockets', () => {
       viewer = await connect(server.port, 'ui');
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
       const initial = viewer.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
-      expect(initial.sensorSpec?.layoutVersion).toBe('v3');
+      expect(initial.sensorSpec).toMatchObject({layoutVersion: 'v4', profile: 'motion', sensorCount: 264});
+      expect(initial.settings.updates).toEqual(expect.arrayContaining([
+        {path: 'baselineBots.algorithm', value: 2}, {path: 'baselineBots.behaviorMode', value: 1},
+        {path: 'baselineBots.controlDt', value: 1 / 60}, {path: 'sense.maxPelletChecks', value: 3000},
+        {path: 'sense.maxSegmentChecks', value: 2200}, {path: 'sense.rayMaximumDue', value: 512},
+        {path: 'sense.bubbleBins', value: 16}
+      ]));
       viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator'}));
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, updates: [
+        {path: 'sense.layoutVersion', value: 3}, {path: 'baselineBots.algorithm', value: 1}]}));
+      expect((await replacementUntil(viewer, server.port, 'reset')).sensorSpec?.layoutVersion).toBe('v3');
+      viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken}));
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, updates: [{path: 'sense.layoutVersion', value: 4}]}));
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'error'));
@@ -410,6 +421,14 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(basic.settings.updates).toEqual(expect.arrayContaining(updates));
       expect(basic.worldSeed).toBe(initial.worldSeed);
       expect(basic.capabilities?.teacherCapture).toBe(true);
+      // Observation routing must use the committed Basic width, not startup Motion/B16.
+      const basicController = await connect(server.port, 'bot');
+      try {
+        basicController.socket.send(JSON.stringify({type: 'join', mode: 'player', name: 'basic-controller'}));
+        await until(basicController, () => basicController.packets.some(packet => packet['type'] === 'sensors'));
+        expect(basicController.packets.find(packet => packet['type'] === 'sensors')!['sensors']).toHaveLength(72);
+        expect(basicController.packets.filter(packet => packet['type'] === 'error')).toEqual([]);
+      } finally { basicController.socket.terminate(); }
       viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken}));
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, updates: [{path: 'sense.profile', value: 1}]}));
@@ -502,7 +521,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       await until(first, () => first.packets.some(packet => packet['type'] === 'inspector'));
       const row = parseInspectorSnapshot(first.packets.find(packet => packet['type'] === 'inspector')!['snapshot']);
       expect(row.subscriptionSequence).toBe(opened['subscriptionSequence']);
-      expect(row.sample).toMatchObject({snakeId: selected.snakeId, profile: 'v3', bins: 16, source: {kind: 'neural'}});
+      expect(row.sample).toMatchObject({snakeId: selected.snakeId, profile: 'motion', bins: 16, source: {kind: 'neural'}});
       expect(await command(second, 'inspector-busy')).toMatchObject({applied: false, enabled: false});
       expect(second.packets.some(packet => packet['type'] === 'inspector')).toBe(false);
       first.socket.terminate();
@@ -519,7 +538,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         && (packet['snapshot'] as ReturnType<typeof parseInspectorSnapshot>).subscriptionSequence === probe['subscriptionSequence']));
       const probed = parseInspectorSnapshot(second.packets.findLast(packet => packet['type'] === 'inspector'
         && (packet['snapshot'] as ReturnType<typeof parseInspectorSnapshot>).subscriptionSequence === probe['subscriptionSequence'])!['snapshot']);
-      expect(probed.sample).toMatchObject({pureProbe: true, snakeId: selected.snakeId, profile: 'v3', neuralOutputs: null,
+      expect(probed.sample).toMatchObject({pureProbe: true, snakeId: selected.snakeId, profile: 'motion', neuralOutputs: null,
         baselineV1Action: null, baselineAction: null, shadowOutputs: []});
       expect(await command(second, 'inspector-close', false)).toMatchObject({applied: true, enabled: false});
       expect(second.frames).toBeGreaterThan(0);
@@ -536,6 +555,14 @@ describeNetworkSuite('Rust server real sockets', () => {
     const server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, dbPath: databasePath });
     const base = `http://127.0.0.1:${server.port}`;
     try {
+      const viewer = await connect(server.port, 'ui');
+      try {
+        await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+        viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator'}));
+        viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, updates: [
+          {path: 'sense.layoutVersion', value: 3}, {path: 'baselineBots.algorithm', value: 1}]}));
+        await replacementUntil(viewer, server.port, 'reset');
+      } finally { await new Promise<void>(done => { viewer.socket.once('close', () => done()); viewer.socket.close(); }); }
       const initial = await (await fetch(`${base}/api/health`)).json() as { runId: string; configRevision: number; completedStep: string };
       const discovery = await fetch(`${base}/api/distillation/v1/datasets`);
       expect(discovery.status).toBe(200);
@@ -940,7 +967,7 @@ describeNetworkSuite('Rust server real sockets', () => {
 
       const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 3, simSpeed: 0.1, hiddenLayers: 3,
         neurons1: 23, neurons2: 17, neurons3: 11 };
-      const brain = { ...CFG_DEFAULT.brain, inSize: 51, gruHidden: 12, lstmHidden: 20, rruHidden: 24,
+      const brain = { ...CFG_DEFAULT.brain, inSize: 144, gruHidden: 12, lstmHidden: 20, rruHidden: 24,
         stack: { gru: 1, lstm: 1, rru: 1 } };
       const expectedGraph = buildStackGraphSpec(core, { brain });
       const updates = [
@@ -1008,7 +1035,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       outputs: [{ nodeId: 'head' }], outputSize: 2 };
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec, settings: { snakeCount: 300 },
-        updates: [{ path: 'baselineBots.count', value: 0 }] }));
+        updates: [{ path: 'baselineBots.count', value: 0 }, {path: 'sense.layoutVersion', value: 3},
+          {path: 'baselineBots.algorithm', value: 1}] }));
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'error'));
       expect(viewer.packets.find(packet => packet['type'] === 'error')).toMatchObject({ message:
         expect.stringMatching(/reset failed:.*569346 parameters each.*512\.00 MiB.*Reduce NPC snakes or brain size/) });
@@ -1045,8 +1073,8 @@ describeNetworkSuite('Rust server real sockets', () => {
         rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer!.frames > 0);
       const graphSpec = { type: 'graph',
-        nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
-          { id: 'output', type: 'Dense', inputSize: 83, outputSize: 2 }],
+        nodes: [{ id: 'input', type: 'Input', outputSize: 264 },
+          { id: 'output', type: 'Dense', inputSize: 264, outputSize: 2 }],
         edges: [{ from: 'input', to: 'output' }], outputs: [{ nodeId: 'output' }], outputSize: 2 };
       viewer.socket.send(JSON.stringify({ type: 'reset', graphSpec,
         settings: { snakeCount: 300, simSpeed: 0.1 }, updates: [
@@ -1267,7 +1295,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         updates: [{ path: 'generationSeconds', value: 8 }, { path: 'pelletCountTarget', value: 100 },
           { path: 'baselineBots.count', value: 0 }],
         graphSpec: buildStackGraphSpec({ hiddenLayers: 1, neurons1: 2, neurons2: 2, neurons3: 2, neurons4: 2, neurons5: 2 },
-          { brain: { inSize: 83, outSize: 2, useMlp: false } }) }));
+          { brain: { inSize: 264, outSize: 2, useMlp: false } }) }));
       const previous = await replacementUntil(viewer, server.port, 'reset');
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
         rejoinToken: viewer.rejoinToken }));
@@ -1549,7 +1577,7 @@ describeNetworkSuite('Rust server real sockets', () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-v2-startup-'));
     const dbPath = join(root, 'experiment.sqlite');
     const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 2, neurons1: 96, neurons2: 96 };
-    const graphSpec = buildStackGraphSpec(core, CFG_DEFAULT);
+    const graphSpec = buildStackGraphSpec(core, {...CFG_DEFAULT, brain: {...CFG_DEFAULT.brain, inSize: 83}});
     const graph = compileGraph(graphSpec);
     expect(graph.totalParams).toBeGreaterThan(64 * 1024 / Float32Array.BYTES_PER_ELEMENT);
     const firstWeights = Buffer.alloc(graph.totalParams * Float32Array.BYTES_PER_ELEMENT);
@@ -1713,7 +1741,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const root = await mkdtemp(join(tmpdir(), `slither-rust-v0-${storage}-`));
       const dbPath = join(root, 'experiment.sqlite');
       const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: 2, simSpeed: 3 };
-      const graphSpec = buildStackGraphSpec(core, CFG_DEFAULT);
+      const graphSpec = buildStackGraphSpec(core, {...CFG_DEFAULT, brain: {...CFG_DEFAULT.brain, inSize: 83}});
       const graph = compileGraph(graphSpec);
       const first = new Array<number>(graph.totalParams).fill(0);
       const second = new Array<number>(graph.totalParams).fill(0);
@@ -2992,7 +3020,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         rejoinToken: viewer.rejoinToken }));
       await until(viewer, () => viewer.frames > 0 && viewer.packets.some(packet => packet['type'] === 'stats'));
       expect(viewer.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({ protocolVersion: 2, worldSeed: 42,
-        sensorSpec: { sensorCount: 83 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: ACTIVE_WORKERS } });
+        sensorSpec: { layoutVersion: 'v4', profile: 'motion', sensorCount: 264 }, inferenceMode: { activeBackend: 'native', activeWorkerCount: ACTIVE_WORKERS } });
       viewer.socket.send(JSON.stringify({ type: 'viz', enabled: true }));
       await until(viewer, () => viewer.packets.some(packet => {
         const viz = packet['viz'] as { layers?: unknown[] } | undefined;
@@ -3002,7 +3030,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         viz: {
           kind: 'graph', snakeId: expect.any(Number),
           layers: [
-            { count: 83, activations: null },
+            { count: 264, activations: null },
             { count: 64, activations: expect.any(Array) },
             { count: 64, activations: expect.any(Array) },
             { count: 16, activations: expect.any(Array), isRecurrent: true },
@@ -3047,7 +3075,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const assignment = bot.packets.find(packet => packet['type'] === 'assign')!;
       const sample = bot.packets.find(packet => packet['type'] === 'sensors')!;
       expect(sample['snakeId']).toBe(assignment['snakeId']);
-      expect(sample['sensors']).toHaveLength(83);
+      expect(sample['sensors']).toHaveLength(264);
       bot.socket.send(JSON.stringify({ type: 'action', snakeId: assignment['snakeId'], tick: sample['tick'], turn: 0.4, boost: 0 }));
       await until(bot, () => bot.packets.some(packet => packet['type'] === 'sensors' && Number(packet['tick']) > Number(sample['tick'])));
       await new Promise<void>(done => { bot.socket.once('close', () => done()); bot.socket.close(); });
@@ -3192,6 +3220,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       });
       viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 12, simSpeed: 2 }, updates: [
         { path: 'worldRadius', value: 4_200 },
+        { path: 'sense.layoutVersion', value: 3 }, {path: 'baselineBots.algorithm', value: 1},
         { path: 'generationSeconds', value: 90 },
         { path: 'sense.bubbleBins', value: 8 },
         { path: 'baselineBots.count', value: 3 },
@@ -3288,7 +3317,7 @@ describeNetworkSuite('Rust server real sockets', () => {
           { path: 'baselineBots.count', value: 0 }],
         graphSpec: buildStackGraphSpec({ hiddenLayers: 1, neurons1: 2, neurons2: 2,
           neurons3: 2, neurons4: 2, neurons5: 2 },
-        { brain: { inSize: 83, outSize: 2, useMlp: false } }) }));
+        { brain: { inSize: 264, outSize: 2, useMlp: false } }) }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'stateReplaced'));
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
         rejoinToken: viewer.rejoinToken }));

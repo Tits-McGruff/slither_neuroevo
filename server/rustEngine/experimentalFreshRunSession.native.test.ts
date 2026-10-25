@@ -392,7 +392,7 @@ describe('experimental server startup composition', () => {
     const owner = await createExperimentalServerRuntime(options);
     try {
       expect(owner.metadata.seed).toBe(42);
-      expect(createRustWelcome(owner.metadata, 'test-session')).toMatchObject({ worldSeed: 42, sensorSpec: { sensorCount: 83 },
+      expect(createRustWelcome(owner.metadata, 'test-session')).toMatchObject({ worldSeed: 42, sensorSpec: { layoutVersion: 'v4', profile: 'motion', sensorCount: 264 },
         settings: { core: { snakeCount: 55, simSpeed: 1 } }, inferenceMode: { activeBackend: 'native' } });
       expect(owner.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
       expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
@@ -787,9 +787,9 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
     const scheduledFrame = await session.publishFirstScheduledFrameV1();
     expectCompleteFrameV1(scheduledFrame, {
       completedStep: '0000000000000001',
-      pellets: 3_495,
-      floatLength: '00000000000048e7',
-      byteLength: '000000000001239c'
+      pellets: 3_492,
+      floatLength: '00000000000048de',
+      byteLength: '0000000000012378'
     });
     expect(Uint8Array.from(scheduledFrame.bytes)).not.toEqual(initialBytes);
     expect(session.snapshot()).toMatchObject({
@@ -798,7 +798,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       initialFramePublished: true,
       firstScheduledFramePublished: true,
       completedStep: '0000000000000001',
-      pelletCount: '0000000000000da7'
+      pelletCount: '0000000000000da4'
     });
     await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/already.*published/i);
     await expect(session.createBackgroundRuntime(BACKGROUND_INIT, () => {})).rejects.toThrow(
@@ -855,7 +855,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
     const wake = (): void => { wakes += 1; };
     await session.initialize();
     const startup = session.startupMetadata();
-    expect(startup).toMatchObject({ seed: 42, serializerVersion: 1, sensorVersion: 3 });
+    expect(startup).toMatchObject({ seed: 42, serializerVersion: 1, sensorVersion: 4, mathBackend: 'rust-sse2-v1', parameterCount: 25042 });
     expect(startup.settings.find(setting => setting.path === 'snakeCount')?.value).toBe(55);
     expect(session.startupMetadata()).toEqual(startup);
     await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(
@@ -977,7 +977,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(visualization).toMatchObject({
         kind: 'graph', snakeId: expect.any(Number),
         layers: [
-          { count: 83, hasActivations: false, activations: [] },
+          { count: 264, hasActivations: false, activations: [] },
           { count: 64, activations: expect.any(Array) },
           { count: 64, activations: expect.any(Array) },
           { count: 16, activations: expect.any(Array), isRecurrent: true },
@@ -990,7 +990,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
           BigInt(`0x${visualization!.sequence}`)
         );
       }
-      const winnerWeights = Buffer.alloc(13_458 * Float32Array.BYTES_PER_ELEMENT);
+      const winnerWeights = Buffer.alloc(25_042 * Float32Array.BYTES_PER_ELEMENT);
       const winnerSha256 = createHash('sha256').update(winnerWeights).digest('hex');
       writeFileSync(join(paths.managedRoot, `${winnerSha256}.hof-weights-v1`), winnerWeights);
       runtime.submitHallOfFameResurrection(
@@ -1004,7 +1004,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
           encoding: 'raw-f32le-v1',
           storedByteCount: winnerWeights.byteLength.toString(16).padStart(16, '0'),
           decodedByteCount: winnerWeights.byteLength.toString(16).padStart(16, '0'),
-          weightCount: (13_458).toString(16).padStart(16, '0')
+          weightCount: (25_042).toString(16).padStart(16, '0')
         }
       );
       while (!events.some(event => event.commandSequence === '0000000000000002') &&
@@ -1051,9 +1051,10 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       const inspected = parseInspectorSnapshot(JSON.parse(inspector!));
       expect(Buffer.byteLength(inspector!, 'utf8')).toBeLessThanOrEqual(64 * 1024);
       expect(inspected).toMatchObject({schemaVersion: 1, subscriptionSequence: '0000000000000005', sample: {snakeId: selected!.snakeId,
-        profile: 'v3', bins: 16, source: {kind: 'neural'}, normalizedInputs: expect.any(Array),
-        trace: {bodyRays: Array(16).fill({kind: 'not-sampled'})}}});
-      expect(inspected.sample!.normalizedInputs).toHaveLength(83);
+        profile: 'motion', bins: 16, source: {kind: 'neural'}, normalizedInputs: expect.any(Array)}});
+      expect(inspected.sample!.normalizedInputs).toHaveLength(264);
+      expect(inspected.sample!.trace!.bodyRays).toHaveLength(16);
+      expect(inspected.sample!.trace!.bodyRays.every(ray => ray.kind !== 'not-sampled')).toBe(true);
       expect(inspected.sample!.lifecycle).toMatchObject({lifeOrdinal: '0000000000000001', livesStarted: '0000000000000001',
         deaths: '0000000000000000', provisionalFitness: expect.any(Number), fitnessComponents: expect.any(Array),
         ledger: {lifeLocalWallet: expect.any(Number), priorBankRemaining: expect.any(Number), operations: expect.any(String)}});

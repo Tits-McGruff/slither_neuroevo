@@ -25,7 +25,7 @@ use crate::engine::export_archive::{
     ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
 };
 use crate::engine::fresh_run::{
-    prepare_configured_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
+    prepare_configured_fresh_run_with_math, stage6a_p0_archive_validation_contract,
     FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
 };
 use crate::engine::graph::GraphSpec;
@@ -503,10 +503,16 @@ impl Task for PrepareFreshRunTask {
                 &self.population_work,
                 self.request.memory_ceiling_bytes,
             )?;
-            let mut transition = prepare_configured_fresh_run_with_settings_and_graph(
+            let math = self
+                .population_work
+                .as_ref()
+                .and_then(|lease| lease.admission.math_backend)
+                .unwrap_or(crate::engine::inference::InferenceMathBackend::Scalar);
+            let mut transition = prepare_configured_fresh_run_with_math(
                 request,
                 &self.settings,
                 self.graph.clone(),
+                math,
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             transition
@@ -2404,10 +2410,9 @@ mod task_panic_tests {
     };
     use crate::engine::export_archive::{compose_export_archive, ExportInventoryDescriptor};
     use crate::engine::fresh_run::{
-        prepare_configured_fresh_run_with_settings_and_graph,
-        stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
+        prepare_default_fresh_run, stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
     };
-    use crate::engine::graph::typescript_default_graph_spec;
+    use crate::engine::graph::default_stack_graph_spec;
     use crate::engine::queues::NoopWakeSink;
     use crate::engine::runtime::EngineRuntime;
     use crate::engine::task_panic_fixture::{PanicInjection, PanicPoint};
@@ -2448,12 +2453,7 @@ mod task_panic_tests {
         }
 
         fn checkpoint(&self) -> CheckpointDescriptor {
-            let mut transition = prepare_configured_fresh_run_with_settings_and_graph(
-                self.request(),
-                &[],
-                typescript_default_graph_spec(),
-            )
-            .unwrap();
+            let mut transition = prepare_default_fresh_run(self.request()).unwrap();
             transition
                 .publish_checkpoint(
                     &self.0,
@@ -2554,12 +2554,7 @@ mod task_panic_tests {
     #[test]
     fn unstarted_archive_admission_counts_source_and_prevents_concurrent_start() {
         let files = TaskFiles::new();
-        let mut pending = prepare_configured_fresh_run_with_settings_and_graph(
-            files.request(),
-            &[],
-            typescript_default_graph_spec(),
-        )
-        .unwrap();
+        let mut pending = prepare_default_fresh_run(files.request()).unwrap();
         let descriptor = pending
             .publish_checkpoint(
                 &files.0,
@@ -2636,7 +2631,7 @@ mod task_panic_tests {
             request: files.request(),
             calculation_workers: 1,
             settings: Box::new([]),
-            graph: typescript_default_graph_spec(),
+            graph: default_stack_graph_spec(264),
             prepared: prepared.clone(),
             active: Arc::new(AtomicBool::new(true)),
         };

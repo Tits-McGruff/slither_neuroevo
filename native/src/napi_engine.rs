@@ -39,7 +39,7 @@ use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERRO
 use crate::engine::export_archive::prepare_legacy_sqlite_population_import;
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{
-    prepare_configured_fresh_run_with_settings_and_graph, prepare_stage6a_p0_checkpoint_restore,
+    prepare_default_fresh_run, prepare_stage6a_p0_checkpoint_restore,
     prepare_stage6a_p0_compatible_checkpoint_restore, Stage6aP0FreshRunRequest,
 };
 use crate::engine::generation::GenerationCommitRecord;
@@ -2065,14 +2065,8 @@ impl Task for InitializeExperimentalFreshRunTask {
                         .map_err(|error| error.to_string())?
                     }
                 }
-                FreshRunInitialization::Fresh => {
-                    prepare_configured_fresh_run_with_settings_and_graph(
-                        self.request.clone(),
-                        &[],
-                        crate::engine::graph::typescript_default_graph_spec(),
-                    )
-                    .map_err(|error| error.to_string())?
-                }
+                FreshRunInitialization::Fresh => prepare_default_fresh_run(self.request.clone())
+                    .map_err(|error| error.to_string())?,
             };
             transition.configure_calculation_workers(self.calculation_workers)?;
             let mut inner = lock_recover(&self.inner);

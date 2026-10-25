@@ -1065,14 +1065,19 @@ if (graphReset) {
 document.getElementById('graphUseStack')?.addEventListener('click', () => {
   if (!validateSettingDrafts(resolveSettingsRoot())) return;
   updateCFGFromUI(resolveSettingsRoot());
+  stageStackGraph('Using stack controls. Apply and reset to start a new population.');
+});
+
+/** Stage the selected stack without treating an initial/default preview as a custom graph. */
+function stageStackGraph(note: string): void {
   customGraphSpec = null;
   CFG.brain.graphSpec = null;
   graphDraft = buildStackGraphSpec(readSettingsFromCoreUI(), CFG);
   try { localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY); } catch { /* Storage is optional. */ }
   refreshCoreUIState();
   renderGraphEditor();
-  setGraphSpecStatus('Using stack controls. Apply and reset to start a new population.');
-});
+  setGraphSpecStatus(note);
+}
 
 if (graphPresetSave) {
   graphPresetSave.addEventListener('click', async () => {
@@ -1883,8 +1888,7 @@ function loadStoredGraphSpec(): void {
   try {
     const raw = localStorage.getItem(GRAPH_SPEC_STORAGE_KEY);
     if (!raw) {
-      const fallback = buildLinearMlpTemplate();
-      applyGraphSpec(fallback, 'Default graph applied.');
+      stageStackGraph('Using stack controls.');
       return;
     }
     const parsed = JSON.parse(raw) as GraphSpec;
@@ -1892,13 +1896,13 @@ function loadStoredGraphSpec(): void {
     if (result.ok) {
       const applied = applyGraphSpec(parsed, 'Loaded saved graph.');
       if (!applied) {
-        applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+        stageStackGraph('Stored graph invalid. Using stack controls.');
       }
     } else {
-      applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+      stageStackGraph('Stored graph invalid. Using stack controls.');
     }
   } catch {
-    applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+    stageStackGraph('Stored graph invalid. Using stack controls.');
   }
 }
 
@@ -4093,7 +4097,7 @@ btnDefaults.addEventListener('click', () => {
   elN3.value = '64';
   elN4.value = '48';
   elN5.value = '32';
-  applyGraphSpec(buildLinearMlpTemplate(), 'Default graph applied.');
+  stageStackGraph('Default stack selected.');
   refreshCoreUIState();
   applySettingsLock();
   persistBaselineBotSettings();

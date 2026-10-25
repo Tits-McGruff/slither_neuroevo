@@ -213,7 +213,9 @@ async function experiment(action: (fixture: Fixture) => Promise<void>, privateQu
       const response = await fixtureArchiveDownload(server.port, 'transport fixture baseline');
       expect(response.status, response.status === 200 ? undefined : await response.text()).toBe(200);
       archive = Buffer.from(await response.arrayBuffer());
-      expect(archive.byteLength).toBeLessThan(4 * 1024 * 1024);
+      // Motion/B16 doubles the default weight payload; stay within the bounded
+      // eight-MiB loopback reader while retaining the full ordinary population.
+      expect(archive.byteLength).toBeLessThan(8 * 1024 * 1024);
       // Body completion and ready-file removal precede the worker's actual
       // lease-release acknowledgement. Observe that real completion before
       // testing another operation; keep the existing five-second deadline.
@@ -434,9 +436,9 @@ function reversedConcatRole(role: Buffer): Buffer {
 function orderingGraph(reversed = false): GraphSpec {
   return {
     type: 'graph',
-    nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
-      { id: 'split', type: 'Split', outputSizes: [41, 42] }, { id: 'concat', type: 'Concat' },
-      { id: 'head', type: 'Dense', inputSize: 83, outputSize: 2 }],
+    nodes: [{ id: 'input', type: 'Input', outputSize: 264 },
+      { id: 'split', type: 'Split', outputSizes: [131, 133] }, { id: 'concat', type: 'Concat' },
+      { id: 'head', type: 'Dense', inputSize: 264, outputSize: 2 }],
     edges: [{ from: 'input', to: 'split', fromPort: 0 },
       { from: 'split', to: 'concat', fromPort: 0, toPort: reversed ? 1 : 0 },
       { from: 'split', to: 'concat', fromPort: 1, toPort: reversed ? 0 : 1 },
@@ -463,7 +465,7 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
       { path: 'pelletCountTarget', value: 100 }, ...(streaming ? [{ path: 'worldRadius', value: 10000 }] : [])],
     // A few large brains provide the real >8 MiB response required for socket
     // backpressure without making this transport fixture a 300-snake sensor test.
-    graphSpec: streaming ? buildLargeBrainGraph(83) : orderingGraph() }));
+    graphSpec: streaming ? buildLargeBrainGraph(264) : orderingGraph() }));
   await bounded(reset, 'ordering fixture reset did not commit');
   viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
@@ -618,7 +620,7 @@ async function conflictingArchive(fixture: Fixture): Promise<Buffer> {
     const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
     expect(response.status).toBe(200);
     const bytes = Buffer.from(await response.arrayBuffer());
-    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    expect(bytes.byteLength).toBeLessThan(8 * 1024 * 1024);
     return bytes;
   } finally { await server.close(); }
 }
@@ -647,7 +649,8 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
     });
     viewer.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(147),
       settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
-        { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
+        { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 },
+        {path: 'sense.layoutVersion', value: 3}, {path: 'baselineBots.algorithm', value: 1}
       ] }));
     const runId = await bounded(reset, 'large-brain source did not complete reset');
     viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
@@ -665,7 +668,7 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
     const exported = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
     expect(exported.status).toBe(200);
     const bytes = Buffer.from(await exported.arrayBuffer());
-    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    expect(bytes.byteLength).toBeLessThan(8 * 1024 * 1024);
     await noTransferScratch(`${join(dirname(fixture.databasePath), 'large-brain.sqlite')}.checkpoints`);
     const imported = await fetch(`http://127.0.0.1:${source.port}/api/import/archive`,
       { method: 'POST', body: new Uint8Array(bytes), signal: AbortSignal.timeout(5000) });
@@ -1202,7 +1205,8 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const peer = await controller(fixture, 'ui');
           peer.socket.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(147),
             settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
-              { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
+              { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 },
+        {path: 'sense.layoutVersion', value: 3}, {path: 'baselineBots.algorithm', value: 1}
             ] }));
           await outcome(() => peer.packets.some(packet => packet['type'] === 'error' &&
             /exceeding the \d+-byte ceiling/u.test(String(packet['message']))),
@@ -1425,7 +1429,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(peer.assignment).toBeUndefined();
           peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'], mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
         }
-        await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'explicit rejoin did not assign new leases');
+        await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'explicit rejoin did not assign new leases')
+          .catch((error: Error) => { throw new Error(error.message + ': ' + JSON.stringify(peers.map(peer => ({
+            assigned: !!peer.assignment, sampled: !!peer.sample, packets: peer.packets.map(packet => ({
+              type: packet['type'], reason: packet['reason'], message: packet['message'], reclaimed: packet['reclaimed']
+            }))
+          })))); });
         const samples = peers.map(peer => peer.sample!);
         for (const [index, peer] of peers.entries()) {
           expect(peer.assignment!.resumeToken).not.toBe(baselines[index]!.assignment.resumeToken);

@@ -22,8 +22,8 @@ const native = createRequire(import.meta.url)(resolve('native/index.js')) as {
 
 /** Real, small inference graph keeps this storage contract independent of runner CPU throughput. */
 const BINDING_GRAPH: GraphSpec = {
-  type: 'graph', nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
-    { id: 'head', type: 'Dense', inputSize: 83, outputSize: 2 }],
+  type: 'graph', nodes: [{ id: 'input', type: 'Input', outputSize: 264 },
+    { id: 'head', type: 'Dense', inputSize: 264, outputSize: 2 }],
   edges: [{ from: 'input', to: 'head' }], outputs: [{ nodeId: 'head' }], outputSize: 2
 };
 
@@ -43,7 +43,7 @@ async function observed<T>(read: () => T | undefined): Promise<T> {
 
 /** Inspect only the bounded manifest in the small genuine archive fixture. */
 function manifest(bytes: Buffer): Record<string, unknown> {
-  expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+  expect(bytes.byteLength).toBeLessThan(8 * 1024 * 1024);
   for (let offset = 0; offset + 512 <= bytes.length;) {
     const name = bytes.toString('ascii', offset, offset + 100).replace(/\0.*$/u, '');
     const size = Number.parseInt(bytes.toString('ascii', offset + 124, offset + 136), 8);

@@ -1,6 +1,7 @@
 //! Structural sensor identities, separated from numeric run environments.
-//! V4 is an explicitly unfrozen qualification candidate. A profile, meaning,
-//! geometry or normalization change changes its digest even at equal width.
+//! V4 revision-zero bytes retain their original `candidate` identity marker even
+//! after default promotion; changing it would break existing graph/teacher identities.
+//! Released meanings stay fixed. Geometry/normalization changes require a new revision.
 
 use super::sensor_layout::{SensorLayout, MAX_SENSOR_BINS, MIN_SENSOR_BINS, SENSOR_SCALAR_LABELS};
 use super::state::{NormalizedSetting, NormalizedSettingValue};

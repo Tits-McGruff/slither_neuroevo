@@ -34,8 +34,11 @@ describe(SUITE, () => {
       applyAuthoritativeSensorSpec(getSensorSpec(getSensorLayout(8, 'v3')));
       expect(CFG.sense.layoutVersion).toBe('v3'); expect(CFG.brain.inSize).toBe(51);
     } finally { resetCFGToDefaults(); }
-    expect(CFG.brain.inSize).toBe(83);
-    expect(CFG.sense.layoutVersion).toBe('v3');
+    expect(CFG.brain.inSize).toBe(264);
+    expect(CFG.sense.layoutVersion).toBe('v4');
+    expect(CFG.baselineBots.algorithm).toBe(2);
+    expect(CFG.baselineBots.behaviorMode).toBe(1);
+    expect(CFG.evolvedRespawn.enabled).toBe(false);
   });
   it('resetCFGToDefaults restores default values', () => {
     const original = CFG.snakeBaseSpeed;

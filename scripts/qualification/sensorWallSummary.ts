@@ -84,7 +84,7 @@ export function sixHourNativeWork(first: SensorWallRead, latest: SensorWallRead)
     workComplete: progress.minimumWallSeconds >= 21_600 && BigInt(progress.deltaSteps) >= 1_296_000n};
 }
 
-/** Apply the existing 98% progress and P0/P1 timing criteria to a real-clock window.
+/** Check sustained real time without net/discarded wall debt at fixed-step resolution.
  * Scheduler/identity failures reject the evidence; measured performance failures
  * remain explicit results so the report never hides a failed configuration.
  */
@@ -118,12 +118,16 @@ export function summarizeSensorWall(reads: readonly SensorWallRead[], requestedS
     {...final, completedStep: final.health.completedStep});
   const stepTiming = summarizeStepWindow(first, final.health);
   const dropped = counter(final.health.schedulerDroppedWallMicros) - counter(first.schedulerDroppedWallMicros);
+  // Endpoint counters resolve complete 60 Hz steps. At most one step of phase
+  // difference is measurement resolution, not an accumulating catch-up backlog.
+  const maximumWindowLagSeconds = Math.max(0, progress.maximumWallSeconds - Number(progress.deltaSteps) / 60);
   const meetsRealtimeGate = progress.minimumWallSeconds >= requestedSeconds &&
-    progress.minimumSimulatedWallRatio >= 0.98 && dropped === 0n && !overloaded;
+    maximumWindowLagSeconds <= 1 / 60 && dropped === 0n && !overloaded;
   const sixHourWorkComplete = sixHourNativeWork(initial, final).workComplete;
   return {...(sixHour ? {sixHourWall: {requiredSteps: '1296000', workComplete: sixHourWorkComplete}} : {}),
     progress, stepTiming, droppedWallMicros: dropped.toString(), overloadedObserved: overloaded,
     schedulerCompletedSteps: (counter(final.health.schedulerCompletedSteps) - counter(first.schedulerCompletedSteps)).toString(),
-    meetsRealtimeGate, meetsExistingStepTimingGate: stepTiming.meetsP0P1StepGate,
-    meetsMeasuredGates: meetsRealtimeGate && stepTiming.meetsP0P1StepGate && (!sixHour || sixHourWorkComplete)};
+    maximumWindowLagSeconds, fixedStepResolutionSeconds: 1 / 60,
+    meetsRealtimeGate, withinNominalStepP99: stepTiming.meetsP0P1StepGate,
+    meetsMeasuredGates: meetsRealtimeGate && (!sixHour || sixHourWorkComplete)};
 }

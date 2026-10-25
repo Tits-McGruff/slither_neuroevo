@@ -643,11 +643,12 @@ describe('main.ts startup smoke', () => {
     const {buildStackGraphSpec} = await import('./brains/stackBuilder.ts');
     const {DEFAULT_CORE_SETTINGS} = await import('./protocol/settings.ts');
     const {CFG_DEFAULT} = await import('./config.ts');
+    const frozenConfig = {...CFG_DEFAULT, brain: {...CFG_DEFAULT.brain, inSize: 83}};
     socket.onmessage?.({data: JSON.stringify({type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
       worldSeed: 42, runId: 'camera-run', configRevision: 1, configHash: 'cfg-camera', serializerVersion: 1, frameByteLength: 28,
       inferenceMode: {requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0},
       sensorSpec: {sensorCount: 83, order: [], layoutVersion: 'v3'},
-      graphSpec: buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG_DEFAULT), settings: {core: DEFAULT_CORE_SETTINGS, updates: []}
+      graphSpec: buildStackGraphSpec(DEFAULT_CORE_SETTINGS, frozenConfig), settings: {core: DEFAULT_CORE_SETTINGS, updates: []}
     })});
     const choose = (path: string, value: string) => {
       const input = panelInputs().find(element => element.dataset['path'] === path)!;
@@ -693,7 +694,7 @@ describe('main.ts startup smoke', () => {
       worldSeed: 42, runId: 'frozen-run', configRevision: 1, configHash: 'cfg-frozen', serializerVersion: 1, frameByteLength: 28,
       inferenceMode: {requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0},
       sensorSpec: {sensorCount: 83, order: [], layoutVersion: 'v3'},
-      graphSpec: buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG_DEFAULT), settings: {core: DEFAULT_CORE_SETTINGS, updates: [{path: 'sense.layoutVersion', value: 3}]}
+      graphSpec: buildStackGraphSpec(DEFAULT_CORE_SETTINGS, frozenConfig), settings: {core: DEFAULT_CORE_SETTINGS, updates: [{path: 'sense.layoutVersion', value: 3}]}
     })});
     expect(panelInputs().find(element => element.dataset['path'] === 'sense.layoutVersion')!.value).toBe('3');
     expect(panelInputs().find(element => element.dataset['path'] === 'baselineBots.algorithm')!.value).toBe('1');

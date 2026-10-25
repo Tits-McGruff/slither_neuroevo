@@ -173,6 +173,11 @@ pub struct GraphSpec {
 /// profile. It is an explicit compatibility profile, not a fallback for an
 /// omitted or rejected custom graph.
 pub(crate) fn typescript_default_graph_spec() -> GraphSpec {
+    default_stack_graph_spec(83)
+}
+
+/// Current stack shape at an explicitly selected structural sensor width.
+pub(crate) fn default_stack_graph_spec(input_size: usize) -> GraphSpec {
     let edge = |from: &str, to: &str| GraphEdge {
         from: from.to_owned(),
         to: to.to_owned(),
@@ -183,12 +188,14 @@ pub(crate) fn typescript_default_graph_spec() -> GraphSpec {
         nodes: vec![
             GraphNodeSpec {
                 id: "input".to_owned(),
-                kind: GraphNodeKind::Input { output_size: 83 },
+                kind: GraphNodeKind::Input {
+                    output_size: input_size,
+                },
             },
             GraphNodeSpec {
                 id: "mlp".to_owned(),
                 kind: GraphNodeKind::Mlp {
-                    input_size: 83,
+                    input_size,
                     hidden_sizes: vec![64],
                     output_size: 64,
                 },

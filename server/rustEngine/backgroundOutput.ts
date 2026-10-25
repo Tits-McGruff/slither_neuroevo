@@ -30,6 +30,8 @@ export interface RustImportPublication {
 export interface BackgroundOutputOptions {
   /** Durable, unstarted authority produced by experimental startup. */
   owner: ExperimentalServerRuntime;
+  /** Current committed metadata after Reset/import; fixed owners may use startup metadata. */
+  metadata?(): RustStartupMetadata;
   /** Exact socket acceptance; only small Protocol 2 messages cross here. */
   send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg): boolean;
   /** Observe scalar routing/lifecycle results before delivery of their messages. */
@@ -114,7 +116,7 @@ export class BackgroundOutputPump {
 
   /** Recompute only when an authoritative reset/import/live revision replaces metadata. */
   private currentSensorCount(): number {
-    const metadata = this.options.owner.metadata;
+    const metadata = this.options.metadata?.() ?? this.options.owner.metadata;
     if (this.sensorMetadata !== metadata) {
       this.sensorCount = nativeSensorLayout(metadata).inputSize;
       this.sensorMetadata = metadata;

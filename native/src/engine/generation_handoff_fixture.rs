@@ -631,6 +631,7 @@ pub(super) fn fixture_run_start(
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
         allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     Ok((candidate, policy))

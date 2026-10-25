@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { CFG, resetCFGToDefaults } from './config.ts';
+import { CFG, CFG_DEFAULT, resetCFGToDefaults } from './config.ts';
 import { buildStackGraphSpec, defaultStackBrain } from './brains/stackBuilder.ts';
 import { compileGraph, graphKey } from './brains/graph/compiler.ts';
 import { DEFAULT_CORE_SETTINGS } from './protocol/settings.ts';
@@ -8,13 +8,15 @@ afterEach(resetCFGToDefaults);
 
 describe('regression: stacked graph controls', () => {
   it('keeps stack dimensions and parameter layout stable across browser reset', () => {
-    const original = buildStackGraphSpec(DEFAULT_CORE_SETTINGS, { brain: defaultStackBrain(83) });
+    const original = buildStackGraphSpec(DEFAULT_CORE_SETTINGS, { brain: defaultStackBrain(CFG_DEFAULT.brain.inSize) });
     CFG.brain.stack.gru = 0;
     CFG.brain.stack.lstm = 1;
     resetCFGToDefaults();
     const reset = buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG);
     expect(graphKey(reset)).toBe(graphKey(original));
-    expect(compileGraph(reset).totalParams).toBe(13_458);
+    expect(compileGraph(reset).totalParams).toBe(25_042);
+    const frozen = buildStackGraphSpec(DEFAULT_CORE_SETTINGS, { brain: defaultStackBrain(83) });
+    expect(compileGraph(frozen).totalParams).toBe(13_458);
     expect(defaultStackBrain(83).stack).toEqual({ gru: 1, lstm: 0, rru: 0 });
   });
 

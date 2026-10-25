@@ -163,7 +163,10 @@ describe('settings.ts', () => {
       const panel = new FakeElement('div'); const root = panel as unknown as HTMLElement;
       buildSettingsUI(root); applyValuesToSlidersFromCFG(root);
       const input = (path: string) => panel.querySelectorAll().find(control => control.dataset['path'] === path)!;
-      expect(input('sense.layoutVersion').value).toBe('3');
+      expect(input('sense.layoutVersion').value).toBe('4');
+      expect(input('sense.profile').disabled).toBe(false);
+      expect(input('baselineBots.behaviorMode').disabled).toBe(false);
+      input('sense.layoutVersion').value = '3'; input('baselineBots.algorithm').value = '1'; refreshSensorSettings(root);
       expect(input('sense.profile').value).toBe('1');
       expect(input('sense.profile').disabled).toBe(true);
       expect(input('baselineBots.behaviorMode').disabled).toBe(true);
@@ -204,7 +207,7 @@ describe('settings.ts', () => {
       const reject = (path: string, value: string) => {
         const before = input(path).value; input(path).value = value;
         expect(validateSettingDrafts(root)).toBe(false); updateCFGFromUI(root);
-        expect(CFG.sense.layoutVersion).toBe(original.sense.layoutVersion);
+        expect(CFG).toEqual(original);
         input(path).value = before;
       };
       reject('sense.rayMinimum', '1.5'); reject('sense.rayMinimum', '257');

@@ -1112,6 +1112,7 @@ fn build_fixture(
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: math_backend.label().to_owned(),
         allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     let authority = AuthoritativeState::validate_and_own(candidate, graph, &policy)

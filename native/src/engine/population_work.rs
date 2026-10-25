@@ -8,6 +8,8 @@ pub(crate) struct PopulationWorkAdmission {
     pub remaining_bytes: usize,
     pub running_ceiling_bytes: usize,
     pub source_world_epoch: u64,
+    /// Arithmetic identity captured with the held source, for Reset/New Run.
+    pub math_backend: Option<super::inference::InferenceMathBackend>,
 }
 
 #[derive(Debug, Default)]
@@ -43,6 +45,17 @@ impl PreparedImportSlot {
         source: usize,
         epoch: u64,
     ) -> Result<(), String> {
+        self.reserve_admission_with_math(full, source, epoch, None)
+    }
+
+    /// Reserve the source budget and immutable arithmetic identity at one boundary.
+    pub(crate) fn reserve_admission_with_math(
+        &self,
+        full: usize,
+        source: usize,
+        epoch: u64,
+        math_backend: Option<super::inference::InferenceMathBackend>,
+    ) -> Result<(), String> {
         let remaining = full
             .checked_sub(source)
             .filter(|value| *value > 0)
@@ -68,6 +81,7 @@ impl PreparedImportSlot {
             remaining_bytes: remaining,
             running_ceiling_bytes: full,
             source_world_epoch: epoch,
+            math_backend,
         });
         Ok(())
     }
@@ -250,8 +264,18 @@ mod tests {
     fn lease_keeps_source_held_until_all_background_work_is_released() {
         let slot = PreparedImportSlot::new();
         assert!(slot.acquire_work(100).is_err());
-        slot.reserve_admission(100, 60, 1).unwrap();
+        slot.reserve_admission_with_math(
+            100,
+            60,
+            1,
+            Some(super::super::inference::InferenceMathBackend::Sse2),
+        )
+        .unwrap();
         let lease = slot.acquire_work(100).unwrap();
+        assert_eq!(
+            lease.admission.math_backend,
+            Some(super::super::inference::InferenceMathBackend::Sse2)
+        );
         assert_eq!(lease.admission.remaining_bytes, 40);
         assert!(slot.acquire_work(100).is_err());
         assert!(slot.cancel().is_err());
