@@ -109,7 +109,13 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
   { group: 'World and food', path: 'foodSpawn.freqSmall', label: 'Filament scale (small)', min: 0.0025, max: 0.02, step: 0.0002, decimals: 4, requiresReset: false, valueType: 'number' },
   { group: 'World and food', path: 'foodSpawn.dustStrength', label: 'Filament speckle strength', min: 0, max: 1, step: 0.05, decimals: 2, requiresReset: false, valueType: 'number' },
 
+  { group: 'Sensors', path: 'sense.layoutVersion', label: 'Sensor version', type: 'select', options: [{value: 3, label: 'v3 (frozen)'}, {value: 4, label: 'v4 (candidate)'}], requiresReset: true, valueType: 'integer', hint: 'V4 requires explicit information and ray-work settings. Current fresh defaults remain v3.' },
+  { group: 'Sensors', path: 'sense.profile', label: 'V4 information', type: 'select', options: [{value: 0, label: 'Basic'}, {value: 1, label: 'Motion'}], requiresReset: true, valueType: 'integer', hint: 'Requires v4. Changing the information profile changes graph input meanings and width.' },
   { group: 'Sensors', path: 'sense.bubbleBins', label: 'Sensor bins', min: 8, max: 32, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },
+  { group: 'Sensors', path: 'sense.rayMinimum', label: 'V4 minimum ray work', min: 1, max: 1000000, type: 'number', step: 1, requiresReset: true, valueType: 'integer', hint: 'Requires v4. Positive guaranteed work per due observation; must not exceed the cap.' },
+  { group: 'Sensors', path: 'sense.rayCap', label: 'V4 ray work cap', min: 1, max: 1000000, type: 'number', step: 1, requiresReset: true, valueType: 'integer', hint: 'Requires v4. Maximum charged work per observation, not a ray count.' },
+  { group: 'Sensors', path: 'sense.rayBatch', label: 'V4 ray work per step', min: 512, max: 10000000, type: 'number', step: 1, requiresReset: true, valueType: 'integer', hint: 'Requires v4. Must cover the minimum for every admitted observation owner.' },
+  { group: 'Sensors', path: 'sense.rayMaximumDue', label: 'Admitted v4 observation owners', hidden: true, min: 1, max: 512, requiresReset: true, valueType: 'integer' },
   { group: 'Sensors', path: 'sense.rNearBase', label: 'Near radius base', min: 200, max: 900, step: 10, decimals: 0, requiresReset: false, valueType: 'number' },
   { group: 'Sensors', path: 'sense.rNearScale', label: 'Near radius scale', min: 0, max: 600, step: 10, decimals: 0, requiresReset: false, valueType: 'number' },
   { group: 'Sensors', path: 'sense.rNearMin', label: 'Near radius min', min: 150, max: 900, step: 10, decimals: 0, requiresReset: false, valueType: 'number' },
@@ -123,6 +129,9 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
   { group: 'Sensors', path: 'sense.maxSegmentChecks', label: 'Max segment checks', min: 200, max: 4000, step: 50, decimals: 0, requiresReset: false, valueType: 'integer' },
   { group: 'Sensors', path: 'sense.debug', label: 'Sensors debug logs', requiresReset: false, type: 'checkbox', valueType: 'boolean', hint: 'Enable sensor debug logging.' },
 
+  { group: 'Baseline bots', path: 'baselineBots.algorithm', label: 'Baseline algorithm', type: 'select', options: [{value: 1, label: 'v1 (frozen)'}, {value: 2, label: 'v2 (requires v4 sensors)'}], requiresReset: true, valueType: 'integer' },
+  { group: 'Baseline bots', path: 'baselineBots.behaviorMode', label: 'Baseline variation', type: 'select', options: [{value: 0, label: 'Deterministic'}, {value: 1, label: 'Stochastic'}], requiresReset: true, valueType: 'integer', hint: 'Requires baseline v2 and v4 sensors.' },
+  { group: 'Baseline bots', path: 'baselineBots.controlDt', label: 'V2 decision interval', min: 0.008, max: 0.06, step: 0.001, decimals: 3, type: 'number', requiresReset: true, valueType: 'number', hint: 'Requires baseline v2. Teacher and deployed student cadence must match.' },
   { group: 'Baseline bots', path: 'baselineBots.count', label: 'Baseline bot count', min: 0, max: 120, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },
   { group: 'Baseline bots', path: 'baselineBots.respawnDelay', label: 'Respawn delay (sec)', min: 0.5, max: 60, step: 0.5, decimals: 1, requiresReset: false, valueType: 'number', derivedState: 'baseline-respawn-delay' },
   { group: 'Baseline bots', path: 'baselineBots.randomizeSeedPerGen', label: 'Randomize base seed per generation', requiresReset: true, type: 'checkbox', valueType: 'boolean' },

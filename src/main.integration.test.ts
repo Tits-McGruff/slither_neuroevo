@@ -634,6 +634,72 @@ describe('main.ts startup smoke', () => {
     expect(experiment.updates.filter((update: { path: string }) => EVOLVED_SETTING_PATHS.has(update.path))).toHaveLength(17);
   });
 
+  it('submits explicit v4/v2 choices with a matching graph and blocks incompatible custom graph reset', async () => {
+    const panelInputs = (): SmokeElement[] => createdElements.filter(element => element.dataset['path']);
+    for (const id of ['settingsContainer', 'settingsControls']) {
+      (document.getElementById(id) as unknown as SmokeElement).querySelectorAll = panelInputs;
+    }
+    const {socket} = await openCameraSession();
+    const {buildStackGraphSpec} = await import('./brains/stackBuilder.ts');
+    const {DEFAULT_CORE_SETTINGS} = await import('./protocol/settings.ts');
+    const {CFG_DEFAULT} = await import('./config.ts');
+    socket.onmessage?.({data: JSON.stringify({type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
+      worldSeed: 42, runId: 'camera-run', configRevision: 1, configHash: 'cfg-camera', serializerVersion: 1, frameByteLength: 28,
+      inferenceMode: {requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0},
+      sensorSpec: {sensorCount: 83, order: [], layoutVersion: 'v3'},
+      graphSpec: buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG_DEFAULT), settings: {core: DEFAULT_CORE_SETTINGS, updates: []}
+    })});
+    const choose = (path: string, value: string) => {
+      const input = panelInputs().find(element => element.dataset['path'] === path)!;
+      input.value = value; input.dispatch('input', new Event('input'));
+    };
+    choose('sense.layoutVersion', '4'); choose('sense.profile', '0'); choose('baselineBots.algorithm', '2');
+    elements.get('apply')!.click();
+    const reset = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
+    expect(reset, elements.get('resetStatus')!.textContent).toBeDefined();
+    expect(reset.updates).toEqual(expect.arrayContaining([
+      {path: 'sense.layoutVersion', value: 4}, {path: 'sense.profile', value: 0},
+      {path: 'baselineBots.algorithm', value: 2}, {path: 'baselineBots.behaviorMode', value: 1},
+      {path: 'sense.rayMinimum', value: 1}, {path: 'sense.rayCap', value: 256},
+      {path: 'sense.rayBatch', value: 65536}, {path: 'sense.rayMaximumDue', value: 512}
+    ]));
+    expect(reset.graphSpec.nodes.find((node: {type: string}) => node.type === 'Input').outputSize).toBe(120);
+    const custom = structuredClone(reset.graphSpec);
+    custom.nodes.find((node: {type: string}) => node.type === 'Input').id = 'customInput';
+    for (const edge of custom.edges) if (edge.from === 'input') edge.from = 'customInput';
+    const {getSensorSpec, sensorLayoutFromContract} = await import('./protocol/sensors.ts');
+    const {readFileSync} = await import('node:fs');
+    const contracts = JSON.parse(readFileSync(new URL('../native/fixtures/sensor-contract-shapes.json', import.meta.url), 'utf8'));
+    const contract = contracts.find((entry: Parameters<typeof sensorLayoutFromContract>[0]) => {
+      const layout = sensorLayoutFromContract(entry); return layout.profile === 'basic' && layout.bins === 16;
+    });
+    socket.onmessage?.({data: JSON.stringify({type: 'stateReplaced', reason: 'reset', checkpointId: 'c'.repeat(64), welcome: {
+      type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60, worldSeed: 42,
+      runId: 'basic-run', configRevision: 1, configHash: 'cfg-basic', serializerVersion: 1, frameByteLength: 28,
+      inferenceMode: {requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0},
+      sensorSpec: getSensorSpec(sensorLayoutFromContract(contract), contract), graphSpec: custom,
+      settings: {core: {snakeCount: 12, simSpeed: 1}, updates: reset.updates}
+    }})});
+    const before = socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset').length;
+    choose('sense.profile', '1'); elements.get('apply')!.click();
+    expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset')).toHaveLength(before);
+    expect(elements.get('resetStatus')!.textContent).toContain('require 264 graph inputs');
+    expect(elements.get('resetStatus')!.textContent).toContain('Update the custom graph');
+    elements.get('graphUseStack')!.click(); elements.get('apply')!.click();
+    const stackReset = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
+    expect(stackReset.graphSpec.nodes.find((node: {type: string}) => node.type === 'Input').outputSize).toBe(264);
+    expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset')).toHaveLength(before + 1);
+    socket.onmessage?.({data: JSON.stringify({type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
+      worldSeed: 42, runId: 'frozen-run', configRevision: 1, configHash: 'cfg-frozen', serializerVersion: 1, frameByteLength: 28,
+      inferenceMode: {requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0},
+      sensorSpec: {sensorCount: 83, order: [], layoutVersion: 'v3'},
+      graphSpec: buildStackGraphSpec(DEFAULT_CORE_SETTINGS, CFG_DEFAULT), settings: {core: DEFAULT_CORE_SETTINGS, updates: [{path: 'sense.layoutVersion', value: 3}]}
+    })});
+    expect(panelInputs().find(element => element.dataset['path'] === 'sense.layoutVersion')!.value).toBe('3');
+    expect(panelInputs().find(element => element.dataset['path'] === 'baselineBots.algorithm')!.value).toBe('1');
+    expect(panelInputs().find(element => element.dataset['path'] === 'baselineBots.behaviorMode')!.disabled).toBe(true);
+  });
+
   it('shows rejected resets beside Apply and acknowledges a successful retry', async () => {
     const { socket } = await openCameraSession();
     const status = elements.get('resetStatus')!;

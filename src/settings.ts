@@ -6,7 +6,7 @@
 
 import { CFG, CFG_DEFAULT, syncBrainInputSize } from './config.ts';
 import { formatDuration, parseDurationDraft } from './protocol/duration.ts';
-import { coerceSettingsUpdateValue, type SettingsPath } from './protocol/settings.ts';
+import { coerceSettingsUpdateValue, encodeSettingsUpdateValue, type SettingsPath, type SettingsUpdate } from './protocol/settings.ts';
 import {
   BASELINE_BOT_SEED_HINT_ID,
   BASELINE_BOT_SEED_INPUT_ID,
@@ -238,14 +238,15 @@ export function buildSettingsUI(container: HTMLElement): void {
  * Also updates the displayed numeric values next to each control.
  * @param root - Root element containing the controls.
  * @param paths - Optional subset, preserving unrelated pending drafts.
+ * @param locked - Preserve the panel lock for conditional controls.
  */
-export function applyValuesToSlidersFromCFG(root: HTMLElement, paths?: ReadonlySet<string>): void {
+export function applyValuesToSlidersFromCFG(root: HTMLElement, paths?: ReadonlySet<string>, locked = false): void {
   const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   inputs.forEach(input => {
     const path = input.dataset['path']!;
     if (paths && !paths.has(path)) return;
     const rawValue = getByPath(CFG, path);
-    const numericValue = typeof rawValue === 'number' ? rawValue : (rawValue ? 1 : 0);
+    const numericValue = encodeSettingsUpdateValue(path, rawValue);
     if (input.dataset['controlType'] === 'duration') input.dataset['recordedDuration'] = String(numericValue);
     if (input.type === 'checkbox' && 'checked' in input) {
       input.checked = Boolean(rawValue);
@@ -256,6 +257,50 @@ export function applyValuesToSlidersFromCFG(root: HTMLElement, paths?: ReadonlyS
     const out = document.getElementById("val_" + path.replaceAll(".", "_"));
     if (out) out.textContent = formatInputValue(input, numericValue);
   });
+  refreshSensorSettings(root, locked);
+}
+
+/** Read pending selectors without changing the active browser configuration. */
+function sensorSelections(root: HTMLElement): {version: number; algorithm: number} {
+  const inputs = Array.from(root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]'));
+  return {version: Number(inputs.find(input => input.dataset['path'] === 'sense.layoutVersion')?.value ??
+    encodeSettingsUpdateValue('sense.layoutVersion', CFG.sense.layoutVersion)),
+  algorithm: Number(inputs.find(input => input.dataset['path'] === 'baselineBots.algorithm')?.value ?? CFG.baselineBots.algorithm)};
+}
+
+/** Inactive choices remain drafts and are never submitted as runtime settings. */
+function inactiveSensorSetting(path: string, version: number, algorithm: number): boolean {
+  return ((path === 'sense.profile' || path.startsWith('sense.ray')) && version !== 4) ||
+    ((path === 'baselineBots.behaviorMode' || path === 'baselineBots.controlDt') && (algorithm !== 2 || version !== 4));
+}
+
+/** Keep v4/v2-only controls disabled with a visible explanation, including after unlocking. */
+export function refreshSensorSettings(root: HTMLElement, locked = false): void {
+  const {version, algorithm} = sensorSelections(root);
+  for (const input of root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]')) {
+    const path = input.dataset['path']!;
+    if (path !== 'sense.profile' && !path.startsWith('sense.ray') &&
+        path !== 'baselineBots.behaviorMode' && path !== 'baselineBots.controlDt') continue;
+    const inactive = inactiveSensorSetting(path, version, algorithm);
+    input.disabled = locked || inactive;
+    input.title = inactive ? (path.startsWith('sense.') ? 'Select v4 sensors to use this setting.' : 'Select v4 sensors and baseline v2 to use this setting.') : '';
+  }
+}
+
+/** Collect one reset draft, excluding camera presentation and inactive contract fields. */
+export function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
+  const {version, algorithm} = sensorSelections(root);
+  const updates: SettingsUpdate[] = [];
+  for (const input of root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]')) {
+    const path = input.dataset['path']!;
+    if (BROWSER_CAMERA_SETTING_PATHS.has(path) || inactiveSensorSetting(path, version, algorithm) ||
+        (EVOLVED_SETTING_PATHS.has(path) && CFG.evolvedRespawn.contractVersion === 0)) continue;
+    const value = readInputValue(input);
+    if (value !== null) updates.push({path: path as SettingsPath, value});
+  }
+  if (version === 4) updates.push({path: 'sense.rayMaximumDue', value: CFG.sense.rayMaximumDue});
+  if (CFG.evolvedRespawn.contractVersion === 1) updates.push({path: 'evolvedRespawn.contractVersion', value: 1});
+  return updates;
 }
 
 /** Select the explicit life preset without overwriting other unsubmitted drafts. */
@@ -280,6 +325,7 @@ export function hookSliderEvents(
   const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   inputs.forEach(input => {
     input.addEventListener("input", () => {
+      if (input.dataset['path'] === 'sense.layoutVersion' || input.dataset['path'] === 'baselineBots.algorithm') refreshSensorSettings(root);
       const value = readInputValue(input);
       if (value != null && input.dataset['lifeContract'] === '1') CFG.evolvedRespawn.contractVersion = 1;
       if (input.dataset['lifeContract'] === '1') {
@@ -314,9 +360,11 @@ export function hookSliderEvents(
  */
 export function updateCFGFromUI(root: HTMLElement): void {
   if (!validateSettingDrafts(root)) return;
+  const {version, algorithm} = sensorSelections(root);
   const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
   inputs.forEach(input => {
     const path = input.dataset['path']!;
+    if (inactiveSensorSetting(path, version, algorithm)) return;
     if (EVOLVED_SETTING_PATHS.has(path) && CFG.evolvedRespawn.contractVersion === 0) return;
     const value = readInputValue(input);
     if (value == null) return;
@@ -333,8 +381,31 @@ export function updateCFGFromUI(root: HTMLElement): void {
  */
 export function validateSettingDrafts(root: HTMLElement): boolean {
   const inputs = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
+  const {version, algorithm} = sensorSelections(root);
   let valid = true;
   inputs.forEach(input => {
+    const path = input.dataset['path']!;
+    if (inactiveSensorSetting(path, version, algorithm)) return;
+    let contractError = '';
+    if (path === 'baselineBots.algorithm' && algorithm === 2 && version !== 4) contractError = 'Baseline v2 requires v4 sensors.';
+    if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt') {
+      const value = input.value.trim() === '' ? NaN : Number(input.value);
+      const definition = SETTING_DEFINITION_BY_PATH.get(path)!;
+      if (!Number.isFinite(value) || (definition.valueType === 'integer' && !Number.isSafeInteger(value)) ||
+          value < definition.min! || value > definition.max!) contractError = 'Enter a value within the displayed bounds.';
+      if (path === 'sense.rayMinimum' && !contractError) {
+        const cap = Number(Array.from(inputs).find(candidate => candidate.dataset['path'] === 'sense.rayCap')?.value ?? CFG.sense.rayCap);
+        const batch = Number(Array.from(inputs).find(candidate => candidate.dataset['path'] === 'sense.rayBatch')?.value ?? CFG.sense.rayBatch);
+        if (value > cap || value * CFG.sense.rayMaximumDue > batch) contractError = 'Ray minimum must fit the cap and the batch budget for all admitted owners.';
+      }
+    }
+    if (contractError) {
+      input.setCustomValidity(contractError); input.setAttribute('aria-invalid', 'true');
+      if (valid) input.reportValidity(); valid = false; return;
+    }
+    if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt' || path === 'baselineBots.algorithm') {
+      input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
+    }
     if (input.dataset['lifeContract'] === '1') {
       const accepted = readLifeSettingInput(input) != null;
       input.setCustomValidity(accepted ? '' : 'Enter a valid value or choose a listed option.');

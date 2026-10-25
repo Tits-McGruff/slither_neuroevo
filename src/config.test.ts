@@ -30,6 +30,9 @@ describe(SUITE, () => {
       expect(getSensorLayout(32,'v4','motion').inputSize).toBe(504);
       expect(()=>getSensorLayout(16,'v4')).toThrow('explicit');
       expect(()=>getSensorLayout(16,'v2')).toThrow('unsupported');
+      CFG.sense.bubbleBins = 8;
+      applyAuthoritativeSensorSpec(getSensorSpec(getSensorLayout(8, 'v3')));
+      expect(CFG.sense.layoutVersion).toBe('v3'); expect(CFG.brain.inSize).toBe(51);
     } finally { resetCFGToDefaults(); }
     expect(CFG.brain.inSize).toBe(83);
     expect(CFG.sense.layoutVersion).toBe('v3');

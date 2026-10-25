@@ -279,6 +279,14 @@ device.
 
 - **Reset-only settings** include population and baseline-bot counts. Apply
   them with **Apply and reset** within the existing UI limits.
+- **Sensor version** selects frozen v3 or candidate v4. V4 exposes **V4 information**
+  (Basic/Motion) and explicit ray-work limits. **Baseline algorithm** v2 requires
+  v4 sensors; its **Baseline variation** and **V2 decision interval** apply on reset.
+  Inactive controls are disabled and are not submitted. Current fresh defaults
+  remain v3/v1 while v4 selection qualification is open. A custom graph must have
+  the selected sensor input width; an incompatible graph blocks reset with guidance.
+  **Use stack controls** explicitly leaves custom-graph mode while preserving
+  other pending settings, then **Apply and reset** starts the new population.
 - **Live settings** apply atomically at the next Rust step boundary and remain
   active through later Reset or New Run operations.
 - **Graphs** are sent directly to Rust for independent validation and compilation

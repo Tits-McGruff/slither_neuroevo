@@ -17,7 +17,7 @@ import {
   applyValuesToSlidersFromCFG,
   setupSettingsUI,
   updateCFGFromUI,
-  validateSettingDrafts,
+  validateSettingDrafts, collectSettingsUpdates, refreshSensorSettings,
   readSettingChoice, readLifeSettingInput,
   type SettingInputElement
 } from './settings.ts';
@@ -743,25 +743,6 @@ function readSettingsInputValue(input: SettingInputElement): number | null {
 }
 
 /**
- * Collect authoritative slider updates under a root element, excluding local camera presentation.
- * @param root - Root element containing settings inputs.
- * @returns List of settings updates.
- */
-function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
-  const sliders = root.querySelectorAll<SettingInputElement>('input[data-path], select[data-path]');
-  const updates: SettingsUpdate[] = [];
-  sliders.forEach(sl => {
-    if (BROWSER_CAMERA_SETTING_PATHS.has(sl.dataset['path']!)) return;
-    if (EVOLVED_SETTING_PATHS.has(sl.dataset['path']!) && CFG.evolvedRespawn.contractVersion === 0) return;
-    const value = readSettingsInputValue(sl);
-    if (value == null) return;
-    updates.push({ path: sl.dataset['path']! as SettingsUpdate['path'], value });
-  });
-  if (CFG.evolvedRespawn.contractVersion === 1) updates.push({ path: 'evolvedRespawn.contractVersion', value: 1 });
-  return updates;
-}
-
-/**
  * Resolve the root element containing CFG-backed settings sliders.
  * @returns Root element containing data-path inputs.
  */
@@ -1079,6 +1060,19 @@ if (graphReset) {
     resetGraphDraft();
   });
 }
+
+// Explicitly leave custom-graph mode without changing other pending settings.
+document.getElementById('graphUseStack')?.addEventListener('click', () => {
+  if (!validateSettingDrafts(resolveSettingsRoot())) return;
+  updateCFGFromUI(resolveSettingsRoot());
+  customGraphSpec = null;
+  CFG.brain.graphSpec = null;
+  graphDraft = buildStackGraphSpec(readSettingsFromCoreUI(), CFG);
+  try { localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY); } catch { /* Storage is optional. */ }
+  refreshCoreUIState();
+  renderGraphEditor();
+  setGraphSpecStatus('Using stack controls. Apply and reset to start a new population.');
+});
 
 if (graphPresetSave) {
   graphPresetSave.addEventListener('click', async () => {
@@ -1778,27 +1772,6 @@ function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
   renderGraphEditor();
   setGraphSpecStatus(note);
   return true;
-}
-
-/**
- * Clear the applied custom graph spec and revert to the default stack graph.
- * @param note - Status message to display after clearing.
- */
-function clearCustomGraphSpec(note = 'Custom graph cleared.'): void {
-  customGraphSpec = null;
-  CFG.brain.graphSpec = null;
-  graphDraft = null;
-  if (graphSpecInput) {
-    graphSpecInput.value = JSON.stringify(buildLinearMlpTemplate(), null, 2);
-  }
-  try {
-    localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY);
-  } catch {
-    // Ignore storage failures.
-  }
-  refreshCoreUIState();
-  renderGraphEditor();
-  setGraphSpecStatus(note);
 }
 
 /**
@@ -3329,6 +3302,7 @@ function applySettingsLock(): void {
   controls.forEach(control => {
     (control as HTMLInputElement).disabled = settingsLocked;
   });
+  refreshSensorSettings(resolveSettingsRoot(), settingsLocked);
   if (!settingsLocked) refreshCoreUIState();
 }
 
@@ -3525,18 +3499,14 @@ async function resurrectHallOfFameOnServer(entryId: string): Promise<number | nu
 /**
  * Validate the applied graph spec against the active sensor input size.
  * @param settings - Core values used to build the ordinary stack graph.
- * @returns A sensor-compatible explicit graph for authoritative replacement.
+ * @returns A matching graph, or null after displaying why reset is blocked.
  */
-function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec {
+function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec | null {
   const graphSpec = customGraphSpec ?? buildStackGraphSpec(settings, CFG);
   const inputSize = getGraphSpecInputSize(graphSpec);
   if (inputSize == null || inputSize !== CFG.brain.inSize) {
-    console.warn('[sensors.layout.reset_fallback]', {
-      expected: CFG.brain.inSize,
-      actual: inputSize ?? null
-    });
-    clearCustomGraphSpec('Custom graph cleared due to input size mismatch.');
-    return buildStackGraphSpec(settings, CFG);
+    setResetStatus(`The selected sensors require ${CFG.brain.inSize} graph inputs. Update the custom graph or select the default stack before resetting.`, true);
+    return null;
   }
   return graphSpec;
 }
@@ -3549,11 +3519,15 @@ function applyResetToSimulation(): void {
     setResetStatus('Correct the invalid settings before Apply and reset.', true);
     return;
   }
-  authoritativeControls.dispose();
+  updateCFGFromUI(resolveSettingsRoot());
+  refreshCoreUIState();
+  persistBaselineBotSettings();
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
     const graphSpec = resolveGraphSpecForReset(settings);
+    if (!graphSpec) return;
+    authoritativeControls.dispose();
     setResetStatus('Checking settings and preparing reset...');
     wsClient.sendReset(settings, updates, graphSpec);
     return;
@@ -3612,6 +3586,11 @@ function applyAuthoritativeSettingsState(
   // drafts so a previously viewed modern run cannot silently upgrade it.
   for (const path of EVOLVED_SETTING_PATHS) setByPath(CFG, path, getByPath(CFG_DEFAULT, path));
   CFG.evolvedRespawn.contractVersion = 0;
+  if (CFG.sense.layoutVersion === 'v3') CFG.sense.profile = CFG_DEFAULT.sense.profile;
+  for (const key of ['rayMinimum', 'rayCap', 'rayBatch', 'rayMaximumDue'] as const) CFG.sense[key] = CFG_DEFAULT.sense[key];
+  CFG.baselineBots.algorithm = 1;
+  CFG.baselineBots.behaviorMode = CFG_DEFAULT.baselineBots.behaviorMode;
+  CFG.baselineBots.controlDt = CFG_DEFAULT.baselineBots.controlDt;
   serverSimSpeed = core.simSpeed;
   libraryEnvironment.cadence = 1 / 60;
   applyCoreSettingsToUi(core);
@@ -3620,7 +3599,7 @@ function applyAuthoritativeSettingsState(
     setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
   }
   syncBrainInputSize();
-  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
   refreshCoreUIState();
   persistBaselineBotSettings();
 }
@@ -3659,7 +3638,7 @@ function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): vo
     baselineSettingsChanged ||= update.path.startsWith('baselineBots.');
   }
   syncBrainInputSize();
-  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
   refreshCoreUIState();
   if (baselineSettingsChanged) persistBaselineBotSettings();
 }
@@ -3917,7 +3896,7 @@ wsClient = createWsClient({
       distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
       return;
     }
-    applyValuesToSlidersFromCFG(resolveSettingsRoot());
+    applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
     elSimSpeed.value = String(serverSimSpeed);
     refreshCoreUIState();
     console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
@@ -4096,10 +4075,6 @@ elN5.addEventListener('input', refreshCoreUIState);
 
 // Apply new configuration and reset world
 btnApply.addEventListener('click', () => {
-  if (!validateSettingDrafts(resolveSettingsRoot())) return;
-  refreshCoreUIState();
-  updateCFGFromUI(resolveSettingsRoot());
-  persistBaselineBotSettings();
   applyResetToSimulation();
 });
 // Restore defaults

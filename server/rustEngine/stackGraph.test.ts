@@ -24,6 +24,23 @@ function metadata(graphSpec: RustStartupMetadata['graphSpec']): RustStartupMetad
 }
 
 describe('Rust stack graph presentation', () => {
+  it('uses the replacement profile when switching from v3 or between v4 profiles', () => {
+    const spec = buildStackGraphSpec(CORE, CFG_DEFAULT);
+    for (const [profile, width] of [[0, 72], [1, 144]] as const) {
+      const cleared = clearedStackGraph(metadata(spec), {type: 'reset', graphSpec: null}, [
+        {path: 'snakeCount', value: 12}, {path: 'simSpeed', value: 1},
+        {path: 'sense.layoutVersion', value: 4}, {path: 'sense.profile', value: profile}, {path: 'sense.bubbleBins', value: 8}
+      ]);
+      expect(cleared.nodes.find(node => node.type === 'Input')?.outputSize).toBe(width);
+    }
+    const motion = CONTRACTS.find(contract => sensorLayoutFromContract(contract).profile === 'motion')!;
+    const current = {...metadata(spec), sensorVersion: 4, sensorContract: motion};
+    const cleared = clearedStackGraph(current, {type: 'reset', graphSpec: null}, [
+      {path: 'snakeCount', value: 12}, {path: 'simSpeed', value: 1},
+      {path: 'sense.layoutVersion', value: 4}, {path: 'sense.profile', value: 0}, {path: 'sense.bubbleBins', value: 16}
+    ]);
+    expect(cleared.nodes.find(node => node.type === 'Input')?.outputSize).toBe(120);
+  });
   it('recovers v4 stack controls and clears graphs at the exact requested profile width',()=>{
     for (const contract of CONTRACTS) {
       const layout=sensorLayoutFromContract(contract);

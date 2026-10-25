@@ -39,6 +39,10 @@ export function createRustSettings(metadata: RustStartupMetadata): WelcomeMsg['s
   const stack = deriveStackPresentation(metadata.graphSpec, core, inputSize);
   const updates = new Map(SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
     .map(path => [path, nativeSetting(metadata, path)]));
+  // UI names stay separate from the frozen native checkpoint field names.
+  updates.set('baselineBots.algorithm', metadata.settings.some(setting => setting.path === 'baselineBots.controlVersion')
+    ? nativeSetting(metadata, 'baselineBots.controlVersion') : 1);
+  if (updates.get('baselineBots.algorithm') === 2) updates.set('baselineBots.behaviorMode', nativeSetting(metadata, 'baselineBots.mode'));
   for (const update of stack?.updates ?? []) updates.set(update.path, update.value);
   return { core: stack?.core ?? core, updates: [...updates].map(([path, value]) => ({ path, value })) };
 }

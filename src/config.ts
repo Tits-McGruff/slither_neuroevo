@@ -77,6 +77,8 @@ export const CFG_DEFAULT = {
     // as the follow camera (larger snakes see farther).
     layoutVersion: 'v3' as SensorLayoutVersion,
     profile: 'motion' as SensorV4Profile,
+    // Explicit candidate drafts, submitted only when v4 is selected.
+    rayMinimum: 1, rayCap: 256, rayBatch: 65536, rayMaximumDue: 512,
     bubbleBins: 16,
     rNearBase: 520,
     rNearScale: 260,
@@ -122,6 +124,9 @@ export const CFG_DEFAULT = {
     rruInitGateBias: 0.1
   },
   baselineBots: {
+    algorithm: 1,
+    behaviorMode: 1,
+    controlDt: 1 / 60,
     count: 10,
     seed: 1,
     randomizeSeedPerGen: false,
@@ -198,7 +203,12 @@ export function syncBrainInputSize(): void {
 
 /** Apply explicit v4 structure before rebuilding browser stack/editor presentation. */
 export function applyAuthoritativeSensorSpec(spec: SensorSpec): void {
-  if (spec.layoutVersion === 'v3') return;
+  if (spec.layoutVersion === 'v3') {
+    CFG.sense.layoutVersion = 'v3';
+    // Historical v3 handshakes keep bin selection in the numeric settings.
+    syncBrainInputSize();
+    return;
+  }
   if (!spec.contract) throw new TypeError('missing authoritative v4 sensor contract');
   const layout = sensorLayoutFromContract(spec.contract);
   if (layout.layoutVersion !== spec.layoutVersion || layout.profile !== spec.profile ||

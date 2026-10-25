@@ -83,8 +83,10 @@ export function clearedStackGraph(metadata: RustStartupMetadata, message: ResetM
   const currentLayout = metadata.sensorContract ? sensorLayoutFromContract(metadata.sensorContract) :
     getSensorLayout(Number(metadata.settings.find(setting=>setting.path==='sense.bubbleBins')!.value));
   const version = values.get('sense.layoutVersion') ?? metadata.sensorVersion;
+  const requestedProfile = values.get('sense.profile');
   const inputSize = getSensorLayout(values.get('sense.bubbleBins')!, 'v'+version,
-    currentLayout.profile === 'v3' ? undefined : currentLayout.profile).inputSize;
+    requestedProfile === 0 ? 'basic' : requestedProfile === 1 ? 'motion' :
+      currentLayout.profile === 'v3' ? undefined : currentLayout.profile).inputSize;
   const currentCore = { ...DEFAULT_CORE_SETTINGS,
     snakeCount: values.get('snakeCount')!, simSpeed: values.get('simSpeed')! };
   const currentInput = currentLayout.inputSize;

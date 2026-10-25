@@ -5,7 +5,7 @@ import {
   hookSliderEvents,
   updateCFGFromUI,
   createSettingControl,
-  readSettingChoice, stageEvolvedRespawnPreset
+  readSettingChoice, stageEvolvedRespawnPreset, collectSettingsUpdates, refreshSensorSettings, validateSettingDrafts
 } from './settings.ts';
 import { CFG } from './config.ts';
 import { fmtNumber } from './utils.ts';
@@ -13,6 +13,20 @@ import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
 
 /** Minimal DOM element stub for settings UI tests. */
 class FakeElement {
+  /** Browser form state and validation text used by conditional sensor controls. */
+  disabled = false;
+  /** Checked state for life and baseline flags. */
+  checked = false;
+  /** Most recent browser validation message. */
+  validationMessage = '';
+  /** Select options retain their declared integer wire values. */
+  get options(): FakeElement[] { return this.children.filter(child => child.tagName === 'option'); }
+  /** Keep validation observable without a real DOM. */
+  setCustomValidity(message: string): void { this.validationMessage = message; }
+  /** Attribute styling is outside this bounded form stub. */
+  setAttribute(): void {}
+  /** Validation reporting needs no interactive browser in this test. */
+  reportValidity(): void {}
   /** Element tag name. */
   tagName: string;
   /** Child element list. */
@@ -64,7 +78,7 @@ class FakeElement {
    * @returns Empty list for this stub.
    */
   querySelectorAll(): FakeElement[] {
-    return [];
+    return this.children.flatMap(child => [...(child.dataset['path'] ? [child] : []), ...child.querySelectorAll()]);
   }
   /** No-op event listener registration for the stub. */
   addEventListener(): void {}
@@ -119,7 +133,9 @@ describe('settings.ts', () => {
     const inputs = collectInputs(container);
     const paths = inputs.map(input => input.dataset['path']).filter(Boolean);
 
-    expect(paths).not.toContain('sense.layoutVersion');
+    expect(paths).toContain('sense.layoutVersion');
+    expect(paths).toContain('sense.profile');
+    expect(paths).toContain('baselineBots.algorithm');
     expect(paths).toContain('sense.bubbleBins');
     expect(paths).toContain('sense.rNearBase');
     expect(paths).toContain('sense.foodKBase');
@@ -139,6 +155,63 @@ describe('settings.ts', () => {
 
     expect(binsInput?.dataset['requiresReset']).toBe('1');
     expect(collisionCellInput?.dataset['requiresReset']).toBe('1');
+  });
+
+  it('stages explicit v4/v2 choices, preserves zero profile codes and omits inactive settings', () => {
+    const original = structuredClone(CFG);
+    try {
+      const panel = new FakeElement('div'); const root = panel as unknown as HTMLElement;
+      buildSettingsUI(root); applyValuesToSlidersFromCFG(root);
+      const input = (path: string) => panel.querySelectorAll().find(control => control.dataset['path'] === path)!;
+      expect(input('sense.layoutVersion').value).toBe('3');
+      expect(input('sense.profile').value).toBe('1');
+      expect(input('sense.profile').disabled).toBe(true);
+      expect(input('baselineBots.behaviorMode').disabled).toBe(true);
+      expect(collectSettingsUpdates(root).some(update => update.path.startsWith('sense.ray') || update.path === 'sense.profile')).toBe(false);
+      input('sense.layoutVersion').value = '4'; input('sense.profile').value = '0';
+      input('baselineBots.algorithm').value = '2';
+      refreshSensorSettings(root);
+      expect(input('sense.profile').disabled).toBe(false);
+      expect(input('baselineBots.behaviorMode').disabled).toBe(false);
+      expect(validateSettingDrafts(root)).toBe(true);
+      updateCFGFromUI(root);
+      expect(CFG.sense.layoutVersion).toBe('v4'); expect(CFG.sense.profile).toBe('basic');
+      expect(CFG.brain.inSize).toBe(120);
+      expect(collectSettingsUpdates(root)).toEqual(expect.arrayContaining([
+        {path: 'sense.layoutVersion', value: 4}, {path: 'sense.profile', value: 0},
+        {path: 'baselineBots.algorithm', value: 2}, {path: 'baselineBots.behaviorMode', value: 1},
+        {path: 'sense.rayMaximumDue', value: 512}
+      ]));
+      input('sense.layoutVersion').value = '3';
+      expect(validateSettingDrafts(root)).toBe(false);
+      expect(input('baselineBots.algorithm').validationMessage).toContain('requires v4');
+      updateCFGFromUI(root); expect(CFG.sense.layoutVersion).toBe('v4');
+      input('baselineBots.algorithm').value = '1'; refreshSensorSettings(root); updateCFGFromUI(root);
+      expect(CFG.brain.inSize).toBe(83);
+      const updates = collectSettingsUpdates(root);
+      expect(updates.some(update => update.path.startsWith('sense.ray') || update.path === 'sense.profile' ||
+        update.path === 'baselineBots.controlDt' || update.path === 'baselineBots.behaviorMode')).toBe(false);
+    } finally { Object.assign(CFG, original); }
+  });
+
+  it('rejects invalid ray/cadence drafts atomically rather than clamping them', () => {
+    const original = structuredClone(CFG);
+    try {
+      const panel = new FakeElement('div'); const root = panel as unknown as HTMLElement;
+      buildSettingsUI(root); applyValuesToSlidersFromCFG(root);
+      const input = (path: string) => panel.querySelectorAll().find(control => control.dataset['path'] === path)!;
+      input('sense.layoutVersion').value = '4'; input('baselineBots.algorithm').value = '2';
+      const reject = (path: string, value: string) => {
+        const before = input(path).value; input(path).value = value;
+        expect(validateSettingDrafts(root)).toBe(false); updateCFGFromUI(root);
+        expect(CFG.sense.layoutVersion).toBe(original.sense.layoutVersion);
+        input(path).value = before;
+      };
+      reject('sense.rayMinimum', '1.5'); reject('sense.rayMinimum', '257');
+      reject('sense.rayMinimum', '129'); reject('sense.rayCap', '0');
+      reject('baselineBots.controlDt', '0'); reject('baselineBots.behaviorMode', '2');
+      expect(validateSettingDrafts(root)).toBe(true);
+    } finally { Object.assign(CFG, original); }
   });
 
   it('applyValuesToSlidersFromCFG updates slider values and labels', () => {

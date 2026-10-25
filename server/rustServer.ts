@@ -269,13 +269,19 @@ function replacementSettings(
       continue;
     }
     const definition = getLiveSettingDefinition(update.path);
+    const sensorSelection = update.path === 'sense.layoutVersion' || update.path === 'sense.profile' || update.path.startsWith('sense.ray') ||
+      update.path === 'baselineBots.algorithm' || update.path === 'baselineBots.behaviorMode' || update.path === 'baselineBots.controlDt';
     if (!definition || (!metadata.settings.some(setting => setting.path === update.path) &&
-        !(upgradingLives && EVOLVED_SETTING_PATHS.has(update.path)))) {
+        !(upgradingLives && EVOLVED_SETTING_PATHS.has(update.path)) && !sensorSelection)) {
       throw new Error(`reset setting ${update.path} is not supported by the current Rust graph`);
     }
-    replacements.set(update.path, normalizeSettingValue(definition, update.value));
+    const value = normalizeSettingValue(definition, update.value);
+    if (sensorSelection && (replacements.has(update.path) || value !== update.value)) {
+      throw new Error(`reset setting ${update.path} must be unique and within its declared bounds`);
+    }
+    replacements.set(update.path, value);
   }
-  const result = metadata.settings.map(setting => {
+  const result = metadata.settings.filter(setting => setting.path !== 'sense.contractSha256').map(setting => {
     const replacement = replacements.get(setting.path);
     const currentValue = typeof setting.value === 'boolean' ? Number(setting.value) : setting.value;
     if (typeof currentValue !== 'number' || !Number.isFinite(currentValue)) {
@@ -284,7 +290,37 @@ function replacementSettings(
     return { path: setting.path, value: replacement ?? currentValue };
   });
   if (upgradingLives) for (const path of EVOLVED_SETTING_PATHS) result.push({ path, value: replacements.get(path)! });
-  return result;
+  const values = new Map(result.map(setting => [setting.path, setting.value]));
+  const version = replacements.get('sense.layoutVersion') ?? metadata.sensorVersion;
+  const algorithm = replacements.get('baselineBots.algorithm') ?? values.get('baselineBots.controlVersion') ?? 1;
+  if (algorithm === 2 && version !== 4) throw new Error('Baseline v2 requires v4 sensors.');
+  if (version !== 4 && [...replacements.keys()].some(path => path === 'sense.profile' || path.startsWith('sense.ray'))) {
+    throw new Error('V4 information and ray limits require v4 sensors.');
+  }
+  if (algorithm !== 2 && (replacements.has('baselineBots.behaviorMode') || replacements.has('baselineBots.controlDt'))) {
+    throw new Error('Baseline variation and decision interval require baseline v2.');
+  }
+  if (version === 4) {
+    for (const path of ['sense.profile', 'sense.rayMinimum', 'sense.rayCap', 'sense.rayBatch', 'sense.rayMaximumDue']) {
+      const value = replacements.get(path) ?? values.get(path);
+      if (value === undefined) throw new Error(`Selecting v4 requires explicit ${path}.`);
+      values.set(path, value);
+    }
+    values.set('sense.contractVersion', 1);
+  } else {
+    for (const path of ['sense.contractVersion', 'sense.profile', 'sense.rayMinimum', 'sense.rayCap', 'sense.rayBatch', 'sense.rayMaximumDue']) values.delete(path);
+  }
+  values.set('brain.sensorVersion', version);
+  if (algorithm === 2) {
+    values.set('baselineBots.controlVersion', 2);
+    const mode = replacements.get('baselineBots.behaviorMode') ?? values.get('baselineBots.mode');
+    const cadence = replacements.get('baselineBots.controlDt') ?? values.get('baselineBots.controlDt');
+    if (mode === undefined || cadence === undefined) throw new Error('Selecting baseline v2 requires explicit variation and decision interval.');
+    values.set('baselineBots.mode', mode); values.set('baselineBots.controlDt', cadence);
+  } else {
+    for (const path of ['baselineBots.controlVersion', 'baselineBots.mode', 'baselineBots.controlDt']) values.delete(path);
+  }
+  return [...values].map(([path, value]) => ({path, value}));
 }
 
 /** Project the durable old-checkpoint conversion without exposing persistence internals. */
@@ -1359,8 +1395,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         const metadata = parseRustStartupMetadata(candidate.startupMetadata);
         const returnedSettings = new Map(metadata.settings.map(setting => [setting.path,
           typeof setting.value === 'boolean' ? Number(setting.value) : setting.value]));
-        const settingsMatch = returnedSettings.size === settings.length && settings.every(setting =>
-          Object.is(returnedSettings.get(setting.path), setting.value));
+        // Rust derives the one textual v4 digest from the explicit numeric
+        // selection. The metadata parser independently verifies its bytes and
+        // its agreement with the graph/profile; every requested value still matches.
+        const derivedDigestCount = metadata.sensorVersion === 4 ? 1 : 0;
+        const settingsMatch = returnedSettings.size === settings.length + derivedDigestCount && settings.every(setting =>
+          Object.is(returnedSettings.get(setting.path), setting.value)) &&
+          (metadata.sensorVersion !== 4 || returnedSettings.get('sense.contractSha256') === metadata.sensorContract?.sha256);
         if (descriptor.operationId !== operationId || descriptor.runId !== runId ||
             descriptor.boundaryKind !== 'run-start' ||
             descriptor.generation !== '0000000000000001' ||

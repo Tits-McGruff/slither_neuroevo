@@ -56,9 +56,14 @@ describe('Rust startup metadata', () => {
         for (const count of [0, 10]) {
           const current = contractMetadata(contract);
           current.settings.push({path: 'baselineBots.controlVersion', value: version}, {path: 'baselineBots.count', value: count});
+          if (version === 2) current.settings.push({path: 'baselineBots.mode', value: 1}, {path: 'baselineBots.controlDt', value: 1 / 60});
           const welcome = createRustWelcome(current, 'capture-capability');
           expect(welcome.capabilities?.distillation).toBe(true);
           expect(welcome.capabilities?.teacherCapture).toBe(contract.profile !== 'v3' && version === 2 && count > 0);
+          expect(welcome.settings.updates).toContainEqual({path: 'baselineBots.algorithm', value: version});
+          if (version === 2) expect(welcome.settings.updates).toEqual(expect.arrayContaining([
+            {path: 'baselineBots.behaviorMode', value: 1}, {path: 'baselineBots.controlDt', value: 1 / 60}
+          ]));
         }
       }
     }
