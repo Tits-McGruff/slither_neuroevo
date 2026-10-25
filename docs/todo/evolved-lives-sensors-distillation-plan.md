@@ -433,6 +433,8 @@ Inspector remains opt-in, on-demand and bounded to one selected target/replaceab
 
 Large-graph capacity remains an admission problem. Motion/B32 with 494,306 parameters per brain and a 300-genome population can exceed the current production checkpoint envelope. Candidate envelope changes must be measured before promotion. Do not silently raise limits or reduce graph dimensions until bytes happen to fit.
 
+The [bounded Windows capacity check](../performance/sensor-v4/stage-j-capacity-20261026.md) retains the 512-MiB envelope: 300 small genomes and 55 large genomes pass storage/continuation checks; 300 large genomes require 565.84 MiB decoded and remain outside that envelope. A 768-MiB metadata audit is not qualification or promotion. The large-graph live overlap check covers bounded resource ownership and durability, not a real-time or full-capacity soak claim.
+
 Resource qualification must cover the actual overlapping owners that matter: running/successor populations, checkpoint workspace, HoF/saved objects, archive/import, native scratch, Node spool, trainer replay/checkpoints, shadows and inspector where relevant.
 
 Performance and soak qualification is explicit release/default-selection work. Run representative P0/P1 and necessary large/crowded cases, measure step percentiles, wall debt/throughput, warmed allocation/capacity, queue work, RSS/VRAM and checkpoint peaks. Six-hour or maximum-capacity runs are never ordinary per-push CI.

@@ -1094,7 +1094,7 @@ pub(crate) fn prepare_checkpoint_capacity_run(
     }
     let (mut updates, spec) = super::sensor_qualification::sensor_workload_spec(options, None)?;
     // Capacity/live fixtures use the declared teacher cadence for their neural
-    // controls too. Do not inherit the frozen v3 fixture's 0.06-second interval.
+    // controls too, including explicitly requested nondefault teacher intervals.
     if let Some(baseline) = options.baseline {
         updates
             .iter_mut()
