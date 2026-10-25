@@ -58,6 +58,8 @@ jobs:
       - name: Rust library tests
         if: matrix.node == '24'
         run: cargo test --manifest-path native/Cargo.toml --release --lib --features engine-test-hooks -- --test-threads=1
+      - name: Build browser assets required by HTTP integration tests
+        run: npm run build:client
       - name: Ordinary test suites
         if: matrix.node == '24'
         run: npm test -- --reporter=dot
@@ -66,7 +68,6 @@ jobs:
         run: npm run test:unit -- --reporter=dot
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run build:client
       - uses: actions/setup-python@v6
         if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
         with:
