@@ -245,17 +245,19 @@ jobs:
           if-no-files-found: warn
       - name: Build and verify isolated release panic test addon
         run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
-      - name: Real-clock P0 sensor workload (measured gates are diagnostic)
+      - name: Real-clock P0 mixed-consumer sensor workload (measured gates are diagnostic)
         if: matrix.node-version == '24.x'
         run: >-
           node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
           --scenario P0 --seconds 60 --warmup-seconds 10
+          --external-controllers 2
           --report "${{ runner.temp }}/sensor-wall-P0.json"
-      - name: Real-clock P1 explicit ray candidate (measured gates are diagnostic)
+      - name: Real-clock P1 mixed-consumer ray candidate (measured gates are diagnostic)
         if: matrix.node-version == '24.x'
         run: >-
           node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
           --scenario P1 --seconds 60 --warmup-seconds 10 --ray-cap 512 --ray-batch 131072
+          --external-controllers 2
           --report "${{ runner.temp }}/sensor-wall-P1.json"
       - name: Real-clock Basic B8 P1 profile contract (measured gates are diagnostic)
         if: matrix.node-version == '24.x'

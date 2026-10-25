@@ -352,6 +352,8 @@ Ray work remains bounded and fair over canonical observation owners. `RayWorkLim
 
 Production ray/profile defaults must be selected from representative quality and performance evidence, including active consumer classes, rather than by theoretical limits alone. Qualification candidates may include the existing cap/batch ranges, but this is a manual/release benchmark task, not routine CI.
 
+V4 default promotion requires P0 qualification on both Windows and Oxygen. P1 remains a required representative overload/stress measurement: record throughput, latency/real-time factor and resource behavior, and verify that degradation is controlled rather than pathological. P1 real-time performance is not a hard promotion gate unless measurements establish that P1 represents an ordinary expected production workload rather than an intentionally heavier case.
+
 Structural graph/sensor descriptions shared with PyRL belong in the shared contracts layer where practical. Slither-specific geometry and semantic checks remain in Slither.
 
 ## 10. Stage E - baseline v2 and tactical evaluation

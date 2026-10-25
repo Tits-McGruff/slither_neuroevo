@@ -44,3 +44,6 @@ __pycache__/
 # Editable contracts package metadata
 *.egg-info/
 contracts/build/
+
+# Local benchmark outputs; publish selected results through CI artifacts.
+data/benchmarks/
