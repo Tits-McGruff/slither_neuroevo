@@ -280,7 +280,8 @@ device.
 - **Reset-only settings** include population and baseline-bot counts. Apply
   them with **Apply and reset** within the existing UI limits.
 - **Sensor version** selects frozen v3 or candidate v4. V4 exposes **V4 information**
-  (Basic/Motion) and explicit ray-work limits. **Baseline algorithm** v2 requires
+  (Basic/Motion) and explicit ray-work limits, including **V4 observation capacity**.
+  **Baseline algorithm** v2 requires
   v4 sensors; its **Baseline variation** and **V2 decision interval** apply on reset.
   Inactive controls are disabled and are not submitted. Current fresh defaults
   remain v3/v1 while v4 selection qualification is open. A custom graph must have

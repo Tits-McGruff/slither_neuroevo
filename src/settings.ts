@@ -298,7 +298,9 @@ export function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
     const value = readInputValue(input);
     if (value !== null) updates.push({path: path as SettingsPath, value});
   }
-  if (version === 4) updates.push({path: 'sense.rayMaximumDue', value: CFG.sense.rayMaximumDue});
+  if (version === 4 && !updates.some(update => update.path === 'sense.rayMaximumDue')) {
+    updates.push({path: 'sense.rayMaximumDue', value: CFG.sense.rayMaximumDue});
+  }
   if (CFG.evolvedRespawn.contractVersion === 1) updates.push({path: 'evolvedRespawn.contractVersion', value: 1});
   return updates;
 }
@@ -396,7 +398,8 @@ export function validateSettingDrafts(root: HTMLElement): boolean {
       if (path === 'sense.rayMinimum' && !contractError) {
         const cap = Number(Array.from(inputs).find(candidate => candidate.dataset['path'] === 'sense.rayCap')?.value ?? CFG.sense.rayCap);
         const batch = Number(Array.from(inputs).find(candidate => candidate.dataset['path'] === 'sense.rayBatch')?.value ?? CFG.sense.rayBatch);
-        if (value > cap || value * CFG.sense.rayMaximumDue > batch) contractError = 'Ray minimum must fit the cap and the batch budget for all admitted owners.';
+        const capacity = Number(Array.from(inputs).find(candidate => candidate.dataset['path'] === 'sense.rayMaximumDue')?.value ?? CFG.sense.rayMaximumDue);
+        if (value > cap || value * capacity > batch) contractError = 'Ray minimum must fit the cap and the batch budget for all admitted owners.';
       }
     }
     if (contractError) {

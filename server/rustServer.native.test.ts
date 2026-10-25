@@ -393,10 +393,16 @@ describeNetworkSuite('Rust server real sockets', () => {
       const updates: SettingsUpdate[] = [
         {path: 'sense.layoutVersion', value: 4}, {path: 'sense.profile', value: 0}, {path: 'sense.bubbleBins', value: 8},
         {path: 'sense.rayMinimum', value: 1}, {path: 'sense.rayCap', value: 256}, {path: 'sense.rayBatch', value: 65536},
-        {path: 'sense.rayMaximumDue', value: 512}, {path: 'baselineBots.algorithm', value: 2},
+        {path: 'sense.rayMaximumDue', value: 200}, {path: 'baselineBots.algorithm', value: 2},
         {path: 'baselineBots.behaviorMode', value: 0}, {path: 'baselineBots.controlDt', value: 0.02},
         {path: 'baselineBots.count', value: 2}
       ];
+      viewer.packets.length = 0;
+      viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, settings: {snakeCount: 3, simSpeed: 0.1},
+        updates: updates.map(update => update.path === 'sense.rayMaximumDue' ? {...update, value: 1} : update)}));
+      await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'error'));
+      expect(viewer.packets.findLast(packet => packet['type'] === 'error')!['message']).toContain('must cover every configured snake');
+      expect(viewer.packets.some(packet => packet['type'] === 'stateReplaced')).toBe(false);
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, settings: {snakeCount: 3, simSpeed: 0.1}, updates}));
       const basic = await replacementUntil(viewer, server.port, 'reset');
@@ -424,6 +430,33 @@ describeNetworkSuite('Rust server real sockets', () => {
       await until(viewer, () => viewer!.packets.some(packet => packet['type'] === 'welcome'));
       const resumed = viewer.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
       expect(resumed.settings).toEqual(fresh.settings); expect(resumed.sensorSpec).toEqual(fresh.sensorSpec);
+      const exported = await fixtureArchiveDownload(server.port, 'selected v4 settings');
+      expect(exported.status).toBe(200);
+      const archive = Buffer.from(await exported.arrayBuffer());
+      const importedDbPath = join(root, 'imported-v4.sqlite');
+      let importedServer: Awaited<ReturnType<typeof startRustServer>> | undefined;
+      let importedViewer: Peer | undefined;
+      try {
+        importedServer = await startRustServer({...DEFAULT_CONFIG, port: 0, seed: 99, resume: 'fresh',
+          rustCalculationWorkers: 1, dbPath: importedDbPath});
+        const imported = await manualFixtureHttp(`http://127.0.0.1:${importedServer.port}/api/import/archive`, archive);
+        expect(imported.status, imported.bytes.toString()).toBe(200);
+        expect(JSON.parse(imported.bytes.toString())).toMatchObject({ok: true, runId: fresh.runId});
+        await importedServer.close(); importedServer = undefined;
+        importedServer = await startRustServer({...DEFAULT_CONFIG, port: 0, resume: 'latest',
+          rustCalculationWorkers: 1, dbPath: importedDbPath});
+        expect(importedServer.startupFault).toBeUndefined();
+        importedViewer = await connect(importedServer.port, 'ui');
+        await until(importedViewer, () => importedViewer!.packets.some(packet => packet['type'] === 'welcome'));
+        const restored = importedViewer.packets.find(packet => packet['type'] === 'welcome') as unknown as WelcomeMsg;
+        expect(restored.runId).toBe(fresh.runId);
+        expect(restored.settings).toEqual(fresh.settings);
+        expect(restored.sensorSpec).toEqual(fresh.sensorSpec);
+        expect(restored.graphSpec).toEqual(fresh.graphSpec);
+        expect(restored.capabilities?.teacherCapture).toBe(true);
+        await healthUntil(importedServer.port, health => health['lifecycle'] === 'running' &&
+          typeof health['completedStep'] === 'string' && BigInt(`0x${health['completedStep']}`) > 0n);
+      } finally { importedViewer?.socket.terminate(); await importedServer?.close(); }
       viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken}));
       viewer.packets.length = 0;
       viewer.socket.send(JSON.stringify({type: 'reset', graphSpec: null, updates: [{path: 'sense.layoutVersion', value: 3}]}));

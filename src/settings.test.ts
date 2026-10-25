@@ -209,8 +209,16 @@ describe('settings.ts', () => {
       };
       reject('sense.rayMinimum', '1.5'); reject('sense.rayMinimum', '257');
       reject('sense.rayMinimum', '129'); reject('sense.rayCap', '0');
+      reject('sense.rayMaximumDue', '513'); reject('sense.rayMaximumDue', '1.5');
       reject('baselineBots.controlDt', '0'); reject('baselineBots.behaviorMode', '2');
       expect(validateSettingDrafts(root)).toBe(true);
+      input('sense.rayMaximumDue').value = '200'; input('sense.rayMinimum').value = '129';
+      expect(validateSettingDrafts(root)).toBe(true);
+      updateCFGFromUI(root);
+      expect(CFG.sense.rayMaximumDue).toBe(200);
+      expect(collectSettingsUpdates(root).filter(update => update.path === 'sense.rayMaximumDue')).toEqual([
+        {path: 'sense.rayMaximumDue', value: 200}
+      ]);
     } finally { Object.assign(CFG, original); }
   });
 
