@@ -81,6 +81,62 @@ impl RayWorkLimits {
     pub const fn maximum_due(self) -> usize {
         self.maximum_due
     }
+
+    /// Keep numeric observation budgets in the run configuration, independently
+    /// of the structural sensor digest. Only fresh construction stamps them.
+    pub fn record_settings(self, settings: &mut Vec<super::state::NormalizedSetting>) {
+        use super::state::{NormalizedSetting, NormalizedSettingValue};
+        for (path, value) in [
+            ("sense.rayMinimum", i64::from(self.minimum)),
+            ("sense.rayCap", i64::from(self.cap)),
+            ("sense.rayBatch", i64::from(self.batch)),
+            ("sense.rayMaximumDue", self.maximum_due as i64),
+        ] {
+            if let Some(setting) = settings.iter_mut().find(|setting| setting.path == path) {
+                setting.value = NormalizedSettingValue::Integer(value);
+            } else {
+                settings.push(NormalizedSetting {
+                    path: path.into(),
+                    value: NormalizedSettingValue::Integer(value),
+                });
+            }
+        }
+        settings.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    }
+
+    /// Old candidates have no recorded budgets and still require explicit
+    /// admission. A partial, duplicated or invalid record must never fall back.
+    pub fn from_settings(
+        settings: &[super::state::NormalizedSetting],
+    ) -> Result<Option<Self>, RayWorkError> {
+        use super::state::NormalizedSettingValue;
+        if settings.windows(2).any(|pair| pair[0].path >= pair[1].path) {
+            return Err(RayWorkError::Settings);
+        }
+        let values = [
+            "sense.rayMinimum",
+            "sense.rayCap",
+            "sense.rayBatch",
+            "sense.rayMaximumDue",
+        ]
+        .map(|path| {
+            settings
+                .binary_search_by(|setting| setting.path.as_str().cmp(path))
+                .ok()
+                .map(|index| &settings[index].value)
+        });
+        if values.iter().all(Option::is_none) {
+            return Ok(None);
+        }
+        let mut integers = [0_u32; 4];
+        for (target, value) in integers.iter_mut().zip(values) {
+            let Some(NormalizedSettingValue::Integer(value)) = value else {
+                return Err(RayWorkError::Settings);
+            };
+            *target = u32::try_from(*value).map_err(|_| RayWorkError::Settings)?;
+        }
+        Self::new(integers[0], integers[1], integers[2], integers[3] as usize).map(Some)
+    }
 }
 
 /// Continuation committed with a complete observation transaction. Revision
@@ -296,6 +352,7 @@ impl RayWorkMeter {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RayWorkError {
     Limits,
+    Settings,
     Shape,
     Owner,
     Overflow,
@@ -313,6 +370,58 @@ mod tests {
     use super::*;
     fn batch(step: u64) -> CalculationBatchKey {
         CalculationBatchKey::new(1, step, 1)
+    }
+
+    #[test]
+    fn recorded_budgets_reject_partial_wrongly_typed_and_unadmittable_settings() {
+        use super::super::state::{NormalizedSetting, NormalizedSettingValue as Value};
+        let limits = RayWorkLimits::new(1, 256, 65_536, 512).unwrap();
+        let mut settings = Vec::new();
+        assert_eq!(RayWorkLimits::from_settings(&settings), Ok(None));
+        limits.record_settings(&mut settings);
+        assert_eq!(RayWorkLimits::from_settings(&settings), Ok(Some(limits)));
+        for index in 0..settings.len() {
+            let mut partial = settings.clone();
+            partial.remove(index);
+            assert_eq!(
+                RayWorkLimits::from_settings(&partial),
+                Err(RayWorkError::Settings)
+            );
+            for invalid in [
+                Value::Float(1.0),
+                Value::Integer(-1),
+                Value::Integer(i64::MAX),
+            ] {
+                let mut malformed = settings.clone();
+                malformed[index].value = invalid;
+                assert!(RayWorkLimits::from_settings(&malformed).is_err());
+            }
+        }
+        for (path, value) in [
+            ("sense.rayMinimum", 257),
+            ("sense.rayMaximumDue", 513),
+            ("sense.rayBatch", 511),
+        ] {
+            let mut malformed = settings.clone();
+            malformed
+                .iter_mut()
+                .find(|setting| setting.path == path)
+                .unwrap()
+                .value = Value::Integer(value);
+            assert_eq!(
+                RayWorkLimits::from_settings(&malformed),
+                Err(RayWorkError::Limits)
+            );
+        }
+        settings.push(NormalizedSetting {
+            path: "sense.rayMinimum".into(),
+            value: Value::Integer(1),
+        });
+        settings.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(
+            RayWorkLimits::from_settings(&settings),
+            Err(RayWorkError::Settings)
+        );
     }
 
     #[test]

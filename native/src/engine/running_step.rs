@@ -579,9 +579,31 @@ impl RunningStepCoordinator {
     /// graph, sensor layout, or gameplay configuration.
     pub fn try_new(
         authority: &AuthoritativeState,
-        limits: RunningStepWorkLimits,
+        mut limits: RunningStepWorkLimits,
     ) -> Result<Self, RunningStepError> {
+        let recorded_ray_work =
+            super::ray_work::RayWorkLimits::from_settings(&authority.state().config.settings)
+                .map_err(|_| StepConfigError::UnsupportedSetting {
+                    path: "sense.rayMinimum/rayCap/rayBatch/rayMaximumDue",
+                })?;
+        if let Some(recorded) = recorded_ray_work {
+            if limits.ray_work.is_some_and(|explicit| explicit != recorded) {
+                return Err(StepConfigError::UnsupportedSetting {
+                    path: "recorded ray limits differ from explicit admission",
+                }
+                .into());
+            }
+            limits.ray_work = Some(recorded);
+        }
         let projection = authority.running_step_config(limits)?;
+        if projection.sensor_profile == super::sensor_contract::SensorProfile::V3
+            && recorded_ray_work.is_some()
+        {
+            return Err(StepConfigError::UnsupportedSetting {
+                path: "v3 cannot carry v4 ray limits",
+            }
+            .into());
+        }
         let sensor = if projection.sensor_profile == super::sensor_contract::SensorProfile::V3 {
             SensorEvaluator::new(projection.sensor.clone())?
         } else {

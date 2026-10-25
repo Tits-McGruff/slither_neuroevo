@@ -4014,11 +4014,12 @@ fn validate_policy(policy: &StateAdmissionPolicy) -> Result<(), StateError> {
         "admission.expected_settings_schema_sha256",
         &policy.expected_settings_schema_sha256,
     )?;
-    // Six supported families: one primary hash plus five explicit alternatives.
-    if policy.allowed_settings_schema_sha256.len() > 5 {
+    // Frozen/life and v4/v2 families, including explicitly recorded ray budgets.
+    // One primary hash plus nine alternatives keeps admission finite.
+    if policy.allowed_settings_schema_sha256.len() > 9 {
         return invalid(
             "admission.allowed_settings_schema_sha256",
-            "at most five explicitly admitted alternative schemas",
+            "at most nine explicitly admitted alternative schemas",
         );
     }
     for schema in &policy.allowed_settings_schema_sha256 {

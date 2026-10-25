@@ -678,6 +678,9 @@ fn prepare_fresh_boundary_shell(
         contract
             .record_v4_settings(&mut settings)
             .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        if let Some(ray_work) = work_limits.ray_work {
+            ray_work.record_settings(&mut settings);
+        }
     }
     if let Some(spec) = baseline_v2 {
         spec.record_settings(&mut settings)
@@ -1167,12 +1170,26 @@ fn production_restore_policy(
         policy
             .allowed_settings_schema_sha256
             .push(normalized_settings_schema_hash(&settings)?);
+        let mut recorded_rays = settings.clone();
+        // Only field types enter this hash; these values select no defaults.
+        super::ray_work::RayWorkLimits::new(1, 1, 512, 512)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?
+            .record_settings(&mut recorded_rays);
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&recorded_rays)?);
         super::baseline_v2::BaselineV2Settings {
             mode: super::baseline_v2::BaselineV2Mode::Stochastic,
             control_interval_seconds: 0.06,
         }
         .record_settings(&mut settings)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&settings)?);
+        super::ray_work::RayWorkLimits::new(1, 1, 512, 512)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?
+            .record_settings(&mut settings);
         policy
             .allowed_settings_schema_sha256
             .push(normalized_settings_schema_hash(&settings)?);
@@ -2682,7 +2699,7 @@ mod tests {
                 .unwrap();
                 assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
                 let mut oversized = production_restore_policy(TEST_MEMORY_CEILING, true).unwrap();
-                assert_eq!(oversized.allowed_settings_schema_sha256.len(), 5);
+                assert_eq!(oversized.allowed_settings_schema_sha256.len(), 9);
                 oversized
                     .allowed_settings_schema_sha256
                     .push(oversized.expected_settings_schema_sha256.clone());
@@ -3401,7 +3418,7 @@ mod tests {
     }
 
     #[test]
-    fn v4_durable_metadata_restores_and_runs_real_fixed_steps_with_explicit_qualification_limits() {
+    fn v4_durable_metadata_restores_recorded_ray_limits_and_runs_equivalent_fixed_steps() {
         use super::super::ray_work::RayWorkLimits;
         use super::super::sensor_contract::{SensorContractIdentity, SensorProfile};
         use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
@@ -3491,11 +3508,32 @@ mod tests {
                     policy,
                     production_checkpoint_limits(),
                     stage6a_p0_graph_limits(),
-                    limits,
+                    RunningStepWorkLimits {
+                        ray_work: None,
+                        ..limits
+                    },
                 )
                 .unwrap();
                 assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
                 restored.configure_calculation_workers(1).unwrap();
+                let mut conflicting = PendingRunStartTransition::restore_committed(
+                    managed.path(),
+                    &descriptor,
+                    production_restore_policy(TEST_MEMORY_CEILING, true).unwrap(),
+                    production_checkpoint_limits(),
+                    stage6a_p0_graph_limits(),
+                    RunningStepWorkLimits {
+                        ray_work: Some(RayWorkLimits::new(1, 128, 65536, 512).unwrap()),
+                        ..limits
+                    },
+                )
+                .unwrap();
+                conflicting.publish_running_authority().unwrap();
+                let error = conflicting
+                    .publish_first_scheduled_frame_v1(&mut Vec::new())
+                    .unwrap_err();
+                assert!(error.to_string().contains("recorded ray limits differ"));
+                assert_eq!(conflicting.completed_step(), 0);
                 let mut expected_frame = None;
                 for transition in [&mut pending, &mut restored] {
                     transition.acknowledge_persistence(&descriptor).unwrap();
