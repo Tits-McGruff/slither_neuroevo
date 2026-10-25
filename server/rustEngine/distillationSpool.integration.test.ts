@@ -111,7 +111,10 @@ describe('durable distillation spool', () => {
       .toMatchObject({retainedChunks: 2, retainedBytes: word(64), spoolDroppedChunks: word(1)});
     expect(restored.dataset(pins.captureEpoch).retainedChunks).toBe(0);
     expect(restored.list(nextEpoch).chunks.map(chunk => chunk.sequence)).toEqual([word(2), word(3)]);
-  });
+    // This case intentionally crosses the 128-object batch boundary: 130 real
+    // durable file publications, retry and shrink exceed a unit-test disk budget
+    // on shared Windows storage. Product request/retry deadlines stay unchanged.
+  }, 20_000);
 
   it('reports worker-admitted global disk policy without allocating the selected ceiling', async () => {
     const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
