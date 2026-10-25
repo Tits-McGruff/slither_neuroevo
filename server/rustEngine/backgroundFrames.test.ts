@@ -44,6 +44,38 @@ describe('background frame send ownership', () => {
     latest.release();
   });
 
+  it('honors a larger committed frame bound without changing either in-flight send', () => {
+    let sequence = 1; let required = 16;
+    const pool = new BackgroundFramePool({
+      copyLatestFrame(destination): RustBackgroundFrameCopy {
+        const current = {...display(sequence), frameByteLength: required};
+        if (destination.byteLength < required) return {status: 'tooSmall', display: current};
+        destination.fill(sequence, 0, required);
+        return {status: 'copied', display: current};
+      }
+    }, 32);
+    const first = pool.tryAcquireLatest('0000000000000000')!;
+    sequence = 2; required = 64;
+    expect(pool.tryAcquireLatest(first.display.sequence)).toBeNull();
+    const second = pool.tryAcquireLatest(first.display.sequence, 64);
+    expect(second).not.toBeNull();
+    expect([...first.bytes]).toEqual(Array(16).fill(1));
+    expect([...second!.bytes]).toEqual(Array(64).fill(2));
+    expect(pool.tryAcquireLatest(second!.display.sequence, 128)).toBeNull();
+    first.release(); sequence = 3;
+    const third = pool.tryAcquireLatest(second!.display.sequence, 64)!;
+    expect([...third.bytes]).toEqual(Array(64).fill(3));
+    first.release();
+    expect(pool.tryAcquireLatest(third.display.sequence, 64)).toBeNull();
+    expect([...second!.bytes]).toEqual(Array(64).fill(2));
+    const retained = third.bytes;
+    third.release(); sequence = 4;
+    const reused = pool.tryAcquireLatest(third.display.sequence, 64)!;
+    expect(reused.bytes.buffer).toBe(retained.buffer);
+    expect(reused.bytes.byteOffset).toBe(retained.byteOffset);
+    second!.release(); reused.release();
+  });
+
   it('does not consume a slot on native backpressure or a too-small admitted buffer', () => {
     let result: RustBackgroundFrameCopy = { status: 'busy' };
     const pool = new BackgroundFramePool({ copyLatestFrame: () => result }, 32);

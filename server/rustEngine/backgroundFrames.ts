@@ -15,7 +15,7 @@ export interface BackgroundFrameLease {
 
 /** A reusable destination whose ownership is held by at most one lease. */
 interface FrameSlot {
-  /** Fixed admitted allocation, never grown on the display path. */
+  /** Reused allocation; only a larger admitted replacement can grow a free slot. */
   bytes: Buffer;
   /** True until the current lease's send callbacks finish. */
   leased: boolean;
@@ -37,10 +37,19 @@ export class BackgroundFramePool {
     this.slots = Array.from({ length: 2 }, () => ({ bytes: Buffer.allocUnsafe(maximumFrameBytes), leased: false }));
   }
 
-  /** Call after draining reliable output and checking socket backpressure. */
-  tryAcquireLatest(afterSequence: U64Hex): BackgroundFrameLease | null {
+  /** Call after reliable output/backpressure checks. A cold Reset/import may
+   * increase Rust's admitted maximum. Grow each free slot once; never touch a
+   * leased buffer or allocate a per-frame population copy.
+   */
+  tryAcquireLatest(afterSequence: U64Hex, maximumFrameBytes?: number): BackgroundFrameLease | null {
+    if (maximumFrameBytes !== undefined && (!Number.isSafeInteger(maximumFrameBytes) || maximumFrameBytes <= 0)) {
+      throw new RangeError('maximumFrameBytes must be a positive safe integer');
+    }
     const slot = this.slots.find(candidate => !candidate.leased);
     if (!slot) return null;
+    if (maximumFrameBytes !== undefined && maximumFrameBytes > slot.bytes.byteLength) {
+      slot.bytes = Buffer.allocUnsafe(maximumFrameBytes);
+    }
     const copied = this.runtime.copyLatestFrame(slot.bytes, afterSequence);
     if (copied.status !== 'copied') return null;
     const length = copied.display.frameByteLength;

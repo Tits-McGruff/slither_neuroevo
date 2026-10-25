@@ -250,7 +250,8 @@ export class BackgroundOutputPump {
           }
         }
         if (this.options.hasFrameRecipients()) {
-          const lease = this.frames.tryAcquireLatest(this.frameSequence);
+          const metadata = this.options.metadata?.() ?? this.options.owner.metadata;
+          const lease = this.frames.tryAcquireLatest(this.frameSequence, metadata.maximumFrameBytes);
           if (lease) {
             try { this.options.frame(lease); this.frameSequence = lease.display.sequence; }
             catch (error) { lease.release(); throw error; }
