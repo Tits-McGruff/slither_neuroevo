@@ -22,6 +22,9 @@ import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointP
 import { parseManagedCheckpointDescriptor } from '../../server/rustEngine/checkpointPersistenceProtocol.ts';
 import { BackgroundCommandAdmission } from '../../server/rustEngine/commandAdmission.ts';
 import { BackgroundGenerationRouter } from '../../server/rustEngine/backgroundGeneration.ts';
+import { ControllerDeliveryRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from '../../server/rustEngine/controllerDelivery.ts';
+import { ExternalControllerRouting } from '../../server/rustEngine/externalRouting.ts';
+import type { ActionMsg, ServerMessage } from '../../server/protocol.ts';
 import { DistillationSpoolClient } from '../../server/rustEngine/distillationSpoolClient.ts';
 import { DistillationCapture } from '../../server/rustEngine/distillationCapture.ts';
 import { admitDiskOperation, CHECKPOINT_DISK_ADMISSION_REQUEST } from '../../server/rustEngine/diskAdmission.ts';
@@ -37,7 +40,7 @@ interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
     /** Explicit existing body-detail bound; paired with pelletChecks. */
     segmentChecks?: number}): Promise<unknown>;
 }
-/** Production-sized bounded queues without any external controller. */
+/** Production-sized bounded queues, including the optional two external controllers. */
 const INIT: ExperimentalEngineInit = {contractVersion: 1, maxInboundBatches: 16, maxInboundCommands: 16,
   maxInboundOwnedBytes: 2 * 1024 ** 2, maxBatchCommands: 1, maxBatchOwnedBytes: 1024 ** 2,
   maxOutputReliable: 32, maxOutputReliableOwnedBytes: 16 * 1024 ** 2, maxOutputDiscrete: 4,
@@ -95,7 +98,7 @@ async function run(): Promise<void> {
   const args = new Map<string, string>();
   for (let index = 2; index < process.argv.length; index += 2) {
     const key = process.argv[index]!; const value = process.argv[index + 1];
-    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch', '--profile', '--bins', '--pellet-checks', '--segment-checks'].includes(key) &&
+    assert(['--scenario', '--workers', '--seconds', '--warmup-seconds', '--report', '--ray-cap', '--ray-batch', '--profile', '--bins', '--pellet-checks', '--segment-checks', '--external-controllers'].includes(key) &&
       value !== undefined && !args.has(key), 'invalid or duplicate qualification argument');
     args.set(key, value);
   }
@@ -104,6 +107,8 @@ async function run(): Promise<void> {
   assert(profile === 'basic' || profile === 'motion', 'profile must be basic|motion');
   const bins = Number(args.get('--bins') ?? 16);
   assert(Number.isSafeInteger(bins) && bins >= 8 && bins <= 32, 'bins must be 8..32');
+  const externalCount = Number(args.get('--external-controllers') ?? 0);
+  assert(Number.isSafeInteger(externalCount) && externalCount >= 0 && externalCount <= 2, 'external controllers must be 0..2 (player, then trainer)');
   const outputArgument = args.get('--report'); assert(outputArgument, '--report required');
   const output = resolve(outputArgument); assert(!existsSync(output), 'qualification report already exists');
   const workers = validateRustCalculationWorkers(Number(args.get('--workers') ?? Math.min(DEFAULT_CONFIG.rustCalculationWorkers, availableParallelism())));
@@ -167,17 +172,52 @@ async function run(): Promise<void> {
     const native = runtime; const admission = new BackgroundCommandAdmission(native);
     spool = new DistillationSpoolClient(join(root, 'diagnostics')); const storage = spool;
     capture = new DistillationCapture(() => native, admission, storage, () => ({runId, seed: 42})); const diagnostics = capture;
-    const generation = new BackgroundGenerationRouter({native, admission, persistence, managedDirectory: managed, maxAssignments: 1,
-      send: () => {throw new Error('qualification must not assign controllers');},
+    const controllers = new Map(Array.from({length: externalCount}, (_, index) => [index + 1,
+      {kind: index === 0 ? 'ui' as const : 'bot' as const, observations: 0, assignments: 0,
+        pending: undefined as ActionMsg | undefined}]));
+    /** Accept native messages locally; fixed controls exercise transport, not policy quality. */
+    const send = (connection: number, message: ServerMessage): boolean => {
+      const controller = controllers.get(connection);
+      assert(controller, 'unexpected external connection');
+      assert(message.type !== 'error', message.type === 'error' ? message.message : 'external error');
+      if (message.type === 'assign') controller.assignments++;
+      if (message.type === 'sensors') {
+        assert.equal(message.sensors.length, layout.inputSize);
+        controller.observations++;
+        controller.pending = {type: 'action', snakeId: message.snakeId, tick: message.tick,
+          turn: controller.kind === 'ui' ? 1 : -1, boost: 0};
+      }
+      return true;
+    };
+    const external = new ExternalControllerRouting({native, admission, maxControllers: Math.max(1, externalCount),
+      maxActionsPerSecond: 240, maxActionsPerTick: 1, send});
+    const ports = {sensorCount: () => layout.inputSize,
+      send: (connection: string, message: ServerMessage) => send(Number(BigInt('0x' + connection)), message),
+      nextSequence: () => admission.nextSequence()};
+    const ordinary = new ControllerDeliveryRouter(Math.max(1, externalCount), {...ports,
+      trySubmitReceipt: (sequence, receipt) => admission.trySubmitReceipt(sequence, receipt)});
+    const reclaim = new ReclaimDeliveryRouter({...ports,
+      trySubmitReceipt: (sequence, receipt) => admission.trySubmitReclaimReceipt(sequence, receipt)});
+    const joinDelivery = new JoinDeliveryRouter({...ports,
+      trySubmitReceipt: (sequence, receipt) => admission.trySubmitJoinReceipt(sequence, receipt)});
+    const generation = new BackgroundGenerationRouter({native, admission, persistence, managedDirectory: managed, maxAssignments: Math.max(1, externalCount),
+      send: ports.send,
       admitCheckpoint: async () => {await admitDiskOperation(managed, CHECKPOINT_DISK_ADMISSION_REQUEST);}});
     timer = setInterval(() => {
       if (activePump || pumpError) return;
       activePump = (async () => {
+        ordinary.flushReceipts(); reclaim.flushReceipts(); joinDelivery.flushReceipts(); external.flush();
         generation.flush();
         for (const event of native.drainOutputs(32, INIT.maxOutputEventOwnedBytes).events) {
           if (event.kind === 'fault') throw new Error(event.faultDetail ?? 'native fault');
-          if (event.kind.startsWith('controller') || event.kind === 'externalObservations') throw new Error('unexpected controller traffic');
-          diagnostics.event(event); await generation.handle(event);
+          external.event(event); diagnostics.event(event);
+          if (await generation.handle(event)) continue;
+          if (event.controllerMessages) assert(ordinary.deliver(event.controllerMessages), 'overlapping observation delivery');
+          if (event.controllerReclaimAssignment) assert(reclaim.deliver(event.controllerReclaimAssignment), 'overlapping reclaim');
+          if (event.controllerJoinAssignment) assert(joinDelivery.deliver(event.controllerJoinAssignment), 'overlapping join');
+        }
+        for (const [connection, controller] of controllers) {
+          if (controller.pending) {external.action(connection, controller.pending); controller.pending = undefined;}
         }
       })().catch(error => {pumpError = error;}).finally(() => {activePump = undefined;});
     }, 5);
@@ -204,6 +244,15 @@ async function run(): Promise<void> {
     console.info('[sensor-wall] warmup', scenario, 'workers=' + workers);
     const warmupEnd = performance.now() + warmupSeconds * 1000;
     while (performance.now() < warmupEnd) {consume(); await delay(20);}
+    for (const [connection, controller] of controllers) {
+      external.join(connection, {type: 'join', mode: 'player', name: 'sensor-window-' + controller.kind}, controller.kind);
+    }
+    const joinDeadline = performance.now() + 5000;
+    while ([...controllers.values()].some(controller => !controller.assignments || !controller.observations)) {
+      assert(performance.now() < joinDeadline, 'external controller assignment/observation deadline');
+      consume(); await delay(10);
+    }
+    const externalBefore = [...controllers.values()].map(controller => controller.observations);
     const initialDataset = await storage.dataset(dataset.contract.captureEpoch);
     const initial = await observe(native); const reads = [initial]; const initialCosts = costs(native);
     const observationBefore = readObservationQuality(native as typeof native & ObservationQualityNative);
@@ -222,6 +271,17 @@ async function run(): Promise<void> {
     const cpu = process.cpuUsage(cpuBefore); const systemCpuAfter = cpus().map(entry => entry.times); const summary = summarizeSensorWall(reads, seconds);
     const finalCosts = costs(native);
     const observationAfter = readObservationQuality(native as typeof native & ObservationQualityNative);
+    const observationSummary = summarizeObservationQuality(observationBefore, observationAfter);
+    const externalDelivery = [...controllers.values()].map((controller, index) => ({
+      kind: controller.kind === 'ui' ? 'player' : 'trainer',
+      observations: controller.observations - externalBefore[index]!, assignments: controller.assignments
+    }));
+    for (const controller of externalDelivery) assert(controller.observations > 0, 'requested controller had no measured observations');
+    if (externalCount > 0) {
+      for (const consumer of observationSummary.consumers) {
+        assert(BigInt(consumer.counts['v4Observations']!) > 0n, 'mixed window omitted ' + consumer.consumerClass);
+      }
+    }
     assert.equal(finalCosts.worldEpoch, initialCosts.worldEpoch); assert.equal(finalCosts.generation, initialCosts.generation);
     const queueDiagnostics = native.queueDiagnostics(); const display = native.latestDisplay();
     let finalDataset = await capture.stop(dataset.contract.captureEpoch);
@@ -257,14 +317,16 @@ async function run(): Promise<void> {
     assert.equal(observationAfter.snapshot.runId, runId);
     assert.equal(nativeSourceSha256, computeNativeSourceIdentity(resolve('native')).sha256, 'native sources changed during measurement');
     report = {schemaVersion: 1, recordedAt: new Date().toISOString(), scenario, workers, requestedSeconds: seconds, warmupSeconds,
-      scope: 'Real Rust background clock, durable run-start SQLite checkpoint, ten v2 stochastic teachers, diagnostic spool and latest-frame copying. Seeded random modest population with unlimited evolved respawn and normal teacher death gaps. Excludes browser/WebSocket delivery, trainer, shadows, full storage capacity, long soak and production-default selection.',
+      scope: 'Real Rust background clock, durable run-start SQLite checkpoint, ten v2 stochastic teachers, diagnostic spool and latest-frame copying. Optional external controllers use ordinary Rust leases and accepted local transport, without WebSockets. Seeded random modest population with unlimited evolved respawn and normal death gaps. Excludes policy-quality conclusions, browser/network delivery, optimizer training, shadows, full storage capacity, long soak and production-default selection.',
       source: {revision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
         workingTree: execFileSync('git', ['status', '--porcelain'], {encoding: 'utf8'}).trim(), hostSha256, summarySha256, observationHelperSha256, observationContractSha256,
         nativeSourceSha256, nativeBuildIdentifier: binding.nativeAddonBuildIdentifier(), nativeTarget: binding.nativeAddonBuildTarget(), nativeClass: binding.nativeAddonBuildClass()},
       environment: {platform: platform(), release: release(), cpu: cpus()[0]?.model, availableCpus: availableParallelism(), totalMemoryBytes: totalmem()},
       workload: {request, metadata, captureLimits, storagePolicy, queues: INIT, runStartCheckpoint: checkpoint},
+      externalControllers: {requested: externalCount, controls: 'player turn +1, trainer turn -1, boost off; actions follow delivered observations',
+        measuredDeliveries: externalDelivery},
       observationQuality: {before: observationBefore, after: observationAfter,
-        summary: summarizeObservationQuality(observationBefore, observationAfter)},
+        summary: observationSummary},
       summary, nativePhaseCosts: {initial: initialCosts, final: finalCosts,
         caveat: 'Coarse atomic timing counters sampled beside the window; nested control/neural/sensing/inference totals overlap. Slow-step attribution covers only steps above 16.667 ms.'}, diagnosticDelivery: {nativeDroppedChunks: finalDataset.nativeDroppedChunks,
         nativeDroppedSamples: finalDataset.nativeDroppedSamples, spoolDroppedChunks: finalDataset.spoolDroppedChunks,
