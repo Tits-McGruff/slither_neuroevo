@@ -3,7 +3,7 @@ use super::brain_artifact::BRAIN_ARTIFACT_HEADER_BYTES;
 use super::graph::GraphBundle;
 use super::running_loop::RunningAuthorityLoop;
 use super::sensor_layout::SensorLayout;
-use super::state::AuthoritativeState;
+use super::state::{AuthoritativeState, NormalizedSettingValue};
 use super::training_graph::{
     CanonicalTrainingGraphManifestV1, TrainingDeployment, TrainingLifeStateRule,
 };
@@ -123,11 +123,22 @@ pub(crate) fn write_library_fixtures(
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let graph = GraphBundle::compile(authority.graph_spec().clone(), graph_limits)?;
     let sensors = SensorLayout::for_profile(options.profile, options.bins)?;
+    let control_interval_seconds = match authority
+        .state()
+        .config
+        .settings
+        .iter()
+        .find(|setting| setting.path == "brain.controlDt")
+        .map(|setting| &setting.value)
+    {
+        Some(NormalizedSettingValue::Float(value)) => *value,
+        _ => return Err("capacity source has no admitted neural cadence".into()),
+    };
     let manifest = CanonicalTrainingGraphManifestV1::build(
         &graph,
         &sensors,
         TrainingDeployment {
-            control_interval_seconds: 0.06,
+            control_interval_seconds,
             life_state_rule: TrainingLifeStateRule::Reset,
             initialization: super::genome::GenomeInitializationConfig::default(),
         },

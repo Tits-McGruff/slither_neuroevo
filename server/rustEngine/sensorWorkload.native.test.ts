@@ -180,6 +180,9 @@ it('restores a fitting large Motion/B32 SSE2 checkpoint through qualified and or
     const metadata = parseRustStartupMetadata(session.startupMetadata());
     expect(metadata).toMatchObject({parameterCount: 494306, sensorVersion: 4, mathBackend: 'rust-sse2-v1'});
     expect(metadata.graphSpec.nodes.find(node => node.type === 'Input')?.outputSize).toBe(504);
+    expect(metadata.settings).toEqual(expect.arrayContaining([
+      {path: 'brain.controlDt', value: 1 / 60}, {path: 'baselineBots.controlDt', value: 1 / 60}
+    ]));
     const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({
       managedDirectory: root, operationId: randomBytes(16).toString('hex'),
     }));

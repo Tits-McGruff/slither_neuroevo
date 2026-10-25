@@ -604,6 +604,38 @@ mod tests {
     }
 
     #[test]
+    fn live_capacity_neural_and_teacher_cadences_match_the_declared_interval() {
+        let mut options = capacity_workload_options(55, false);
+        for cadence in [1.0 / 60.0, 0.02] {
+            options.baseline.as_mut().unwrap().control_interval_seconds = cadence;
+            let prepared = prepare_live_capacity_run(
+                super::super::fresh_run::Stage6aP0FreshRunRequest {
+                    run_id: "capacity-cadence".into(),
+                    seed: 42,
+                    memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+                },
+                &options,
+                CheckpointCapacityPolicy::new(512, false).unwrap(),
+            )
+            .unwrap();
+            let metadata: serde_json::Value =
+                serde_json::from_str(&prepared.pending.unwrap().startup_metadata_json().unwrap())
+                    .unwrap();
+            for path in ["brain.controlDt", "baselineBots.controlDt"] {
+                let value = metadata["settings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|setting| setting["path"] == path)
+                    .unwrap()["value"]
+                    .as_f64()
+                    .unwrap();
+                assert_eq!(value, cadence);
+            }
+        }
+    }
+
+    #[test]
     fn p3_resource_audit_uses_metadata_only_and_preserves_production_limits() {
         let options = super::super::sensor_qualification::SensorQualificationOptions {
             query_limits: None,

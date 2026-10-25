@@ -1092,7 +1092,16 @@ pub(crate) fn prepare_checkpoint_capacity_run(
             "capacity qualification requires fresh v4 and explicit rays".into(),
         ));
     }
-    let (updates, spec) = super::sensor_qualification::sensor_workload_spec(options, None)?;
+    let (mut updates, spec) = super::sensor_qualification::sensor_workload_spec(options, None)?;
+    // Capacity/live fixtures use the declared teacher cadence for their neural
+    // controls too. Do not inherit the frozen v3 fixture's 0.06-second interval.
+    if let Some(baseline) = options.baseline {
+        updates
+            .iter_mut()
+            .find(|entry| entry.path == "brain.controlDt")
+            .ok_or_else(|| FreshRunError::Settings("capacity neural cadence is missing".into()))?
+            .value = baseline.control_interval_seconds;
+    }
     let contract =
         super::sensor_contract::SensorContractIdentity::new(options.profile, options.bins)
             .map_err(|error| FreshRunError::Settings(error.to_string()))?;
