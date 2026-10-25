@@ -159,7 +159,14 @@ pub fn prepare_configured_fresh_run_with_settings_and_graph(
         || settings
             .iter()
             .any(|setting| setting.path == "evolvedRespawn.contractVersion");
-    let prepared = prepare_fresh_boundary(request, settings, graph, modern)?;
+    let prepared = if settings
+        .iter()
+        .any(|setting| setting.path == "sense.layoutVersion" && setting.value == 4.0)
+    {
+        prepare_configured_v4_boundary(request, settings, graph, modern)?
+    } else {
+        prepare_fresh_boundary(request, settings, graph, modern)?
+    };
     PendingRunStartTransition::admit(
         prepared.candidate,
         prepared.graph,
@@ -169,6 +176,134 @@ pub fn prepare_configured_fresh_run_with_settings_and_graph(
         prepared.work_limits,
     )
     .map_err(FreshRunError::from)
+}
+
+/// Explicit v4 Reset/New Run selection. No qualification-only constructor or
+/// production default is involved; every structural choice and ray limit is
+/// supplied by the caller and admitted before constructing a population.
+fn prepare_configured_v4_boundary(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    modern: bool,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    if settings.len() > 128 {
+        return Err(FreshRunError::Settings(
+            "fresh-run settings exceed 128 entries".into(),
+        ));
+    }
+    let required = |path: &str| -> Result<f64, FreshRunError> {
+        let mut matches = settings.iter().filter(|setting| setting.path == path);
+        let value = matches
+            .next()
+            .ok_or_else(|| FreshRunError::Settings(format!("v4 settings require {path}")))?
+            .value;
+        if matches.next().is_some() || !value.is_finite() {
+            return Err(FreshRunError::Settings(format!(
+                "duplicate or nonfinite v4 setting {path}"
+            )));
+        }
+        Ok(value)
+    };
+    let integer = |path: &str| -> Result<u32, FreshRunError> {
+        let value = required(path)?;
+        if value.fract() != 0.0 || !(0.0..=u32::MAX as f64).contains(&value) {
+            return Err(FreshRunError::Settings(format!(
+                "v4 setting {path} must be a Uint32"
+            )));
+        }
+        Ok(value as u32)
+    };
+    if integer("sense.layoutVersion")? != 4
+        || integer("brain.sensorVersion")? != 4
+        || integer("sense.contractVersion")? != 1
+    {
+        return Err(FreshRunError::Settings(
+            "v4 sensor version/contract markers disagree".into(),
+        ));
+    }
+    let profile = match integer("sense.profile")? {
+        0 => super::sensor_contract::SensorProfile::Basic,
+        1 => super::sensor_contract::SensorProfile::Motion,
+        _ => {
+            return Err(FreshRunError::Settings(
+                "v4 profile must be Basic or Motion".into(),
+            ))
+        }
+    };
+    let contract = super::sensor_contract::SensorContractIdentity::new(
+        profile,
+        integer("sense.bubbleBins")? as usize,
+    )
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let rays = super::ray_work::RayWorkLimits::new(
+        integer("sense.rayMinimum")?,
+        integer("sense.rayCap")?,
+        integer("sense.rayBatch")?,
+        integer("sense.rayMaximumDue")? as usize,
+    )
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let baseline = if settings.iter().any(|setting| {
+        matches!(
+            setting.path.as_str(),
+            "baselineBots.controlVersion" | "baselineBots.mode" | "baselineBots.controlDt"
+        )
+    }) {
+        if integer("baselineBots.controlVersion")? != 2 {
+            return Err(FreshRunError::Settings(
+                "explicit baseline control version must be 2".into(),
+            ));
+        }
+        let mode = match integer("baselineBots.mode")? {
+            0 => super::baseline_v2::BaselineV2Mode::Deterministic,
+            1 => super::baseline_v2::BaselineV2Mode::Stochastic,
+            _ => {
+                return Err(FreshRunError::Settings(
+                    "baseline v2 mode must be Deterministic or Stochastic".into(),
+                ))
+            }
+        };
+        let baseline = super::baseline_v2::BaselineV2Settings {
+            mode,
+            control_interval_seconds: required("baselineBots.controlDt")?,
+        };
+        baseline
+            .validate()
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        Some(baseline)
+    } else {
+        None
+    };
+    let replacements = settings
+        .iter()
+        .filter(|setting| {
+            !matches!(
+                setting.path.as_str(),
+                "sense.contractVersion"
+                    | "sense.profile"
+                    | "sense.rayMinimum"
+                    | "sense.rayCap"
+                    | "sense.rayBatch"
+                    | "sense.rayMaximumDue"
+                    | "baselineBots.controlVersion"
+                    | "baselineBots.mode"
+                    | "baselineBots.controlDt"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    prepare_fresh_boundary_with_sensor_and_baseline(
+        request,
+        &replacements,
+        graph,
+        modern,
+        Some(contract),
+        RunningStepWorkLimits {
+            ray_work: Some(rays),
+            ..RunningStepWorkLimits::provisional_defaults()
+        },
+        baseline,
+    )
 }
 
 /// Build a new generation-one lineage around an old browser-exported population.
@@ -708,6 +843,14 @@ fn prepare_fresh_boundary_shell(
     );
     config.requested_sim_speed = fresh_float(&config, "simSpeed")?;
     config.world_radius = fresh_integer(&config, "worldRadius")? as f64;
+    if work_limits
+        .ray_work
+        .is_some_and(|rays| rays.maximum_due() < config.max_world_snakes)
+    {
+        return Err(FreshRunError::Settings(
+            "ray maximum-due admission must cover every configured snake".into(),
+        ));
+    }
     let projected = project_running_step_config(&config, work_limits)?;
     let graph_input_size = graph
         .nodes
@@ -2474,6 +2617,25 @@ mod tests {
             .collect()
     }
 
+    /// Reset carries numeric settings; Rust regenerates the structural digest.
+    fn numeric_metadata_settings(metadata: &str) -> Vec<FreshRunSettingUpdate> {
+        let decoded: serde_json::Value = serde_json::from_str(metadata).unwrap();
+        decoded["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|setting| {
+                let value = setting["value"]
+                    .as_f64()
+                    .or_else(|| setting["value"].as_bool().map(f64::from))?;
+                Some(FreshRunSettingUpdate {
+                    path: setting["path"].as_str().unwrap().into(),
+                    value,
+                })
+            })
+            .collect()
+    }
+
     #[test]
     fn configured_fresh_life_contract_is_complete_and_preserves_frozen_numeric_initialization() {
         let legacy =
@@ -2671,7 +2833,7 @@ mod tests {
                 let mut pending = prepare_baseline_v2_qualification_run(
                     request(42),
                     &settings,
-                    graph,
+                    graph.clone(),
                     profile,
                     8,
                     spec,
@@ -2681,6 +2843,84 @@ mod tests {
                 let metadata = pending.startup_metadata_json().unwrap();
                 assert!(metadata.contains("baselineBots.controlVersion"));
                 assert!(metadata.contains("baselineBots.controlDt"));
+                let explicit_settings = numeric_metadata_settings(&metadata);
+                let mut configured = prepare_configured_fresh_run_with_settings_and_graph(
+                    request(42),
+                    &explicit_settings,
+                    graph.clone(),
+                )
+                .unwrap();
+                assert_eq!(configured.startup_metadata_json().unwrap(), metadata);
+                for path in [
+                    "sense.profile",
+                    "sense.contractVersion",
+                    "brain.sensorVersion",
+                    "sense.rayMinimum",
+                    "sense.rayCap",
+                    "sense.rayBatch",
+                    "sense.rayMaximumDue",
+                    "baselineBots.controlVersion",
+                    "baselineBots.mode",
+                    "baselineBots.controlDt",
+                ] {
+                    let partial = explicit_settings
+                        .iter()
+                        .filter(|setting| setting.path != path)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    assert!(
+                        prepare_configured_fresh_run_with_settings_and_graph(
+                            request(42),
+                            &partial,
+                            graph.clone()
+                        )
+                        .is_err(),
+                        "accepted missing {path}"
+                    );
+                }
+                for (path, value) in [
+                    ("sense.profile", 2.0),
+                    ("brain.sensorVersion", 3.0),
+                    ("sense.rayMinimum", 0.0),
+                    ("sense.rayCap", 0.5),
+                    ("sense.rayMaximumDue", 513.0),
+                    ("sense.rayMaximumDue", 1.0),
+                    ("baselineBots.mode", 2.0),
+                    ("baselineBots.controlDt", 0.0),
+                ] {
+                    let mut invalid = explicit_settings.clone();
+                    invalid
+                        .iter_mut()
+                        .find(|setting| setting.path == path)
+                        .unwrap()
+                        .value = value;
+                    assert!(
+                        prepare_configured_fresh_run_with_settings_and_graph(
+                            request(42),
+                            &invalid,
+                            graph.clone()
+                        )
+                        .is_err(),
+                        "accepted invalid {path}"
+                    );
+                }
+                let mut duplicate = explicit_settings.clone();
+                duplicate.push(FreshRunSettingUpdate {
+                    path: "sense.rayMinimum".into(),
+                    value: 1.0,
+                });
+                assert!(prepare_configured_fresh_run_with_settings_and_graph(
+                    request(42),
+                    &duplicate,
+                    graph.clone()
+                )
+                .is_err());
+                assert!(prepare_configured_fresh_run_with_settings_and_graph(
+                    request(42),
+                    &explicit_settings,
+                    typescript_default_graph_spec()
+                )
+                .is_err());
                 let directory = TestDirectory::create("v2-cold-restore");
                 let descriptor = pending
                     .publish_checkpoint(
@@ -2688,6 +2928,17 @@ mod tests {
                         CheckpointOperationId::parse("56565656565656565656565656565656").unwrap(),
                     )
                     .unwrap();
+                let configured_directory = TestDirectory::create("v2-configured-reset");
+                let configured_descriptor = configured
+                    .publish_checkpoint(
+                        configured_directory.path(),
+                        CheckpointOperationId::parse("67676767676767676767676767676767").unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    configured_descriptor.logical_root_sha256,
+                    descriptor.logical_root_sha256
+                );
                 let restored = PendingRunStartTransition::restore_committed(
                     directory.path(),
                     &descriptor,
