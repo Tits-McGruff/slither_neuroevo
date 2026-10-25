@@ -9,24 +9,15 @@ use super::genome::{GenomeInitializationConfig, GENOME_INITIALIZATION_ALGORITHM}
 use super::graph::{CompiledNode, CompiledNodeType, GraphBundle};
 use super::inference::GraphExecutionPlan;
 use super::sensor_layout::SensorLayout;
-use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fmt::{Display, Formatter, Write};
 
-/// Maximum encoded manifest bytes; checked by the bounded serializer.
-pub const MAX_TRAINING_MANIFEST_BYTES: usize = 1024 * 1024;
-/// Revision of the exact deployed equations, independent of structural layout.
-pub const TRAINING_EQUATION_REVISION: u32 = 1;
-/// Domain for the digest of the exact canonical equation metadata below.
-pub const TRAINING_EQUATION_DOMAIN: &[u8] = b"slither.training-equations.v1\0";
-
-/// Deployment life rule for recurrent state owned by a population slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TrainingLifeStateRule {
-    Reset,
-    Preserve,
-}
+pub use crate::contracts::{
+    CanonicalTrainingGraphManifestV1, TrainingDeploymentManifest, TrainingEquations,
+    TrainingInitialization, TrainingInput, TrainingLifeStateRule, TrainingNode, TrainingOutput,
+    TrainingParameterBlock, TrainingStateBlock, MAX_TRAINING_MANIFEST_BYTES,
+    TRAINING_EQUATION_DOMAIN, TRAINING_EQUATION_REVISION,
+};
 
 /// Environment-dependent deployment rules, kept separate from sensor identity.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -37,157 +28,6 @@ pub struct TrainingDeployment {
     pub life_state_rule: TrainingLifeStateRule,
     /// Canonical random initializer bias settings; the trainer seed is isolated.
     pub initialization: GenomeInitializationConfig,
-}
-
-/// Named logical view into the single canonical parameter vector.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingParameterBlock {
-    pub name: String,
-    /// Offset and strides are measured in Float32 elements, not bytes.
-    pub offset: usize,
-    /// Logical element count. Strided affine views can have a larger span.
-    pub length: usize,
-    pub shape: Vec<usize>,
-    pub strides: Vec<usize>,
-}
-
-/// Explicit hidden/cell view into the brain's packed recurrent state.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingStateBlock {
-    pub name: &'static str,
-    pub offset: usize,
-    pub length: usize,
-}
-
-/// Resolved incoming edge in semantic concatenation order.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingInput {
-    pub from_id: String,
-    pub from_port: usize,
-    pub input_ordinal: usize,
-}
-
-/// One compiler-owned node and its canonical numeric views.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingNode {
-    pub id: String,
-    pub operation: &'static str,
-    pub input_size: usize,
-    pub output_sizes: Vec<usize>,
-    pub hidden_sizes: Vec<usize>,
-    pub hidden_size: Option<usize>,
-    pub parameter_offset: usize,
-    pub parameter_length: usize,
-    pub state_offset: Option<usize>,
-    pub state_length: usize,
-    pub inputs: Vec<TrainingInput>,
-    pub parameter_blocks: Vec<TrainingParameterBlock>,
-    pub state_blocks: Vec<TrainingStateBlock>,
-}
-
-/// Ordered graph output with explicit source port and flattened destination.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingOutput {
-    pub node_id: String,
-    pub port: usize,
-    pub offset: usize,
-    pub length: usize,
-}
-
-/// Exact Float32 equations, hashed separately from the graph topology.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingEquations {
-    pub revision: u32,
-    pub dtype: &'static str,
-    pub affine: &'static str,
-    pub gru: &'static str,
-    pub lstm: &'static str,
-    pub rru: &'static str,
-    pub concat: &'static str,
-    pub split: &'static str,
-    pub arithmetic: &'static str,
-}
-
-impl TrainingEquations {
-    /// Canonical formulas match the complete-graph kernels in `inference.rs`.
-    fn canonical() -> Self {
-        Self {
-            revision: TRAINING_EQUATION_REVISION,
-            dtype: "Float32",
-            affine: "y=tanh(W*x+b); every Dense and every MLP layer, including output; W row-major with row-interleaved bias",
-            gru: "z=sigmoid((Wz*x+Uz*h)+bz); r=sigmoid((Wr*x+Ur*h)+br); candidate=tanh((Wh*x+Uh*(r*h))+bh); h'=(1-z)*h+z*candidate",
-            lstm: "i=sigmoid((Wi*x+Ui*h)+bi); f=sigmoid((Wf*x+Uf*h)+bf); o=sigmoid((Wo*x+Uo*h)+bo); g=tanh((Wg*x+Ug*h)+bg); c'=f*c+i*g; h'=o*tanh(c'); state=[h,c]",
-            rru: "candidate=tanh((Wc*x+Uc*h)+bc); gate=sigmoid((Wr*x+Ur*h)+br); h'=(1-gate)*h+gate*candidate",
-            concat: "concatenate source ports in increasing resolved inputOrdinal; fan-out reads the same source values",
-            split: "contiguous source slices in outputSizes order; zero-based ports",
-            arithmetic: "sigmoid(x)=1/(1+exp(-x)); Float32 intermediates; scalar/SSE2 dot accumulation may differ within parity tolerances",
-        }
-    }
-}
-
-/// Recorded initialization semantics; initial weights must come from Rust.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingInitialization {
-    pub algorithm: &'static str,
-    pub rng_scope: &'static str,
-    pub dense_uniform_scale: f64,
-    pub mlp_uniform_scale: f64,
-    pub recurrent_input_uniform_scale: f64,
-    pub recurrent_state_uniform_scale: f64,
-    pub recurrent_bias_uniform_scale: f64,
-    pub gru_update_bias: f64,
-    pub lstm_forget_bias: f64,
-    pub rru_gate_bias: f64,
-}
-
-/// Cadence and motor interpretation actually used by native deployment.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrainingDeploymentManifest {
-    pub fixed_step_hz: u32,
-    pub control_interval_seconds: f64,
-    pub cadence: &'static str,
-    pub first_physical_sample: &'static str,
-    pub life_state_rule: TrainingLifeStateRule,
-    pub generation_state_rule: &'static str,
-    pub turn_output_index: usize,
-    pub boost_output_index: usize,
-    pub turn_mapping: &'static str,
-    pub boost_mapping: &'static str,
-    pub boost_threshold: f32,
-}
-
-/// Rust-generated training description. It is not an admission credential.
-/// Consumers must independently validate deployed graph/weights through Rust.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CanonicalTrainingGraphManifestV1 {
-    pub schema_version: u32,
-    pub graph_spec: serde_json::Value,
-    pub architecture_key: String,
-    pub layout_version: u32,
-    pub layout_sha256: String,
-    pub equations: TrainingEquations,
-    pub equations_sha256: String,
-    pub topological_order: Vec<String>,
-    pub nodes: Vec<TrainingNode>,
-    pub outputs: Vec<TrainingOutput>,
-    pub total_parameters: usize,
-    pub total_state_size: usize,
-    pub input_size: usize,
-    pub output_size: usize,
-    /// Exact Rust canonical sensor bytes encoded as a UTF-8 JSON string.
-    pub sensor_canonical_json: String,
-    pub sensor_sha256: String,
-    pub deployment: TrainingDeploymentManifest,
-    pub initialization: TrainingInitialization,
 }
 
 /// Cold construction/encoding failure, before a trainer receives any manifest.

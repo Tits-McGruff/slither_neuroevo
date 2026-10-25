@@ -1,3 +1,4 @@
+import { SENSOR_HASH_DOMAIN } from "../../contracts/types.ts";
 import type { RustLegacyConversionNotice, RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { createHash } from 'node:crypto';
 import { sensorLayoutFromContract, type SensorContractEnvelope } from '../../src/protocol/sensors.ts';
@@ -67,7 +68,7 @@ export function parseRustStartupMetadata(encoded: unknown): RustStartupMetadata 
         typeof envelope['canonicalJson'] !== 'string' || Buffer.byteLength(envelope['canonicalJson']) > 65536 ||
         typeof envelope['sha256'] !== 'string') throw new TypeError('invalid bounded native sensor contract');
     sensorContract = {canonicalJson:envelope['canonicalJson'],sha256:envelope['sha256']};
-    const digest = createHash('sha256').update('slither.sensor-contract.v1\0').update(sensorContract.canonicalJson).digest('hex');
+    const digest = createHash('sha256').update(SENSOR_HASH_DOMAIN).update(sensorContract.canonicalJson).digest('hex');
     if (digest !== sensorContract.sha256) throw new TypeError('native sensor contract digest mismatch');
     const layout = sensorLayoutFromContract(sensorContract);
     const setting = (path:string): unknown => settings.find(entry=>entry.path===path)?.value;

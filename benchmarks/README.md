@@ -1,7 +1,13 @@
-# Historical experimental source patches
+# Benchmark and experiment code
 
-These textual patches preserve unique code that existed only inside old performance bundles. The exact repository, ordinary base commit, target path, patch hash, canonical LF hash and raw-byte/EOL reconstruction are recorded in `docs/performance/source-provenance.json`. They are reconstruction inputs; no runtime imports or executes them. The PyRL `experiment.py` driver and Slither one-off drivers are new-file patches under `benchmarks/historical/` when applied to their recorded bases. Variants of maintained Python, Rust and TypeScript modules are patches against those normal module paths. Original git-format experiment patches, when present, are indexed separately in `historical-patches.json` with their original base/preimage metadata.
+Maintained benchmark programs live under `scripts/qualification/` and run through the manual qualification workflow. Their generated outputs are ignored or retained as CI artifacts.
 
-Use the maintained `pyrl_trainer.source_provenance.restore` reader to reconstruct and raw-hash verify a version. Do not turn ordinary tracked modules into new snapshots here. A future experiment belongs in maintained benchmark code or an explicit reviewed patch with a base commit.
+The rejected ray-reuse code is retained only for occasional inspection on `archive/experiment/sensor-ray-reuse-20261025`; it has no dedicated CI. The redundant crowded-sensors branch was retired. The rejected pellet-distance code remains at the existing `qualification-resume-20261025` tag.
 
-The approved 2026-10-25 history cleanup maps original feature commits through `history-equivalence-20261025.json`. Both extra unfinished sensor/spatial variants from checkpoint tree `637f7b9` are preserved as verified patches against a mapped source-equivalent base. They are not applied to production. Historical origin IDs are retained beside operational recovery bases.
+That unchanged tag also preserves the historical one-off drivers, exceptional source patches and old migration metadata under `benchmarks/` and `docs/performance/`. They are archival Git content, not current runtime dependencies or reconstruction requirements. New alternatives use temporary `experiment/...` branches and ordinary commits.
+
+Existing P1 profiling in `docs/performance/sensor-v4/README.md` attributes about
+10.06 seconds of slow-step work to sensing versus 1.04 seconds to inference in
+that recorded window. Serialization, persistence and boundary timings need a
+separate workload-specific investigation. This cleanup changes none of those
+paths and adds no SIMD or sensor optimization.

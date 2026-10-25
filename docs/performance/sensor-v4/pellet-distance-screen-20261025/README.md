@@ -15,6 +15,4 @@ The maintained ABBA driver verifies exact continuation, authority/capture/distri
 
 Restore with the maintained PyRL tool:
 
-```sh
-python ../PyRL-trainer/pyrl_trainer/evidence_store.py fetch --catalog docs/performance/sensor-v4/pellet-distance-screen-20261025/catalog.json --cache .cache/qualification-evidence
-```
+Download the linked release asset directly and verify the SHA-256 in `catalog.json` when inspecting the historical output. No historical download is needed for ordinary tests.

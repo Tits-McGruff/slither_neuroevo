@@ -1,0 +1,285 @@
+name: Qualification
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  HUSKY: 0
+
+jobs:
+  node:
+    name: Native benchmarks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node-version: [24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require committed qualification source
+        shell: bash
+        run: test -z "$(git status --porcelain)" || { echo "Commit/WIP the source before qualification"; exit 1; }
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        if: runner.os != 'Windows'
+        run: npm ci
+
+      - name: Install dependencies (Windows, retry transient failures)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            npm ci
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              exit 0
+            }
+            if ($attempt -eq $maxAttempts) {
+              exit $exitCode
+            }
+            Write-Host "npm ci failed on attempt $attempt; retrying in 10 seconds..."
+            Start-Sleep -Seconds 10
+          }
+      - name: Build native addon
+        run: npm --prefix native run build
+      - name: Verify native addon load and source identity
+        run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
+      - name: Build checkpoint capacity qualifier
+        if: matrix.node-version == '24.x'
+        run: cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin checkpoint-capacity-qualification
+      - name: Native checkpoint capacity with SQLite and archive smoke
+        if: matrix.node-version == '24.x'
+        run: |
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-compressed" --output "${{ runner.temp }}/capacity-compressed.json" --population 55 --graph small --mode compressed --envelope-mib 768 --coexistence library-inspector
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/checkpoint-capacity.ts --binary "native/target/release/checkpoint-capacity-qualification${{ runner.os == 'Windows' && '.exe' || '' }}" --workspace "${{ runner.temp }}/capacity-raw" --output "${{ runner.temp }}/capacity-raw.json" --population 55 --graph small --mode raw --envelope-mib 768 --coexistence library-inspector
+      - name: Retain checkpoint capacity smoke
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-capacity-${{ matrix.os }}
+          path: ${{ runner.temp }}/capacity-*.json
+          if-no-files-found: warn
+      - name: Continuous native soak pressure smoke
+        if: matrix.node-version == '24.x'
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin sensor-v4-qualification -- --scenario P0 --profile basic --bins 8
+          --graph modest --respawn on --seed 42 --workers 3 --math-backend sse2
+          --minimum 1 --cap 256 --batch 16384 --baseline v2-stochastic --baseline-cadence 0.06
+          --teacher-respawn-delay 0.5 --capture on --capture-drain-steps 600 --capture-queue-chunks 1
+          --warmup 1 --steps 600 --soak-shadow-artifact native/fixtures/portable-brain-v1.slither-brain
+          --workspace "${{ runner.temp }}/continuous-soak-smoke"
+          --output "${{ runner.temp }}/continuous-soak-smoke.json"
+      - name: Verify continuous soak smoke ownership and bounds
+        if: matrix.node-version == '24.x'
+        run: node node_modules/tsx/dist/cli.mjs scripts/qualification/verify-soak.ts --report "${{ runner.temp }}/continuous-soak-smoke.json"
+      - name: Retain continuous soak smoke
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuous-soak-${{ matrix.os }}
+          path: ${{ runner.temp }}/continuous-soak-smoke*.json
+          if-no-files-found: warn
+      - name: Native baseline-v2 tactical batch
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin baseline-v2-qualification -- --seed-count 4 --steps 180 --workers 1
+          --cadence "0.016666666666666666" --output "${{ runner.temp }}/baseline-v2-tactics.json"
+          --corpus-directory "${{ runner.temp }}/baseline-v2-corpus"
+      - name: Native tactical Basic/B8 and Motion/B32 corpus contracts
+        if: matrix.node-version == '24.x'
+        shell: bash
+        run: |
+          runner="native/target/release/baseline-v2-qualification"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then runner="$runner.exe"; fi
+          "$runner" --seed-count 2 --steps 12 --workers 1 --bins 8 --corpus-profile basic --output "${{ runner.temp }}/basic-b8-tactics.json" --corpus-directory "${{ runner.temp }}/basic-b8-corpus"
+          "$runner" --seed-count 2 --steps 12 --workers 1 --bins 32 --corpus-profile motion --output "${{ runner.temp }}/motion-b32-tactics.json" --corpus-directory "${{ runner.temp }}/motion-b32-corpus"
+      - name: Retain native tactical outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-v2-tactics-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: |
+            ${{ runner.temp }}/baseline-v2-tactics.json
+            ${{ runner.temp }}/baseline-v2-corpus/
+            ${{ runner.temp }}/basic-b8-tactics.json
+            ${{ runner.temp }}/basic-b8-corpus/
+            ${{ runner.temp }}/motion-b32-tactics.json
+            ${{ runner.temp }}/motion-b32-corpus/
+          if-no-files-found: warn
+      - name: Native committed capture batch
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin sensor-v4-qualification -- --scenario P0 --profile motion --bins 16 --graph modest
+          --respawn on --seed 42 --workers 1 --math-backend sse2 --minimum 1 --cap 256 --batch 65536
+          --baseline v2-stochastic --baseline-cadence "0.016666666666666666" --capture on
+          --warmup 0 --steps 180 --workspace "${{ runner.temp }}/capture-normal-workspace"
+          --output "${{ runner.temp }}/capture-normal.json"
+      - name: Native slow-drain capture batch
+        run: >-
+          cargo run --manifest-path native/Cargo.toml --release --features engine-test-hooks
+          --bin sensor-v4-qualification -- --scenario P0 --profile motion --bins 16 --graph modest
+          --respawn on --seed 42 --workers 1 --math-backend sse2 --minimum 1 --cap 256 --batch 65536
+          --baseline v2-stochastic --baseline-cadence "0.016666666666666666" --capture on
+          --capture-drain-steps 180 --capture-queue-chunks 1 --warmup 0 --steps 180
+          --workspace "${{ runner.temp }}/capture-slow-workspace" --output "${{ runner.temp }}/capture-slow.json"
+      - name: Retain native capture outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-capture-${{ matrix.os }}-node-${{ matrix.node-version }}
+          path: |
+            ${{ runner.temp }}/capture-normal.json
+            ${{ runner.temp }}/capture-slow.json
+          if-no-files-found: warn
+      - name: Set up native capture qualification driver
+        if: matrix.node-version == '24.x'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Native trained-policy P0/P1 worker continuation
+        if: matrix.node-version == '24.x'
+        run: >-
+          python scripts/qualification/trained-sensor-cohorts.py
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --fixtures native/fixtures/learned-cohorts-v1/single/index.json
+          --directory "${{ runner.temp }}/trained-sensor-cohorts" --workers 3 --warmup 0 --steps 12
+      - name: Retain native trained-policy outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-sensor-cohorts-${{ matrix.os }}
+          path: ${{ runner.temp }}/trained-sensor-cohorts/*.json
+          if-no-files-found: warn
+      - name: Native Basic B8 direct-artifact P0/P1 worker continuation
+        if: matrix.node-version == '24.x'
+        run: >-
+          python -B scripts/qualification/trained-sensor-cohorts.py
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --artifact native/fixtures/portable-brain-v1.slither-brain --profile basic --bins 8
+          --directory "${{ runner.temp }}/basic-b8-direct-cohort" --workers 3 --warmup 0 --steps 12
+      - name: Retain native Basic B8 direct-artifact outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: basic-b8-direct-cohort-${{ matrix.os }}
+          path: ${{ runner.temp }}/basic-b8-direct-cohort/*.json
+          if-no-files-found: warn
+      - name: Native mixed learned-family P0/P1 worker continuation
+        if: matrix.node-version == '24.x'
+        run: >-
+          python -B scripts/qualification/trained-sensor-cohorts.py --replicated
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --fixtures native/fixtures/learned-cohorts-v1/replicated/index.json
+          --directory "${{ runner.temp }}/mixed-sensor-cohorts" --workers 3 --warmup 0 --steps 12
+      - name: Retain native mixed-family outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixed-sensor-cohorts-${{ matrix.os }}
+          path: ${{ runner.temp }}/mixed-sensor-cohorts/*.json
+          if-no-files-found: warn
+      - name: Native capture byte-pressure and authority cohort
+        if: matrix.node-version == '24.x'
+        run: >-
+          python scripts/qualification/qualify-capture-pressure.py
+          --executable "native/target/release/sensor-v4-qualification${{ runner.os == 'Windows' && '.exe' || '' }}"
+          --directory "${{ runner.temp }}/capture-byte-pressure" --workers 3
+      - name: Retain native byte-pressure evidence
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-capture-byte-pressure-${{ matrix.os }}
+          path: ${{ runner.temp }}/capture-byte-pressure/*.json
+          if-no-files-found: warn
+      - name: Production opaque-spool capacity smoke
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/spool-capacity.ts
+          --quota-gib 1 --object-kib 64 --objects 64
+          --workspace "${{ runner.temp }}/spool-capacity-smoke-workspace"
+          --output "${{ runner.temp }}/spool-capacity-smoke.json"
+      - name: Retain opaque-spool smoke outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spool-capacity-smoke-${{ matrix.os }}
+          path: ${{ runner.temp }}/spool-capacity-smoke.json
+          if-no-files-found: warn
+      - name: Build native crowded v4 sensing runner
+        if: matrix.node-version == '24.x'
+        run: cargo build --manifest-path native/Cargo.toml --release --features engine-test-hooks --bin crowded-sensor-qualification
+      - name: In-arena crowded v4 sensing and exact worker matrix
+        if: matrix.node-version == '24.x'
+        shell: bash
+        run: |
+          runner="native/target/release/crowded-sensor-qualification"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then runner="$runner.exe"; fi
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/crowded-sensors.ts --runner "$runner" --directory "${{ runner.temp }}/crowded-v4-sensors"
+      - name: Retain crowded v4 sensing receipts
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: crowded-v4-sensors-${{ matrix.os }}
+          path: ${{ runner.temp }}/crowded-v4-sensors/*.json
+          if-no-files-found: warn
+      - name: Build and verify isolated release panic test addon
+        run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
+      - name: Real-clock P0 sensor workload (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P0 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-P0.json"
+      - name: Real-clock P1 explicit ray candidate (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --seconds 60 --warmup-seconds 10 --ray-cap 512 --ray-batch 131072
+          --report "${{ runner.temp }}/sensor-wall-P1.json"
+      - name: Real-clock Basic B8 P1 profile contract (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --profile basic --bins 8 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-basic-b8-P1.json"
+      - name: Real-clock Motion B8 P1 profile contract (measured gates are diagnostic)
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --profile motion --bins 8 --seconds 60 --warmup-seconds 10
+          --report "${{ runner.temp }}/sensor-wall-motion-b8-P1.json"
+      - name: Real-clock Motion B8 maximum query-detail screen
+        if: matrix.node-version == '24.x'
+        run: >-
+          node node_modules/tsx/dist/cli.mjs scripts/qualification/sensor-wall.ts
+          --scenario P1 --profile motion --bins 8 --seconds 60 --warmup-seconds 10
+          --pellet-checks 3000 --segment-checks 4000
+          --report "${{ runner.temp }}/sensor-wall-motion-b8-max-detail-P1.json"
+      - name: Retain real-clock sensor outcomes
+        if: always() && matrix.node-version == '24.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensor-wall-${{ matrix.os }}
+          path: ${{ runner.temp }}/sensor-wall-*.json
+          if-no-files-found: warn

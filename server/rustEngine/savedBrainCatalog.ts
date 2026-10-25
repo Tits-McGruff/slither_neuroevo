@@ -1,3 +1,4 @@
+import { SENSOR_HASH_DOMAIN } from "../../contracts/types.ts";
 import type Database from 'better-sqlite3';
 import { lstatSync, realpathSync, statfsSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -54,7 +55,7 @@ export function parseSavedBrainRecord(value: unknown): SavedBrainRecordV1 {
       graph['sensorSha256'] !== artifact.sensorSha256 || graph['inputSize'] !== artifact.inputSize ||
       graph['totalParameters'] !== artifact.parameterCount || graph['totalStateSize'] !== artifact.stateSize ||
       typeof graph['sensorCanonicalJson'] !== 'string' ||
-      createHash('sha256').update('slither.sensor-contract.v1\0').update(graph['sensorCanonicalJson']).digest('hex') !== artifact.sensorSha256 ||
+      createHash('sha256').update(SENSOR_HASH_DOMAIN).update(graph['sensorCanonicalJson']).digest('hex') !== artifact.sensorSha256 ||
       !provenance || typeof provenance !== 'object' || Array.isArray(provenance) ||
       Object.keys(provenance).length !== 3 || provenance['schemaVersion'] !== 1 ||
       provenance['sourceKind'] !== artifact.sourceKind || !Object.hasOwn(provenance, 'details') ||

@@ -1,7 +1,6 @@
 //! Bounded shared decoding of canonical source graphs; execution stays in Rust.
 
 use super::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
-use serde::Deserialize;
 
 /// Compile offline source bytes under the same limits as production fresh runs.
 pub fn compile_training_graph_json(encoded: &[u8]) -> Result<super::graph::GraphBundle, String> {
@@ -12,95 +11,7 @@ pub fn compile_training_graph_json(encoded: &[u8]) -> Result<super::graph::Graph
     .map_err(|error| error.to_string())
 }
 
-/// Bounded JSON graph root shared by production admission and offline tools.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphWire {
-    #[serde(rename = "type")]
-    graph_type: String,
-    nodes: Vec<FreshRunGraphNodeWire>,
-    edges: Vec<FreshRunGraphEdgeWire>,
-    outputs: Vec<FreshRunGraphOutputWire>,
-    output_size: usize,
-}
-
-/// One current browser graph node before conversion to compiler-owned types.
-#[derive(Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
-enum FreshRunGraphNodeWire {
-    Input {
-        id: String,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-    },
-    Dense {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-    },
-    #[serde(rename = "MLP")]
-    Mlp {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-        #[serde(rename = "hiddenSizes", default)]
-        hidden_sizes: Vec<usize>,
-    },
-    #[serde(rename = "GRU")]
-    Gru {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    #[serde(rename = "LSTM")]
-    Lstm {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    #[serde(rename = "RRU")]
-    Rru {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    Concat {
-        id: String,
-    },
-    Split {
-        id: String,
-        #[serde(rename = "outputSizes")]
-        output_sizes: Vec<usize>,
-    },
-}
-
-/// One browser graph edge with optional explicit zero-based ports.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphEdgeWire {
-    from: String,
-    to: String,
-    from_port: Option<i64>,
-    to_port: Option<i64>,
-}
-
-/// One ordered browser graph output reference.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphOutputWire {
-    node_id: String,
-    port: Option<i64>,
-}
+use crate::contracts::{FreshRunGraphNodeWire, FreshRunGraphWire};
 
 /// Decode one bounded graph document before the background task owns it.
 pub fn decode_graph_json(encoded: &[u8]) -> Result<GraphSpec, String> {

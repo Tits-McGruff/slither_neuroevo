@@ -558,26 +558,17 @@ To use another UI port, update `uiPort` and restart the UI and simulation server
 
 ## Test suites
 
-`npm test` builds/tests native code and runs the JavaScript suite. After the
-addon is built, `npm run test:js` runs the explicit complete JavaScript
-manifest. Focused commands are:
+Build the production addon with `npm --prefix native run build`, then run
+`npm test`. Vitest discovers normal `*.test.ts` files automatically. Use
+`npm run test:unit`, `npm run test:integration`, or `npm run test:native` for a
+focused project. Native and integration/system suffixes describe execution
+requirements; adding a test does not require a central registry. Performance
+measurements use `npm run test:performance` explicitly.
 
-- `test:unit`: small pure/module contracts.
-- `test:component`: multi-module behavior without a full server boundary.
-- `test:integration`: real WebSocket, persistence, worker-pool, and other
-  subsystem boundaries.
-- `test:system`: server/process lifecycle behavior.
-- `test:acceptance`: owner-visible end-to-end contract.
-- `test:regression`: named historical failures.
-- `test:performance`: measured budgets; currently informational in CI.
-- `test:security`: protocol/input and resource-boundary hardening.
-- `test:native-required`: additive native and multi-thread contracts that fail
-  rather than skip when the addon is unavailable.
-
-Server panic tests use a separate release addon with test hooks. The full,
-integration and required-native commands prepare it under `native/target` and
-reuse it while its source identity matches. Normal server startup requires the
-production addon and rejects the test build.
+Native panic tests prepare a separate test-hook addon under `native/target`.
+Normal startup requires the production addon and rejects the test build.
+Scientific qualification and long benchmarks run only through the manual
+Qualification workflow or explicit benchmark commands.
 
 ## Controls
 

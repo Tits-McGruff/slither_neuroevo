@@ -40,13 +40,21 @@ required-features = ["engine-test-hooks"]
 
 [features]
 engine-test-hooks = []
+contract-schema = ["dep:schemars"]
 
 [[bin]]
 name = "canonical-training-graph"
 path = "src/bin/canonical_training_graph.rs"
 required-features = ["engine-test-hooks"]
 
+[[bin]]
+name = "export-contracts"
+path = "src/bin/export_contracts.rs"
+required-features = ["contract-schema"]
+
 [dependencies]
+schemars = { version = "1", optional = true }
+
 getrandom = "0.4"
 flate2 = "1"
 napi = { version = "3.0.0", features = ["napi6", "compat-mode"] }

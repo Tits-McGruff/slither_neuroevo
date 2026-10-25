@@ -9,43 +9,20 @@ use super::sensor_layout::SensorLayout;
 use super::training_graph::{
     CanonicalTrainingGraphManifestV1, TrainingDeployment, TrainingLifeStateRule,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
-/// Full portable file admission, independent of population checkpoint sizes.
-pub const MAX_BRAIN_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 /// Header: magic, JSON bytes, encoding/reserved, parameter count, stored bytes, raw/stored digests.
-pub const BRAIN_ARTIFACT_HEADER_BYTES: usize = 88;
-const MAGIC: &[u8; 8] = b"SLTHBRN1";
+pub use crate::contracts::BRAIN_ARTIFACT_HEADER_BYTES;
+use crate::contracts::BRAIN_MAGIC as MAGIC;
+/// Full portable file admission, independent of population checkpoint sizes.
+pub use crate::contracts::MAX_BRAIN_ARTIFACT_BYTES;
 const MAX_PROVENANCE_BYTES: usize = 64 * 1024;
 
-/// Provenance class is metadata; it never introduces another runtime snake kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum BrainSourceKind {
-    Distilled,
-    Imported,
-    Manual,
-}
-
-/// Small immutable user/trainer provenance, distinct from Hall-of-Fame winning status.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct BrainProvenanceV1 {
-    pub schema_version: u32,
-    pub source_kind: BrainSourceKind,
-    pub details: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct BrainManifestV1 {
-    schema_version: u32,
-    graph_manifest: Value,
-    provenance: BrainProvenanceV1,
-}
+use crate::contracts::BrainManifestV1;
+pub use crate::contracts::{BrainProvenanceV1, BrainSourceKind};
 
 /// Cold admitted values; live spawn/activation must additionally match the active authority.
 pub struct ValidatedBrainArtifact {

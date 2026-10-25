@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { defineConfig } from "vite";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /** Raw server TOML data used for UI defaults. */
 interface ServerTomlConfig {
@@ -195,7 +195,15 @@ export function buildViteConfig() {
       emptyOutDir: true
     },
     test: {
-      setupFiles: ["src/test/vitest.setup.ts"]
+      setupFiles: ["src/test/vitest.setup.ts"],
+      maxWorkers: 1,
+      projects: [
+        { extends: true as const, test: { name: "unit", include: ["{src,server,scripts}/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "**/*.native.test.ts", "**/*.integration.test.ts", "**/*.system.test.ts", "**/*.performance.test.ts"] } },
+        { extends: true as const, test: { name: "integration", include: ["**/*.{integration,system}.test.ts"], fileParallelism: false } },
+        { extends: true as const, test: { name: "native", include: ["**/*.native.test.ts"], fileParallelism: false,
+          globalSetup: ["scripts/native-test-setup.ts"] } }
+      ]
     },
     define: {
       'import.meta.env.SLITHER_DEFAULT_WS_URL': JSON.stringify(defaults.publicWsUrl),

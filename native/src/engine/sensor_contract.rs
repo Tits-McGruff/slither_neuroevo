@@ -300,7 +300,7 @@ impl SensorContractIdentity {
     }
     pub fn sha256(&self) -> Result<[u8; 32], SensorContractError> {
         let mut hash = Sha256::new();
-        hash.update(b"slither.sensor-contract.v1\0");
+        hash.update(crate::contracts::SENSOR_HASH_DOMAIN);
         hash.update(self.canonical_bytes()?);
         Ok(hash.finalize().into())
     }

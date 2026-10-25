@@ -1,0 +1,1142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contracts",
+  "type": "object",
+  "properties": {
+    "brain": {
+      "$ref": "#/$defs/BrainManifestV1"
+    },
+    "chunk": {
+      "$ref": "#/$defs/TeacherChunkDescriptor"
+    },
+    "dataset": {
+      "$ref": "#/$defs/DistillationDataset"
+    },
+    "graph": {
+      "$ref": "#/$defs/FreshRunGraphWire"
+    },
+    "teacher": {
+      "$ref": "#/$defs/TeacherCaptureContract"
+    },
+    "training": {
+      "$ref": "#/$defs/CanonicalTrainingGraphManifestV1"
+    }
+  },
+  "required": [
+    "training",
+    "graph",
+    "brain",
+    "teacher",
+    "chunk",
+    "dataset"
+  ],
+  "$defs": {
+    "BrainManifestV1": {
+      "type": "object",
+      "properties": {
+        "graphManifest": true,
+        "provenance": {
+          "$ref": "#/$defs/BrainProvenanceV1"
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "graphManifest",
+        "provenance"
+      ]
+    },
+    "BrainProvenanceV1": {
+      "description": "Small immutable user/trainer provenance, distinct from Hall-of-Fame winning status.",
+      "type": "object",
+      "properties": {
+        "details": true,
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sourceKind": {
+          "$ref": "#/$defs/BrainSourceKind"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceKind",
+        "details"
+      ]
+    },
+    "BrainSourceKind": {
+      "description": "Provenance class is metadata; it never introduces another runtime snake kind.",
+      "type": "string",
+      "enum": [
+        "distilled",
+        "imported",
+        "manual"
+      ]
+    },
+    "CanonicalTrainingGraphManifestV1": {
+      "description": "Rust-generated training description. It is not an admission credential.\nConsumers must independently validate deployed graph/weights through Rust.",
+      "type": "object",
+      "properties": {
+        "architectureKey": {
+          "type": "string"
+        },
+        "deployment": {
+          "$ref": "#/$defs/TrainingDeploymentManifest"
+        },
+        "equations": {
+          "$ref": "#/$defs/TrainingEquations"
+        },
+        "equationsSha256": {
+          "type": "string"
+        },
+        "graphSpec": true,
+        "initialization": {
+          "$ref": "#/$defs/TrainingInitialization"
+        },
+        "inputSize": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "layoutSha256": {
+          "type": "string"
+        },
+        "layoutVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrainingNode"
+          }
+        },
+        "outputSize": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrainingOutput"
+          }
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sensorCanonicalJson": {
+          "description": "Exact Rust canonical sensor bytes encoded as a UTF-8 JSON string.",
+          "type": "string"
+        },
+        "sensorSha256": {
+          "type": "string"
+        },
+        "topologicalOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "totalParameters": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "totalStateSize": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "graphSpec",
+        "architectureKey",
+        "layoutVersion",
+        "layoutSha256",
+        "equations",
+        "equationsSha256",
+        "topologicalOrder",
+        "nodes",
+        "outputs",
+        "totalParameters",
+        "totalStateSize",
+        "inputSize",
+        "outputSize",
+        "sensorCanonicalJson",
+        "sensorSha256",
+        "deployment",
+        "initialization"
+      ]
+    },
+    "DatasetState": {
+      "type": "string",
+      "enum": [
+        "active",
+        "stopped",
+        "interrupted"
+      ]
+    },
+    "DistillationDataset": {
+      "type": "object",
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/TeacherCaptureContract"
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nativeDroppedBytes": {
+          "type": "string"
+        },
+        "nativeDroppedChunks": {
+          "type": "string"
+        },
+        "nativeDroppedSamples": {
+          "type": "string"
+        },
+        "productionWatermark": {
+          "type": "string"
+        },
+        "resolvedThrough": {
+          "type": "string"
+        },
+        "retainedBytes": {
+          "type": "string"
+        },
+        "retainedChunks": {
+          "type": "number",
+          "format": "double"
+        },
+        "retentionFloor": {
+          "type": "string"
+        },
+        "runSeed": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "sensorContractJson": {
+          "type": "string"
+        },
+        "spoolDroppedChunks": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/DatasetState"
+        },
+        "storageWatermark": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "contract",
+        "sensorContractJson",
+        "state",
+        "productionWatermark",
+        "storageWatermark",
+        "retentionFloor",
+        "resolvedThrough",
+        "nativeDroppedChunks",
+        "nativeDroppedSamples",
+        "nativeDroppedBytes",
+        "spoolDroppedChunks",
+        "retainedChunks",
+        "retainedBytes"
+      ]
+    },
+    "FreshRunGraphEdgeWire": {
+      "description": "One browser graph edge with optional explicit zero-based ports.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "fromPort": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "to": {
+          "type": "string"
+        },
+        "toPort": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ]
+    },
+    "FreshRunGraphNodeWire": {
+      "description": "One current browser graph node before conversion to compiler-owned types.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "outputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "Input"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "outputSize"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "inputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "outputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "Dense"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "inputSize",
+            "outputSize"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "hiddenSizes": {
+              "type": "array",
+              "default": [],
+              "items": {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "inputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "outputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "MLP"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "inputSize",
+            "outputSize"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "hiddenSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "inputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "GRU"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "inputSize",
+            "hiddenSize"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "hiddenSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "inputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "LSTM"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "inputSize",
+            "hiddenSize"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "hiddenSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "id": {
+              "type": "string"
+            },
+            "inputSize": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            },
+            "type": {
+              "type": "string",
+              "const": "RRU"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "inputSize",
+            "hiddenSize"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "Concat"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "outputSizes": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0
+              }
+            },
+            "type": {
+              "type": "string",
+              "const": "Split"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id",
+            "outputSizes"
+          ]
+        }
+      ]
+    },
+    "FreshRunGraphOutputWire": {
+      "description": "One ordered browser graph output reference.",
+      "type": "object",
+      "properties": {
+        "nodeId": {
+          "type": "string"
+        },
+        "port": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "nodeId"
+      ]
+    },
+    "FreshRunGraphWire": {
+      "description": "Bounded JSON graph root shared by production admission and offline tools.",
+      "type": "object",
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FreshRunGraphEdgeWire"
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FreshRunGraphNodeWire"
+          }
+        },
+        "outputSize": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FreshRunGraphOutputWire"
+          }
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "nodes",
+        "edges",
+        "outputs",
+        "outputSize"
+      ]
+    },
+    "TeacherCaptureContract": {
+      "type": "object",
+      "properties": {
+        "captureEpoch": {
+          "type": "string"
+        },
+        "configSha256": {
+          "type": "string"
+        },
+        "controlIntervalSeconds": {
+          "type": "number",
+          "format": "double"
+        },
+        "inputSize": {
+          "type": "number",
+          "format": "double"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "sensorSha256": {
+          "type": "string"
+        },
+        "teacherMode": {
+          "type": "number",
+          "format": "double"
+        },
+        "teacherRevision": {
+          "type": "number",
+          "format": "double"
+        },
+        "teacherSha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "captureEpoch",
+        "runId",
+        "configSha256",
+        "sensorSha256",
+        "teacherSha256",
+        "teacherRevision",
+        "teacherMode",
+        "controlIntervalSeconds",
+        "inputSize"
+      ]
+    },
+    "TeacherChunkDescriptor": {
+      "type": "object",
+      "properties": {
+        "baselineSlot": {
+          "type": "number",
+          "format": "double"
+        },
+        "byteCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "captureEpoch": {
+          "type": "string"
+        },
+        "configSha256": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number",
+          "format": "double"
+        },
+        "endReason": {
+          "$ref": "#/$defs/TeacherEndReason"
+        },
+        "firstSample": {
+          "type": "string"
+        },
+        "firstStep": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "string"
+        },
+        "inputSize": {
+          "type": "number",
+          "format": "double"
+        },
+        "lastSample": {
+          "type": "string"
+        },
+        "lastStep": {
+          "type": "string"
+        },
+        "physicalSnakeId": {
+          "type": "string"
+        },
+        "sensorSha256": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "startReason": {
+          "$ref": "#/$defs/TeacherStartReason"
+        },
+        "teacherSha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "captureEpoch",
+        "sequence",
+        "generation",
+        "baselineSlot",
+        "physicalSnakeId",
+        "firstSample",
+        "lastSample",
+        "firstStep",
+        "lastStep",
+        "count",
+        "inputSize",
+        "configSha256",
+        "sensorSha256",
+        "teacherSha256",
+        "startReason",
+        "endReason",
+        "byteCount",
+        "sha256"
+      ]
+    },
+    "TeacherEndReason": {
+      "description": "Ordinary size/time sealing does not reset recurrent continuity.",
+      "type": "string",
+      "enum": [
+        "maximumSamples",
+        "simulatedSecond",
+        "lifeEnded",
+        "generationEnded",
+        "contractChanged",
+        "captureStopped",
+        "interrupted"
+      ]
+    },
+    "TeacherStartReason": {
+      "description": "Why a chunk starts; capture-start is explicitly distinct from physical birth.",
+      "type": "string",
+      "enum": [
+        "captureStart",
+        "physicalLifeStart",
+        "continuation",
+        "gap",
+        "generationStart"
+      ]
+    },
+    "TrainingDeploymentManifest": {
+      "description": "Cadence and motor interpretation actually used by native deployment.",
+      "type": "object",
+      "properties": {
+        "boostMapping": {
+          "type": "string"
+        },
+        "boostOutputIndex": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "boostThreshold": {
+          "type": "number",
+          "format": "float"
+        },
+        "cadence": {
+          "type": "string"
+        },
+        "controlIntervalSeconds": {
+          "type": "number",
+          "format": "double"
+        },
+        "firstPhysicalSample": {
+          "type": "string"
+        },
+        "fixedStepHz": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "generationStateRule": {
+          "type": "string"
+        },
+        "lifeStateRule": {
+          "$ref": "#/$defs/TrainingLifeStateRule"
+        },
+        "turnMapping": {
+          "type": "string"
+        },
+        "turnOutputIndex": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "fixedStepHz",
+        "controlIntervalSeconds",
+        "cadence",
+        "firstPhysicalSample",
+        "lifeStateRule",
+        "generationStateRule",
+        "turnOutputIndex",
+        "boostOutputIndex",
+        "turnMapping",
+        "boostMapping",
+        "boostThreshold"
+      ]
+    },
+    "TrainingEquations": {
+      "description": "Exact Float32 equations, hashed separately from the graph topology.",
+      "type": "object",
+      "properties": {
+        "affine": {
+          "type": "string"
+        },
+        "arithmetic": {
+          "type": "string"
+        },
+        "concat": {
+          "type": "string"
+        },
+        "dtype": {
+          "type": "string"
+        },
+        "gru": {
+          "type": "string"
+        },
+        "lstm": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "rru": {
+          "type": "string"
+        },
+        "split": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "dtype",
+        "affine",
+        "gru",
+        "lstm",
+        "rru",
+        "concat",
+        "split",
+        "arithmetic"
+      ]
+    },
+    "TrainingInitialization": {
+      "description": "Recorded initialization semantics; initial weights must come from Rust.",
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "denseUniformScale": {
+          "type": "number",
+          "format": "double"
+        },
+        "gruUpdateBias": {
+          "type": "number",
+          "format": "double"
+        },
+        "lstmForgetBias": {
+          "type": "number",
+          "format": "double"
+        },
+        "mlpUniformScale": {
+          "type": "number",
+          "format": "double"
+        },
+        "recurrentBiasUniformScale": {
+          "type": "number",
+          "format": "double"
+        },
+        "recurrentInputUniformScale": {
+          "type": "number",
+          "format": "double"
+        },
+        "recurrentStateUniformScale": {
+          "type": "number",
+          "format": "double"
+        },
+        "rngScope": {
+          "type": "string"
+        },
+        "rruGateBias": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "rngScope",
+        "denseUniformScale",
+        "mlpUniformScale",
+        "recurrentInputUniformScale",
+        "recurrentStateUniformScale",
+        "recurrentBiasUniformScale",
+        "gruUpdateBias",
+        "lstmForgetBias",
+        "rruGateBias"
+      ]
+    },
+    "TrainingInput": {
+      "description": "Resolved incoming edge in semantic concatenation order.",
+      "type": "object",
+      "properties": {
+        "fromId": {
+          "type": "string"
+        },
+        "fromPort": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "inputOrdinal": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "fromId",
+        "fromPort",
+        "inputOrdinal"
+      ]
+    },
+    "TrainingLifeStateRule": {
+      "description": "Deployment life rule for recurrent state owned by a population slot.",
+      "type": "string",
+      "enum": [
+        "reset",
+        "preserve"
+      ]
+    },
+    "TrainingNode": {
+      "description": "One compiler-owned node and its canonical numeric views.",
+      "type": "object",
+      "properties": {
+        "hiddenSize": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "hiddenSizes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputSize": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrainingInput"
+          }
+        },
+        "operation": {
+          "type": "string"
+        },
+        "outputSizes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "parameterBlocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrainingParameterBlock"
+          }
+        },
+        "parameterLength": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "parameterOffset": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "stateBlocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrainingStateBlock"
+          }
+        },
+        "stateLength": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "stateOffset": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "operation",
+        "inputSize",
+        "outputSizes",
+        "hiddenSizes",
+        "parameterOffset",
+        "parameterLength",
+        "stateLength",
+        "inputs",
+        "parameterBlocks",
+        "stateBlocks"
+      ]
+    },
+    "TrainingOutput": {
+      "description": "Ordered graph output with explicit source port and flattened destination.",
+      "type": "object",
+      "properties": {
+        "length": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "nodeId": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "port",
+        "offset",
+        "length"
+      ]
+    },
+    "TrainingParameterBlock": {
+      "description": "Named logical view into the single canonical parameter vector.",
+      "type": "object",
+      "properties": {
+        "length": {
+          "description": "Logical element count. Strided affine views can have a larger span.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "offset": {
+          "description": "Offset and strides are measured in Float32 elements, not bytes.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "shape": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        },
+        "strides": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint",
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "offset",
+        "length",
+        "shape",
+        "strides"
+      ]
+    },
+    "TrainingStateBlock": {
+      "description": "Explicit hidden/cell view into the brain's packed recurrent state.",
+      "type": "object",
+      "properties": {
+        "length": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "offset",
+        "length"
+      ]
+    }
+  }
+}

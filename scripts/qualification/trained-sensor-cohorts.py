@@ -1,6 +1,5 @@
 """Measure retained learned clones or seed families through native P0/P1 workloads."""
 import argparse
-import gzip
 import hashlib
 import json
 import os
@@ -31,30 +30,6 @@ def digest(path, maximum=64 * 1024**2):
 def executable_digest(path):
     """Hash the native tool including Linux debug information, with one-MiB read storage."""
     return digest(path, maximum=512 * 1024**2)
-
-
-def extract_artifact(study, evidence, relative, output, replicated):
-    """Restore opaque checksummed bytes; Rust remains the artifact admission authority."""
-    matches = [item for item in evidence["files"] if item["path"] == relative]
-    require(len(matches) == 1, "one retained artifact receipt required")
-    receipt = matches[0]
-    require(type(receipt["bytes"]) is int and 0 < receipt["bytes"] <= 64 * 1024**2,
-            "artifact byte admission")
-    require(all(isinstance(receipt[key], str) and re.fullmatch(r"[0-9a-f]{64}", receipt[key])
-                for key in ("sha256", "gzipSha256")), "artifact digest syntax")
-    expected = "objects/" + receipt["sha256"] + ".gz" if replicated else relative + ".gz"
-    require(receipt["archive"] == expected, "unexpected artifact path")
-    compressed = (study / expected).resolve(strict=True)
-    require(compressed.is_relative_to(study) and compressed.is_file(), "artifact archive escapes study")
-    require(compressed.stat().st_size <= 64 * 1024**2 and digest(compressed) == receipt["gzipSha256"],
-            "retained artifact archive changed")
-    with gzip.open(compressed, "rb") as stream:
-        opaque = stream.read(receipt["bytes"] + 1)
-    require(len(opaque) == receipt["bytes"] and hashlib.sha256(opaque).hexdigest() == receipt["sha256"],
-            "retained artifact bytes changed")
-    with output.open("xb") as stream:
-        stream.write(opaque)
-    return {"studyPath": relative, "artifactSha256": receipt["sha256"]}
 
 
 def selected_variants(profile, variants, direct=False):
@@ -95,13 +70,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
     source_group = parser.add_mutually_exclusive_group(required=True)
-    source_group.add_argument("--study", type=Path)
     source_group.add_argument("--fixtures", type=Path, help="Explicit small learned-cohort fixture index")
     source_group.add_argument("--artifact", type=Path, help="One portable learned brain; Rust validates its complete contract")
     parser.add_argument("--profile", choices=["basic", "motion"], default="motion")
     parser.add_argument("--bins", type=int, default=16)
     parser.add_argument("--variants", nargs="+", choices=["full", "core-only"])
-    parser.add_argument("--replicated", action="store_true", help="Mix three initialization seeds per graph from replicated evidence")
+    parser.add_argument("--replicated", action="store_true", help="Mix three initialization seeds per graph from the small fixture index")
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--warmup", type=int, default=600)
@@ -116,14 +90,9 @@ def main():
     if not 8 <= args.bins <= 32:
         parser.error("v4 bins must be 8..32")
     if args.artifact is not None and args.replicated:
-        parser.error("replicated families require retained study evidence")
+        parser.error("replicated families require an explicit fixture index")
     variants = selected_variants(args.profile, args.variants, args.artifact is not None)
     executable = args.executable.resolve(strict=True)
-    study = args.study.resolve(strict=True) if args.study is not None else None
-    repository = Path(__file__).resolve().parents[2]
-    if study is not None and study.is_relative_to(repository / "docs/performance"):
-        from historical_evidence import required_root  # pylint: disable=import-outside-toplevel
-        study = required_root() / study.relative_to(repository)
     direct = args.artifact.resolve(strict=True) if args.artifact is not None else None
     if direct is not None:
         require(direct.is_file() and 0 < direct.stat().st_size <= 64 * 1024**2,
@@ -134,16 +103,6 @@ def main():
     directory.mkdir()  # Exclusive: never reuse or remove owner paths.
     binary_sha = executable_digest(executable)
     script_sha = digest(Path(__file__))
-    evidence_path = study / "evidence.json" if study is not None else None
-    evidence_sha, evidence = None, None
-    if evidence_path is not None:
-        require(evidence_path.stat().st_size <= 1024**2, "bounded evidence manifest required")
-        evidence_sha = digest(evidence_path)
-        evidence = json.loads(evidence_path.read_bytes())
-        require(isinstance(evidence["files"], list) and len(evidence["files"]) <= 2048, "bounded evidence inventory required")
-    if args.replicated and args.fixtures is None:
-        require(evidence["schemaVersion"] == 1 and evidence["kind"] == "replicated-ablation-evidence-v1"
-                and evidence["status"] == "measured", "measured replicated evidence required")
     fixture = None
     if args.fixtures is not None:
         fixture = json.loads(args.fixtures.read_bytes())
@@ -190,26 +149,6 @@ def main():
             del opaque
             inputs[variant] = {"artifactSha256": sha}
             source_files.extend([(artifact, sha), (direct, sha)])
-        elif args.replicated:
-            families, entries = [], []
-            for seed in (1, 2, 3):
-                relative = f"seed-{seed}-fold-2/{variant}/trained.slither-brain"
-                member = directory / f"{variant}-seed-{seed}.slither-brain"
-                identity = extract_artifact(study, evidence, relative, member, True)
-                families.append(identity)
-                entries.append({"file": member.name, "sha256": identity["artifactSha256"]})
-                source_files.append((member, identity["artifactSha256"]))
-            artifact = directory / (variant + "-cohort.json")
-            with artifact.open("x", encoding="utf-8") as stream:
-                json.dump({"schemaVersion": 1, "artifacts": entries}, stream, indent=2)
-                stream.write("\n")
-            inputs[variant] = {"families": families, "indexSha256": digest(artifact)}
-            source_files.append((artifact, inputs[variant]["indexSha256"]))
-        else:
-            relative = variant + "/trained.slither-brain"
-            artifact = directory / (variant + ".slither-brain")
-            inputs[variant] = extract_artifact(study, evidence, relative, artifact, False)
-            source_files.append((artifact, inputs[variant]["artifactSha256"]))
         all_source_files.extend(source_files)
         source_flag = "--trained-cohort" if args.replicated else "--trained-artifact"
         identity_key = "trainedCohort" if args.replicated else "trainedArtifact"
@@ -288,13 +227,12 @@ def main():
                 records.append(row)
                 print(json.dumps(row, sort_keys=True), flush=True)
     require(executable_digest(executable) == binary_sha and digest(Path(__file__)) == script_sha
-            and (evidence_path is None or digest(evidence_path) == evidence_sha)
             and all(digest(path) == sha for path, sha in all_source_files), "measurement inputs changed")
     training_scope = ("Portable learned source; maturity is not inferred. " if direct is not None
                       else "Trained on short synthetic teacher tactics; maturity is not inferred. ")
     summary = {"version": 1, "measurementComplete": True, "releaseQualified": False,
                "nativeSourceSha256": source, "binarySha256": binary_sha, "scriptSha256": script_sha,
-               "studyEvidenceSha256": evidence_sha, "inputs": inputs, "records": records,
+               "inputs": inputs, "records": records,
                "sensorProfile": args.profile, "sensorBins": args.bins, "sensorSha256": sensor_sha,
                "variants": variants,
                "replicatedFamilies": args.replicated, "maturityQualified": False,

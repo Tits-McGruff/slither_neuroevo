@@ -24,13 +24,13 @@ use std::fmt;
 use std::ops::Deref;
 
 /// Canonical graph-layout version implemented by this compiler.
-pub const CANONICAL_GRAPH_LAYOUT_VERSION: u32 = 1;
+pub use crate::contracts::CANONICAL_GRAPH_LAYOUT_VERSION;
 
 /// Domain separator included in bytes covered by the layout SHA-256 digest.
-pub const CANONICAL_GRAPH_LAYOUT_DOMAIN: &[u8] = b"slither-neuroevo/graph-layout/v1\0";
+pub use crate::contracts::CANONICAL_GRAPH_LAYOUT_DOMAIN;
 
 /// The authoritative graph output contract: turn and boost.
-pub const AUTHORITATIVE_OUTPUT_SIZE: usize = 2;
+pub use crate::contracts::AUTHORITATIVE_OUTPUT_SIZE;
 
 /// Caller-selected limits for one authoritative graph compilation request.
 ///

@@ -258,7 +258,8 @@ async function run(): Promise<void> {
     assert.equal(nativeSourceSha256, computeNativeSourceIdentity(resolve('native')).sha256, 'native sources changed during measurement');
     report = {schemaVersion: 1, recordedAt: new Date().toISOString(), scenario, workers, requestedSeconds: seconds, warmupSeconds,
       scope: 'Real Rust background clock, durable run-start SQLite checkpoint, ten v2 stochastic teachers, diagnostic spool and latest-frame copying. Seeded random modest population with unlimited evolved respawn and normal teacher death gaps. Excludes browser/WebSocket delivery, trainer, shadows, full storage capacity, long soak and production-default selection.',
-      source: {revision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(), hostSha256, summarySha256, observationHelperSha256, observationContractSha256,
+      source: {revision: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
+        workingTree: execFileSync('git', ['status', '--porcelain'], {encoding: 'utf8'}).trim(), hostSha256, summarySha256, observationHelperSha256, observationContractSha256,
         nativeSourceSha256, nativeBuildIdentifier: binding.nativeAddonBuildIdentifier(), nativeTarget: binding.nativeAddonBuildTarget(), nativeClass: binding.nativeAddonBuildClass()},
       environment: {platform: platform(), release: release(), cpu: cpus()[0]?.model, availableCpus: availableParallelism(), totalMemoryBytes: totalmem()},
       workload: {request, metadata, captureLimits, storagePolicy, queues: INIT, runStartCheckpoint: checkpoint},

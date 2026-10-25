@@ -1,3 +1,4 @@
+import { SENSOR_HASH_DOMAIN } from "../../contracts/types.ts";
 import { DEFAULT_DISTILLATION_SPOOL_GIB, GIB_BYTES, MAX_DISTILLATION_SPOOL_GIB, validateDistillationSpoolGiB } from './distillationSpoolLimits.ts';
 import { distillationHex, distillationInteger } from '../../src/protocol/distillation.ts';
 /** Shared diagnostic wire contracts remain browser-safe and contain no sample codec. */
@@ -140,7 +141,7 @@ export function parseTeacherContract(value: unknown, sensorJson: unknown): Teach
     throw new TypeError('invalid teacher cadence');
   }
   if (typeof sensorJson !== 'string' || Buffer.byteLength(sensorJson) > 65_536) throw new TypeError('invalid sensor metadata');
-  const digest = createHash('sha256').update('slither.sensor-contract.v1\0').update(sensorJson).digest('hex');
+  const digest = createHash('sha256').update(SENSOR_HASH_DOMAIN).update(sensorJson).digest('hex');
   if (digest !== raw['sensorSha256']) throw new TypeError('sensor metadata digest mismatch');
   const layout = sensorLayoutFromContract({ canonicalJson: sensorJson, sha256: digest });
   if (layout.layoutVersion !== 'v4' || layout.inputSize !== raw['inputSize']) throw new TypeError('teacher sensor contract mismatch');

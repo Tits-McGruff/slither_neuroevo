@@ -1,0 +1,36 @@
+{
+  "brainHeader": "<8sIB3xII32s32s",
+  "brainMagic": "SLTHBRN1",
+  "equationFieldOrder": [
+    "revision",
+    "dtype",
+    "affine",
+    "gru",
+    "lstm",
+    "rru",
+    "concat",
+    "split",
+    "arithmetic"
+  ],
+  "equationHashDomain": "slither.training-equations.v1\u0000",
+  "equations": {
+    "affine": "y=tanh(W*x+b); every Dense and every MLP layer, including output; W row-major with row-interleaved bias",
+    "arithmetic": "sigmoid(x)=1/(1+exp(-x)); Float32 intermediates; scalar/SSE2 dot accumulation may differ within parity tolerances",
+    "concat": "concatenate source ports in increasing resolved inputOrdinal; fan-out reads the same source values",
+    "dtype": "Float32",
+    "gru": "z=sigmoid((Wz*x+Uz*h)+bz); r=sigmoid((Wr*x+Ur*h)+br); candidate=tanh((Wh*x+Uh*(r*h))+bh); h'=(1-z)*h+z*candidate",
+    "lstm": "i=sigmoid((Wi*x+Ui*h)+bi); f=sigmoid((Wf*x+Uf*h)+bf); o=sigmoid((Wo*x+Uo*h)+bo); g=tanh((Wg*x+Ug*h)+bg); c'=f*c+i*g; h'=o*tanh(c'); state=[h,c]",
+    "revision": 1,
+    "rru": "candidate=tanh((Wc*x+Uc*h)+bc); gate=sigmoid((Wr*x+Ur*h)+br); h'=(1-gate)*h+gate*candidate",
+    "split": "contiguous source slices in outputSizes order; zero-based ports"
+  },
+  "graphHashDomain": "slither-neuroevo/graph-layout/v1\u0000",
+  "graphLayoutVersion": 1,
+  "maxBrainBytes": 67108864,
+  "maxManifestBytes": 1048576,
+  "maxTeacherBytes": 1048576,
+  "sensorHashDomain": "slither.sensor-contract.v1\u0000",
+  "teacherHeaderTail": "<IBdHQQIQBBH",
+  "teacherMagic": "SLTHTCH1",
+  "teacherSample": "<QQfBBBH"
+}

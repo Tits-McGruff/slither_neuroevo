@@ -1,6 +1,6 @@
 # Actual native sensor qualification
 
-Historical directories now retain compact `run.json` references. Full original reports, corpora, profiles, source archives and model collections are preserved in the verified release asset described by [the storage policy](../README.md) and [catalog](../catalog.json). Historical payload paths below resolve inside that external cache. Unique experimental code is preserved as Git/base-commit patches under `benchmarks/patches/`.
+Historical measurements follow. Full outputs remain in the published release described by [the performance index](../README.md); old paths and commands are historical context. Migration catalogs and exceptional patches remain at tag `qualification-resume-20261025`.
 
 Build the bounded workload runner with:
 
@@ -1655,9 +1655,7 @@ in content-addressed gzip objects. Deduplication reduces 1,324 logical files to
 
 Reproduce the retained-study verification with:
 
-```text
-python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
-```
+Historical replicated-study verification was completed before archival; it is not a current qualification requirement.
 
 The verifier streams bounded originals into exclusive temporary scratch, verifies
 every corpus/object receipt, then runs
@@ -1706,9 +1704,7 @@ observed equality for these paired runs, not a cross-build/platform physics
 replay promise. Maturity, representative gameplay and default selection remain
 explicitly unqualified.
 
-```text
-python -B scripts/qualification/verify-replicated-ablation.py --evidence docs/performance/sensor-v4/heldout-curves-windows-v1 --previous-evidence docs/performance/sensor-v4/replicated-ablation-windows-v1
-```
+Historical replicated-study verification was completed before archival; it is not a current qualification requirement.
 
 Windows/Ubuntu Node 24 CI restores the full capsule, recomputes its matrix, and
 checks the training-prefix witness against the retained predecessor. Its versioned

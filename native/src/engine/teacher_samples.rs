@@ -4,37 +4,15 @@
 
 use sha2::{Digest, Sha256};
 
+pub use crate::contracts::MAX_TEACHER_CHUNK_BYTES;
+pub use crate::contracts::MAX_TEACHER_INPUTS;
 /// Hard wire ceilings, independent of native queue/spool retention admission.
-pub const MAX_TEACHER_SAMPLES_PER_CHUNK: usize = 256;
-pub const MAX_TEACHER_INPUTS: usize = 504;
-pub const MAX_TEACHER_CHUNK_BYTES: usize = 1024 * 1024;
-const MAGIC: &[u8; 8] = b"SLTHTCH1";
+pub use crate::contracts::MAX_TEACHER_SAMPLES_PER_CHUNK;
+use crate::contracts::TEACHER_MAGIC as MAGIC;
 const SAMPLE_FIXED_BYTES: usize = 25;
 const HEADER_FIXED_BYTES: usize = 168;
 
-/// Why a chunk starts; capture-start is explicitly distinct from physical birth.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TeacherStartReason {
-    CaptureStart = 0,
-    PhysicalLifeStart = 1,
-    Continuation = 2,
-    Gap = 3,
-    GenerationStart = 4,
-}
-
-/// Ordinary size/time sealing does not reset recurrent continuity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TeacherEndReason {
-    MaximumSamples = 0,
-    SimulatedSecond = 1,
-    LifeEnded = 2,
-    GenerationEnded = 3,
-    ContractChanged = 4,
-    CaptureStopped = 5,
-    Interrupted = 6,
-}
+pub use crate::contracts::{TeacherEndReason, TeacherStartReason};
 
 /// Immutable capture/contract identity repeated in every self-contained chunk.
 #[derive(Clone, Debug, PartialEq)]
