@@ -49,7 +49,9 @@ interface QualifiedSession extends ExperimentalFreshRunNativeHandle {
     rayMinimum: number; rayCap: number; rayBatch: number}): Promise<{capacityAuditJson: string}>;
   /** Delegate all state construction to the real Rust qualification constructor. */
   initializeBaselineV2ForTest(request: {profile: string; bins: number; mode: number; cadence: number;
-    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string}): Promise<{trainedCohortJson?: string}>;
+    rayMinimum: number; rayCap: number; rayBatch: number; workload?: string; trainedCohort?: string;
+    /** Paired native detail bounds for the qualified modest workload. */
+    pelletChecks?: number; segmentChecks?: number}): Promise<{trainedCohortJson?: string}>;
 }
 /** Metadata-only native capacity audit, returned before checkpoint publication. */
 interface CapacityAudit {
@@ -280,7 +282,11 @@ async function run(): Promise<void> {
     const runId = 'live-distillation-' + randomBytes(8).toString('hex');
     const session = new Constructor(runId, '0000002a', '0000000100000000', workers);
     const request = workload
-      ? {profile: 'motion', bins: capacityGraph ? 32 : 16, mode: 1, cadence: 1 / 60, rayMinimum: 1, rayCap: 512, rayBatch: 131072, workload}
+      ? {profile: 'motion', bins: capacityGraph ? 32 : 16, mode: 1, cadence: 1 / 60, rayMinimum: 1,
+        // Modest P0/P1 measures the selected production query tuple. Explicit
+        // B32 capacity candidates retain their separate larger ray environment.
+        rayCap: capacityGraph ? 512 : 256, rayBatch: capacityGraph ? 131072 : 65536,
+        ...(capacityGraph ? {} : {pelletChecks: 3000, segmentChecks: 2200}), workload}
       : {profile: 'basic', bins: 8, mode: 0, cadence: 0.06, rayMinimum: 1, rayCap: 256, rayBatch: 65536};
     const initialized: {trainedCohortJson?: string; capacityAuditJson?: string} = capacityGraph
       ? await session.initializeCapacityForTest({population: workload === 'P0' ? 55 : 300, graph: capacityGraph,
@@ -319,6 +325,12 @@ async function run(): Promise<void> {
       assert.equal(settings.get('snakeCount'), workload === 'P0' ? 55 : 300);
       assert.equal(settings.get('generationSeconds'), 604800); assert.equal(settings.get('simSpeed'), 1);
       assert.equal(settings.get('evolvedRespawn.enabled'), true); assert.equal(settings.get('brain.controlDt'), 1 / 60);
+      if (!capacityGraph) {
+        for (const [path, value] of [['sense.maxPelletChecks', 3000], ['sense.maxSegmentChecks', 2200],
+          ['sense.rayMinimum', 1], ['sense.rayCap', 256], ['sense.rayBatch', 65536]] as const) {
+          assert.equal(settings.get(path), value, 'live workload must retain its selected query budget');
+        }
+      }
     }
     persistence = new CheckpointPersistenceClient({databasePath: join(root, 'game.sqlite'), managedRootPath: managed});
     const descriptor = parseManagedCheckpointDescriptor(await session.publishRunStartCheckpoint({managedDirectory: managed, operationId: randomBytes(16).toString('hex')}));
