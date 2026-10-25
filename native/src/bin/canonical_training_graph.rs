@@ -86,8 +86,10 @@ fn read_floats(path: &Path, maximum: usize) -> Result<Vec<f32>, String> {
         return Err("Float32 input has a partial trailing value".into());
     }
     Ok(bytes
-        .chunks_exact(4)
-        .map(|part| f32::from_le_bytes(part.try_into().expect("four bytes")))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|part| f32::from_le_bytes(*part))
         .collect())
 }
 
