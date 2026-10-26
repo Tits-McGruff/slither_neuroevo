@@ -10,6 +10,8 @@ export const MAX_GENERATION_SECONDS = 604_800;
  */
 export function parseDuration(text: string): number | null {
   if (text.length > 128) return null;
+  // The complete duration may contain at most one comma separator.
+  if (text.indexOf(',') !== text.lastIndexOf(',')) return null;
   const input = text.replace(/^[ \t]+|[ \t]+$/g, '');
   if (/^[0-9]+$/.test(input)) {
     const seconds = Number(input);
