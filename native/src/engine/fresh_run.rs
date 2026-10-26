@@ -1595,7 +1595,7 @@ pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
         max_graph_outputs: 8,
         max_identifier_bytes: 64,
         max_total_referenced_identifier_bytes: 16 * 1024,
-        max_tensor_width: 512,
+        max_tensor_width: 4096,
         max_mlp_hidden_layers: 8,
         max_split_output_ports: 16,
         max_parameter_floats: 1_000_000,
@@ -4318,6 +4318,74 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("does not match sensor width"));
+    }
+
+    #[test]
+    fn production_v4_admits_wide_hidden_layers_within_parameter_limit() {
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        use crate::engine::sensor_contract::{SensorContractIdentity, SensorProfile};
+
+        let contract = SensorContractIdentity::new(SensorProfile::Motion, 32).unwrap();
+        let input_size = contract.input_size();
+        assert_eq!(input_size, 504);
+        let mut settings = selected_fresh_default_settings().unwrap();
+        contract.record_v4_settings(&mut settings).unwrap();
+        let mut settings = numeric_fresh_settings(settings);
+        settings
+            .iter_mut()
+            .find(|setting| setting.path == "snakeCount")
+            .unwrap()
+            .value = 1.0;
+
+        for hidden_size in [768, 1024, 2048] {
+            let graph = GraphSpec {
+                nodes: vec![
+                    GraphNodeSpec {
+                        id: "input".into(),
+                        kind: GraphNodeKind::Input {
+                            output_size: input_size,
+                        },
+                    },
+                    GraphNodeSpec {
+                        id: "head".into(),
+                        kind: GraphNodeKind::Mlp {
+                            input_size,
+                            hidden_sizes: vec![hidden_size],
+                            output_size: 2,
+                        },
+                    },
+                ],
+                edges: vec![GraphEdge {
+                    from: "input".into(),
+                    to: "head".into(),
+                    from_port: None,
+                    to_port: None,
+                }],
+                outputs: vec![GraphOutputRef {
+                    node_id: "head".into(),
+                    port: None,
+                }],
+                output_size: 2,
+            };
+            let parameters = (input_size + 1) * hidden_size + (hidden_size + 1) * 2;
+            let result =
+                prepare_configured_fresh_run_with_settings_and_graph(request(45), &settings, graph);
+            if hidden_size == 2048 {
+                assert!(parameters > 1_000_000);
+                let error = match result {
+                    Ok(_) => panic!("a graph exceeding the parameter limit must reject"),
+                    Err(error) => error,
+                };
+                assert!(error.to_string().contains("max_parameter_floats"));
+            } else {
+                assert!(parameters < 1_000_000);
+                let transition =
+                    result.expect("a bounded wide v4 graph must pass production admission");
+                let metadata: serde_json::Value =
+                    serde_json::from_str(&transition.startup_metadata_json().unwrap()).unwrap();
+                assert_eq!(metadata["parameterCount"], parameters);
+            }
+        }
     }
 
     fn fixture() -> FreshRunFixture {
