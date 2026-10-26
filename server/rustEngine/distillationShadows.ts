@@ -93,12 +93,13 @@ export class DistillationShadows {
       captureEpoch: distillationHex(raw['captureEpoch'], 32, 'shadow capture', true),
       activationSequence: distillationHex(raw['activationSequence'], 16, 'shadow activation', true) };
     return this.exclusive(async incarnation => {
-      const retry = await this.spool.shadowReceipt(this.processEpoch, requestId);
+      const durable = await this.spool.shadowReceipt(this.processEpoch, requestId);
+      const activation = this.activations[slot];
+      const retry = durable ?? (activation?.requestId === requestId ? activation : undefined);
       if (retry) {
         if (retry.enabled || retry.shadowSlot !== slot || retry.captureEpoch !== request.captureEpoch || retry.activationSequence !== request.activationSequence) throw new Error('shadow request immutable retry mismatch');
-        return retry;
+        return durable ?? this.spool.recordShadow(retry);
       }
-      const activation = this.activations[slot];
       if (!activation || activation.captureEpoch !== request.captureEpoch || activation.activationSequence !== request.activationSequence || activation.runId !== this.runId()) throw new Error('shadow stop activation mismatch');
       this.requireIncarnation(incarnation);
       const { acknowledgedAt: _time, effectiveStep: _step, commandSequence: _command, ...expected } = activation;

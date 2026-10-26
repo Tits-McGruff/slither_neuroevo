@@ -178,6 +178,27 @@ it('a receipt persistence failure preserves confirmed activation for exact diagn
   expect(calls).toHaveLength(1); await service.close();
 });
 
+it('retries a confirmed stop receipt without changing its native sequence, step or acknowledgement time', async () => {
+  vi.useFakeTimers();
+  const { service, body, spool, native, admission } = coordinator();
+  const stop = vi.spyOn(native, 'submitStopShadow');
+  try {
+    const active = await service.activate(0, body);
+    const request = { requestId: '21'.repeat(16), captureEpoch: body.captureEpoch, activationSequence: active.activationSequence };
+    spool.recordShadow.mockRejectedValueOnce(new Error('disk reserve exhausted'));
+    await expect(service.stop(0, request)).rejects.toThrow(/applied; receipt persistence failed/u);
+    const confirmed = spool.recordShadow.mock.calls[1]![0];
+    expect(confirmed).toMatchObject({ enabled: false, commandSequence: word(2), effectiveStep: word(13) });
+    await expect(service.stop(0, { ...request, captureEpoch: '18'.repeat(16) })).rejects.toThrow(/immutable retry/u);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await service.stop(0, request)).toEqual(confirmed);
+    expect(await service.stop(0, request)).toEqual(confirmed);
+    expect(spool.recordShadow.mock.calls[2]![0]).toEqual(confirmed);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(admission.nextSequence()).toBe(word(3));
+  } finally { await service.close(); }
+});
+
 it('native metrics reject expanded slots, nonfinite outputs, bad strata and lossy long counters', () => {
   expect(parseShadowMetrics(emptyMetrics).slots).toHaveLength(4);
   expect(() => parseShadowMetrics('{"schemaVersion":1,"slots":[]}')).toThrow(/slot count/u);
