@@ -37,6 +37,8 @@ export class DistillationShadows {
   private readonly activations: (ShadowReceipt | undefined)[] = Array(4).fill(undefined);
   /** One asynchronous event persistence operation, independent of the authority pump. */
   private persistence: Promise<void> | undefined;
+  /** One confirmed result must become durable before a later control can replace its slot receipt. */
+  private unpersisted: ShadowReceipt | undefined;
 
   /** All model/file admission belongs to the diagnostic worker; controls share global sequence ownership. */
   constructor(
@@ -147,7 +149,12 @@ export class DistillationShadows {
     if (this.closed) throw new Error('shadow coordinator closing');
     if (this.busy || this.pending) throw new Error('shadow control outcome remains pending; retry original request');
     this.busy = true;
-    try { return await operation(this.incarnation); } finally { this.busy = false; }
+    const incarnation = this.incarnation;
+    try {
+      if (this.unpersisted) await this.persist(this.unpersisted);
+      this.requireIncarnation(incarnation);
+      return await operation(incarnation);
+    } finally { this.busy = false; }
   }
   /** Preparation cannot cross a reset/import/New Run boundary. */
   private requireIncarnation(value: number): void {
@@ -170,7 +177,12 @@ export class DistillationShadows {
   }
   /** Every failed write of an applied receipt retains the client's immutable recovery request. */
   private async persist(receipt: ShadowReceipt): Promise<ShadowReceipt> {
-    try { return await this.spool.recordShadow(receipt); }
+    this.unpersisted = receipt;
+    try {
+      const saved = await this.spool.recordShadow(receipt);
+      if (this.unpersisted === receipt) this.unpersisted = undefined;
+      return saved;
+    }
     catch (error) { throw new Error('native shadow applied; receipt persistence failed: ' + (error instanceof Error ? error.message : String(error))); }
   }
   /** Native admission consumes only the shared successful sequence; queue pressure does not pin a control. */

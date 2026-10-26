@@ -211,6 +211,30 @@ it('retries a confirmed stop receipt without changing its native sequence, step 
   } finally { await service.close(); }
 });
 
+it.each(['activation', 'stop'] as const)('persists a failed %s receipt before another client can replace its slot', async action => {
+  const { service, body, spool, native, calls, admission } = coordinator();
+  const stop = vi.spyOn(native, 'submitStopShadow');
+  try {
+    if (action === 'stop') await service.activate(0, body);
+    const request = { requestId: '21'.repeat(16), captureEpoch: body.captureEpoch, activationSequence: word(1) };
+    spool.recordShadow.mockRejectedValueOnce(new Error('disk reserve exhausted'));
+    await expect(action === 'activation' ? service.activate(0, body) : service.stop(0, request))
+      .rejects.toThrow(/applied; receipt persistence failed/u);
+    const original = spool.recordShadow.mock.calls.at(-1)![0];
+    const replacement = { ...body, requestId: '22'.repeat(16), expectedActivationSequence: word(1) };
+    const otherClient = () => action === 'activation' ? service.stop(0, request) : service.activate(0, replacement);
+    spool.recordShadow.mockRejectedValueOnce(new Error('disk reserve exhausted'));
+    await expect(otherClient()).rejects.toThrow(/applied; receipt persistence failed/u);
+    expect(calls).toHaveLength(1); expect(stop).toHaveBeenCalledTimes(action === 'stop' ? 1 : 0);
+    expect(admission.nextSequence()).toBe(word(action === 'stop' ? 3 : 2));
+    await otherClient();
+    expect(await (action === 'activation' ? service.activate(0, body) : service.stop(0, request))).toEqual(original);
+    expect(spool.recordShadow.mock.calls.at(-2)![0]).toEqual(original);
+    expect(calls).toHaveLength(action === 'stop' ? 2 : 1);
+    expect(stop).toHaveBeenCalledTimes(1);
+  } finally { await service.close(); }
+});
+
 it('native metrics reject expanded slots, nonfinite outputs, bad strata and lossy long counters', () => {
   expect(parseShadowMetrics(emptyMetrics).slots).toHaveLength(4);
   expect(() => parseShadowMetrics('{"schemaVersion":1,"slots":[]}')).toThrow(/slot count/u);
