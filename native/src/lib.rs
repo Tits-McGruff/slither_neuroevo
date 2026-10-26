@@ -3,15 +3,21 @@
 #[cfg(not(panic = "unwind"))]
 compile_error!("the authoritative native addon requires panic=unwind");
 
+/// Cross-project structural contracts, independent of native execution.
+pub mod contracts;
 /// Rust-owned authoritative engine components under staged migration.
 pub mod engine;
+mod napi_brain_artifact;
 mod napi_engine;
 mod napi_queue_diagnostics;
 mod napi_running_engine;
+mod napi_shadows;
+mod napi_teacher_capture;
 mod simd_kernels;
 
 use napi_derive::napi;
 
+pub use napi_brain_artifact::{publish_saved_brain, validate_brain_artifact_file};
 pub use napi_engine::experimental_engine_contract_version;
 
 /// Return the crate, source-revision, and source-content identity embedded at build time.

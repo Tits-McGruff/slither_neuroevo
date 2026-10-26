@@ -19,6 +19,7 @@ const FIXED_SOURCE_FILES: &[&str] = &[
     "fixtures/frame-v1-reference.json",
     "fixtures/fresh-run-reference.json",
     "fixtures/genome-init-reference.json",
+    "fixtures/sensor-contract-shapes.json",
     "fixtures/sensor-v3-reference.json",
     "package-lock.json",
     "package.json",

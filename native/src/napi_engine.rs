@@ -39,8 +39,8 @@ use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERRO
 use crate::engine::export_archive::prepare_legacy_sqlite_population_import;
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_checkpoint_restore, prepare_stage6a_p0_compatible_checkpoint_restore,
-    prepare_stage6a_p0_fresh_run, Stage6aP0FreshRunRequest,
+    prepare_default_fresh_run, prepare_stage6a_p0_checkpoint_restore,
+    prepare_stage6a_p0_compatible_checkpoint_restore, Stage6aP0FreshRunRequest,
 };
 use crate::engine::generation::GenerationCommitRecord;
 use crate::engine::physics::PhysicsStepKey;
@@ -149,6 +149,14 @@ pub struct Stage3CheckpointFixtureOptions {
 
 /// Scalar-only descriptor returned by a real Rust checkpoint publisher.
 #[napi(object)]
+#[cfg_attr(
+    feature = "engine-test-hooks",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "engine-test-hooks",
+    serde(rename_all = "camelCase", deny_unknown_fields)
+)]
 pub struct ManagedCheckpointDescriptor {
     /// Descriptor protocol version.
     pub protocol_version: u32,
@@ -200,6 +208,8 @@ pub struct ManagedCheckpointDescriptor {
 
 /// Scalar-only descriptor for one deduplicated Hall-of-Fame weight object.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct ManagedHallOfFameWeightsDescriptor {
     pub version: u32,
     pub logical_sha256: String,
@@ -222,6 +232,8 @@ pub struct ManagedCheckpointPublicationOptions {
 
 /// Exact Rust-owned eight-field generation summary wire record.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6GenerationSummaryRecord {
     pub completed_generation: String,
     pub best_f64_hex: String,
@@ -235,6 +247,8 @@ pub struct Stage6GenerationSummaryRecord {
 
 /// Exact Rust-owned Hall-of-Fame successor reference wire record.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6HallOfFameRecord {
     pub completed_generation: String,
     pub source_population_slot: String,
@@ -246,9 +260,35 @@ pub struct Stage6HallOfFameRecord {
     pub successor_genome_id: String,
 }
 
+/// Exact versioned terminal chronology persisted beside compact generation history.
+#[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
+pub struct Stage6GenerationCompletionRecord {
+    pub version: u32,
+    pub reason: String,
+    pub actual_elapsed_f64_hex: String,
+    pub configured_duration_f64_hex: String,
+    pub completed_step: String,
+}
+
+/// Fixed metadata extension; byte order and all numeric bits are Rust-authored.
+#[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
+pub struct Stage6GenerationExperimentRecord {
+    pub version: u32,
+    pub history_hex: String,
+    pub hall_of_fame_hex: String,
+}
+
 /// Complete scalar-only generation commit assembled by Rust admission.
 #[napi(object)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct Stage6GenerationCommitRecord {
+    pub experiment: Option<Stage6GenerationExperimentRecord>,
+    pub completion: Option<Stage6GenerationCompletionRecord>,
     pub summary: Stage6GenerationSummaryRecord,
     pub hall_of_fame: Stage6HallOfFameRecord,
 }
@@ -443,6 +483,67 @@ pub struct BackgroundControllerReceiptResolution {
     pub published_completed_step: Option<String>,
 }
 
+/// Small tagged provenance copied only for one explicitly selected live entity.
+#[napi(object)]
+pub struct BackgroundRetainedOrigin {
+    pub kind: String,
+    pub weights_sha256: String,
+    pub entry_id: Option<String>,
+    pub brain_id: Option<String>,
+    pub source_kind: Option<String>,
+}
+
+impl From<crate::engine::retained_origin::RetainedNeuralOrigin> for BackgroundRetainedOrigin {
+    fn from(origin: crate::engine::retained_origin::RetainedNeuralOrigin) -> Self {
+        use crate::engine::retained_origin::RetainedNeuralOrigin;
+        let hex = |bytes: &[u8; 32]| bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        match origin {
+            RetainedNeuralOrigin::HallOfFame {
+                entry_id,
+                weight_digest,
+            } => Self {
+                kind: "hall-of-fame".into(),
+                weights_sha256: hex(&weight_digest),
+                entry_id: Some(u64_hex(entry_id)),
+                brain_id: None,
+                source_kind: None,
+            },
+            RetainedNeuralOrigin::SavedBrain {
+                brain_id,
+                weight_digest,
+                source_kind,
+            } => Self {
+                kind: "saved-brain".into(),
+                weights_sha256: hex(&weight_digest),
+                entry_id: None,
+                brain_id: Some(hex(&brain_id)),
+                source_kind: Some(
+                    match source_kind {
+                        crate::engine::brain_artifact::BrainSourceKind::Distilled => "distilled",
+                        crate::engine::brain_artifact::BrainSourceKind::Imported => "imported",
+                        crate::engine::brain_artifact::BrainSourceKind::Manual => "manual",
+                    }
+                    .into(),
+                ),
+            },
+        }
+    }
+}
+
+/// On-demand native identity and presentation scalars for one live entity.
+#[napi(object)]
+pub struct BackgroundEntitySelection {
+    pub token: String,
+    pub snake_id: u32,
+    pub population_slot: Option<u32>,
+    pub life_ordinal: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub radius: f64,
+    pub skin: u32,
+    pub retained_origin: Option<BackgroundRetainedOrigin>,
+}
+
 /// Small authoritative result of one in-bounds God Mode translation.
 #[napi(object)]
 pub struct BackgroundGodModeMove {
@@ -467,6 +568,15 @@ pub struct BackgroundHallOfFameResurrection {
     pub effective_step: String,
 }
 
+/// Immutable candidate activation receipt at an ordered authoritative boundary.
+#[napi(object)]
+pub struct BackgroundShadowChange {
+    pub shadow_slot: u32,
+    pub artifact_sha256: String,
+    pub enabled: bool,
+    pub effective_step: String,
+}
+
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationEvent {
@@ -487,10 +597,17 @@ pub struct Stage6BackgroundGenerationEvent {
     pub settings_config_revision: Option<String>,
     pub settings_config_hash: Option<String>,
     pub settings_effective_step: Option<String>,
+    pub finish_generation_effective_step: Option<String>,
+    pub entity_selection: Option<BackgroundEntitySelection>,
     pub god_mode_move: Option<BackgroundGodModeMove>,
     pub god_mode_kill: Option<BackgroundGodModeKill>,
     pub hall_of_fame_resurrection: Option<BackgroundHallOfFameResurrection>,
+    pub saved_brain_spawn: Option<BackgroundHallOfFameResurrection>,
     pub visualization_enabled: Option<bool>,
+    pub inspector_enabled: Option<bool>,
+    pub teacher_capture_epoch: Option<String>,
+    pub teacher_capture_enabled: Option<bool>,
+    pub shadow_change: Option<BackgroundShadowChange>,
     pub controller_disconnect: Option<BackgroundControllerDisconnect>,
     pub controller_join_assignment: Option<BackgroundControllerReclaimAssignment>,
     pub controller_join_resolution: Option<BackgroundControllerReclaimResolution>,
@@ -752,6 +869,10 @@ impl ExperimentalStage6aFreshRunSession {
             return Err(error);
         }
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Fresh,
@@ -798,6 +919,10 @@ impl ExperimentalStage6aFreshRunSession {
             }
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::Checkpoint(Box::new(restore)),
@@ -844,6 +969,10 @@ impl ExperimentalStage6aFreshRunSession {
             }
         };
         Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
             source: FreshRunInitialization::LegacySqlite(legacy),
@@ -1062,6 +1191,452 @@ impl ExperimentalStage6aFreshRunSession {
     }
 }
 
+#[cfg(feature = "engine-test-hooks")]
+#[napi]
+impl ExperimentalStage6aFreshRunSession {
+    /// Restore an exact candidate boundary only with explicit sensor/math/ray admission.
+    #[napi(catch_unwind)]
+    pub fn initialize_sensor_checkpoint_for_test(
+        &self,
+        managed_directory: JsString<'_>,
+        descriptor: Object<'_>,
+        admission: Object<'_>,
+    ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
+        let keys = [
+            "profile",
+            "bins",
+            "mathBackend",
+            "rayMinimum",
+            "rayCap",
+            "rayBatch",
+            "envelopeMiB",
+        ];
+        let names = admission.get_property_names()?;
+        if !matches!(names.get_array_length()?, 6 | 7) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "qualified restore requires exact fields",
+            ));
+        }
+        for index in 0..names.get_array_length()? {
+            let key = bounded_js_string(
+                names.get_element::<JsString<'_>>(index)?,
+                "restore key",
+                32,
+                false,
+            )?;
+            if !keys.contains(&key.as_str()) || !admission.has_own_property(&key)? {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore requires exact own fields",
+                ));
+            }
+        }
+        let profile = match bounded_object_string(&admission, "profile", 6)?.as_str() {
+            "basic" => crate::engine::sensor_contract::SensorProfile::Basic,
+            "motion" => crate::engine::sensor_contract::SensorProfile::Motion,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore requires Basic/Motion",
+                ))
+            }
+        };
+        let math = match bounded_object_string(&admission, "mathBackend", 6)?.as_str() {
+            "scalar" => crate::engine::inference::InferenceMathBackend::Scalar,
+            "sse2" => crate::engine::inference::InferenceMathBackend::Sse2,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore math backend",
+                ))
+            }
+        };
+        let integer = |key, low: f64, high: f64| -> Result<usize> {
+            let value = admission
+                .get::<f64>(key)?
+                .ok_or_else(|| Error::new(Status::InvalidArg, "restore value missing"))?;
+            if !value.is_finite() || value.fract() != 0.0 || value < low || value > high {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore integer range",
+                ));
+            }
+            Ok(value as usize)
+        };
+        let bins = integer("bins", 8.0, 32.0)?;
+        crate::engine::sensor_contract::SensorContractIdentity::new(profile, bins)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let ray_work = crate::engine::ray_work::RayWorkLimits::new(
+            integer("rayMinimum", 0.0, 1_000_000.0)? as u32,
+            integer("rayCap", 1.0, 1_000_000.0)? as u32,
+            integer("rayBatch", 1.0, 10_000_000.0)? as u32,
+            512,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let capacity_policy = if admission.has_own_property("envelopeMiB")? {
+            if profile != crate::engine::sensor_contract::SensorProfile::Motion || bins != 32 {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualified restore capacity envelope requires Motion/B32",
+                ));
+            }
+            Some(
+                crate::engine::checkpoint_capacity::CheckpointCapacityPolicy::new(
+                    integer("envelopeMiB", 512.0, 768.0)?,
+                    false,
+                )
+                .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?,
+            )
+        } else {
+            None
+        };
+        let directory = parse_managed_path(bounded_js_string(
+            managed_directory,
+            "managedDirectory",
+            32_768,
+            false,
+        )?)?;
+        let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
+        if descriptor.run_id != self.request.run_id {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "qualified restore run differs from session",
+            ));
+        }
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeExperimentalFreshRunTask {
+            #[cfg(feature = "engine-test-hooks")]
+            trained_cohort_json: None,
+            #[cfg(feature = "engine-test-hooks")]
+            capacity_audit_json: None,
+            request: self.request.clone(),
+            calculation_workers: self.calculation_workers,
+            source: FreshRunInitialization::QualifiedCheckpoint(Box::new(
+                QualifiedCheckpointInitialization {
+                    directory,
+                    descriptor,
+                    profile,
+                    bins,
+                    math,
+                    ray_work,
+                    capacity_policy,
+                },
+            )),
+            inner: Arc::clone(&self.inner),
+            active_operation: Arc::clone(&self.active_operation),
+        }))
+    }
+
+    /// Construct one explicit Motion/B32 capacity candidate through ordinary native admission.
+    #[napi(catch_unwind)]
+    pub fn initialize_capacity_for_test(
+        &self,
+        request: Object<'_>,
+    ) -> Result<AsyncTask<InitializeQualifiedFreshRunTask>> {
+        let keys = [
+            "population",
+            "graph",
+            "envelopeMiB",
+            "rawFallback",
+            "rayMinimum",
+            "rayCap",
+            "rayBatch",
+        ];
+        let names = request.get_property_names()?;
+        if names.get_array_length()? != keys.len() as u32 {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "capacity qualification requires exact fields",
+            ));
+        }
+        for index in 0..names.get_array_length()? {
+            let key = bounded_js_string(
+                names.get_element::<JsString<'_>>(index)?,
+                "capacity key",
+                32,
+                false,
+            )?;
+            if !keys.contains(&key.as_str()) || !request.has_own_property(&key)? {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "capacity qualification requires exact own fields",
+                ));
+            }
+        }
+        let integer = |key, low: f64, high: f64| -> Result<usize> {
+            let value = request
+                .get::<f64>(key)?
+                .ok_or_else(|| Error::new(Status::InvalidArg, "capacity value missing"))?;
+            if !value.is_finite() || value.fract() != 0.0 || value < low || value > high {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "capacity qualification integer range",
+                ));
+            }
+            Ok(value as usize)
+        };
+        let population = integer("population", 55.0, 300.0)?;
+        if !matches!(population, 55 | 300) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "capacity population must be 55 or 300",
+            ));
+        }
+        let large_graph = match bounded_object_string(&request, "graph", 6)?.as_str() {
+            "modest" => false,
+            "large" => true,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "capacity graph must be modest/large",
+                ))
+            }
+        };
+        let raw = request.get::<bool>("rawFallback")?.ok_or_else(|| {
+            Error::new(Status::InvalidArg, "capacity rawFallback boolean missing")
+        })?;
+        let policy = crate::engine::checkpoint_capacity::CheckpointCapacityPolicy::new(
+            integer("envelopeMiB", 512.0, 768.0)?,
+            raw,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let ray_work = crate::engine::ray_work::RayWorkLimits::new(
+            integer("rayMinimum", 0.0, 1_000_000.0)? as u32,
+            integer("rayCap", 1.0, 1_000_000.0)? as u32,
+            integer("rayBatch", 1.0, 10_000_000.0)? as u32,
+            512,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeQualifiedFreshRunTask {
+            inner: InitializeExperimentalFreshRunTask {
+                trained_cohort_json: None,
+                capacity_audit_json: None,
+                request: self.request.clone(),
+                calculation_workers: self.calculation_workers,
+                source: FreshRunInitialization::Capacity {
+                    population,
+                    large_graph,
+                    policy,
+                    ray_work,
+                },
+                inner: Arc::clone(&self.inner),
+                active_operation: Arc::clone(&self.active_operation),
+            },
+        }))
+    }
+
+    /// Construct an explicitly admitted v4/v2 qualification fixture; absent from production builds.
+    #[napi(catch_unwind)]
+    pub fn initialize_baseline_v2_for_test(
+        &self,
+        request: Object<'_>,
+    ) -> Result<AsyncTask<InitializeQualifiedFreshRunTask>> {
+        let keys = [
+            "profile",
+            "bins",
+            "mode",
+            "cadence",
+            "rayMinimum",
+            "rayCap",
+            "rayBatch",
+            "workload",
+            "trainedCohort",
+            "pelletChecks",
+            "segmentChecks",
+        ];
+        let names = request.get_property_names()?;
+        if !matches!(names.get_array_length()?, 7..=11) {
+            return Err(Error::new(
+                Status::InvalidArg,
+                "qualification requires exact fields",
+            ));
+        }
+        for index in 0..names.get_array_length()? {
+            let key = bounded_js_string(
+                names.get_element::<JsString<'_>>(index)?,
+                "qualification key",
+                32,
+                false,
+            )?;
+            if !keys.contains(&key.as_str()) || !request.has_own_property(&key)? {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualification requires exact own fields",
+                ));
+            }
+        }
+        let profile = match bounded_object_string(&request, "profile", 6)?.as_str() {
+            "basic" => crate::engine::sensor_contract::SensorProfile::Basic,
+            "motion" => crate::engine::sensor_contract::SensorProfile::Motion,
+            _ => {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualification requires v4 Basic/Motion",
+                ))
+            }
+        };
+        let integer = |key, low: f64, high: f64| -> Result<usize> {
+            let value = request
+                .get::<f64>(key)?
+                .ok_or_else(|| Error::new(Status::InvalidArg, "qualification value missing"))?;
+            if !value.is_finite() || value.fract() != 0.0 || value < low || value > high {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "qualification integer range",
+                ));
+            }
+            Ok(value as usize)
+        };
+        let bins = integer("bins", 8.0, 32.0)?;
+        let mode = if integer("mode", 0.0, 1.0)? == 0 {
+            crate::engine::baseline_v2::BaselineV2Mode::Deterministic
+        } else {
+            crate::engine::baseline_v2::BaselineV2Mode::Stochastic
+        };
+        let cadence = request
+            .get::<f64>("cadence")?
+            .ok_or_else(|| Error::new(Status::InvalidArg, "qualification cadence missing"))?;
+        let baseline = crate::engine::baseline_v2::BaselineV2Settings {
+            mode,
+            control_interval_seconds: cadence,
+        };
+        baseline
+            .validate()
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let ray_work = crate::engine::ray_work::RayWorkLimits::new(
+            integer("rayMinimum", 0.0, 1_000_000.0)? as u32,
+            integer("rayCap", 1.0, 1_000_000.0)? as u32,
+            integer("rayBatch", 1.0, 10_000_000.0)? as u32,
+            512,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let workload_population = if request.has_own_property("workload")? {
+            Some(
+                match bounded_object_string(&request, "workload", 2)?.as_str() {
+                    "P0" => 55,
+                    "P1" => 300,
+                    _ => {
+                        return Err(Error::new(
+                            Status::InvalidArg,
+                            "qualification workload must be P0/P1",
+                        ))
+                    }
+                },
+            )
+        } else {
+            None
+        };
+        let trained_cohort = if request.has_own_property("trainedCohort")? {
+            if workload_population.is_none() {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "trained cohort requires P0/P1 workload",
+                ));
+            }
+            Some(PathBuf::from(bounded_object_string(
+                &request,
+                "trainedCohort",
+                32_768,
+            )?))
+        } else {
+            None
+        };
+        let query_limits = match (
+            request.has_own_property("pelletChecks")?,
+            request.has_own_property("segmentChecks")?,
+        ) {
+            (false, false) => None,
+            (true, true) if workload_population.is_some() => Some(
+                crate::engine::sensor_qualification::QueryDetailLimits::new(
+                    integer("pelletChecks", 100.0, 3000.0)?,
+                    integer("segmentChecks", 200.0, 4000.0)?,
+                )
+                .map_err(|error| Error::new(Status::InvalidArg, error))?,
+            ),
+            _ => return Err(Error::new(
+                Status::InvalidArg,
+                "query detail limits require both pelletChecks/segmentChecks and a P0/P1 workload",
+            )),
+        };
+        self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
+        if let Err(error) = ensure_fresh_transition_absent(&self.inner) {
+            self.active_operation
+                .store(FRESH_OPERATION_IDLE, Ordering::Release);
+            return Err(error);
+        }
+        Ok(AsyncTask::new(InitializeQualifiedFreshRunTask {
+            inner: InitializeExperimentalFreshRunTask {
+                #[cfg(feature = "engine-test-hooks")]
+                trained_cohort_json: None,
+                #[cfg(feature = "engine-test-hooks")]
+                capacity_audit_json: None,
+                request: self.request.clone(),
+                calculation_workers: self.calculation_workers,
+                source: FreshRunInitialization::Qualification(
+                    profile,
+                    bins,
+                    baseline,
+                    ray_work,
+                    workload_population,
+                    trained_cohort,
+                    query_limits,
+                ),
+                inner: Arc::clone(&self.inner),
+                active_operation: Arc::clone(&self.active_operation),
+            },
+        }))
+    }
+}
+
+/// Test-only constructor receipt, separate from the production snapshot contract.
+#[cfg(feature = "engine-test-hooks")]
+#[napi(object)]
+pub struct QualifiedFreshRunInitialization {
+    pub snapshot: ExperimentalFreshRunSnapshot,
+    pub trained_cohort_json: Option<String>,
+    pub capacity_audit_json: Option<String>,
+}
+
+/// Wrap the ordinary complete construction task without introducing a second authority.
+#[cfg(feature = "engine-test-hooks")]
+pub struct InitializeQualifiedFreshRunTask {
+    inner: InitializeExperimentalFreshRunTask,
+}
+
+#[cfg(feature = "engine-test-hooks")]
+impl Task for InitializeQualifiedFreshRunTask {
+    type Output = FreshRunScalarSnapshot;
+    type JsValue = QualifiedFreshRunInitialization;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        self.inner.compute()
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(QualifiedFreshRunInitialization {
+            snapshot: fresh_run_snapshot_to_napi(output)?,
+            trained_cohort_json: self.inner.trained_cohort_json.take(),
+            capacity_audit_json: self.inner.capacity_audit_json.take(),
+        })
+    }
+
+    fn finally(self, env: Env) -> Result<()> {
+        self.inner.finally(env)
+    }
+}
+
 /// Worker-owned exclusive transfer of the existing fresh-run authority.
 pub struct CreateExperimentalBackgroundTask {
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
@@ -1243,14 +1818,49 @@ impl Task for AdoptRecoveryBranchTask {
     }
 }
 
+/// Exact qualification-only environment accompanying a selected immutable checkpoint.
+#[cfg(feature = "engine-test-hooks")]
+struct QualifiedCheckpointInitialization {
+    directory: PathBuf,
+    descriptor: CheckpointDescriptor,
+    profile: crate::engine::sensor_contract::SensorProfile,
+    bins: usize,
+    math: crate::engine::inference::InferenceMathBackend,
+    ray_work: crate::engine::ray_work::RayWorkLimits,
+    capacity_policy: Option<crate::engine::checkpoint_capacity::CheckpointCapacityPolicy>,
+}
+
 /// Async complete fixed-profile construction for one experimental lineage.
 enum FreshRunInitialization {
     Fresh,
+    #[cfg(feature = "engine-test-hooks")]
+    Qualification(
+        crate::engine::sensor_contract::SensorProfile,
+        usize,
+        crate::engine::baseline_v2::BaselineV2Settings,
+        crate::engine::ray_work::RayWorkLimits,
+        Option<usize>,
+        Option<PathBuf>,
+        Option<crate::engine::sensor_qualification::QueryDetailLimits>,
+    ),
+    #[cfg(feature = "engine-test-hooks")]
+    Capacity {
+        population: usize,
+        large_graph: bool,
+        policy: crate::engine::checkpoint_capacity::CheckpointCapacityPolicy,
+        ray_work: crate::engine::ray_work::RayWorkLimits,
+    },
+    #[cfg(feature = "engine-test-hooks")]
+    QualifiedCheckpoint(Box<QualifiedCheckpointInitialization>),
     Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
 }
 
 pub struct InitializeExperimentalFreshRunTask {
+    #[cfg(feature = "engine-test-hooks")]
+    trained_cohort_json: Option<String>,
+    #[cfg(feature = "engine-test-hooks")]
+    capacity_audit_json: Option<String>,
     request: Stage6aP0FreshRunRequest,
     calculation_workers: usize,
     source: FreshRunInitialization,
@@ -1292,6 +1902,59 @@ impl Task for InitializeExperimentalFreshRunTask {
                         })
                         .map_err(|error| error.to_string())?
                 }
+                #[cfg(feature = "engine-test-hooks")]
+                FreshRunInitialization::Capacity {
+                    population,
+                    large_graph,
+                    policy,
+                    ray_work,
+                } => {
+                    let mut options = crate::engine::checkpoint_capacity::capacity_workload_options(
+                        *population,
+                        *large_graph,
+                    );
+                    options.seed = self.request.seed;
+                    options.workers = self.calculation_workers;
+                    options.ray_limits = Some(*ray_work);
+                    let qualified = crate::engine::checkpoint_capacity::prepare_live_capacity_run(
+                        self.request.clone(),
+                        &options,
+                        *policy,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    self.capacity_audit_json = Some(
+                        serde_json::to_string(&qualified.audit)
+                            .map_err(|error| error.to_string())?,
+                    );
+                    qualified
+                        .pending
+                        .ok_or_else(|| "capacity candidate has no admitted boundary".to_owned())?
+                }
+                #[cfg(feature = "engine-test-hooks")]
+                FreshRunInitialization::QualifiedCheckpoint(inputs) => {
+                    let work_limits = crate::engine::step_config::RunningStepWorkLimits {
+                        calculation_workers: self.calculation_workers,
+                        ray_work: Some(inputs.ray_work),
+                        ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
+                    };
+                    let restored = if let Some(policy) = inputs.capacity_policy {
+                        crate::engine::fresh_run::prepare_sensor_qualification_checkpoint_restore_with_limits(
+                            &inputs.directory, &inputs.descriptor, self.request.memory_ceiling_bytes,
+                            inputs.profile, inputs.bins, inputs.math, work_limits, policy.limits(),
+                        )
+                    } else {
+                        crate::engine::fresh_run::prepare_sensor_qualification_checkpoint_restore(
+                            &inputs.directory,
+                            &inputs.descriptor,
+                            self.request.memory_ceiling_bytes,
+                            inputs.profile,
+                            inputs.bins,
+                            inputs.math,
+                            work_limits,
+                        )
+                    };
+                    restored.map_err(|error| error.to_string())?
+                }
                 FreshRunInitialization::LegacySqlite((database_path, snapshot_id)) => {
                     prepare_legacy_sqlite_population_import(
                         database_path,
@@ -1302,7 +1965,107 @@ impl Task for InitializeExperimentalFreshRunTask {
                     )
                     .map_err(|error| error.to_string())?
                 }
-                FreshRunInitialization::Fresh => prepare_stage6a_p0_fresh_run(self.request.clone())
+                #[cfg(feature = "engine-test-hooks")]
+                FreshRunInitialization::Qualification(
+                    profile,
+                    bins,
+                    baseline,
+                    ray_work,
+                    workload_population,
+                    trained_cohort,
+                    query_limits,
+                ) => {
+                    if let Some(population) = workload_population {
+                        let options =
+                            crate::engine::sensor_qualification::SensorQualificationOptions {
+                                query_limits: *query_limits,
+                                population: *population,
+                                profile: *profile,
+                                bins: *bins,
+                                large_graph: false,
+                                trained_artifact: None,
+                                respawn: true,
+                                seed: self.request.seed,
+                                workers: self.calculation_workers,
+                                math: crate::engine::inference::InferenceMathBackend::Sse2,
+                                ray_limits: Some(*ray_work),
+                                baseline: Some(*baseline),
+                                teacher_respawn_delay_seconds: 20.0,
+                                capture: None,
+                                warmup_steps: 0,
+                                measured_steps: 1,
+                                environment: "development".into(),
+                            };
+                        if let Some(index) = trained_cohort {
+                            let cohort = crate::engine::trained_cohort::load(index)?;
+                            let transition = crate::engine::sensor_qualification::prepare_sensor_cohort_workload(
+                                &options, self.request.clone(), &cohort,
+                            ).map_err(|error| error.to_string())?;
+                            self.trained_cohort_json = Some(
+                                serde_json::to_string(&cohort.descriptor(*population))
+                                    .map_err(|error| error.to_string())?,
+                            );
+                            transition
+                        } else {
+                            crate::engine::sensor_qualification::prepare_sensor_workload(
+                                &options,
+                                self.request.clone(),
+                            )
+                            .map_err(|error| error.to_string())?
+                        }
+                    } else {
+                        use crate::engine::graph::{
+                            GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,
+                        };
+                        let width = crate::engine::sensor_layout::SensorLayout::for_profile(
+                            *profile, *bins,
+                        )
+                        .map_err(|error| error.to_string())?
+                        .input_size;
+                        let graph = GraphSpec {
+                            nodes: vec![
+                                GraphNodeSpec {
+                                    id: "input".into(),
+                                    kind: GraphNodeKind::Input { output_size: width },
+                                },
+                                GraphNodeSpec {
+                                    id: "motor".into(),
+                                    kind: GraphNodeKind::Dense {
+                                        input_size: width,
+                                        output_size: 2,
+                                    },
+                                },
+                            ],
+                            edges: vec![GraphEdge {
+                                from: "input".into(),
+                                to: "motor".into(),
+                                from_port: Some(0),
+                                to_port: Some(0),
+                            }],
+                            outputs: vec![GraphOutputRef {
+                                node_id: "motor".into(),
+                                port: Some(0),
+                            }],
+                            output_size: 2,
+                        };
+                        let limits = crate::engine::step_config::RunningStepWorkLimits {
+                        ray_work: Some(*ray_work),
+                        calculation_workers: self.calculation_workers,
+                        ..crate::engine::step_config::RunningStepWorkLimits::provisional_defaults()
+                    };
+                        crate::engine::fresh_run::prepare_baseline_v2_qualification_run(
+                            self.request.clone(),
+                            &[],
+                            graph,
+                            *profile,
+                            *bins,
+                            *baseline,
+                            limits,
+                        )
+                        .map_err(|error| error.to_string())?
+                    }
+                }
+                FreshRunInitialization::Fresh => prepare_default_fresh_run(self.request.clone())
                     .map_err(|error| error.to_string())?,
             };
             transition.configure_calculation_workers(self.calculation_workers)?;
@@ -2853,7 +3616,7 @@ pub(crate) fn checkpoint_descriptor_to_napi(
 }
 
 /// Convert one elite-object descriptor without exposing its numeric body.
-fn hall_of_fame_weights_descriptor_to_napi(
+pub(crate) fn hall_of_fame_weights_descriptor_to_napi(
     descriptor: HallOfFameWeightsDescriptor,
 ) -> ManagedHallOfFameWeightsDescriptor {
     ManagedHallOfFameWeightsDescriptor {
@@ -2976,7 +3739,7 @@ pub(crate) fn bounded_object_string(
 }
 
 /// Reconstruct one scalar descriptor supplied by the persistence worker.
-fn checkpoint_descriptor_from_napi(
+pub(crate) fn checkpoint_descriptor_from_napi(
     descriptor: ManagedCheckpointDescriptor,
 ) -> Result<CheckpointDescriptor> {
     if descriptor.protocol_version != CHECKPOINT_DESCRIPTOR_VERSION {
@@ -3193,8 +3956,30 @@ pub(crate) fn parse_background_sequence(value: JsString<'_>) -> Result<u64> {
 }
 
 /// Convert the Rust-owned compact generation record without numeric narrowing.
-fn generation_commit_to_napi(record: GenerationCommitRecord) -> Stage6GenerationCommitRecord {
+pub(crate) fn generation_commit_to_napi(
+    record: GenerationCommitRecord,
+) -> Stage6GenerationCommitRecord {
     Stage6GenerationCommitRecord {
+        experiment: record.experiment.map(|record| {
+            let bytes = record.encode();
+            let hex = |source: &[u8]| -> String {
+                source.iter().map(|byte| format!("{byte:02x}")).collect()
+            };
+            Stage6GenerationExperimentRecord {
+                version: 1,
+                history_hex: hex(&bytes[..512]),
+                hall_of_fame_hex: hex(&bytes[512..]),
+            }
+        }),
+        completion: record
+            .completion
+            .map(|completion| Stage6GenerationCompletionRecord {
+                version: 1,
+                reason: generation_transition_reason_name(completion.reason).to_owned(),
+                actual_elapsed_f64_hex: u64_hex(completion.actual_elapsed_f64_bits),
+                configured_duration_f64_hex: u64_hex(completion.configured_duration_f64_bits),
+                completed_step: u64_hex(completion.completed_step),
+            }),
         summary: Stage6GenerationSummaryRecord {
             completed_generation: u64_hex(record.summary.completed_generation),
             best_f64_hex: u64_hex(record.summary.best_f64_bits),
@@ -3259,6 +4044,40 @@ fn running_authority_event_to_napi(
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
     match event {
+        RunningAuthorityEvent::ShadowChanged {
+            command_sequence,
+            shadow_slot,
+            artifact_sha256,
+            enabled,
+            effective_step,
+        } => {
+            output.kind = "shadowChanged".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.shadow_change = Some(BackgroundShadowChange {
+                shadow_slot,
+                artifact_sha256: artifact_sha256
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+                enabled,
+                effective_step: u64_hex(effective_step),
+            });
+        }
+        RunningAuthorityEvent::TeacherCaptureChanged {
+            command_sequence,
+            capture_epoch,
+            enabled,
+        } => {
+            output.kind = "teacherCaptureChanged".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.teacher_capture_epoch = Some(
+                capture_epoch
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            );
+            output.teacher_capture_enabled = Some(enabled);
+        }
         RunningAuthorityEvent::ControllerJoinAssignment {
             request_sequence,
             controller_kind,
@@ -3365,6 +4184,32 @@ fn running_authority_event_to_napi(
             output.settings_config_hash = Some(config_hash);
             output.settings_effective_step = Some(u64_hex(effective_step));
         }
+        RunningAuthorityEvent::FinishGenerationAccepted {
+            command_sequence,
+            effective_step,
+        } => {
+            output.kind = "finishGenerationAccepted".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.finish_generation_effective_step = Some(u64_hex(effective_step));
+        }
+        RunningAuthorityEvent::EntitySelected {
+            command_sequence,
+            selection,
+        } => {
+            output.kind = "entitySelected".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.entity_selection = selection.map(|value| BackgroundEntitySelection {
+                token: value.token.encode(),
+                snake_id: value.frame_v1_id,
+                population_slot: value.population_slot,
+                life_ordinal: value.life_ordinal.map(u64_hex),
+                x: value.x,
+                y: value.y,
+                radius: value.radius,
+                skin: value.skin,
+                retained_origin: value.retained_origin.map(BackgroundRetainedOrigin::from),
+            });
+        }
         RunningAuthorityEvent::GodModeMoved {
             command_sequence,
             frame_v1_id,
@@ -3395,6 +4240,18 @@ fn running_authority_event_to_napi(
                 effective_step: u64_hex(effective_step),
             });
         }
+        RunningAuthorityEvent::SavedBrainSpawned {
+            command_sequence,
+            frame_v1_id,
+            effective_step,
+        } => {
+            output.kind = "savedBrainSpawned".into();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.saved_brain_spawn = Some(BackgroundHallOfFameResurrection {
+                snake_id: frame_v1_id,
+                effective_step: u64_hex(effective_step),
+            });
+        }
         RunningAuthorityEvent::HallOfFameResurrected {
             command_sequence,
             frame_v1_id,
@@ -3406,6 +4263,14 @@ fn running_authority_event_to_napi(
                 snake_id: frame_v1_id,
                 effective_step: u64_hex(effective_step),
             });
+        }
+        RunningAuthorityEvent::InspectorChanged {
+            command_sequence,
+            enabled,
+        } => {
+            output.kind = "inspectorChanged".to_owned();
+            output.command_sequence = Some(u64_hex(command_sequence));
+            output.inspector_enabled = Some(enabled);
         }
         RunningAuthorityEvent::VisualizationChanged {
             command_sequence,
@@ -3498,7 +4363,7 @@ fn running_authority_event_to_napi(
                 hall_of_fame_weights: hall_of_fame_weights_descriptor_to_napi(
                     *hall_of_fame_weights,
                 ),
-                generation_commit: generation_commit_to_napi(commit_record),
+                generation_commit: generation_commit_to_napi(*commit_record),
             });
         }
         RunningAuthorityEvent::GenerationPersistenceAcknowledged {
@@ -3684,10 +4549,17 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         settings_config_revision: None,
         settings_config_hash: None,
         settings_effective_step: None,
+        finish_generation_effective_step: None,
+        entity_selection: None,
         god_mode_move: None,
         god_mode_kill: None,
         hall_of_fame_resurrection: None,
+        saved_brain_spawn: None,
         visualization_enabled: None,
+        inspector_enabled: None,
+        teacher_capture_epoch: None,
+        teacher_capture_enabled: None,
+        shadow_change: None,
         controller_disconnect: None,
         controller_join_assignment: None,
         controller_join_resolution: None,
@@ -3828,6 +4700,7 @@ fn sha256_hex(bytes: [u8; 32]) -> String {
 
 const fn generation_transition_reason_name(reason: GenerationTransitionReason) -> &'static str {
     match reason {
+        GenerationTransitionReason::Manual => "manual",
         GenerationTransitionReason::Duration => "duration",
         GenerationTransitionReason::EarlyAliveCount => "earlyAliveCount",
     }
@@ -5033,9 +5906,40 @@ fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::contract::RunningAuthorityCommand;
     use crate::engine::queues::WakeSink;
     use std::sync::atomic::AtomicU64;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn retained_origin_wire_metadata_preserves_full_width_ids_and_source_classes() {
+        use crate::engine::brain_artifact::BrainSourceKind;
+        use crate::engine::retained_origin::RetainedNeuralOrigin;
+        let winner = BackgroundRetainedOrigin::from(RetainedNeuralOrigin::HallOfFame {
+            entry_id: u64::MAX,
+            weight_digest: [0xab; 32],
+        });
+        assert_eq!(winner.kind, "hall-of-fame");
+        assert_eq!(winner.entry_id.as_deref(), Some("ffffffffffffffff"));
+        assert_eq!(winner.weights_sha256, "ab".repeat(32));
+        assert!(winner.brain_id.is_none() && winner.source_kind.is_none());
+        for (source_kind, label) in [
+            (BrainSourceKind::Distilled, "distilled"),
+            (BrainSourceKind::Imported, "imported"),
+            (BrainSourceKind::Manual, "manual"),
+        ] {
+            let saved = BackgroundRetainedOrigin::from(RetainedNeuralOrigin::SavedBrain {
+                brain_id: [0xcd; 32],
+                weight_digest: [0xab; 32],
+                source_kind,
+            });
+            assert_eq!(saved.kind, "saved-brain");
+            assert_eq!(saved.brain_id, Some("cd".repeat(32)));
+            assert_eq!(saved.weights_sha256, "ab".repeat(32));
+            assert_eq!(saved.source_kind.as_deref(), Some(label));
+            assert!(saved.entry_id.is_none());
+        }
+    }
 
     fn valid_safety_init() -> EngineInit {
         EngineInit {
@@ -5092,6 +5996,22 @@ mod tests {
             .checked_mul(std::mem::size_of::<SequencedCommand>())
             .expect("supported command metadata multiplication is representable");
         assert!(metadata_bytes <= MAX_NAPI_BATCH_METADATA_BYTES);
+        let token = crate::engine::state::EntitySelectionToken::parse(&"1".repeat(64)).unwrap();
+        let batch = CommandBatch {
+            contract_version: ENGINE_CONTRACT_VERSION,
+            commands: vec![SequencedCommand {
+                sequence: 1,
+                command: EngineCommand::RunningAuthority(RunningAuthorityCommand::GodModeKill {
+                    frame_v1_id: 1,
+                    token: Box::new(token),
+                }),
+            }]
+            .into_boxed_slice(),
+        };
+        assert_eq!(
+            batch.validate().unwrap().owned_bytes,
+            std::mem::size_of::<crate::engine::state::EntitySelectionToken>()
+        );
         assert_eq!(
             metadata_bytes
                 .checked_add(MAX_NAPI_BATCH_OWNED_BYTES)

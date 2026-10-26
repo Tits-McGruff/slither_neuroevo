@@ -912,6 +912,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: length,
@@ -932,6 +936,7 @@ mod tests {
     fn world_with_one(length: usize) -> WorldState {
         let position = WorldPoint { x: 0.0, y: 0.0 };
         WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![snake(1, 0, length, position, 0.0)],
             body_points: line_body(position, 0.0, length),
             pellets: Vec::new(),
@@ -1096,6 +1101,7 @@ mod tests {
         let second_body = line_body(second_position, 0.0, 5);
         if !reverse {
             WorldState {
+                ray_cursor: Default::default(),
                 snakes: vec![first, second],
                 body_points: [first_body, second_body].concat(),
                 pellets: vec![pellet(20, 1.0, 0.0, 1.0), pellet(10, 2.0, 0.0, 0.5)],
@@ -1106,6 +1112,7 @@ mod tests {
             let mut reversed_first = first;
             reversed_first.body.start = 5;
             WorldState {
+                ray_cursor: Default::default(),
                 snakes: vec![second, reversed_first],
                 body_points: [second_body, first_body].concat(),
                 pellets: vec![pellet(10, 2.0, 0.0, 0.5), pellet(20, 1.0, 0.0, 1.0)],
@@ -1184,6 +1191,7 @@ mod tests {
 
         let tied_position = WorldPoint { x: 0.0, y: 0.0 };
         let mut tied = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![
                 snake(2, 0, 5, tied_position, 0.0),
                 snake(1, 5, 5, tied_position, 0.0),

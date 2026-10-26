@@ -1,3 +1,11 @@
+import type { InspectEntityMsg, InspectorResultMsg, InspectorMsg } from '../src/protocol/inspector.ts';
+import type { BrainArtifactDescriptor } from '../src/protocol/brainArtifacts.ts';
+import type { ManagedNeuralWeightsDescriptor } from './rustEngine/checkpointPersistenceProtocol.ts';
+import type { EvolvedLifecycleTelemetry } from '../src/protocol/evolvedLives.ts';
+import type { SelectEntityMsg, EntitySelectedMsg } from '../src/protocol/entitySelection.ts';
+import { isEntitySelectionToken } from '../src/protocol/entitySelection.ts';
+import type { FinishGenerationMsg, FinishGenerationResultMsg } from '../src/protocol/generation.ts';
+export type { FinishGenerationMsg, FinishGenerationResultMsg } from '../src/protocol/generation.ts';
 import type {
   RustImportBranchNotice,
   RustLegacyConversionNotice,
@@ -140,6 +148,8 @@ export interface GodModeKillMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'kill';
+  /** Native selection token; omission is rejected with selection guidance. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
 }
@@ -152,6 +162,8 @@ export interface GodModeMoveMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'move';
+  /** Native selection token; omission is rejected with selection guidance. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
   /** Requested head X coordinate. */
@@ -182,7 +194,10 @@ export type ClientMessage =
   | ResetMsg
   | LiveSettingsMsg
   | GodModeMsg
-  | NewRunMsg;
+  | SelectEntityMsg
+  | InspectEntityMsg
+  | NewRunMsg
+  | FinishGenerationMsg;
 
 /** Sensor metadata describing the array order and size. */
 export type SensorSpec = SensorSpecBase;
@@ -235,6 +250,18 @@ export interface WelcomeMsg {
   capabilities?: {
     /** Whether the exact current managed checkpoint can be pinned. */
     checkpointPinning: boolean;
+    /** Whether generation-scoped manual completion is supported. */
+    finishGeneration?: boolean;
+    /** Dedicated on-demand capture/dataset/shadow controls are available. */
+    distillation?: boolean;
+    /** Current admitted structural settings permit teacher capture. */
+    teacherCapture?: boolean;
+    /** Whether explicit saved-brain library controls are available. */
+    savedBrainLibrary?: boolean;
+    /** Explicit saved-brain selection in checkpoint archive version 4. */
+    savedBrainArchive?: boolean;
+    /** On-demand native selected-observation snapshots. */
+    decisionInspector?: boolean;
     /** Whether direct archive download is available. */
     archiveExport: boolean;
     /** Whether the selected archive can be uploaded unchanged. */
@@ -244,6 +271,8 @@ export interface WelcomeMsg {
 
 /** Periodic stats payload from the server. */
 export interface StatsMsg {
+  /** Optional bounded life diagnostics from the same committed frame. */
+  evolved?: EvolvedLifecycleTelemetry;
   /** Message discriminator. */
   type: 'stats';
   /** Last committed fixed-step id. */
@@ -354,6 +383,8 @@ export interface GodModeResultMsg {
   requestId: string;
   /** Requested mutation. */
   action: 'kill' | 'move';
+  /** Native token captured by this request, for stale-result rejection. */
+  selectionToken?: string;
   /** Target snake id. */
   snakeId: number;
   /** Whether the mutation was applied. */
@@ -411,7 +442,11 @@ export type ServerMessage =
   | SensorsMsg
   | ErrorMsg
   | SettingsAppliedMsg
+  | FinishGenerationResultMsg
   | GodModeResultMsg
+  | EntitySelectedMsg
+  | InspectorResultMsg
+  | InspectorMsg
   | NewRunResultMsg
   | StateReplacedMsg;
 
@@ -657,18 +692,65 @@ export function isLiveSettings(msg: unknown): msg is LiveSettingsMsg {
  */
 export function isGodMode(msg: unknown): msg is GodModeMsg {
   if (!isRecord(msg) || msg['type'] !== 'godMode') return false;
-  if (!isRequestId(msg['requestId']) || !isFiniteNumber(msg['snakeId'])) return false;
+  if (!isRequestId(msg['requestId']) || !Number.isSafeInteger(msg['snakeId']) ||
+      (msg['snakeId'] as number) < 1 || (msg['snakeId'] as number) > 16_777_216 ||
+      (msg['selectionToken'] !== undefined && !isEntitySelectionToken(msg['selectionToken']))) return false;
   if (msg['action'] === 'kill') {
-    return hasKeys(msg, ['type', 'requestId', 'action', 'snakeId'], ['type', 'requestId', 'action', 'snakeId']);
+    return hasKeys(msg, ['type', 'requestId', 'action', 'snakeId', 'selectionToken'], ['type', 'requestId', 'action', 'snakeId']);
   }
   if (msg['action'] === 'move') {
     return (
-      hasKeys(msg, ['type', 'requestId', 'action', 'snakeId', 'x', 'y'], ['type', 'requestId', 'action', 'snakeId', 'x', 'y']) &&
+      hasKeys(msg, ['type', 'requestId', 'action', 'snakeId', 'x', 'y', 'selectionToken'], ['type', 'requestId', 'action', 'snakeId', 'x', 'y']) &&
       isFiniteNumber(msg['x']) &&
       isFiniteNumber(msg['y'])
     );
   }
   return false;
+}
+
+/** Validate a bounded on-demand physical/individual selector without coercion. */
+export function isSelectEntity(msg: unknown): msg is SelectEntityMsg {
+  if (!isRecord(msg) || msg['type'] !== 'selectEntity' ||
+      !hasKeys(msg, ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'expectedGeneration', 'snakeId', 'populationSlot'],
+        ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'expectedGeneration']) ||
+      !isRequestId(msg['requestId']) || !isRequestId(msg['expectedSessionId']) ||
+      typeof msg['expectedRunId'] !== 'string' || msg['expectedRunId'].length === 0 || msg['expectedRunId'].length > 256 ||
+      msg['expectedRunId'].includes('\0') || !Number.isSafeInteger(msg['expectedGeneration']) ||
+      (msg['expectedGeneration'] as number) < 1) return false;
+  const frame = msg['snakeId'];
+  const slot = msg['populationSlot'];
+  return (slot === undefined && Number.isSafeInteger(frame) && (frame as number) >= 1 && (frame as number) <= 16_777_216)
+    || (frame === undefined && Number.isSafeInteger(slot) && (slot as number) >= 0 && (slot as number) < 300);
+}
+
+/** Validate an exact token/frame pair, or a target-free close command. */
+export function isInspectEntity(msg: unknown): msg is InspectEntityMsg {
+  if (!isRecord(msg) || msg['type'] !== 'inspectEntity'
+    || !hasKeys(msg, ['type', 'requestId', 'expectedSessionId', 'expectedRunId', 'selectionToken', 'snakeId', 'pureProbe'],
+      ['type', 'requestId', 'expectedSessionId', 'expectedRunId'])
+    || !isRequestId(msg['requestId']) || !isRequestId(msg['expectedSessionId'])
+    || (msg['pureProbe'] !== undefined && typeof msg['pureProbe'] !== 'boolean')
+    || typeof msg['expectedRunId'] !== 'string' || msg['expectedRunId'].length === 0
+    || msg['expectedRunId'].length > 256 || msg['expectedRunId'].includes('\0')) return false;
+  return (msg['pureProbe'] !== true && msg['selectionToken'] === undefined && msg['snakeId'] === undefined)
+    || (isEntitySelectionToken(msg['selectionToken']) && Number.isSafeInteger(msg['snakeId'])
+      && (msg['snakeId'] as number) >= 1 && (msg['snakeId'] as number) <= 16_777_216);
+}
+
+/**
+ * Validate a bounded generation-scoped finish request without coercing identities.
+ * @param msg - Raw Protocol 2 payload.
+ * @returns Whether the exact fields and safe generation identity are valid.
+ */
+export function isFinishGeneration(msg: unknown): msg is FinishGenerationMsg {
+  return isRecord(msg) &&
+    hasKeys(msg, ['type', 'requestId', 'expectedRunId', 'expectedGeneration'],
+      ['type', 'requestId', 'expectedRunId', 'expectedGeneration']) &&
+    msg['type'] === 'finishGeneration' && isRequestId(msg['requestId']) &&
+    typeof msg['expectedRunId'] === 'string' && msg['expectedRunId'].length > 0 &&
+    msg['expectedRunId'].length <= 256 && !msg['expectedRunId'].includes('\0') &&
+    typeof msg['expectedGeneration'] === 'number' && Number.isSafeInteger(msg['expectedGeneration']) &&
+    msg['expectedGeneration'] > 0;
 }
 
 /**
@@ -709,11 +791,108 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return isReset(raw) ? raw : null;
     case 'settings':
       return isLiveSettings(raw) ? raw : null;
+    case 'selectEntity':
+      return isSelectEntity(raw) ? raw : null;
+    case 'inspectEntity':
+      return isInspectEntity(raw) ? raw : null;
     case 'godMode':
       return isGodMode(raw) ? raw : null;
     case 'newRun':
       return isNewRun(raw) ? raw : null;
+    case 'finishGeneration':
+      return isFinishGeneration(raw) ? raw : null;
     default:
       return null;
   }
+}
+
+/** Paginated library metadata; no model parameters or full graph in list pages. */
+export interface SavedBrainSummaryV1 {
+  /** Fixed record schema. */
+  schemaVersion: 1;
+  /** Exact complete portable artifact identity. */
+  brainId: string;
+  /** Explicit owner-selected display label. */
+  name: string;
+  /** Durable save time in epoch milliseconds. */
+  createdAtMs: number;
+  /** Small deployment facts; the potentially large compatibility key stays in the full record. */
+  artifact: Omit<BrainArtifactDescriptor, 'architectureKey'>;
+  /** Shared immutable adaptive numeric object. */
+  weights: ManagedNeuralWeightsDescriptor;
+  /** Controlled immutable portable-original filename. */
+  artifactRelativeFilename: string;
+  /** Exact complete original bytes as canonical unsigned-64 hex. */
+  artifactByteCount: string;
+}
+
+/** Retained graph/sensor/deployment and complete bounded trainer/source provenance. */
+export interface SavedBrainRecordV1 extends Omit<SavedBrainSummaryV1, 'artifact'> {
+  /** Complete native compatibility key is retained for cold admission. */
+  artifact: BrainArtifactDescriptor;
+  /** Rust canonical graph, sensor bytes, packing and cadence contracts. */
+  graphManifest: Record<string, unknown>;
+  /** Teacher/method/seed/samples/validation/gameplay/source/environment metadata. */
+  provenance: { schemaVersion: 1; sourceKind: BrainArtifactDescriptor['sourceKind']; details: unknown };
+}
+
+/** Stable identity cursor, independent of SQLite row order or UI labels. */
+export interface SavedBrainPageV1 {
+  /** Bounded metadata-only entries in increasing full artifact identity order. */
+  entries: SavedBrainSummaryV1[];
+  /** Exclusive cursor for the next page, or null at end. */
+  next: string | null;
+}
+
+/** Bounded metadata-worker requests; filesystem paths are never accepted from browser JSON. */
+export type SavedBrainCatalogOperation =
+  | {action: 'save'; path: string; name: string}
+  | {action: 'read'; brainId: string}
+  | {action: 'list'; after: string | null; limit: number}
+  | {action: 'delete'; brainId: string}
+  | {action: 'acquire'; brainId: string; leaseId: string}
+  | {action: 'acquireArchive'; brainIds: string[]; leaseId: string}
+  | {action: 'release'; leaseId: string};
+
+/** Correlated small metadata or one complete cold record, never parameter buffers. */
+export type SavedBrainCatalogResult =
+  | {action: 'save' | 'acquire'; record: SavedBrainRecordV1}
+  | {action: 'read'; record: SavedBrainRecordV1 | null}
+  | {action: 'list'; page: SavedBrainPageV1}
+  | {action: 'acquireArchive'; entries: SavedBrainSummaryV1[]}
+  | {action: 'delete'; brainId: string; deleted: boolean}
+  | {action: 'release'; leaseId: string};
+
+/** Exact observed authority scope required by an explicit saved-brain deployment. */
+export interface SavedBrainDeploymentScopeV1 {
+  /** Authoritative current run. */
+  expectedRunId: string;
+  /** Full-width settings revision. */
+  expectedConfigRevision: string;
+  /** Process-local native world incarnation, including same-run imports. */
+  expectedWorldEpoch: string;
+}
+
+/** Retried requests bind one immutable brain and process-local coordinator identity. */
+export interface SavedBrainSpawnRequestV1 extends SavedBrainDeploymentScopeV1 {
+  /** Last observed deployment outcome; prevents replay after bounded receipt eviction. */
+  expectedDeploymentSequence: string;
+  /** Caller-generated unique 128-bit request identity. */
+  requestId: string;
+  /** Refresh library metadata after a server restart before requesting another spawn. */
+  expectedProcessEpoch: string;
+}
+
+/** Confirmed native deployment, distinct from Hall-of-Fame winning status. */
+export interface SavedBrainSpawnReceiptV1 extends SavedBrainSpawnRequestV1 {
+  /** Frozen protocol revision. */
+  schemaVersion: 1;
+  /** Complete immutable portable artifact identity. */
+  brainId: string;
+  /** Globally ordered admitted native command. */
+  commandSequence: string;
+  /** Exactly representable frame-v1 snake identity. */
+  snakeId: number;
+  /** First complete fixed step observing the retained owner. */
+  effectiveStep: string;
 }

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slither-contracts"
+version = "1.0.0"
+requires-python = ">=3.10"
+dependencies = ["typing-extensions>=4.16,<5"]
+
+[project.optional-dependencies]
+dev = ["datamodel-code-generator==0.86.0", "black==26.10.1", "isort==8.0.1"]
+
+[tool.setuptools.package-data]
+slither_contracts = ["*.json"]

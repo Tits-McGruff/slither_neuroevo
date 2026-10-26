@@ -1,6 +1,8 @@
+import type { InspectEntityMsg, InspectorMsg } from '../src/protocol/inspector.ts';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { RawData } from 'ws';
+import type { SelectEntityMsg } from '../src/protocol/entitySelection.ts';
 import type { Server } from 'node:http';
 import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
 import { createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
@@ -9,6 +11,7 @@ import type {
   ActionMsg,
   ClientType,
   GodModeMsg,
+  FinishGenerationMsg,
   JoinMode,
   JoinMsg,
   LiveSettingsMsg,
@@ -55,6 +58,8 @@ export interface ConnectionState {
   reliableQueueBytes: number;
   /** Latest replaceable stats payload. */
   pendingStats: string | null;
+  /** Newest unsent selected diagnostic projection, independent of reliable messages. */
+  pendingInspector: string | null;
   /** Latest replaceable binary display frame. */
   pendingFrame: ArrayBuffer | ArrayBufferView | null;
   /** Release a borrowed frame only after replacement, cancellation, or send completion. */
@@ -117,6 +122,12 @@ export interface WsHubHandlers {
   onSettings?: (connId: number, msg: LiveSettingsMsg) => void;
   /** Optional handler for authoritative God Mode requests. */
   onGodMode?: (connId: number, msg: GodModeMsg) => void;
+  /** On-demand identity resolution for a joined UI client. */
+  onSelectEntity?: (connId: number, msg: SelectEntityMsg) => void;
+  /** One opt-in selected diagnostic target, admitted only for joined UI peers. */
+  onInspectEntity?: (connId: number, msg: InspectEntityMsg) => void;
+  /** Manual completion is admitted only for joined UI peers. */
+  onFinishGeneration?: (connId: number, msg: FinishGenerationMsg) => void;
   /** Optional handler for explicit New Run requests. */
   onNewRun?: (connId: number, msg: NewRunMsg) => void;
   onDisconnect?: (connId: number) => void;
@@ -230,6 +241,7 @@ export class WsHub {
       state.reliableQueue.length = 0;
       state.reliableQueueBytes = 0;
       state.pendingStats = null;
+      state.pendingInspector = null;
       this.discardPendingFrame(state);
       state.joined = false;
       state.awaitingRejoin = state.clientType !== 'unknown';
@@ -393,6 +405,23 @@ export class WsHub {
     return this.enqueueReliable(state, JSON.stringify(payload));
   }
 
+  /** Drop only an unsent diagnostic row when its subscription is replaced or closed. */
+  clearInspectorTo(connId: number): void {
+    const state = this.connections.get(connId);
+    if (state) state.pendingInspector = null;
+  }
+
+  /** Replace one joined UI viewer's unsent diagnostic row; reliable and frame traffic keep priority. */
+  sendInspectorTo(connId: number, message: InspectorMsg): boolean {
+    const state = this.connections.get(connId);
+    if (!state || !state.joined || state.clientType !== 'ui' || state.socket.readyState !== WebSocket.OPEN) return false;
+    const payload = JSON.stringify(message);
+    if (Buffer.byteLength(payload, 'utf8') > 64 * 1024 + 128) return false;
+    state.pendingInspector = payload;
+    this.pumpOutbound(state);
+    return true;
+  }
+
   /**
    * Queue a lifecycle result to a known connection after it entered awaiting-rejoin.
    * @param connId - Existing connection id.
@@ -436,6 +465,7 @@ export class WsHub {
       });
       this.discardPendingFrame(state);
       state.pendingStats = null;
+      state.pendingInspector = null;
       state.socket.close(1011, 'reliable outbound queue overflow');
       return false;
     }
@@ -475,6 +505,9 @@ export class WsHub {
       releaseFrame = state.pendingFrameRelease;
       state.pendingFrameRelease = null;
       binary = true;
+    } else if (state.pendingInspector !== null && state.socket.bufferedAmount <= this.maxBufferedAmount) {
+      payload = state.pendingInspector;
+      state.pendingInspector = null;
     }
     if (payload === null) return;
 
@@ -540,6 +573,7 @@ export class WsHub {
       reliableQueue: [],
       reliableQueueBytes: 0,
       pendingStats: null,
+      pendingInspector: null,
       pendingFrame: null,
       pendingFrameRelease: null,
       sending: false,
@@ -554,6 +588,7 @@ export class WsHub {
       state.reliableQueue.length = 0;
       state.reliableQueueBytes = 0;
       state.pendingStats = null;
+      state.pendingInspector = null;
       this.discardPendingFrame(state);
       this.connections.delete(state.id);
       this.handlers?.onDisconnect?.(state.id);
@@ -667,12 +702,33 @@ export class WsHub {
         }
         this.handlers?.onSettings?.(state.id, msg);
         return;
+      case 'inspectEntity':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'inspector requires a joined ui client');
+          return;
+        }
+        this.handlers?.onInspectEntity?.(state.id, msg);
+        return;
+      case 'selectEntity':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'entity selection requires a joined ui client');
+          return;
+        }
+        this.handlers?.onSelectEntity?.(state.id, msg);
+        return;
       case 'godMode':
         if (!state.joined || state.clientType !== 'ui') {
           this.protocolError(state, 'God Mode requires a joined ui client');
           return;
         }
         this.handlers?.onGodMode?.(state.id, msg);
+        return;
+      case 'finishGeneration':
+        if (!state.joined || state.clientType !== 'ui') {
+          this.protocolError(state, 'finish generation requires a joined ui client');
+          return;
+        }
+        this.handlers?.onFinishGeneration?.(state.id, msg);
         return;
       case 'newRun':
         if (!state.joined || state.clientType !== 'ui') {

@@ -49,7 +49,7 @@ pub enum RunningAuthorityLoopState {
     ExternalDeliveryPending,
     /// One terminal step awaits checkpoint metadata and successor admission.
     GenerationTransitionPending,
-    /// A fully prepared import pauses stepping before its database transaction.
+    /// A population-work hold bounds allocation and its later durability transaction.
     ImportPending,
     /// A first unrecoverable loop error permanently ended this instance.
     Faulted,
@@ -78,7 +78,7 @@ pub enum RunningAuthorityLoopProgress {
     ControllerJoinPending,
     /// No scheduler ticket exists while a reconnect assignment is unresolved.
     ControllerReclaimPending,
-    /// Import preparation is complete and stepping is paused for durability.
+    /// Population work owns the source hold through preparation and durability.
     ImportPending,
     /// No complete fixed delta is due yet.
     Idle {
@@ -208,6 +208,8 @@ pub struct RunningGenerationStartResolution {
 /// One retained scheduler and complete-step coordinator around running authority.
 #[derive(Debug)]
 pub struct RunningAuthorityLoop {
+    /// Ordered mutations retire capture until a new control evaluation publishes.
+    visualization_invalidated: bool,
     authority: AuthoritativeState,
     scheduler: FixedStepScheduler,
     coordinator: RunningStepCoordinator,
@@ -217,10 +219,16 @@ pub struct RunningAuthorityLoop {
     pending_step: Option<ScheduledStep>,
     pending_due_steps: Option<usize>,
     state: RunningAuthorityLoopState,
+    population_work_slot: Option<super::contract::PreparedImportSlot>,
     background_clock: Option<std::time::Instant>,
     pending_reclaim: Option<(u64, super::state::PreparedControllerReclaim)>,
     pending_join: Option<(u64, super::state::PreparedControllerJoin)>,
+    pending_finish: Option<(String, String, u64)>,
     work_limits: RunningStepWorkLimits,
+    teacher_capture: Option<super::teacher_stream::TeacherStreamCapture>,
+    teacher_capture_error: Option<String>,
+    teacher_sensor_metadata: Option<String>,
+    shadows: super::shadows::ShadowWorkspace,
 }
 
 /// Fallible scheduler/coordinator construction completed before authority moves.
@@ -234,6 +242,306 @@ pub(crate) struct PreparedRunningAuthorityLoop {
 }
 
 impl RunningAuthorityLoop {
+    /// Ordered diagnostics never replace the teacher's action or recurrent owner.
+    pub fn activate_shadow(
+        &mut self,
+        request: &super::shadows::ShadowActivationRequest,
+        sequence: u64,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("shadow activation requires clean boundary".into());
+        }
+        let state = self.authority.state();
+        let capture = self
+            .teacher_capture
+            .as_ref()
+            .filter(|capture| !capture.is_stopped())
+            .ok_or("shadow requires active teacher capture")?;
+        let contract = capture.contract();
+        if request.expected_run_id != state.identity.run_id
+            || request.expected_config_revision != state.identity.config_revision
+            || request.capture_epoch != contract.capture_epoch
+            || !capture.has_slot(request.baseline_slot)
+        {
+            return Err("shadow activation teacher/run/configuration mismatch".into());
+        }
+        self.shadows.activate(
+            request,
+            sequence,
+            state.generation.completed_step,
+            contract.sensor_sha256,
+            contract.control_interval_seconds,
+            contract.input_size,
+        )
+    }
+
+    pub fn stop_shadow(
+        &mut self,
+        slot: u32,
+        capture_epoch: [u8; 16],
+        activation_sequence: u64,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("shadow stop requires clean boundary".into());
+        }
+        let snapshot = self
+            .shadows
+            .snapshots()
+            .get(slot as usize)
+            .copied()
+            .flatten()
+            .ok_or("shadow slot is empty")?;
+        if snapshot.capture_epoch != capture_epoch
+            || snapshot.activation_sequence != activation_sequence
+        {
+            return Err("shadow stop activation mismatch".into());
+        }
+        self.shadows.stop(slot).map_err(str::to_owned)
+    }
+
+    pub fn shadow_snapshots(
+        &self,
+    ) -> [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS] {
+        self.shadows.snapshots()
+    }
+    /// Exact Rust canonical bytes, retained cold for dataset metadata.
+    pub(crate) fn teacher_sensor_metadata(&self) -> Option<&str> {
+        self.teacher_sensor_metadata.as_deref()
+    }
+    /// Arm automatic capture only after all contract, owner and memory checks pass.
+    pub fn start_teacher_capture(
+        &mut self,
+        request: &super::teacher_runtime::TeacherCaptureRequest,
+    ) -> Result<super::teacher_samples::TeacherContractV1, String> {
+        if self.state != RunningAuthorityLoopState::Ready
+            || self.teacher_capture.as_ref().is_some_and(|capture| {
+                !capture.is_stopped() || capture.snapshot().queued_chunks != 0
+            })
+        {
+            return Err(
+                "teacher capture requires a clean boundary and a drained prior epoch".into(),
+            );
+        }
+        if self
+            .teacher_capture
+            .as_ref()
+            .is_some_and(|capture| capture.contract().capture_epoch == request.capture_epoch)
+        {
+            return Err("teacher capture epoch cannot be reused".into());
+        }
+        let (contract, sensor) =
+            super::teacher_runtime::capture_contract(&self.authority, request)?;
+        let sensor_bytes = sensor
+            .canonical_bytes()
+            .map_err(|error| error.to_string())?;
+        if sensor_bytes.len() > 65_536 {
+            return Err("teacher sensor metadata exceeds admission".into());
+        }
+        let sensor_json = String::from_utf8(sensor_bytes).map_err(|error| error.to_string())?;
+        let capture = super::teacher_stream::TeacherStreamCapture::new(
+            contract.clone(),
+            &sensor,
+            &request.baseline_slots,
+            request.limits.pending_bytes,
+            request.limits.queue_chunks,
+            request
+                .limits
+                .queue_bytes
+                .checked_sub(
+                    super::teacher_mailbox::TEACHER_MAILBOX_BYTES
+                        + super::teacher_mailbox::TEACHER_METADATA_HEADROOM,
+                )
+                .ok_or_else(|| {
+                    "teacher queue budget lacks diagnostic handoff headroom".to_owned()
+                })?,
+        )
+        .map_err(|error| error.to_string())?;
+        self.coordinator
+            .configure_teacher_capture(
+                &self.authority,
+                &request.baseline_slots,
+                request.limits.pending_bytes,
+            )
+            .map_err(|error| error.to_string())?;
+        self.teacher_capture = Some(capture);
+        self.teacher_capture_error = None;
+        self.teacher_sensor_metadata = Some(sensor_json);
+        Ok(contract)
+    }
+
+    /// Stop at an ordered clean boundary while retaining complete chunks for drain.
+    pub fn stop_teacher_capture(&mut self) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("teacher capture stop requires a clean running boundary".into());
+        }
+        self.shadows.stop_all("teacher capture closed");
+        if let Some(capture) = &mut self.teacher_capture {
+            capture
+                .stop(super::teacher_samples::TeacherEndReason::CaptureStopped)
+                .map_err(|error| error.to_string())?;
+        }
+        self.coordinator
+            .configure_teacher_capture(&self.authority, &[], 0)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Separate diagnostic transfer, independent of controller/generation delivery.
+    pub fn drain_teacher_chunks(
+        &mut self,
+        max_chunks: usize,
+        max_owned_bytes: usize,
+    ) -> Result<Option<super::teacher_queue::TeacherQueueDrain>, String> {
+        self.teacher_capture
+            .as_mut()
+            .map(|capture| {
+                capture
+                    .drain(max_chunks, max_owned_bytes)
+                    .map_err(|error| error.to_string())
+            })
+            .transpose()
+    }
+
+    /// Bounded transport identity and counters without borrowing any world records.
+    pub fn teacher_capture_status(
+        &self,
+    ) -> Option<(
+        &super::teacher_samples::TeacherContractV1,
+        super::teacher_queue::TeacherQueueSnapshot,
+        bool,
+        Option<&str>,
+    )> {
+        self.teacher_capture.as_ref().map(|capture| {
+            (
+                capture.contract(),
+                capture.snapshot(),
+                capture.is_stopped(),
+                self.teacher_capture_error.as_deref(),
+            )
+        })
+    }
+
+    /// End a diagnostic epoch on shutdown/fault/config replacement without gating authority.
+    pub(crate) fn end_teacher_capture(&mut self, reason: super::teacher_samples::TeacherEndReason) {
+        self.shadows.stop_all("teacher capture closed");
+        if let Some(capture) = &mut self.teacher_capture {
+            if !capture.is_stopped() {
+                if let Err(error) = capture.stop(reason) {
+                    self.shadows.stop_all("teacher publication failed");
+                    self.teacher_capture_error = Some(error.to_string());
+                }
+            }
+        }
+    }
+
+    fn capture_teacher_publication(&mut self, generation_ended: bool) {
+        let Some(capture) = self
+            .teacher_capture
+            .as_mut()
+            .filter(|capture| !capture.is_stopped())
+        else {
+            return;
+        };
+        let mut inspector_key = None;
+        let result = self
+            .coordinator
+            .published_teacher_boundary()
+            .ok_or(super::teacher_samples::TeacherCodecError(
+                "published teacher boundary unavailable",
+            ))
+            .and_then(|boundary| {
+                self.shadows.observe(boundary);
+                inspector_key = Some(boundary.key);
+                capture.observe(boundary, generation_ended)
+            });
+        if let Some(key) = inspector_key {
+            self.coordinator
+                .join_inspector_shadows(key, self.shadows.snapshots());
+        }
+        if let Err(error) = result {
+            self.shadows.stop_all("teacher publication failed");
+            self.teacher_capture_error = Some(error.to_string());
+            let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
+        }
+    }
+    /// Select one validated physical life without changing observation/RNG/quota ownership.
+    pub fn configure_inspector(
+        &mut self,
+        expected_run_id: &str,
+        selection: Option<(super::state::EntitySelectionToken, u32)>,
+        budget_bytes: usize,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready
+            || self.authority.state().identity.run_id != expected_run_id
+        {
+            return Err("inspector requires the current run at a clean running boundary".into());
+        }
+        let target = selection
+            .map(|(token, frame_v1_id)| {
+                self.authority
+                    .validate_entity_selection(token, frame_v1_id)?;
+                Ok::<_, String>(super::inspector::InspectorTarget {
+                    world_epoch: token.world_epoch(),
+                    generation: self.generation(),
+                    physical_id: token.physical_id(),
+                    frame_v1_id,
+                })
+            })
+            .transpose()?;
+        self.coordinator
+            .configure_inspector(&self.authority, target, budget_bytes)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Native queue admission binds all future rows to this exact subscription command.
+    pub(crate) fn configure_inspector_subscription(
+        &mut self,
+        expected_run_id: &str,
+        selection: Option<(super::state::EntitySelectionToken, u32)>,
+        budget_bytes: usize,
+        sequence: u64,
+        pure_probe: bool,
+    ) -> Result<(), String> {
+        if sequence == 0 {
+            return Err("inspector subscription sequence must be positive".into());
+        }
+        self.configure_inspector(expected_run_id, selection, budget_bytes)?;
+        self.coordinator.set_inspector_probe(pure_probe);
+        self.coordinator.bind_inspector_subscription(sequence);
+        Ok(())
+    }
+
+    /// Exact last delivered row, including held-control age; no sensing or neural evaluation occurs.
+    pub fn inspector_observation(&self) -> Option<&super::inspector::InspectorObservation> {
+        self.coordinator.inspector_observation(&self.authority)
+    }
+
+    /// Admit optional exact-row retention only at a clean running boundary.
+    pub fn configure_teacher_capture(
+        &mut self,
+        slots: &[u32],
+        pending_budget_bytes: usize,
+    ) -> Result<(), String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("teacher capture requires a clean running boundary".into());
+        }
+        if self
+            .teacher_capture
+            .as_ref()
+            .is_some_and(|capture| !capture.is_stopped())
+        {
+            return Err("automatic capture owns the selected pending teacher rows".into());
+        }
+        self.coordinator
+            .configure_teacher_capture(&self.authority, slots, pending_budget_bytes)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Exact retained rows from the latest complete published transaction.
+    pub fn published_teacher_boundary(
+        &self,
+    ) -> Option<super::teacher_capture::PublishedTeacherBoundary<'_>> {
+        self.coordinator.published_teacher_boundary()
+    }
     /// Arm a calculation failure while the test runtime still owns an unstarted loop.
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
@@ -272,6 +580,11 @@ impl RunningAuthorityLoop {
         prepared: PreparedRunningAuthorityLoop,
     ) -> Self {
         Self {
+            visualization_invalidated: false,
+            teacher_capture: None,
+            teacher_capture_error: None,
+            teacher_sensor_metadata: None,
+            shadows: super::shadows::ShadowWorkspace::default(),
             authority,
             scheduler: prepared.scheduler,
             coordinator: prepared.coordinator,
@@ -281,11 +594,47 @@ impl RunningAuthorityLoop {
             pending_step: None,
             pending_due_steps: None,
             state: RunningAuthorityLoopState::Ready,
+            population_work_slot: None,
             background_clock: None,
             pending_reclaim: None,
             pending_join: None,
+            pending_finish: None,
             work_limits: prepared.work_limits,
         }
+    }
+
+    /// Admit one idempotent run/generation-scoped request at a fresh boundary.
+    pub(crate) fn request_finish_generation(
+        &mut self,
+        request_id: String,
+        expected_run_id: String,
+        expected_generation: u64,
+    ) -> Result<u64, String> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return Err("finish generation requires a fresh authoritative boundary".to_owned());
+        }
+        let source = self.authority.state();
+        if source.identity.run_id != expected_run_id
+            || source.generation.generation != expected_generation
+        {
+            return Err("stale finish generation run or generation".to_owned());
+        }
+        let request = (request_id, expected_run_id, expected_generation);
+        if self
+            .pending_finish
+            .as_ref()
+            .is_some_and(|pending| pending != &request)
+        {
+            return Err("another finish generation request is already pending".to_owned());
+        }
+        let effective_step = source
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or_else(|| "finish generation step overflow".to_owned())?;
+        self.pending_finish = Some(request);
+        self.coordinator.request_manual_finish();
+        Ok(effective_step)
     }
 
     /// Service one already-drained command/action boundary and at most one step.
@@ -397,6 +746,7 @@ impl RunningAuthorityLoop {
             self.authority.swap_prepared_live_settings(&mut prepared);
             return Err(error.to_string());
         }
+        self.end_teacher_capture(super::teacher_samples::TeacherEndReason::ContractChanged);
         self.coordinator = replacement;
         let state = self.authority.state();
         Ok((
@@ -418,28 +768,66 @@ impl RunningAuthorityLoop {
 
     /// Copy a newly published focused snapshot into the independent display cache.
     pub(crate) fn publish_visualization(
-        &self,
+        &mut self,
         display: &super::display::RunningDisplayCache,
     ) -> Result<(), super::error::EngineError> {
-        if let Some(visualization) = self
-            .coordinator
-            .visualization()
-            .filter(|value| value.completed_step == self.completed_step())
-        {
+        if let Some(visualization) = self.coordinator.visualization().filter(|value| {
+            value.completed_step == self.completed_step()
+                && self.authority.state().world.snakes.iter().any(|snake| {
+                    snake.alive
+                        && snake.id == value.physical_id
+                        && snake.frame_v1_id == value.frame_v1_id
+                })
+        }) {
+            if self.visualization_invalidated && !display.clear_visualization()? {
+                return Ok(());
+            }
             display.publish_visualization(self.world_epoch(), visualization)?;
+            self.visualization_invalidated = false;
+        } else if self.visualization_invalidated {
+            display.clear_visualization()?;
+        } else {
+            display.retain_current_visualization(self.world_epoch(), |id, frame| {
+                self.authority
+                    .state()
+                    .world
+                    .snakes
+                    .iter()
+                    .any(|snake| snake.alive && snake.id == id && snake.frame_v1_id == frame)
+            })?;
         }
         Ok(())
+    }
+
+    /// Resolve a selection only in the expected run/generation at a clean boundary.
+    pub(crate) fn select_entity(
+        &self,
+        target: super::state::EntitySelectionTarget,
+        expected_run_id: &str,
+        expected_generation: u64,
+    ) -> Result<Option<super::state::EntitySelection>, String> {
+        self.require_action_state("select entity", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        if self.authority.state().identity.run_id != expected_run_id
+            || self.authority.state().generation.generation != expected_generation
+        {
+            return Err("entity selection refers to a replaced run or generation".to_owned());
+        }
+        Ok(self.authority.select_entity(target))
     }
 
     /// Apply one ordered God Mode move before the next fixed step is prepared.
     pub(crate) fn apply_god_mode_move(
         &mut self,
+        token: super::state::EntitySelectionToken,
         frame_v1_id: u32,
         x: f64,
         y: f64,
     ) -> Result<(super::god_mode::GodModeMovePublication, u64), String> {
         self.require_action_state("apply God Mode move", RunningAuthorityLoopState::Ready)
             .map_err(|error| error.to_string())?;
+        self.authority
+            .validate_entity_selection(token, frame_v1_id)?;
         let effective_step = self
             .authority
             .state()
@@ -451,16 +839,21 @@ impl RunningAuthorityLoop {
             .authority
             .apply_god_mode_move(frame_v1_id, x, y)
             .map_err(|error| error.to_string())?;
+        self.coordinator.invalidate_visualization();
+        self.visualization_invalidated = true;
         Ok((publication, effective_step))
     }
 
     /// Kill one live snake with normal corpse, RNG, allocator, and later lifecycle handling.
     pub(crate) fn apply_god_mode_kill(
         &mut self,
+        token: super::state::EntitySelectionToken,
         frame_v1_id: u32,
     ) -> Result<(super::god_mode::GodModeKillPublication, u64), String> {
         self.require_action_state("apply God Mode kill", RunningAuthorityLoopState::Ready)
             .map_err(|error| error.to_string())?;
+        self.authority
+            .validate_entity_selection(token, frame_v1_id)?;
         let effective_step = self
             .authority
             .state()
@@ -478,13 +871,45 @@ impl RunningAuthorityLoop {
             .authority
             .apply_god_mode_kill(frame_v1_id, physics)
             .map_err(|error| error.to_string())?;
+        self.shadows
+            .observe_cold_deaths(&self.authority.state().world);
+        if let Some(capture) = &mut self.teacher_capture {
+            if let Err(error) = capture.observe_cold_deaths(&self.authority.state().world) {
+                self.shadows.stop_all("teacher publication failed");
+                self.teacher_capture_error = Some(error.to_string());
+                let _ = capture.stop(super::teacher_samples::TeacherEndReason::Interrupted);
+            }
+        }
+        self.coordinator.invalidate_visualization();
+        self.visualization_invalidated = true;
         Ok((publication, effective_step))
+    }
+
+    /// Admit an explicit saved record only on the ordinary clean authority boundary.
+    pub(crate) fn spawn_saved_brain(
+        &mut self,
+        request: &super::brain_library::SavedBrainSpawnRequest,
+    ) -> Result<(super::state::ResurrectionPublication, u64), String> {
+        self.require_action_state("spawn saved brain", RunningAuthorityLoopState::Ready)
+            .map_err(|error| error.to_string())?;
+        let step = self
+            .authority
+            .state()
+            .generation
+            .completed_step
+            .checked_add(1)
+            .ok_or("completed step is exhausted")?;
+        let publication = self
+            .authority
+            .spawn_saved_brain(request, self.work_limits)?;
+        Ok((publication, step))
     }
 
     /// Restore one leased packed winner and commit it before the next fixed step.
     pub(crate) fn resurrect_hall_of_fame(
         &mut self,
         managed_directory: &std::path::Path,
+        entry_id: u64,
         descriptor: &HallOfFameWeightsDescriptor,
     ) -> Result<(super::state::ResurrectionPublication, u64), String> {
         self.require_action_state(
@@ -504,9 +929,9 @@ impl RunningAuthorityLoop {
             descriptor,
         )
         .map_err(|error| error.to_string())?;
-        let publication = self
-            .authority
-            .resurrect_hall_of_fame(weights, self.work_limits)?;
+        let publication =
+            self.authority
+                .resurrect_hall_of_fame(entry_id, weights, self.work_limits)?;
         Ok((publication, effective_step))
     }
 
@@ -700,6 +1125,12 @@ impl RunningAuthorityLoop {
         self.coordinator.last_step_cost()
     }
 
+    /// Existing hook-only physics timers for the last complete step; no new probes.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) const fn last_physics_phase_timings(&self) -> super::physics::PhysicsPhaseTimings {
+        self.coordinator.last_physics_phase_timings()
+    }
+
     /// Current authoritative pellet count as bounded runtime metadata.
     #[must_use]
     pub fn pellet_count(&self) -> usize {
@@ -718,6 +1149,20 @@ impl RunningAuthorityLoop {
         sequence: u64,
         output: &mut Vec<u8>,
     ) -> Result<RunningDisplayStatus, FrameV1Error> {
+        let lives = &self.authority.state().fixed_step.evolved_generation;
+        let evolved = if lives.slots.is_empty() {
+            None
+        } else {
+            Some(
+                super::evolved_telemetry::EvolvedLifecycleTelemetry::capture(
+                    lives,
+                    self.completed_step(),
+                )
+                .map_err(|_| FrameV1Error::ArithmeticOverflow {
+                    context: "committed life telemetry",
+                })?,
+            )
+        };
         let frame = super::frame_v1::pack_authoritative_frame_v1_bounded_into(
             &self.authority,
             FrameV1ViewDescriptor::default(),
@@ -741,6 +1186,7 @@ impl RunningAuthorityLoop {
             alive_population,
             baseline_bots_alive,
             baseline_bots_total: state.config.baseline_count,
+            evolved,
             frame,
         })
     }
@@ -771,11 +1217,15 @@ impl RunningAuthorityLoop {
             "publish a prepared import",
             RunningAuthorityLoopState::ImportPending,
         )?;
-        let mut transition = Some(slot.take().ok_or(
-            RunningAuthorityLoopError::RetainedStateMismatch {
-                field: "prepared import candidate",
-            },
-        )?);
+        if self.population_work_slot.as_ref() != Some(slot) {
+            return Err(RunningAuthorityLoopError::PopulationWork(
+                "publication belongs to another source hold".into(),
+            ));
+        }
+        let mut transition = Some(
+            slot.take_for_publication(self.authority.world_epoch())
+                .map_err(RunningAuthorityLoopError::PopulationWork)?,
+        );
         let attempted = (|| {
             transition
                 .as_mut()
@@ -797,21 +1247,21 @@ impl RunningAuthorityLoop {
         let publication = match attempted {
             Ok(publication) => publication,
             Err(error) => {
-                let _ = slot.put(transition);
+                let _ = slot.retain_failed_publication(transition);
                 self.state = RunningAuthorityLoopState::Faulted;
                 return Err(RunningAuthorityLoopError::Import(Box::new(error)));
             }
         };
         let clock = self.background_clock;
         let visualization_enabled = self.coordinator.visualization_enabled();
-        let mut replacement = match transition.into_running_loop(
+        let (mut replacement, running_ceiling) = match transition.into_replacement_running_loop(
             FixedStepSchedulerPolicy::provisional_defaults(),
             wall_now_ms,
         ) {
             Ok(replacement) => replacement,
             Err(failure) => {
                 let (transition, error) = failure.into_parts();
-                let _ = slot.put(transition);
+                let _ = slot.retain_failed_publication(transition);
                 self.state = RunningAuthorityLoopState::Faulted;
                 return Err(RunningAuthorityLoopError::Import(Box::new(error)));
             }
@@ -820,21 +1270,46 @@ impl RunningAuthorityLoop {
             replacement.set_background_clock(clock);
         }
         replacement.set_visualization_enabled(visualization_enabled);
-        *self = replacement;
+        // Retire all prior state/coordinator allocations before restoring the
+        // imported authority's complete running budget. No simulation runs in between.
+        let retired = std::mem::replace(self, replacement);
+        drop(retired);
+        if let Err(error) = self
+            .authority
+            .reclaim_retired_memory_budget(running_ceiling)
+        {
+            self.state = RunningAuthorityLoopState::Faulted;
+            return Err(RunningAuthorityLoopError::Import(Box::new(
+                RunStartTransitionError::from(error),
+            )));
+        }
+        slot.complete_publication();
         Ok(publication)
     }
 
-    /// Pause new steps only after a complete private candidate exists.
+    /// Hold the complete source before private population allocation or publication.
     pub(crate) fn stage_prepared_import(
         &mut self,
         slot: &super::contract::PreparedImportSlot,
     ) -> Result<(), RunningAuthorityLoopError> {
         self.require_action_state("stage a prepared import", RunningAuthorityLoopState::Ready)?;
-        if !slot.is_some() {
-            return Err(RunningAuthorityLoopError::RetainedStateMismatch {
-                field: "prepared import candidate",
-            });
-        }
+        slot.reserve_admission_with_math(
+            self.authority.memory_ceiling_bytes(),
+            self.authority.memory_estimate().total_bytes,
+            self.authority.world_epoch(),
+            Some(
+                super::inference::InferenceMathBackend::from_label(
+                    &self.authority.state().identity.math_backend,
+                )
+                .ok_or_else(|| {
+                    RunningAuthorityLoopError::PopulationWork(
+                        "source arithmetic is unsupported".into(),
+                    )
+                })?,
+            ),
+        )
+        .map_err(RunningAuthorityLoopError::PopulationWork)?;
+        self.population_work_slot = Some(slot.clone());
         self.state = RunningAuthorityLoopState::ImportPending;
         Ok(())
     }
@@ -849,9 +1324,16 @@ impl RunningAuthorityLoop {
             "cancel a prepared import",
             RunningAuthorityLoopState::ImportPending,
         )?;
-        let _ = slot.take();
+        if self.population_work_slot.as_ref() != Some(slot) {
+            return Err(RunningAuthorityLoopError::PopulationWork(
+                "cancellation belongs to another source hold".into(),
+            ));
+        }
+        slot.cancel()
+            .map_err(RunningAuthorityLoopError::PopulationWork)?;
         self.scheduler
             .resume_after_external_pause(&self.authority, wall_now_ms)?;
+        self.population_work_slot = None;
         self.state = RunningAuthorityLoopState::Ready;
         Ok(())
     }
@@ -883,6 +1365,164 @@ impl RunningAuthorityLoop {
         &self,
     ) -> Option<&HallOfFameWeightsDescriptor> {
         self.coordinator.pending_hall_of_fame_weights_descriptor()
+    }
+
+    /// Fixed-size long-run resource witness; diagnostics never copy historic lives or dense weights.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_storage_snapshot(&self) -> Result<serde_json::Value, String> {
+        let state = self.authority.state();
+        let world = &state.world;
+        let lives = &state.fixed_step.evolved_generation;
+        let config = &state.config;
+        let telemetry = super::evolved_telemetry::EvolvedLifecycleTelemetry::capture(
+            lives,
+            self.completed_step(),
+        )
+        .map_err(|e| e.to_string())?;
+        if world.snakes.len() > config.max_world_snakes
+            || world.body_points.len() > config.max_body_points
+            || world.pellets.len() > config.max_pellets
+            || lives.slots.len() != config.population_count
+            || state.brains.len() > config.population_count + config.max_non_population_brains
+            || lives.transaction_life_ends.len() > config.population_count
+        {
+            return Err("soak authoritative storage exceeded admitted record bounds".into());
+        }
+        Ok(serde_json::json!({"completedStep":self.completed_step(),
+            "snakes":world.snakes.len(),"snakeCapacity":world.snakes.capacity(),"snakeLimit":config.max_world_snakes,
+            "bodyPoints":world.body_points.len(),"bodyCapacity":world.body_points.capacity(),"bodyLimit":config.max_body_points,
+            "pellets":world.pellets.len(),"pelletCapacity":world.pellets.capacity(),"pelletLimit":config.max_pellets,
+            "brains":state.brains.len(),"brainCapacity":state.brains.capacity(),
+            "lifeSlots":lives.slots.len(),"lifeSlotCapacity":lives.slots.capacity(),
+            "recentLifeEnds":lives.recent_life_ends.len(),"recentLifeEndCapacity":lives.recent_life_ends.capacity(),
+            "transactionLifeEnds":lives.transaction_life_ends.len(),"transactionLifeEndCapacity":lives.transaction_life_ends.capacity(),
+            "lives":telemetry.lives,"deaths":telemetry.deaths,"respawns":telemetry.respawns,
+            "failedPlacements":telemetry.failed_placements,"pendingSeconds":telemetry.pending_seconds,
+            "recurrentElements":state.brains.iter().map(|brain|brain.recurrent.len()).sum::<usize>(),
+            "weightElements":state.population.iter().map(|genome|genome.weights.len()).sum::<usize>(),
+            "admittedStateBytes":self.authoritative_memory_bytes(),
+            "currentRssBytes":super::soak_qualification::current_rss_bytes(),
+            "placementCandidates":telemetry.placement.candidates,
+            "placementGeometryChecks":telemetry.placement.geometry_checks}))
+    }
+
+    /// Same-build/environment continuation witness for observer noninterference.
+    /// Streaming parameters avoids materializing a textual population copy.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_continuation_sha256(&self) -> String {
+        self.qualification_continuation_digest(true)
+    }
+
+    /// Boundary checkpoints reset wall debt. Compare equal completed physics
+    /// steps while preserving every gameplay/RNG/life/weight/recurrent field.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_restored_continuation_sha256(&self) -> String {
+        self.qualification_continuation_digest(false)
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    fn qualification_continuation_digest(&self, include_wall_debt: bool) -> String {
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write;
+        let state = self.authority.state();
+        let mut hash = Sha256::new();
+        hash.update(if include_wall_debt {
+            b"slither.sensor-qualification-continuation.v1\0".as_slice()
+        } else {
+            b"slither.checkpoint-capacity-continuation.v1\0".as_slice()
+        });
+        let mut generation = state.generation.clone();
+        if !include_wall_debt {
+            generation.wall_accumulator_seconds = 0.0;
+        }
+        hash.update(super::external_replacement::authority_world_digest(
+            &state.world,
+        ));
+        hash.update(
+            format!(
+                "{:?}",
+                (
+                    &generation,
+                    &state.rng,
+                    &state.allocators,
+                    &state.fixed_step
+                )
+            )
+            .as_bytes(),
+        );
+        for genome in &state.population {
+            for value in &genome.weights {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        for brain in &state.brains {
+            for value in &brain.recurrent {
+                hash.update(value.to_bits().to_le_bytes());
+            }
+        }
+        let mut text = String::with_capacity(64);
+        for byte in hash.finalize() {
+            write!(&mut text, "{byte:02x}").expect("String formatting cannot fail");
+        }
+        text
+    }
+
+    /// Inspect only an observation batch matching the currently committed boundary.
+    /// Failed, pending or retired-generation work cannot appear as benchmark samples.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_batch(
+        &self,
+    ) -> Option<(
+        super::control::NeuralControlBatchView<'_>,
+        &super::state::WorldState,
+    )> {
+        if self.state != RunningAuthorityLoopState::Ready {
+            return None;
+        }
+        let (batch, world) = self.coordinator.qualification_batch()?;
+        let state = self.authority.state();
+        if batch.key()
+            != super::calculation::CalculationBatchKey::new(
+                state.generation.generation,
+                state.generation.completed_step,
+                state.generation.population_epoch,
+            )
+        {
+            return None;
+        }
+        Some((batch, world))
+    }
+
+    /// Read source-class work only after the same exact publication gate as observation rows.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_sensor_work(
+        &self,
+    ) -> Option<[super::sensor_qualification::ConsumerSensorWork; 3]> {
+        self.qualification_batch()?;
+        Some(self.coordinator.qualification_sensor_work())
+    }
+
+    /// Match the current published ordinary batch, excluding staged/terminal work.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_scope(
+        &self,
+    ) -> Option<(&str, super::calculation::CalculationBatchKey)> {
+        let (batch, _) = self.qualification_batch()?;
+        Some((&self.authority.state().identity.run_id, batch.key()))
+    }
+
+    /// Borrow diagnostics only after the same ordinary publication gate.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_counts(
+        &self,
+    ) -> Option<[super::observation_quality::ObservationCounts; 3]> {
+        self.qualification_batch()?;
+        Some(self.coordinator.qualification_observation_counts())
+    }
+
+    /// Exact active observation width; no world scan or sensor execution.
+    pub(crate) fn sensor_input_size(&self) -> usize {
+        self.coordinator.sensor_input_size()
     }
 
     /// Borrow only the retained source controller records for queue admission.
@@ -1069,6 +1709,7 @@ impl RunningAuthorityLoop {
                     });
                 }
                 let publication = outcome.publication;
+                self.capture_teacher_publication(false);
                 if let Err(error) = self
                     .scheduler
                     .commit_step(&self.authority, step, publication)
@@ -1168,6 +1809,7 @@ impl RunningAuthorityLoop {
         let publication = self
             .coordinator
             .publish_acknowledged_generation_start(&mut self.authority)?;
+        self.capture_teacher_publication(true);
         let prepared_rebind = match self
             .coordinator
             .prepare_published_generation_rebind(&self.authority, &publication)
@@ -1189,6 +1831,7 @@ impl RunningAuthorityLoop {
         }
         self.coordinator
             .commit_published_generation_rebind(prepared_rebind);
+        self.pending_finish = None;
         self.pending_step = None;
         self.pending_due_steps = None;
         let frame = match frame {
@@ -1322,6 +1965,7 @@ impl RunningAuthorityLoop {
         {
             RunningStepProgress::Published(outcome) => {
                 let publication = outcome.publication;
+                self.capture_teacher_publication(false);
                 self.scheduler
                     .commit_step(&self.authority, step, publication)?;
                 self.pending_step = None;
@@ -1437,6 +2081,8 @@ pub enum RunningAuthorityLoopError {
     RunningStep(Box<RunningStepError>),
     /// Optional post-publication frame packing failed.
     Frame(Box<FrameV1Error>),
+    /// A coarse population job could not acquire or release shared admission.
+    PopulationWork(String),
     /// Durable import activation failed after its database current-pointer commit.
     Import(Box<RunStartTransitionError>),
 }
@@ -1471,6 +2117,9 @@ impl Display for RunningAuthorityLoopError {
             Self::RunningStep(error) => write!(formatter, "running authority step failed: {error}"),
             Self::Frame(error) => write!(formatter, "running authority frame failed: {error}"),
             Self::Import(error) => write!(formatter, "running authority import failed: {error}"),
+            Self::PopulationWork(detail) => {
+                write!(formatter, "population work admission failed: {detail}")
+            }
         }
     }
 }
@@ -1483,6 +2132,7 @@ impl Error for RunningAuthorityLoopError {
             Self::Frame(error) => Some(error),
             Self::Import(error) => Some(error),
             Self::AlreadyFaulted
+            | Self::PopulationWork(_)
             | Self::InvalidActionState { .. }
             | Self::RetainedStateMismatch { .. }
             | Self::InvalidBackgroundStart { .. } => None,

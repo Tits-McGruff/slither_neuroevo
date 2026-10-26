@@ -31,7 +31,7 @@ use super::world_step::ExternalDeliveryStatus;
 /// conservative bucket upper bounds, while maximum and mean use exact sampled
 /// microseconds. The denser sub-frame buckets preserve useful P0/P1 resolution
 /// without retaining one record per authoritative step.
-const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 25] = [
+pub(crate) const STEP_TIMING_BUCKET_UPPER_MICROS: [u64; 25] = [
     100,
     200,
     300,
@@ -177,6 +177,9 @@ pub struct RunningAuthorityHealth {
 /// Atomics updated only by the authority thread and read by health callers.
 #[derive(Debug)]
 pub(crate) struct RunningAuthorityMetrics {
+    /// One coherent fixed-size quality prefix, isolated from production execution.
+    #[cfg(feature = "engine-test-hooks")]
+    observation_quality: Mutex<super::observation_quality::ObservationQuality>,
     loop_state: AtomicU8,
     world_epoch: AtomicU64,
     generation: AtomicU64,
@@ -223,6 +226,10 @@ impl RunningAuthorityMetrics {
     pub(crate) fn new(running: &RunningAuthorityLoop) -> Self {
         let diagnostics = running.scheduler_diagnostics();
         Self {
+            #[cfg(feature = "engine-test-hooks")]
+            observation_quality: Mutex::new(
+                super::observation_quality::ObservationQuality::default(),
+            ),
             loop_state: AtomicU8::new(loop_state_code(running.state())),
             world_epoch: AtomicU64::new(running.world_epoch()),
             generation: AtomicU64::new(running.generation()),
@@ -269,6 +276,22 @@ impl RunningAuthorityMetrics {
 
     /// Refresh the published bounded authority/scheduler snapshot.
     pub(crate) fn observe(&self, running: &RunningAuthorityLoop) {
+        #[cfg(feature = "engine-test-hooks")]
+        if let Some((run_id, key)) = running.qualification_observation_scope() {
+            let mut quality = lock_recover(&self.observation_quality);
+            if quality.needs_record(run_id, key) {
+                if let Some(counts) = running.qualification_observation_counts() {
+                    quality.record(
+                        run_id,
+                        key,
+                        running.world_epoch(),
+                        running.generation(),
+                        running.completed_step(),
+                        counts,
+                    );
+                }
+            }
+        }
         let diagnostics = running.scheduler_diagnostics();
         let transition = running.pending_generation_transition();
         let generation_checkpoint_published = transition
@@ -432,6 +455,14 @@ impl RunningAuthorityMetrics {
             }
         }
         self.step_timing_max_micros.load(Ordering::Relaxed)
+    }
+
+    /// Serialize a coherent ordinary quality prefix without touching the live world.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn observation_quality_for_test(&self) -> Result<String, EngineError> {
+        lock_recover(&self.observation_quality)
+            .to_json()
+            .map_err(|error| EngineError::new(EngineErrorCode::Faulted, error.to_string()))
     }
 
     /// Read a bounded, allocation-free operational snapshot.
@@ -661,6 +692,7 @@ pub(crate) fn run_running_coordinator(
     running: &mut RunningAuthorityLoop,
     metrics: &RunningAuthorityMetrics,
     display: Option<&super::display::RunningDisplayCache>,
+    teachers: &super::teacher_mailbox::TeacherMailbox,
 ) -> Result<(), EngineError> {
     running.validate_background_start().map_err(|error| {
         EngineError::new(
@@ -681,6 +713,7 @@ pub(crate) fn run_running_coordinator(
     let mut announced_generation_source = None;
     let mut announced_delivery_ticket = None;
     loop {
+        teachers.service(running);
         if let Some(display) = display {
             // The preceding command/service reservation has left scope. This
             // sample cannot precede its reliable result or describe staged work.
@@ -689,7 +722,9 @@ pub(crate) fn run_running_coordinator(
             } else {
                 display.clear_visualization()?;
             }
-            display.publish_if_due(running, monotonic_elapsed_ms(wall_origin)?, output)?;
+            let now_ms = monotonic_elapsed_ms(wall_origin)?;
+            display.publish_inspector(running, now_ms)?;
+            display.publish_if_due(running, now_ms, output)?;
         }
         match wait {
             RunningWait::Immediate => {}
@@ -1068,8 +1103,23 @@ fn execute_running_authority_command(
                     effective_step,
                 }
             }),
-        RunningAuthorityCommand::GodModeMove { frame_v1_id, x, y } => running
-            .apply_god_mode_move(frame_v1_id, x, y)
+        RunningAuthorityCommand::FinishGeneration { request_id, expected_run_id, expected_generation } => running
+            .request_finish_generation(request_id, expected_run_id, expected_generation)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|effective_step| RunningAuthorityEvent::FinishGenerationAccepted { command_sequence, effective_step }),
+        RunningAuthorityCommand::SelectEntity { target, expected_run_id, expected_generation } => running
+            .select_entity(target, &expected_run_id, expected_generation)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|selection| RunningAuthorityEvent::EntitySelected { command_sequence, selection }),
+        RunningAuthorityCommand::ConfigureInspector { expected_run_id, selection, pure_probe } => {
+            let enabled = selection.is_some();
+            running.configure_inspector_subscription(&expected_run_id, selection.map(|value| *value),
+                super::inspector::MAX_INSPECTOR_BYTES, command_sequence, pure_probe)
+                .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                .map(|()| RunningAuthorityEvent::InspectorChanged { command_sequence, enabled })
+        }
+        RunningAuthorityCommand::GodModeMove { token, frame_v1_id, x, y } => running
+            .apply_god_mode_move(*token, frame_v1_id, x, y)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|(publication, effective_step)| RunningAuthorityEvent::GodModeMoved {
                 command_sequence,
@@ -1078,8 +1128,8 @@ fn execute_running_authority_command(
                 y: publication.y,
                 effective_step,
             }),
-        RunningAuthorityCommand::GodModeKill { frame_v1_id } => running
-            .apply_god_mode_kill(frame_v1_id)
+        RunningAuthorityCommand::GodModeKill { token, frame_v1_id } => running
+            .apply_god_mode_kill(*token, frame_v1_id)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|(publication, effective_step)| RunningAuthorityEvent::GodModeKilled {
                 command_sequence,
@@ -1094,11 +1144,44 @@ fn execute_running_authority_command(
                 enabled,
             })
         }
+        RunningAuthorityCommand::ActivateShadow(request) => {
+            let identity = request.candidate.artifact_sha256;
+            let slot = request.shadow_slot;
+            running.activate_shadow(&request, command_sequence)
+                .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                .map(|()| RunningAuthorityEvent::ShadowChanged { command_sequence, shadow_slot: slot, artifact_sha256: identity,
+                    enabled: true, effective_step: running.completed_step() })
+        }
+        RunningAuthorityCommand::StopShadow { shadow_slot, capture_epoch, activation_sequence } => {
+            let identity = running.shadow_snapshots().get(shadow_slot as usize).and_then(|snapshot| *snapshot).map_or([0;32], |snapshot| snapshot.artifact_sha256);
+            running.stop_shadow(shadow_slot, capture_epoch, activation_sequence).map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                .map(|()| RunningAuthorityEvent::ShadowChanged { command_sequence, shadow_slot, artifact_sha256: identity,
+                    enabled: false, effective_step: running.completed_step() })
+        }
+        RunningAuthorityCommand::StartTeacherCapture(request) => running.start_teacher_capture(&request)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|contract| RunningAuthorityEvent::TeacherCaptureChanged {
+                command_sequence, capture_epoch: contract.capture_epoch, enabled: true,
+            }),
+        RunningAuthorityCommand::StopTeacherCapture { capture_epoch } => {
+            if running.teacher_capture_status().is_none_or(|status| status.0.capture_epoch != capture_epoch) {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "teacher capture epoch mismatch"))
+            } else {
+                running.stop_teacher_capture().map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+                    .map(|()| RunningAuthorityEvent::TeacherCaptureChanged { command_sequence, capture_epoch, enabled: false })
+            }
+        }
+        RunningAuthorityCommand::SpawnSavedBrain(request) => running.spawn_saved_brain(&request)
+            .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
+            .map(|(publication, effective_step)| RunningAuthorityEvent::SavedBrainSpawned {
+                command_sequence, frame_v1_id: publication.frame_v1_id, effective_step,
+            }),
         RunningAuthorityCommand::ResurrectHallOfFame {
+            entry_id,
             managed_directory,
             weights,
         } => running
-            .resurrect_hall_of_fame(std::path::Path::new(&managed_directory), &weights)
+            .resurrect_hall_of_fame(std::path::Path::new(&managed_directory), entry_id, &weights)
             .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail))
             .map(|(publication, effective_step)| RunningAuthorityEvent::HallOfFameResurrected {
                 command_sequence,
@@ -1119,7 +1202,7 @@ fn execute_running_authority_command(
                     command_sequence,
                     descriptor: Box::new(publication.descriptor),
                     hall_of_fame_weights: Box::new(publication.hall_of_fame_weights),
-                    commit_record: publication.commit_record,
+                    commit_record: Box::new(publication.commit_record),
                 },
             ),
         RunningAuthorityCommand::AcknowledgeGenerationPersistence { descriptor } => {
@@ -1260,7 +1343,8 @@ fn running_response_owned_byte_bound(
                         }
                     };
                     size_of::<super::checkpoint::CheckpointDescriptor>()
-                        .checked_add(descriptor_bytes)
+                        .checked_add(size_of::<super::generation::GenerationCommitRecord>())
+                        .and_then(|bytes| bytes.checked_add(descriptor_bytes))
                         .and_then(|bytes| {
                             bytes.checked_add(size_of::<
                                 super::checkpoint::HallOfFameWeightsDescriptor,
@@ -1302,10 +1386,19 @@ fn running_response_owned_byte_bound(
         | RunningAuthorityCommand::DisconnectController(_) => 0,
         // A canonical `sha256:` identity is 71 bytes; allow allocator rounding too.
         RunningAuthorityCommand::ApplyLiveSettings { .. } => 128,
+        RunningAuthorityCommand::FinishGeneration { .. } => 0,
+        RunningAuthorityCommand::SelectEntity { .. } => 0,
+        RunningAuthorityCommand::ConfigureInspector { .. } => 0,
         RunningAuthorityCommand::GodModeMove { .. } => 0,
         RunningAuthorityCommand::GodModeKill { .. } => 0,
         RunningAuthorityCommand::SetVisualization { .. } => 0,
-        RunningAuthorityCommand::ResurrectHallOfFame { .. } => 0,
+        RunningAuthorityCommand::ActivateShadow(_) | RunningAuthorityCommand::StopShadow { .. } => {
+            0
+        }
+        RunningAuthorityCommand::StartTeacherCapture(_)
+        | RunningAuthorityCommand::StopTeacherCapture { .. } => 0,
+        RunningAuthorityCommand::ResurrectHallOfFame { .. }
+        | RunningAuthorityCommand::SpawnSavedBrain(_) => 0,
         RunningAuthorityCommand::PublishAcknowledgedGenerationStart => {
             // Every unavailable record is a unique old-controller outcome and
             // retains exactly that source controller's scope and known token.
@@ -1895,6 +1988,116 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    /// Pending vectors, rejected queue admission and terminal batches cannot enter the cached prefix.
+    #[test]
+    fn observation_quality_counts_only_ordinary_publication_and_never_changes_continuation() {
+        let mut running = ordinary_controller_loop();
+        let metrics = RunningAuthorityMetrics::new(&running);
+        let empty = metrics.observation_quality_for_test().unwrap();
+        let witness = running.qualification_continuation_sha256();
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+        assert_eq!(running.qualification_continuation_sha256(), witness);
+
+        let bound = super::super::controller_output::service_reply_bound(&running).unwrap();
+        assert!(service_running_with_output_capacity(
+            &mut running,
+            &output_with_cap(bound - 1),
+            1200
+        )
+        .is_err());
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+        let output = output_with_cap(1024 * 1024);
+        assert!(matches!(
+            service_running_with_output_capacity(&mut running, &output, 1200).unwrap(),
+            RunningAuthorityLoopProgress::ExternalDeliveryPending { .. }
+        ));
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+        let messages = super::super::controller_output::own_pending_messages(&running).unwrap();
+        assert!(!messages.is_empty());
+        let receipts: Vec<_> = messages
+            .iter()
+            .map(|message| ExternalDeliveryReceipt {
+                operation_epoch: message.event.step_key.operation_epoch(),
+                event_sequence: message.event.event_sequence,
+                connection_id: message.event.connection_id,
+                lease_id: message.event.lease_id,
+                accepted: true,
+            })
+            .collect();
+        let stale = ExternalDeliveryReceipt {
+            connection_id: u64::MAX,
+            ..receipts[0]
+        };
+        command_reply(
+            &mut running,
+            RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                receipts: vec![stale].into_boxed_slice(),
+            },
+            1024 * 1024,
+        );
+        metrics.observe(&running);
+        assert_eq!(metrics.observation_quality_for_test().unwrap(), empty);
+
+        // Use the actual command processor: its post-command observe must see this publication.
+        let state = CoordinatorState::new();
+        process_running_command_batch(
+            CommandBatch {
+                contract_version: ENGINE_CONTRACT_VERSION,
+                commands: vec![SequencedCommand {
+                    sequence: 1,
+                    command: EngineCommand::RunningAuthority(
+                        RunningAuthorityCommand::SubmitControllerDeliveryReceipts {
+                            receipts: receipts.into_boxed_slice(),
+                        },
+                    ),
+                }]
+                .into_boxed_slice(),
+            },
+            &output,
+            &state,
+            &mut running,
+            &metrics,
+            1200,
+        )
+        .unwrap();
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        let text = metrics.observation_quality_for_test().unwrap();
+        assert!(text.len() <= 4096);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(parsed["ordinaryPublishedSteps"], "0000000000000001");
+        let expected = running.qualification_observation_counts().unwrap();
+        assert!(expected[0].observations > 0);
+        assert!(expected[2].observations > 0);
+        for (index, counts) in expected.iter().enumerate() {
+            assert_eq!(
+                parsed["consumers"][index]["observations"],
+                format!("{:016x}", counts.observations)
+            );
+            assert_eq!(
+                parsed["consumers"][index]["v4Observations"],
+                "0000000000000000"
+            );
+        }
+        let witness = running.qualification_continuation_sha256();
+        for _ in 0..8 {
+            metrics.observe(&running);
+            assert_eq!(metrics.observation_quality_for_test().unwrap(), text);
+        }
+        assert_eq!(running.qualification_continuation_sha256(), witness);
+
+        let mut terminal = background_generation_handoff_fixture().unwrap().running;
+        let terminal_metrics = RunningAuthorityMetrics::new(&terminal);
+        advance_to_transition(&mut terminal);
+        terminal_metrics.observe(&terminal);
+        assert_eq!(
+            terminal_metrics.observation_quality_for_test().unwrap(),
+            empty
+        );
     }
 
     #[test]
@@ -2705,9 +2908,15 @@ mod tests {
             let running = background_generation_handoff_fixture().unwrap().running;
             let mut init = background_generation_handoff_runtime_init();
             init.output.max_reliable = if byte_pressure { 8 } else { 2 };
-            init.output.max_event_owned_bytes = 2048;
-            init.output.max_reliable_owned_bytes = 2048;
-            init.inbound.max_batch_owned_bytes = 2048;
+            let mut publication_probe = background_generation_handoff_fixture().unwrap().running;
+            advance_to_transition(&mut publication_probe);
+            let publication_bound =
+                running_response_owned_byte_bound(&managed.publish_command(), &publication_probe)
+                    .unwrap();
+            drop(publication_probe);
+            init.output.max_event_owned_bytes = publication_bound;
+            init.output.max_reliable_owned_bytes = publication_bound;
+            init.inbound.max_batch_owned_bytes = publication_bound;
             let runtime =
                 EngineRuntime::new_running_authority(init, running, Arc::new(NoopWakeSink))
                     .unwrap();
@@ -2719,7 +2928,7 @@ mod tests {
                     1,
                     EngineCommand::Probe {
                         correlation_id: 1,
-                        payload: vec![0; 2048 - size_of::<RunningAuthorityEvent>()],
+                        payload: vec![0; publication_bound - size_of::<RunningAuthorityEvent>()],
                     },
                 );
                 wait_for_runtime(&runtime, || runtime.health().processed_commands == 1);

@@ -924,6 +924,7 @@ fn build_fixture(
         brains.push(BrainRuntimeState {
             handle,
             owner: BrainOwner::PopulationSlot(slot_u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: recurrent.into_boxed_slice(),
         });
@@ -1058,11 +1059,14 @@ fn build_fixture(
             best_fitness_ever: 0.0,
         },
         fixed_step: FixedStepContinuationState {
+            evolved_generation: super::evolved_lives::EvolvedGenerationState::default(),
             ambient_pellet_accumulator: 0.0,
             baseline_lifecycle,
             sensor_generation,
         },
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(f64::from(FIXTURE_SEED), "world").export_state(),
             evolution: labelled_stream(f64::from(FIXTURE_SEED), "evolution").export_state(),
@@ -1107,6 +1111,8 @@ fn build_fixture(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: math_backend.label().to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     let authority = AuthoritativeState::validate_and_own(candidate, graph, &policy)

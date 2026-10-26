@@ -1,6 +1,11 @@
+import { parseSavedBrainOperation } from './savedBrainProtocol.ts';
+import type { SavedBrainCatalogResult } from '../protocol.ts';
+import { SavedBrainCatalog } from './savedBrainCatalog.ts';
+import { createSavedBrainNativeCodec } from './savedBrainNativeCodec.ts';
 import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
 import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, type Dirent } from 'node:fs';
+import { decodeExperimentSummary, validateExperimentBytes, encodeExperimentRecord } from './experimentRecords.ts';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, sep } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
@@ -24,6 +29,7 @@ import {
   parseManagedGenerationCommit,
   parseManagedImportBranchResult,
   parseManagedImportInventoryDescriptor,
+  parseSavedBrainArchiveEntries,
   parseManagedLegacyConversion,
   parseManagedLegacySnapshotSelection,
   type CheckpointOperationId,
@@ -205,6 +211,8 @@ db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly || existingDatabaseKind === 'legacy') initializeSchema(db);
 initializeGraphPresetSchema(db);
 initializeHallOfFameWeightsSchema(db);
+/** Explicit library shares the metadata connection and immutable HoF weight store. */
+const savedBrainCatalog = new SavedBrainCatalog(db, managedRootPath, createSavedBrainNativeCodec());
 initializeImportableHistorySchema(db);
 initializeRecoverySchema(db);
 initializeRetentionSchema(db);
@@ -585,6 +593,20 @@ function initializeSchema(database: ReturnType<typeof Database>): void {
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (run_id, generation_hex)
     );
+    CREATE TABLE IF NOT EXISTS rust_generation_completion_v1 (
+      run_id TEXT NOT NULL,
+      generation_hex TEXT NOT NULL,
+      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
+      record_blob BLOB NOT NULL CHECK(length(record_blob) = 32),
+      PRIMARY KEY (run_id, generation_hex)
+    );
+    CREATE TABLE IF NOT EXISTS rust_generation_experiment_v1 (
+      run_id TEXT NOT NULL,
+      generation_hex TEXT NOT NULL,
+      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
+      record_blob BLOB NOT NULL CHECK(length(record_blob) = 768),
+      PRIMARY KEY (run_id, generation_hex)
+    );
     CREATE TABLE IF NOT EXISTS rust_hall_of_fame_weights_v1 (
       logical_sha256 TEXT PRIMARY KEY NOT NULL,
       relative_filename TEXT NOT NULL UNIQUE,
@@ -917,14 +939,16 @@ function assertStoredHallOfFameWeights(descriptor: ManagedHallOfFameWeightsDescr
 /** Remove immutable winner objects after no compact Hall-of-Fame row retains them. */
 function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: bigint } {
   const result = { files: 0, storedBytes: 0n };
-  if (activeExportLease || activeHallOfFameLease) return result;
+  if (activeExportLease || activeHallOfFameLease || savedBrainCatalog.hasLeases) return result;
   const nextPage = db.prepare(`SELECT logical_sha256, relative_filename, encoding,
     stored_byte_count_hex, decoded_byte_count_hex, weight_count_hex
     FROM rust_hall_of_fame_weights_v1 AS weights
     WHERE logical_sha256 > ? AND NOT EXISTS (
       SELECT 1 FROM rust_hall_of_fame_v1 AS hall
       WHERE hall.weights_sha256 = weights.logical_sha256
-    ) ORDER BY logical_sha256 LIMIT 64`);
+    ) AND NOT EXISTS (SELECT 1 FROM rust_saved_brains_v1 AS brain
+      WHERE brain.weights_sha256 = weights.logical_sha256)
+    ORDER BY logical_sha256 LIMIT 64`);
   type UnreferencedWeightsRow = {
     logical_sha256: string;
     relative_filename: string;
@@ -967,7 +991,8 @@ function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: b
       db.prepare(`DELETE FROM rust_hall_of_fame_weights_v1
         WHERE logical_sha256 = ? AND NOT EXISTS (
           SELECT 1 FROM rust_hall_of_fame_v1 WHERE weights_sha256 = ?
-        )`).run(row.logical_sha256, row.logical_sha256);
+        ) AND NOT EXISTS (SELECT 1 FROM rust_saved_brains_v1 WHERE weights_sha256 = ?)
+        `).run(row.logical_sha256, row.logical_sha256, row.logical_sha256);
       visited++;
       if (visited % 64 === 0) advancePersistenceProgress();
     }
@@ -984,10 +1009,11 @@ function scavengeUnreferencedManagedFiles(): {
   completed: boolean;
   checkpointFiles: number;
   hallOfFameFiles: number;
+  savedBrainFiles: number;
   storedBytes: bigint;
 } {
-  if (activeExportLease || activeHallOfFameLease) {
-    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+  if (activeExportLease || activeHallOfFameLease || savedBrainCatalog.hasLeases) {
+    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, savedBrainFiles: 0, storedBytes: 0n };
   }
   const referenced = new Set<string>();
   try {
@@ -1029,6 +1055,8 @@ function scavengeUnreferencedManagedFiles(): {
       weights.weight_count_hex FROM rust_hall_of_fame_weights_v1 AS weights
       WHERE EXISTS (SELECT 1 FROM rust_hall_of_fame_v1 AS hall
         WHERE hall.weights_sha256 = weights.logical_sha256)
+        OR EXISTS (SELECT 1 FROM rust_saved_brains_v1 AS brain
+          WHERE brain.weights_sha256 = weights.logical_sha256)
       ORDER BY weights.rowid`).all() as Array<{
         logical_sha256: string;
         relative_filename: string;
@@ -1037,6 +1065,9 @@ function scavengeUnreferencedManagedFiles(): {
         decoded_byte_count_hex: string;
         weight_count_hex: string;
       }>;
+    for (const original of savedBrainCatalog.referencedOriginals()) {
+      referenced.add(original.relativeFilename);
+    }
     let verifiedWeights = 0;
     for (const row of weightRows) {
       if (!/^[0-9a-f]{64}$/u.test(row.logical_sha256) ||
@@ -1061,7 +1092,7 @@ function scavengeUnreferencedManagedFiles(): {
     }
   } catch {
     // Recovery and repair must remain available; malformed retained metadata disables deletion.
-    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, storedBytes: 0n };
+    return { completed: false, checkpointFiles: 0, hallOfFameFiles: 0, savedBrainFiles: 0, storedBytes: 0n };
   }
 
   const removedWeights = cleanupUnreferencedHallOfFameWeights();
@@ -1069,9 +1100,10 @@ function scavengeUnreferencedManagedFiles(): {
     completed: true,
     checkpointFiles: 0,
     hallOfFameFiles: removedWeights.files,
+    savedBrainFiles: 0,
     storedBytes: removedWeights.storedBytes
   };
-  const finalName = /^[0-9a-f]{64}\.(?<kind>checkpoint-v3|hof-weights-v1)$/u;
+  const finalName = /^[0-9a-f]{64}\.(?<kind>checkpoint-v3|hof-weights-v1|slither-brain)$/u;
   let scannedFiles = 0;
   for (const entry of readdirSync(managedRootPath, { withFileTypes: true })) {
     scannedFiles++;
@@ -1085,6 +1117,7 @@ function scavengeUnreferencedManagedFiles(): {
     unlinkSync(path);
     result.storedBytes += metadata.size;
     if (match.groups?.['kind'] === 'checkpoint-v3') result.checkpointFiles++;
+    else if (match.groups?.['kind'] === 'slither-brain') result.savedBrainFiles++;
     else result.hallOfFameFiles++;
   }
   return result;
@@ -1352,10 +1385,11 @@ function scavengeStartupOrphansOnce(): void {
   if (startupOrphansScanned) return;
   const cleanup = scavengeUnreferencedManagedFiles();
   startupOrphansScanned = true;
-  if (cleanup.checkpointFiles > 0 || cleanup.hallOfFameFiles > 0) {
+  if (cleanup.checkpointFiles > 0 || cleanup.hallOfFameFiles > 0 || cleanup.savedBrainFiles > 0) {
     console.warn('[rust.persistence] removed unreferenced managed files', {
       checkpointFiles: cleanup.checkpointFiles,
       hallOfFameFiles: cleanup.hallOfFameFiles,
+      savedBrainFiles: cleanup.savedBrainFiles,
       storedBytes: cleanup.storedBytes.toString()
     });
   }
@@ -1607,8 +1641,8 @@ function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistory
     if (!current) throw new Error('browser history requires a current managed run');
     const descriptor = validateCurrentPointerIdentity(runId, current);
     const filter = exportLineageFilter(runId, descriptor.generation, 'history');
-    const rows = db.prepare(`SELECT history.generation_hex, history.record_version, history.record_blob
-      FROM rust_generation_history_v1 AS history WHERE ${filter.sql}
+    const rows = db.prepare(`SELECT history.generation_hex, history.record_version, history.record_blob, experiment.record_blob AS experiment_blob
+      FROM rust_generation_history_v1 AS history LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex) WHERE ${filter.sql}
       ORDER BY history.generation_hex DESC LIMIT ?`).all(...filter.parameters, limit) as Array<{
         generation_hex: string;
         record_version: number;
@@ -1624,7 +1658,12 @@ function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistory
       if (generation > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new RangeError('browser history generation exceeds Protocol 2');
       }
+      const experimentRow = row as typeof row & { experiment_blob: Buffer | null };
+      if (experimentRow.experiment_blob !== null && (!Buffer.isBuffer(experimentRow.experiment_blob) || experimentRow.experiment_blob.length !== 768 || experimentRow.experiment_blob.readBigUInt64LE(16) !== generation)) {
+        throw new Error('browser history experiment generation mismatch');
+      }
       const entry: ManagedBrowserHistoryEntry = {
+        ...(experimentRow.experiment_blob === null ? {} : { experiment: decodeExperimentSummary(experimentRow.experiment_blob) }),
         gen: Number(generation),
         best: row.record_blob.readDoubleLE(8),
         avg: row.record_blob.readDoubleLE(16),
@@ -1661,8 +1700,8 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
     const descriptor = validateCurrentPointerIdentity(runId, current);
     const filter = exportLineageFilter(runId, descriptor.generation, 'hall');
     const rows = db.prepare(`SELECT hall.generation_hex, hall.record_version,
-      hall.record_blob, hall.fitness_value, hall.pinned
-      FROM rust_hall_of_fame_v1 AS hall
+      hall.record_blob, hall.fitness_value, hall.pinned, experiment.record_blob AS experiment_blob
+      FROM rust_hall_of_fame_v1 AS hall LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex)
       WHERE hall.weight_state = 'selected' AND (${filter.sql})
       ORDER BY hall.fitness_value DESC, hall.generation_hex ASC LIMIT ?`)
       .all(...filter.parameters, limit) as Array<{
@@ -1689,12 +1728,19 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
       if (!Number.isFinite(fitness) || !Number.isFinite(points) || fitness !== row.fitness_value) {
         throw new Error('browser Hall of Fame contains inconsistent numeric metadata');
       }
+      const experimentRow = row as typeof row & { experiment_blob: Buffer | null };
+      const assessment = experimentRow.experiment_blob === null ? undefined : decodeExperimentSummary(experimentRow.experiment_blob).winner;
+      const experiment = experimentRow.experiment_blob;
+      if (experiment !== null && (experiment.readBigUInt64LE(16) !== generation || experiment.readBigUInt64LE(528) !== BigInt(row.record_blob.readUInt32LE(8)) || experiment.readBigUInt64LE(536) !== row.record_blob.readBigUInt64LE(16) || experiment.readBigUInt64LE(672) !== row.record_blob.readBigUInt64LE(40) || experiment.readBigUInt64LE(704) !== row.record_blob.readBigUInt64LE(48))) {
+        throw new Error('browser HoF experiment source mismatch');
+      }
       return {
+        ...(assessment ? { assessment } : {}),
         entryId: row.generation_hex as U64Hex,
         gen: Number(generation),
         fitness,
-        points,
-        length: Number(length),
+        points: assessment?.assessment ?? points,
+        length: assessment?.displayLength ?? Number(length),
         pinned: row.pinned === 1
       };
     });
@@ -1967,7 +2013,12 @@ function publishExportInventory(
     throw new Error('export requires complete compact history and every selected Hall-of-Fame object');
   }
 
-  const relativeFilename = `.${operationId}.export-inventory-v1`;
+  const completionCount = (db.prepare('SELECT count(*) AS count FROM rust_generation_history_v1 AS history JOIN rust_generation_completion_v1 AS completion USING(run_id, generation_hex) WHERE ' + historyFilter.sql)
+    .get(...historyFilter.parameters) as { count: number }).count;
+  const experimentCount = (db.prepare('SELECT count(*) AS count FROM rust_generation_history_v1 AS history JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex) WHERE ' + historyFilter.sql)
+    .get(...historyFilter.parameters) as { count: number }).count;
+  const inventoryVersion = experimentCount > 0 ? 3 : completionCount > 0 ? 2 : 1;
+  const relativeFilename = '.' + operationId + '.export-inventory-v' + inventoryVersion;
   const finalPath = resolve(managedRootPath, relativeFilename);
   const partialPath = `${finalPath}.partial`;
   let file: number | undefined;
@@ -1982,7 +2033,7 @@ function publishExportInventory(
     file = openSync(partialPath, 'wx');
     ownsPartial = true;
     const header = Buffer.alloc(EXPORT_INVENTORY_HEADER_BYTES);
-    header.write('SLITHER-EXPV1', 0, 'ascii');
+    header.write('SLITHER-EXPV' + inventoryVersion, 0, 'ascii');
     header.writeBigUInt64LE(historyCount, 16);
     header.writeBigUInt64LE(hallOfFameCount, 24);
     write(header);
@@ -2047,6 +2098,34 @@ function publishExportInventory(
       previousHallOfFameGeneration = generation;
       advancePersistenceProgress();
     }
+    if (inventoryVersion >= 2) {
+      const rows = db.prepare('SELECT history.generation_hex, completion.record_blob FROM rust_generation_history_v1 AS history LEFT JOIN rust_generation_completion_v1 AS completion USING(run_id, generation_hex) WHERE ' + historyFilter.sql + ' ORDER BY history.generation_hex')
+        .iterate(...historyFilter.parameters) as Iterable<{ generation_hex: string; record_blob: Buffer | null }>;
+      for (const row of rows) {
+        const record = Buffer.alloc(40);
+        record.writeBigUInt64LE(u64HexToBigInt(row.generation_hex), 0);
+        if (row.record_blob !== null) {
+          if (!Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 32) throw new Error('invalid completion sidecar');
+          row.record_blob.copy(record, 8);
+        }
+        write(record);
+        advancePersistenceProgress();
+      }
+    }
+    if (inventoryVersion === 3) {
+      const rows = db.prepare('SELECT history.generation_hex, experiment.record_blob FROM rust_generation_history_v1 AS history LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex) WHERE ' + historyFilter.sql + ' ORDER BY history.generation_hex')
+        .iterate(...historyFilter.parameters) as Iterable<{ generation_hex: string; record_blob: Buffer | null }>;
+      for (const row of rows) {
+        const record = Buffer.alloc(776);
+        record.writeBigUInt64LE(u64HexToBigInt(row.generation_hex), 0);
+        if (row.record_blob !== null) {
+          validateExperimentBytes(row.record_blob);
+          row.record_blob.copy(record, 8);
+        }
+        write(record);
+        advancePersistenceProgress();
+      }
+    }
     fsyncSync(file!);
     closeSync(file!);
     file = undefined;
@@ -2058,11 +2137,11 @@ function publishExportInventory(
     renameSync(partialPath, finalPath);
     ownsPartial = false;
     const storedByteCount = BigInt(EXPORT_INVENTORY_HEADER_BYTES) + historyCount * 56n +
-      hallOfFameCount * BigInt(EXPORT_INVENTORY_HALL_OF_FAME_BYTES);
+      hallOfFameCount * BigInt(EXPORT_INVENTORY_HALL_OF_FAME_BYTES) + (inventoryVersion >= 2 ? historyCount * 40n : 0n) + (inventoryVersion === 3 ? historyCount * 776n : 0n);
     verifyManagedDirectFile(relativeFilename, storedByteCount);
     return {
       descriptor: {
-        version: 1,
+        version: inventoryVersion,
         relativeFilename,
         sha256: hasher.digest('hex'),
         storedByteCount: storedByteCount.toString(16).padStart(16, '0'),
@@ -2423,7 +2502,7 @@ function verifyImportInventory(inventory: ManagedImportInventoryDescriptor): Ver
     }
     const header = Buffer.alloc(32);
     readExactAt(file, header, 0);
-    if (header.subarray(0, 13).toString('ascii') !== 'SLITHER-EXPV1' ||
+    if (header.subarray(0, 13).toString('ascii') !== 'SLITHER-EXPV' + inventory.version ||
         header.subarray(13, 16).some(byte => byte !== 0) ||
         header.readBigUInt64LE(16) !== u64HexToBigInt(inventory.historyCount) ||
         header.readBigUInt64LE(24) !== u64HexToBigInt(inventory.hallOfFameCount)) {
@@ -2549,6 +2628,27 @@ function commitManagedImport(
         if (generation % 4096n === 0n) advancePersistenceProgress();
       }
 
+      if (inventory.version >= 2) {
+        const record = Buffer.alloc(40);
+        const offset = 32 + Number(historyCount * 56n + hallOfFameCount * 120n);
+        for (let generation = 1n; generation <= historyCount; generation++) {
+          readExactAt(file, record, offset + Number((generation - 1n) * 40n));
+          if (record.readBigUInt64LE(0) !== generation) throw new Error('invalid completion generation');
+          const payload = record.subarray(8);
+          if (payload.every(byte => byte === 0)) continue;
+          if (payload.readUInt32LE(0) !== 1 || payload.readUInt32LE(4) > 2 ||
+              !Number.isFinite(payload.readDoubleLE(8)) || payload.readDoubleLE(8) <= 0 ||
+              !Number.isFinite(payload.readDoubleLE(16)) || payload.readDoubleLE(16) < 8 || payload.readDoubleLE(16) > 604800 ||
+              payload.readBigUInt64LE(24) > u64HexToBigInt(descriptor.completedStep)) throw new Error('invalid completion record');
+          const generationHex = generation.toString(16).padStart(16, '0');
+          const existing = db.prepare('SELECT record_blob FROM rust_generation_completion_v1 WHERE run_id = ? AND generation_hex = ?')
+            .get(descriptor.runId, generationHex) as { record_blob: Buffer } | undefined;
+          if (existing && !existing.record_blob.equals(payload)) throw new Error('import completion identity conflicts');
+          if (!existing) db.prepare('INSERT INTO rust_generation_completion_v1 (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, NULL, ?)')
+            .run(descriptor.runId, generationHex, payload);
+          advancePersistenceProgress();
+        }
+      }
       const hallRecord = Buffer.alloc(120);
       let previousHallGeneration = 0n;
       for (let ordinal = 0n; ordinal < hallOfFameCount; ordinal++) {
@@ -2605,6 +2705,53 @@ function commitManagedImport(
         }
         previousHallGeneration = generation;
         advancePersistenceProgress();
+      }
+      if (inventory.version === 3) {
+        const record = Buffer.alloc(776);
+        const offset = 32 + Number(historyCount * (56n + 40n) + hallOfFameCount * 120n);
+        let previousStep = 0n;
+        for (let generation = 1n; generation <= historyCount; generation++) {
+          readExactAt(file, record, offset + Number((generation - 1n) * 776n));
+          if (record.readBigUInt64LE(0) !== generation) throw new Error('invalid experiment generation');
+          const payload = record.subarray(8);
+          const generationHex = generation.toString(16).padStart(16, '0');
+          const existing = db.prepare('SELECT record_blob FROM rust_generation_experiment_v1 WHERE run_id = ? AND generation_hex = ?')
+            .get(descriptor.runId, generationHex) as { record_blob: Buffer } | undefined;
+          if (payload.every(byte => byte === 0)) {
+            if (existing) throw new Error('import omitted existing experiment record');
+            continue;
+          }
+          validateExperimentBytes(payload);
+          const step = payload.readBigUInt64LE(24);
+          if (payload.readBigUInt64LE(16) !== generation || step <= previousStep || step > u64HexToBigInt(descriptor.completedStep)) throw new Error('invalid experiment chronology');
+          previousStep = step;
+          const completion = db.prepare('SELECT record_blob FROM rust_generation_completion_v1 WHERE run_id = ? AND generation_hex = ?')
+            .get(descriptor.runId, generationHex) as { record_blob: Buffer } | undefined;
+          if (!completion || BigInt(completion.record_blob.readUInt32LE(4)) !== payload.readBigUInt64LE(32) ||
+              completion.record_blob.readBigUInt64LE(8) !== payload.readBigUInt64LE(40) ||
+              completion.record_blob.readBigUInt64LE(16) !== payload.readBigUInt64LE(48) ||
+              completion.record_blob.readBigUInt64LE(24) !== step) throw new Error('import experiment completion mismatch');
+          const hall = db.prepare('SELECT record_blob FROM rust_hall_of_fame_v1 WHERE run_id = ? AND generation_hex = ?')
+            .get(descriptor.runId, generationHex) as { record_blob: Buffer } | undefined;
+          if (hall && (BigInt(hall.record_blob.readUInt32LE(8)) !== payload.readBigUInt64LE(528) ||
+              hall.record_blob.readBigUInt64LE(16) !== payload.readBigUInt64LE(536) ||
+              hall.record_blob.readBigUInt64LE(40) !== payload.readBigUInt64LE(672) ||
+              hall.record_blob.readBigUInt64LE(48) !== payload.readBigUInt64LE(704))) throw new Error('import experiment physical HoF mismatch');
+          if (existing && !existing.record_blob.equals(payload)) throw new Error('import experiment identity conflicts');
+          if (!existing) db.prepare('INSERT INTO rust_generation_experiment_v1 (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, NULL, ?)')
+            .run(descriptor.runId, generationHex, payload);
+          advancePersistenceProgress();
+        }
+      }
+      if (inventory.savedBrainsJson !== undefined) {
+        for (const entry of parseSavedBrainArchiveEntries(JSON.parse(inventory.savedBrainsJson))) {
+          const record = savedBrainCatalog.save(resolve(managedRootPath, `${entry.brainId}.slither-brain`),
+            entry.name, descriptor.operationId, entry.createdAtMs);
+          if (record.brainId !== entry.brainId || record.artifactByteCount !== entry.artifactByteCount) {
+            throw new Error('saved brain import original differs from native archive membership');
+          }
+          advancePersistenceProgress();
+        }
       }
       rebuildHallOfFameRetention(descriptor.runId);
       let importBranch: ManagedImportBranchResult | null = null;
@@ -2689,6 +2836,16 @@ function commitManagedCheckpoint(
   const hallOfFameRecord = generationCommit === null
     ? null
     : encodeHallOfFameReference(generationCommit.hallOfFame);
+  const experimentRecord = generationCommit?.experiment ? encodeExperimentRecord(generationCommit.experiment) : null;
+  const completion = generationCommit?.completion;
+  const completionRecord = completion ? Buffer.alloc(32) : null;
+  if (completionRecord && completion) {
+    completionRecord.writeUInt32LE(1, 0);
+    completionRecord.writeUInt32LE(completion.reason === 'manual' ? 0 : completion.reason === 'duration' ? 1 : 2, 4);
+    completionRecord.writeBigUInt64LE(BigInt('0x' + completion.actualElapsedF64Hex), 8);
+    completionRecord.writeBigUInt64LE(BigInt('0x' + completion.configuredDurationF64Hex), 16);
+    completionRecord.writeBigUInt64LE(BigInt('0x' + completion.completedStep), 24);
+  }
   const managedFile = verifyManagedFile(descriptor);
   const hallOfFameWeightsFile = generationCommit === null
     ? null
@@ -2736,6 +2893,18 @@ function commitManagedCheckpoint(
           !existingHallOfFame.record_blob.equals(hallOfFameRecord)))) {
         throw new Error('operationId conflicts with a different Hall-of-Fame reference');
       }
+      const existingCompletion = db.prepare('SELECT record_blob FROM rust_generation_completion_v1 WHERE run_id = ? AND generation_hex = ?')
+        .get(candidate.runId, generationCommit?.summary.completedGeneration ?? '') as { record_blob: Buffer } | undefined;
+      if ((completionRecord === null && existingCompletion) || (completionRecord !== null &&
+          (!existingCompletion || !existingCompletion.record_blob.equals(completionRecord)))) {
+        throw new Error('operationId conflicts with generation completion chronology');
+      }
+      const existingExperiment = db.prepare('SELECT record_blob FROM rust_generation_experiment_v1 WHERE run_id = ? AND generation_hex = ?')
+        .get(candidate.runId, generationCommit?.summary.completedGeneration ?? '') as { record_blob: Buffer } | undefined;
+      if ((experimentRecord === null && existingExperiment) || (experimentRecord !== null &&
+          (!existingExperiment || !Buffer.isBuffer(existingExperiment.record_blob) || !existingExperiment.record_blob.equals(experimentRecord)))) {
+        throw new Error('operationId conflicts with generation experiment summary');
+      }
       if (generationCommit !== null) assertStoredHallOfFameWeights(generationCommit.hallOfFameWeights);
       if (candidate.boundaryKind === 'run-start') {
         const existingLegacyConversion = readLegacyConversion(candidate.runId) ?? null;
@@ -2772,6 +2941,14 @@ function commitManagedCheckpoint(
     if (hallOfFameWeightsFile) recheckManagedFile(hallOfFameWeightsFile);
     insertCheckpointMetadata(candidate);
     if (generationCommit !== null && summaryRecord !== null && hallOfFameRecord !== null) {
+      if (completionRecord) {
+        db.prepare('INSERT INTO rust_generation_completion_v1 (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, ?, ?)')
+          .run(candidate.runId, generationCommit.summary.completedGeneration, candidate.logicalRootSha256, completionRecord);
+      }
+      if (experimentRecord) {
+        db.prepare('INSERT INTO rust_generation_experiment_v1 (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, ?, ?)')
+          .run(candidate.runId, generationCommit.summary.completedGeneration, candidate.logicalRootSha256, experimentRecord);
+      }
       const weights = generationCommit.hallOfFameWeights;
       db.prepare(`INSERT OR IGNORE INTO rust_hall_of_fame_weights_v1 (
         logical_sha256, relative_filename, encoding, stored_byte_count_hex,
@@ -2884,7 +3061,7 @@ function extractOperationId(value: unknown): CheckpointOperationId | null {
       request['type'] === 'applyCheckpointRetention' || request['type'] === 'reclaimManagedOrphans' || request['type'] === 'acquireCurrentExportLease' ||
       request['type'] === 'releaseExportLease' || request['type'] === 'readBrowserHistory' ||
       request['type'] === 'readBrowserHallOfFame' || request['type'] === 'selectHallOfFameEntry' ||
-      request['type'] === 'releaseHallOfFameEntry' || request['type'] === 'saveGraphPreset' ||
+      request['type'] === 'savedBrainCatalog' || request['type'] === 'releaseHallOfFameEntry' || request['type'] === 'saveGraphPreset' ||
       request['type'] === 'listGraphPresets' || request['type'] === 'loadGraphPreset') {
     const operationId = request['operationId'];
     return typeof operationId === 'string' && /^[0-9a-f]{32}$/u.test(operationId) ? operationId : null;
@@ -2947,6 +3124,7 @@ port.on('message', (message: unknown) => {
         completed: result.completed,
         deletedCheckpointCount: storageU64(BigInt(result.checkpointFiles), 'deleted checkpoint count'),
         deletedHallOfFameCount: storageU64(BigInt(result.hallOfFameFiles), 'deleted elite count'),
+        ...(result.savedBrainFiles > 0 ? { deletedSavedBrainCount: storageU64(BigInt(result.savedBrainFiles), 'deleted saved brain count') } : {}),
         deletedStoredByteCount: storageU64(result.storedBytes, 'deleted bytes')
       } });
       return;
@@ -3028,6 +3206,22 @@ port.on('message', (message: unknown) => {
         type: 'browserHallOfFameRead', operationId, runId,
         entries: readBrowserHallOfFame(runId, limit)
       });
+      return;
+    }
+    if (request['type'] === 'savedBrainCatalog') {
+      if (!operationId || Object.keys(request).length !== 3) throw new TypeError('invalid saved brain catalog envelope');
+      const operation = parseSavedBrainOperation(request['request']);
+      let result: SavedBrainCatalogResult;
+      switch (operation.action) {
+        case 'save': result = {action: 'save', record: savedBrainCatalog.save(operation.path, operation.name, operationId)}; break;
+        case 'read': result = {action: 'read', record: savedBrainCatalog.get(operation.brainId)}; break;
+        case 'list': result = {action: 'list', page: savedBrainCatalog.list(operation.after, operation.limit)}; break;
+        case 'delete': result = {action: 'delete', brainId: operation.brainId, deleted: savedBrainCatalog.delete(operation.brainId)}; cleanupUnreferencedHallOfFameWeights(); break;
+        case 'acquire': result = {action: 'acquire', record: savedBrainCatalog.acquire(operation.brainId, operation.leaseId)}; break;
+        case 'acquireArchive': result = {action: 'acquireArchive', entries: savedBrainCatalog.acquireArchive(operation.brainIds, operation.leaseId)}; break;
+        case 'release': savedBrainCatalog.release(operation.leaseId); result = {action: 'release', leaseId: operation.leaseId}; cleanupUnreferencedHallOfFameWeights(); break;
+      }
+      post({type: 'savedBrainCatalogResult', operationId, result});
       return;
     }
     if (request['type'] === 'releaseHallOfFameEntry') {

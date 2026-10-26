@@ -21,8 +21,9 @@ use super::control_phase::{
 use super::external_replacement::{AssignmentResolution, UnavailableControllerReservation};
 use super::fixed_step::{FixedStepPrefixError, FixedStepPrefixInputs, FixedStepPrefixWorkspace};
 use super::generation::{
-    admit_prepared_generation_boundary, prepare_generation_boundary, AdmittedGenerationBoundary,
-    GenerationCommitRecord, GenerationTransitionError, PreparedGenerationMetadata,
+    admit_prepared_generation_boundary_with_evolved, prepare_generation_boundary_with_evolved,
+    AdmittedGenerationBoundary, GenerationCommitRecord, GenerationTransitionError,
+    PreparedGenerationMetadata,
 };
 use super::generation_start::{
     GenerationStartConfig, GenerationStartError, GenerationStartWorkspace, PreparedGenerationStart,
@@ -472,6 +473,8 @@ pub(crate) struct PreparedCoordinatorGenerationRebind {
 /// Reason a completed physical step must enter the later generation transition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GenerationTransitionReason {
+    /// Explicit generation-scoped completion after a complete physical step.
+    Manual,
     /// Configured generation duration was reached.
     Duration,
     /// The evolved alive count reached the configured early-end rule.
@@ -530,13 +533,19 @@ pub struct RunningStepCoordinator {
     control: ControlPhaseWorkspace,
     control_commit: ControlCommitWorkspace,
     world_step: WorldStepWorkspace,
+    staged_evolved_generation: super::evolved_lives::EvolvedGenerationState,
+    staged_sensor_generation: super::sensors::SensorGenerationState,
+    staged_assessment_points: Vec<f64>,
     generation_start: GenerationStartWorkspace,
     pending_generation: Option<PendingGenerationTransition>,
+    manual_finish_requested: bool,
     pending_key: Option<PhysicsStepKey>,
     pending_inputs: Option<RunningStepInputs>,
     pending_preflight: Option<RunningStepPreflight>,
     pending_delivery_context: Option<PendingDeliveryContext>,
     last_published_diagnostics: WorldStepDiagnostics,
+    last_teacher_publication_key: Option<PhysicsStepKey>,
+    staged_teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes,
     last_step_cost: RunningStepCostMicros,
     pending_events: Vec<ExternalObservationEvent>,
     pending_statuses: Vec<ExternalDeliveryStatus>,
@@ -570,10 +579,50 @@ impl RunningStepCoordinator {
     /// graph, sensor layout, or gameplay configuration.
     pub fn try_new(
         authority: &AuthoritativeState,
-        limits: RunningStepWorkLimits,
+        mut limits: RunningStepWorkLimits,
     ) -> Result<Self, RunningStepError> {
+        let recorded_ray_work =
+            super::ray_work::RayWorkLimits::from_settings(&authority.state().config.settings)
+                .map_err(|_| StepConfigError::UnsupportedSetting {
+                    path: "sense.rayMinimum/rayCap/rayBatch/rayMaximumDue",
+                })?;
+        if let Some(recorded) = recorded_ray_work {
+            if limits.ray_work.is_some_and(|explicit| explicit != recorded) {
+                return Err(StepConfigError::UnsupportedSetting {
+                    path: "recorded ray limits differ from explicit admission",
+                }
+                .into());
+            }
+            limits.ray_work = Some(recorded);
+        }
         let projection = authority.running_step_config(limits)?;
-        let sensor = SensorEvaluator::new(projection.sensor.clone())?;
+        if projection.sensor_profile == super::sensor_contract::SensorProfile::V3
+            && recorded_ray_work.is_some()
+        {
+            return Err(StepConfigError::UnsupportedSetting {
+                path: "v3 cannot carry v4 ray limits",
+            }
+            .into());
+        }
+        let sensor = if projection.sensor_profile == super::sensor_contract::SensorProfile::V3 {
+            SensorEvaluator::new(projection.sensor.clone())?
+        } else {
+            let ray_work = limits
+                .ray_work
+                .ok_or(StepConfigError::MissingRayWorkLimits)?;
+            if ray_work.maximum_due() < projection.world_step.control.maximum_snakes {
+                return Err(StepConfigError::OutOfRange {
+                    path: "ray maximum-due admission",
+                }
+                .into());
+            }
+            SensorEvaluator::new_v4(
+                projection.sensor.clone(),
+                projection.world_step.physics.movement,
+                projection.world_step.prefix.fixed_dt,
+                projection.sensor_profile,
+            )?
+        };
         let state = authority.state();
         let math_backend = InferenceMathBackend::from_label(&state.identity.math_backend)
             .ok_or_else(|| InferenceError::UnknownMathBackend {
@@ -601,13 +650,19 @@ impl RunningStepCoordinator {
             control: ControlPhaseWorkspace::new(neural)?,
             control_commit: ControlCommitWorkspace::new(),
             world_step: WorldStepWorkspace::new(),
+            staged_evolved_generation: super::evolved_lives::EvolvedGenerationState::default(),
+            staged_sensor_generation: super::sensors::SensorGenerationState::default(),
+            staged_assessment_points: Vec::new(),
             generation_start: GenerationStartWorkspace::new(),
             pending_generation: None,
+            manual_finish_requested: false,
             pending_key: None,
             pending_inputs: None,
             pending_preflight: None,
             pending_delivery_context: None,
             last_published_diagnostics: WorldStepDiagnostics::default(),
+            last_teacher_publication_key: None,
+            staged_teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes::default(),
             last_step_cost: RunningStepCostMicros::default(),
             pending_events: Vec::new(),
             pending_statuses: Vec::new(),
@@ -642,6 +697,7 @@ impl RunningStepCoordinator {
             });
         }
         let mut replacement = Self::try_new(authority, self.work_limits)?;
+        replacement.manual_finish_requested = self.manual_finish_requested;
         replacement.last_wall_now_ms = self.last_wall_now_ms;
         replacement.next_external_event_sequence = self.next_external_event_sequence;
         replacement.last_published_diagnostics = self.last_published_diagnostics;
@@ -659,6 +715,42 @@ impl RunningStepCoordinator {
         Ok(replacement)
     }
 
+    /// Retain manual completion across config changes until durable successor publication.
+    pub(crate) fn request_manual_finish(&mut self) {
+        self.manual_finish_requested = true;
+    }
+
+    /// Retained neural rows and their exact pre-control source, gated by the loop's publication key.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_batch(
+        &self,
+    ) -> Option<(super::control::NeuralControlBatchView<'_>, &WorldState)> {
+        Some((
+            self.control.qualification_batch()?,
+            self.prefix.qualification_world(),
+        ))
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_sensor_work(
+        &self,
+    ) -> [super::sensor_qualification::ConsumerSensorWork; 3] {
+        self.control.qualification_sensor_work()
+    }
+
+    /// Read only completed calculation work; the loop enforces publication identity.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_observation_counts(
+        &self,
+    ) -> [super::observation_quality::ObservationCounts; 3] {
+        self.control.qualification_observation_counts()
+    }
+
+    /// Exact active neural/external width used for coarse output-byte admission.
+    pub(crate) fn sensor_input_size(&self) -> usize {
+        self.control.sensor_input_size()
+    }
+
     /// Exact numeric implementation bound by the admitted run identity.
     #[must_use]
     pub const fn math_backend(&self) -> InferenceMathBackend {
@@ -670,6 +762,11 @@ impl RunningStepCoordinator {
         self.control.set_visualization_enabled(enabled);
     }
 
+    /// Retire stale physical capture after an ordered world mutation.
+    pub(crate) fn invalidate_visualization(&mut self) {
+        self.control.invalidate_visualization();
+    }
+
     /// Whether focused capture is requested for future due brains.
     pub const fn visualization_enabled(&self) -> bool {
         self.control.visualization_enabled()
@@ -678,6 +775,166 @@ impl RunningStepCoordinator {
     /// Reborrow the latest capture only after its corresponding step publishes.
     pub fn visualization(&self) -> Option<FocusedVisualization<'_>> {
         self.control.visualization()
+    }
+
+    /// Reserve one opt-in diagnostic cache within the existing worker scratch admission.
+    pub fn configure_inspector(
+        &mut self,
+        authority: &AuthoritativeState,
+        target: Option<super::inspector::InspectorTarget>,
+        budget_bytes: usize,
+    ) -> Result<(), RunningStepError> {
+        self.validate_authority(authority)?;
+        if self.pending_key.is_some() || self.pending_generation.is_some() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "inspector requires a clean boundary",
+            }
+            .into());
+        }
+        if let Some(target) = target {
+            let state = authority.state();
+            if target.world_epoch != authority.world_epoch()
+                || target.generation != state.generation.generation
+                || !state.world.snakes.iter().any(|snake| {
+                    snake.alive
+                        && snake.id == target.physical_id
+                        && snake.frame_v1_id == target.frame_v1_id
+                })
+                || self.control.inspector_staging_requirement(
+                    state.config.max_world_snakes,
+                    self.work_limits.calculation_workers,
+                )? > state.config.worker_scratch_bytes
+            {
+                return Err(ControlPhaseError::InvalidConfig {
+                    field: "inspector target or worker scratch admission",
+                }
+                .into());
+            }
+        }
+        let evolution = target
+            .map(|_| authority.evolution_config())
+            .transpose()
+            .map_err(|error| RunningStepError::Config(Box::new(error)))?;
+        self.control.configure_inspector(target, budget_bytes)?;
+        if let Some(config) = evolution {
+            self.control.configure_inspector_evolution(config);
+        }
+        Ok(())
+    }
+
+    /// Mode is applied only immediately after successful fresh cache admission.
+    pub(crate) fn set_inspector_probe(&mut self, enabled: bool) {
+        self.control.set_inspector_probe(enabled);
+    }
+
+    /// Join private diagnostics by the exact published teacher boundary.
+    pub(crate) fn join_inspector_shadows(
+        &mut self,
+        key: PhysicsStepKey,
+        snapshots: [Option<super::shadows::ShadowSnapshot>; super::shadows::MAX_SHADOWS],
+    ) {
+        self.control.join_inspector_shadows(key, snapshots);
+    }
+
+    /// Called immediately after cold cache admission, before any control preparation.
+    pub(crate) fn bind_inspector_subscription(&mut self, sequence: u64) {
+        self.control.bind_inspector_subscription(sequence);
+    }
+
+    /// Borrow only the last completely published observation; pending delivery is never visible.
+    pub fn inspector_observation(
+        &self,
+        authority: &AuthoritativeState,
+    ) -> Option<&super::inspector::InspectorObservation> {
+        self.control.inspector()?.latest(
+            authority.world_epoch(),
+            authority.state().generation.generation,
+            authority.state().generation.completed_step,
+        )
+    }
+
+    fn publish_inspector(&mut self, key: PhysicsStepKey, published: bool) {
+        if !published {
+            self.control.discard_inspector_pending();
+            return;
+        }
+        let observations = &self.pending_observations;
+        let statuses = &self.pending_observation_statuses;
+        self.control
+            .publish_inspector(key, |physical_id, lease_id, connection_id| {
+                observations
+                    .iter()
+                    .zip(statuses)
+                    .any(|(observation, status)| {
+                        *status == ExternalDeliveryStatus::Accepted
+                            && observation.snake_id() == physical_id
+                            && observation.lease_id() == lease_id
+                            && observation.connection_id() == connection_id
+                    })
+            });
+    }
+
+    /// Cold pending-row admission; no controller/world/RNG mutation or transport activation.
+    pub fn configure_teacher_capture(
+        &mut self,
+        authority: &AuthoritativeState,
+        slots: &[u32],
+        pending_budget_bytes: usize,
+    ) -> Result<(), RunningStepError> {
+        self.validate_authority(authority)?;
+        if self.pending_key.is_some() || self.pending_generation.is_some() {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher capture requires a clean boundary",
+            }
+            .into());
+        }
+        if !slots.is_empty()
+            && (self.projection.world_step.control.baseline_v2.is_none()
+                || slots.iter().any(|slot| {
+                    *slot as usize >= authority.state().fixed_step.baseline_lifecycle.slots.len()
+                }))
+        {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher capture requires admitted baseline-v2 owners",
+            }
+            .into());
+        }
+        let width = self.control.sensor_input_size();
+        let required = slots
+            .len()
+            .checked_mul(
+                width * 4
+                    + std::mem::size_of::<super::teacher_capture::PreparedTeacherDecision>()
+                    + 4,
+            )
+            .ok_or(ControlPhaseError::InvalidConfig {
+                field: "teacher pending byte arithmetic",
+            })?;
+        if pending_budget_bytes > 16 * 1024 * 1024 || required > pending_budget_bytes {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "teacher pending byte admission",
+            }
+            .into());
+        }
+        self.control.configure_teacher_capture(slots)?;
+        self.world_step
+            .set_teacher_capture_enabled(!slots.is_empty());
+        self.last_teacher_publication_key = None;
+        Ok(())
+    }
+
+    /// Borrow retained observations/actions only after their complete transaction succeeds.
+    /// Includes complete physical outcomes; stream sequencing belongs to transport.
+    pub fn published_teacher_boundary(
+        &self,
+    ) -> Option<super::teacher_capture::PublishedTeacherBoundary<'_>> {
+        let boundary = self
+            .control
+            .teacher_boundary(self.last_teacher_publication_key?)?;
+        Some(super::teacher_capture::PublishedTeacherBoundary::new(
+            boundary,
+            &self.staged_teacher_outcomes,
+        ))
     }
 
     /// Stage one complete step and publish it immediately or await Node delivery.
@@ -693,6 +950,7 @@ impl RunningStepCoordinator {
         inputs: RunningStepInputs,
     ) -> Result<RunningStepProgress<'workspace>, RunningStepError> {
         self.last_step_cost = RunningStepCostMicros::default();
+        self.last_teacher_publication_key = None;
         #[cfg(feature = "engine-test-hooks")]
         {
             self.last_phase_timings = RunningStepPhaseTimings::default();
@@ -739,33 +997,123 @@ impl RunningStepCoordinator {
         }
         let staged = (|| -> Result<StagedStep, RunningStepError> {
             let state = authority.state();
+            if state.fixed_step.evolved_generation.slots.is_empty() {
+                self.staged_evolved_generation =
+                    super::evolved_lives::EvolvedGenerationState::initialize(
+                        &state.world,
+                        state.population.len(),
+                        self.projection
+                            .world_step
+                            .prefix
+                            .baseline_spawn
+                            .snake_start_len,
+                    )
+                    .map_err(evolved_accounting_error)?;
+            } else {
+                self.staged_evolved_generation
+                    .stage_from(&state.fixed_step.evolved_generation)
+                    .map_err(evolved_accounting_error)?;
+            }
+            self.staged_evolved_generation
+                .apply_prefix(
+                    &state.world,
+                    self.projection.world_step.prefix.fixed_dt,
+                    self.projection.world_step.prefix.fixed_dt
+                        * self
+                            .projection
+                            .world_step
+                            .prefix
+                            .accounting
+                            .points_per_second_alive,
+                )
+                .map_err(evolved_accounting_error)?;
             #[cfg(feature = "engine-test-hooks")]
             let prefix_started = Instant::now();
-            let prefix = self.prefix.prepare(FixedStepPrefixInputs {
-                key,
-                world: &state.world,
-                rng: &state.rng,
-                allocators: &state.allocators,
-                generation_elapsed_seconds: state.generation.elapsed_seconds,
-                ambient_accumulator: state.fixed_step.ambient_pellet_accumulator,
-                baseline_lifecycle: &state.fixed_step.baseline_lifecycle,
-                config: self.projection.world_step.prefix,
-            })?;
+            let prefix = self.prefix.prepare_with_evolved(
+                FixedStepPrefixInputs {
+                    key,
+                    world: &state.world,
+                    rng: &state.rng,
+                    allocators: &state.allocators,
+                    generation_elapsed_seconds: state.generation.elapsed_seconds,
+                    ambient_accumulator: state.fixed_step.ambient_pellet_accumulator,
+                    baseline_lifecycle: &state.fixed_step.baseline_lifecycle,
+                    config: self.projection.world_step.prefix,
+                },
+                &mut self.staged_evolved_generation,
+                self.projection.evolved,
+                self.projection
+                    .world_step
+                    .control
+                    .initial_neural_accumulator_seconds(),
+            )?;
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.prefix_ms = elapsed_ms(prefix_started);
                 self.last_phase_allocations.prefix =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
+            self.staged_sensor_generation = state.fixed_step.sensor_generation;
+            self.staged_assessment_points.clear();
+            let selected_score_context = self.projection.evolved.version != 0
+                && (self.projection.evolved.enabled
+                    || self.projection.evolved.points
+                        != super::evolved_lives::PointAssessmentMode::Reset);
+            if selected_score_context {
+                let count = self.staged_evolved_generation.slots.len();
+                if self.staged_assessment_points.capacity() < count {
+                    self.staged_assessment_points
+                        .try_reserve_exact(count)
+                        .map_err(|_| {
+                            evolved_accounting_error(
+                                super::evolved_lives::EvolvedLifeError::Allocation,
+                            )
+                        })?;
+                }
+                for life in &self.staged_evolved_generation.slots {
+                    self.staged_assessment_points.push(
+                        life.assessment(
+                            self.projection.evolved.points,
+                            self.projection.evolved.nonpoints,
+                        )
+                        .points,
+                    );
+                }
+                self.staged_sensor_generation
+                    .observe_assessments(&self.staged_assessment_points)?;
+            }
             let control_started = Instant::now();
-            let selected = self.control.prepare(ControlPhaseInputs {
-                prefix,
-                generation: &state.fixed_step.sensor_generation,
-                population: &state.population,
-                brains: &state.brains,
-                wall_now_ms: inputs.wall_now_ms,
-                config: self.projection.world_step.control,
-            })?;
+            let selected = self.control.prepare_with_inspector_lifecycle(
+                ControlPhaseInputs {
+                    prefix,
+                    generation: &self.staged_sensor_generation,
+                    assessment_points: selected_score_context
+                        .then_some(self.staged_assessment_points.as_slice()),
+                    v4: self
+                        .work_limits
+                        .ray_work
+                        .filter(|_| {
+                            self.projection.sensor_profile
+                                != super::sensor_contract::SensorProfile::V3
+                        })
+                        .map(|limits| super::control_phase::V4BoundaryContext {
+                            context: super::sensors_v4::V4ObservationContext {
+                                generation_elapsed_seconds: prefix.generation_elapsed_seconds(),
+                                evolved: &self.staged_evolved_generation,
+                                experiment: self.projection.evolved,
+                            },
+                            limits,
+                        }),
+                    population: &state.population,
+                    brains: &state.brains,
+                    wall_now_ms: inputs.wall_now_ms,
+                    config: self.projection.world_step.control,
+                },
+                Some(super::inspector::InspectorLifecycleContext {
+                    lives: &self.staged_evolved_generation,
+                    policy: self.projection.evolved,
+                }),
+            )?;
             self.last_step_cost.control_selection =
                 u64::try_from(control_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.last_step_cost.control_index = selected.cost_micros().spatial_index;
@@ -780,7 +1128,22 @@ impl RunningStepCoordinator {
             }
             #[cfg(feature = "engine-test-hooks")]
             let commit_started = Instant::now();
+            let evaluated_controls = selected.control_updates();
             let committed = self.control_commit.prepare(selected)?;
+            for update in evaluated_controls {
+                if update.source() == super::control_phase::SelectedControlSource::NeuralEvaluated {
+                    let snake = &committed.world().snakes[update.snake_index()];
+                    if snake.kind == SnakeKind::Evolved {
+                        let slot = snake.population_slot.ok_or_else(|| {
+                            evolved_accounting_error(
+                                super::evolved_lives::EvolvedLifeError::Identity,
+                            )
+                        })?;
+                        self.staged_evolved_generation.slots[slot as usize]
+                            .pending_recurrent_reset = false;
+                    }
+                }
+            }
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.control_commit_ms = elapsed_ms(commit_started);
@@ -788,9 +1151,13 @@ impl RunningStepCoordinator {
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
             let world_step_started = Instant::now();
-            let prepared = self
-                .world_step
-                .prepare_deferred_external_replacement(committed, self.projection.world_step)?;
+            let prepared = self.world_step.prepare_deferred_external_replacement(
+                committed,
+                self.projection.world_step,
+                &mut self.staged_evolved_generation,
+                self.projection.evolved,
+            )?;
+            self.staged_teacher_outcomes = prepared.teacher_outcomes();
             self.last_step_cost.world_step =
                 u64::try_from(world_step_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             #[cfg(feature = "engine-test-hooks")]
@@ -799,12 +1166,21 @@ impl RunningStepCoordinator {
                 self.last_phase_allocations.world_step =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
+            self.prefix
+                .seal_evolved(key, prepared.rng())
+                .map_err(evolved_accounting_error)?;
+            self.staged_evolved_generation
+                .validate(prepared.world(), state.population.len())
+                .map_err(evolved_accounting_error)?;
             #[cfg(feature = "engine-test-hooks")]
             let guard_started = Instant::now();
             if let Some((reason, alive_evolved)) = generation_transition_required(
                 prepared.world(),
                 prepared.generation_elapsed_seconds(),
                 self.projection.generation_guard,
+                self.manual_finish_requested,
+                self.projection.evolved,
+                &self.staged_evolved_generation,
             ) {
                 #[cfg(feature = "engine-test-hooks")]
                 {
@@ -812,15 +1188,18 @@ impl RunningStepCoordinator {
                     self.last_phase_allocations.generation_guard =
                         allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
                 }
+                authority.preflight_generation_numeric_allocation()?;
                 let elapsed_seconds = prepared.generation_elapsed_seconds();
                 let preparation_started = Instant::now();
-                let next = prepare_generation_boundary(
+                let next = prepare_generation_boundary_with_evolved(
                     state,
                     prepared.world(),
                     prepared.rng(),
                     prepared.allocators(),
                     elapsed_seconds,
                     authority.graph(),
+                    &self.staged_evolved_generation,
+                    self.projection.evolved,
                 )?;
                 self.last_step_cost.generation_preparation =
                     u64::try_from(preparation_started.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -829,7 +1208,25 @@ impl RunningStepCoordinator {
                 self.last_step_cost.generation_evolution_summary = evolution_cost.summary;
                 self.last_step_cost.generation_evolution_reproduction = evolution_cost.reproduction;
                 let admission_started = Instant::now();
-                let boundary = admit_prepared_generation_boundary(authority, key, next)?;
+                let mut boundary = admit_prepared_generation_boundary_with_evolved(
+                    authority,
+                    key,
+                    next,
+                    prepared.world(),
+                    prepared.rng(),
+                    prepared.allocators(),
+                    self.prefix.evolved_proof(),
+                )?;
+                boundary.record_completion(
+                    reason,
+                    elapsed_seconds,
+                    self.projection.generation_guard.generation_seconds,
+                );
+                boundary.record_experiment(
+                    prepared.world(),
+                    &self.staged_evolved_generation,
+                    self.projection.evolved,
+                )?;
                 self.last_step_cost.generation_admission =
                     u64::try_from(admission_started.elapsed().as_micros()).unwrap_or(u64::MAX);
                 return Ok(StagedStep::Generation(Box::new(
@@ -1630,6 +2027,7 @@ impl RunningStepCoordinator {
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
+        self.last_teacher_publication_key = Some(key);
         Ok(publication)
     }
 
@@ -1705,6 +2103,7 @@ impl RunningStepCoordinator {
     ) {
         debug_assert_eq!(self.world_epoch, prepared.source_world_epoch);
         self.world_epoch = prepared.successor_world_epoch;
+        self.manual_finish_requested = false;
     }
 
     /// Explicitly discard one exact pending transition without changing authority.
@@ -2178,6 +2577,7 @@ impl RunningStepCoordinator {
                 })?;
         self.world_step
             .validate_external_delivery_preflight(key, &self.pending_observations)?;
+        let v2_proof = self.control_commit.baseline_v2_proof();
         let mut buffers = self.world_step.validation_buffers(key)?;
         let brains = if let Some(brains) = buffers.replacement_brains.take() {
             brains
@@ -2192,12 +2592,16 @@ impl RunningStepCoordinator {
                 rng: buffers.rng,
                 allocators: buffers.allocators,
                 brains,
+                evolved_generation: &mut self.staged_evolved_generation,
                 baseline_lifecycle: buffers.baseline_lifecycle,
                 ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
                 sensor_generation: buffers.sensor_generation,
                 generation_elapsed_seconds: buffers.generation_elapsed_seconds,
                 wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-                mutation: buffers.mutation,
+                mutation: buffers
+                    .mutation
+                    .with_evolved(self.prefix.evolved_proof())
+                    .with_baseline_v2(v2_proof),
             },
         )?;
         Ok(())
@@ -2213,6 +2617,7 @@ impl RunningStepCoordinator {
         #[cfg(feature = "engine-test-hooks")]
         let publication_started = Instant::now();
         let publication = (|| -> Result<RunningStepPublication, RunningStepError> {
+            let v2_proof = self.control_commit.baseline_v2_proof();
             let mut buffers = self.world_step.publication_buffers(key)?;
             let brains = if let Some(brains) = buffers.replacement_brains.take() {
                 brains
@@ -2225,18 +2630,26 @@ impl RunningStepCoordinator {
                 rng: buffers.rng,
                 allocators: buffers.allocators,
                 brains,
+                evolved_generation: &mut self.staged_evolved_generation,
                 baseline_lifecycle: buffers.baseline_lifecycle,
                 ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
                 sensor_generation: buffers.sensor_generation,
                 generation_elapsed_seconds: buffers.generation_elapsed_seconds,
                 wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-                mutation: buffers.mutation,
+                mutation: buffers
+                    .mutation
+                    .with_evolved(self.prefix.evolved_proof())
+                    .with_baseline_v2(v2_proof),
             })?)
         })();
+        self.publish_inspector(key, publication.is_ok());
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
         self.last_published_diagnostics = diagnostics;
+        if publication.is_ok() {
+            self.last_teacher_publication_key = Some(key);
+        }
         #[cfg(feature = "engine-test-hooks")]
         {
             self.last_phase_timings.publication_ms = elapsed_ms(publication_started);
@@ -2255,6 +2668,7 @@ impl RunningStepCoordinator {
         key: PhysicsStepKey,
         inputs: RunningStepInputs,
     ) -> Result<RunningStepPreflight, RunningStepError> {
+        let v2_proof = self.control_commit.baseline_v2_proof();
         let mut buffers = self.world_step.validation_buffers(key)?;
         let brains = if let Some(brains) = buffers.replacement_brains.take() {
             brains
@@ -2267,12 +2681,16 @@ impl RunningStepCoordinator {
             rng: buffers.rng,
             allocators: buffers.allocators,
             brains,
+            evolved_generation: &mut self.staged_evolved_generation,
             baseline_lifecycle: buffers.baseline_lifecycle,
             ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
             sensor_generation: buffers.sensor_generation,
             generation_elapsed_seconds: buffers.generation_elapsed_seconds,
             wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-            mutation: buffers.mutation,
+            mutation: buffers
+                .mutation
+                .with_evolved(self.prefix.evolved_proof())
+                .with_baseline_v2(v2_proof),
         };
         Ok(authority.preflight_running_step(&mut replacement)?)
     }
@@ -2289,6 +2707,7 @@ impl RunningStepCoordinator {
         {
             self.allocation_cursor = self.allocation_snapshot.map(|snapshot| snapshot());
         }
+        let v2_proof = self.control_commit.baseline_v2_proof();
         let mut buffers = self.world_step.publication_buffers_prevalidated(key);
         let brains = buffers
             .replacement_brains
@@ -2300,14 +2719,22 @@ impl RunningStepCoordinator {
             rng: buffers.rng,
             allocators: buffers.allocators,
             brains,
+            evolved_generation: &mut self.staged_evolved_generation,
             baseline_lifecycle: buffers.baseline_lifecycle,
             ambient_pellet_accumulator: buffers.ambient_pellet_accumulator,
             sensor_generation: buffers.sensor_generation,
             generation_elapsed_seconds: buffers.generation_elapsed_seconds,
             wall_accumulator_seconds: inputs.wall_accumulator_seconds,
-            mutation: buffers.mutation,
+            mutation: buffers
+                .mutation
+                .with_evolved(self.prefix.evolved_proof())
+                .with_baseline_v2(v2_proof),
         });
         let publication = authority.publish_prevalidated_running_step(preflight, resolved);
+        if publication.is_ok() {
+            self.last_teacher_publication_key = Some(key);
+        }
+        self.publish_inspector(key, publication.is_ok());
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
@@ -2319,6 +2746,8 @@ impl RunningStepCoordinator {
     }
 
     fn discard_staged(&mut self) {
+        self.control.discard_inspector_pending();
+        self.last_teacher_publication_key = None;
         self.world_step.invalidate_publication();
         self.control_commit.invalidate_publication();
         self.clear_pending_metadata();
@@ -2447,10 +2876,21 @@ fn copy_string_reusing(
     Ok(())
 }
 
+/// Convert ledger rejection into the existing reversible authority error path.
+fn evolved_accounting_error(error: super::evolved_lives::EvolvedLifeError) -> RunningStepError {
+    RunningStepError::State(Box::new(StateError::InvalidField {
+        field: "fixed_step.evolved_generation",
+        reason: error.to_string(),
+    }))
+}
+
 fn generation_transition_required(
     world: &WorldState,
     elapsed_seconds: f64,
     config: GenerationGuardConfig,
+    manual_finish_requested: bool,
+    policy: super::evolved_lives::EvolvedExperimentConfig,
+    lives: &super::evolved_lives::EvolvedGenerationState,
 ) -> Option<(GenerationTransitionReason, usize)> {
     let alive_evolved = world
         .snakes
@@ -2459,12 +2899,27 @@ fn generation_transition_required(
             snake.alive && snake.kind == SnakeKind::Evolved && snake.population_slot.is_some()
         })
         .count();
+    if manual_finish_requested {
+        return Some((GenerationTransitionReason::Manual, alive_evolved));
+    }
     if elapsed_seconds >= config.generation_seconds {
         return Some((GenerationTransitionReason::Duration, alive_evolved));
     }
-    if elapsed_seconds >= config.early_end_minimum_seconds
-        && alive_evolved <= config.early_end_alive_threshold
-    {
+    let early = match policy.early_completion {
+        super::evolved_lives::EarlyCompletionMode::DurationOnly => false,
+        super::evolved_lives::EarlyCompletionMode::PhysicalAlive => {
+            alive_evolved <= config.early_end_alive_threshold
+        }
+        super::evolved_lives::EarlyCompletionMode::Automatic if policy.enabled => {
+            policy.max_lives != 0
+                && lives
+                    .slots
+                    .iter()
+                    .all(|slot| slot.status == super::evolved_lives::EvolvedLifeStatus::Exhausted)
+        }
+        _ => alive_evolved <= config.early_end_alive_threshold,
+    };
+    if elapsed_seconds >= config.early_end_minimum_seconds && early {
         return Some((GenerationTransitionReason::EarlyAliveCount, alive_evolved));
     }
     None

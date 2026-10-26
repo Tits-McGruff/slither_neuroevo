@@ -179,6 +179,7 @@ pub fn prepare_fresh_external(
     let brain = BrainRuntimeState {
         handle: brain_handle,
         owner: BrainOwner::Entity(snake_id),
+        retained_origin: None,
         non_population_weights: Some(weights.into_boxed_slice()),
         recurrent: try_zero_f32_box(
             source.graph.total_state_size,
@@ -231,6 +232,10 @@ fn initial_external_snake(
         previous_input_boost: false,
         control_accumulator_seconds: 0.0,
         delivered_observation_points: 0.0,
+        observation_delivered: false,
+        completed_step_heading_delta: 0.0,
+        completed_step_speed_delta: 0.0,
+        completed_step_applied_turn: 0.0,
         body,
         skin: EXTERNAL_SNAKE_SKIN,
     }
@@ -1661,6 +1666,7 @@ impl ExternalReplacementWorkspace {
         let new_brain = BrainRuntimeState {
             handle: brain_handle,
             owner: BrainOwner::Entity(snake_id),
+            retained_origin: None,
             non_population_weights: Some(weights.into_boxed_slice()),
             recurrent: try_zero_f32_box(graph.total_state_size, "replacement recurrent state")?,
         };
@@ -1810,6 +1816,8 @@ impl ExternalReplacementWorkspace {
             || rng.world != source_rng.world
             || rng.evolution != source_rng.evolution
             || rng.baselines != source_rng.baselines
+            || rng.evolved_respawns != source_rng.evolved_respawns
+            || rng.baseline_behaviors != source_rng.baseline_behaviors
         {
             return Err(ExternalReplacementError::RngIsolationViolation);
         }
@@ -2072,6 +2080,7 @@ impl ExternalReplacementWorkspace {
 
 pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
     let mut hash = Sha256::new();
+    hash.update(world.ray_cursor.witness_bytes());
     hash.update(b"slither-external-replacement-world-v1\0");
     hash_usize(&mut hash, world.snakes.len());
     for snake in &world.snakes {
@@ -2104,6 +2113,10 @@ pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
         ]);
         hash.update(snake.control_accumulator_seconds.to_bits().to_le_bytes());
         hash.update(snake.delivered_observation_points.to_bits().to_le_bytes());
+        hash.update([u8::from(snake.observation_delivered)]);
+        hash.update(snake.completed_step_heading_delta.to_bits().to_le_bytes());
+        hash.update(snake.completed_step_speed_delta.to_bits().to_le_bytes());
+        hash.update(snake.completed_step_applied_turn.to_bits().to_le_bytes());
         hash_usize(&mut hash, snake.body.start);
         hash_usize(&mut hash, snake.body.len);
         hash.update(snake.skin.to_le_bytes());
@@ -2157,12 +2170,26 @@ fn authority_rng_digest(rng: &RngStateBundle) -> [u8; 32] {
         hash.update(baseline.slot.to_le_bytes());
         hash_serialized_rng(&mut hash, &baseline.state);
     }
+    if rng.version >= super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        hash_usize(&mut hash, rng.evolved_respawns.len());
+        for stream in &rng.evolved_respawns {
+            hash.update(stream.slot.to_le_bytes());
+            hash.update(stream.uniform_state.to_le_bytes());
+        }
+    }
+    if rng.version == super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+        hash_usize(&mut hash, rng.baseline_behaviors.len());
+        for stream in &rng.baseline_behaviors {
+            hash.update(stream.slot.to_le_bytes());
+            hash.update(stream.uniform_state.to_le_bytes());
+        }
+    }
     hash.finalize().into()
 }
 
 fn authority_brain_digest(brains: &[BrainRuntimeState]) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"slither-external-replacement-brains-v1\0");
+    hash.update(b"slither-external-replacement-brains-v2\0");
     hash_usize(&mut hash, brains.len());
     for brain in brains {
         hash.update(brain.handle.id.to_le_bytes());
@@ -2181,6 +2208,13 @@ fn authority_brain_digest(brains: &[BrainRuntimeState]) -> [u8; 32] {
             Some(weights) => {
                 hash.update([1]);
                 hash_f32_slice(&mut hash, weights);
+            }
+            None => hash.update([0]),
+        }
+        match &brain.retained_origin {
+            Some(origin) => {
+                hash.update([1]);
+                origin.hash_into(&mut hash);
             }
             None => hash.update([0]),
         }
@@ -2773,6 +2807,8 @@ mod tests {
 
     fn rng() -> RngStateBundle {
         RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(11.0).export_state(),
             evolution: StatefulRng::new(12.0).export_state(),
@@ -2831,6 +2867,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 1.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body,
             skin: 2,
         }
@@ -2875,6 +2915,7 @@ mod tests {
             WorldPoint { x: 92.5, y: 100.0 },
         ];
         let world = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![
                 snake(
                     1,
@@ -2915,6 +2956,7 @@ mod tests {
                 epoch: key().population_epoch(),
             },
             owner: BrainOwner::Entity(OLD_SNAKE_ID),
+            retained_origin: None,
             non_population_weights: Some(vec![0.25; graph.total_parameters].into_boxed_slice()),
             recurrent: vec![0.5; graph.total_state_size].into_boxed_slice(),
         }];
@@ -2947,6 +2989,7 @@ mod tests {
         baseline.baseline_slot = Some(0);
         baseline.baseline_strategy = Some(super::super::state::BaselineStrategyState::Roam);
         let world = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![evolved, baseline],
             body_points: vec![
                 evolved_head,
@@ -2967,6 +3010,7 @@ mod tests {
         let brains = vec![BrainRuntimeState {
             handle: BrainHandle { id: 21, epoch },
             owner: BrainOwner::PopulationSlot(0),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         }];
@@ -3606,6 +3650,33 @@ mod tests {
             .non_population_weights
             .as_mut()
             .unwrap()[0] = original_weight;
+
+        buffers.brains[brain_index].retained_origin = Some(std::sync::Arc::new(
+            super::super::retained_origin::RetainedNeuralOrigin::HallOfFame {
+                entry_id: 1,
+                weight_digest: super::super::retained_origin::packed_weight_digest(
+                    buffers.brains[brain_index]
+                        .non_population_weights
+                        .as_ref()
+                        .unwrap(),
+                ),
+            },
+        ));
+        assert!(!buffers.proof.matches(
+            key(),
+            buffers.world,
+            buffers.rng,
+            buffers.allocators,
+            buffers.brains
+        ));
+        buffers.brains[brain_index].retained_origin = None;
+        assert!(buffers.proof.matches(
+            key(),
+            buffers.world,
+            buffers.rng,
+            buffers.allocators,
+            buffers.brains
+        ));
 
         let original_rng_state = buffers.rng.external_controller.state_hex.clone();
         buffers.rng.external_controller.state_hex = "12345678".into();

@@ -1,0 +1,20 @@
+[package]
+name = "teacher-replay-fixture"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "teacher-replay-fixture"
+path = "main.rs"
+
+[dependencies]
+slither_native = { path = "../../../native" }
+serde_json = "1"
+sha2 = "0.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["fs"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }

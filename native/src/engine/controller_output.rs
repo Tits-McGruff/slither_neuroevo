@@ -30,8 +30,14 @@ pub(crate) fn service_reply_bound(running: &RunningAuthorityLoop) -> Result<usiz
             lease.status == ControllerLeaseStatus::Connected && lease.connection_id.is_some()
         })
         .count();
-    let sensor_bytes = (super::sensor_layout::SENSOR_SCALAR_COUNT
-        + super::sensor_layout::SENSOR_CHANNEL_COUNT * super::sensor_layout::MAX_SENSOR_BINS)
+    // Retain the historical v3 reservation and price wider v4 vectors exactly.
+    let sensor_bytes = running
+        .sensor_input_size()
+        .max(
+            super::sensor_layout::SENSOR_SCALAR_COUNT
+                + super::sensor_layout::SENSOR_CHANNEL_COUNT
+                    * super::sensor_layout::MAX_SENSOR_BINS,
+        )
         .checked_mul(size_of::<f32>())
         .ok_or_else(overflow)?;
     let per_event = size_of::<RunningControllerMessage>()

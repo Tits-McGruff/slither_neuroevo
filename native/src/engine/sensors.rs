@@ -125,7 +125,12 @@ impl SensorConfig {
                 0.0,
                 4.0,
             ),
-            ("generation_seconds", self.generation_seconds, 8.0, 480.0),
+            (
+                "generation_seconds",
+                self.generation_seconds,
+                8.0,
+                604_800.0,
+            ),
             ("near_radius_base", self.near_radius_base, 200.0, 900.0),
             ("near_radius_scale", self.near_radius_scale, 0.0, 600.0),
             (
@@ -224,6 +229,17 @@ impl SensorGenerationState {
         Ok(())
     }
 
+    /// Observe selected life-assessment points, including dead/pending population slots.
+    pub(crate) fn observe_assessments(&mut self, points: &[f64]) -> Result<(), SensorError> {
+        for &point in points {
+            if !point.is_finite() || point < 0.0 {
+                return Err(SensorError::InvalidGenerationBest);
+            }
+            self.best_points_this_generation = self.best_points_this_generation.max(point);
+        }
+        Ok(())
+    }
+
     /// Current monotonic generation best supplied to observation formulas.
     #[must_use]
     pub fn best_points_this_generation(&self) -> f64 {
@@ -238,6 +254,8 @@ pub struct ObservationDeliveryMarker {
     pub snake_id: u64,
     /// Boundary value that must still be current when this marker commits.
     pub previous_delivered_points: f64,
+    /// First-delivery flag captured at the same exact physical-life boundary.
+    pub previous_observation_delivered: bool,
     /// Snake points captured at observation construction.
     pub sampled_points: f64,
 }
@@ -253,7 +271,9 @@ impl ObservationDeliveryMarker {
                 actual: snake.id,
             });
         }
-        if snake.delivered_observation_points.to_bits() != self.previous_delivered_points.to_bits()
+        if snake.observation_delivered != self.previous_observation_delivered
+            || snake.delivered_observation_points.to_bits()
+                != self.previous_delivered_points.to_bits()
         {
             return Err(SensorError::StaleDeliveryMarker { snake_id: snake.id });
         }
@@ -276,13 +296,25 @@ impl ObservationDeliveryMarker {
             snake.delivered_observation_points.to_bits(),
             self.previous_delivered_points.to_bits()
         );
+        debug_assert_eq!(
+            snake.observation_delivered,
+            self.previous_observation_delivered
+        );
         snake.delivered_observation_points = self.sampled_points;
+        snake.observation_delivered = true;
     }
 }
 
 /// Per-sample work and saturation counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SensorSampleDiagnostics {
+    /// Exact radii from this already-constructed sample, retained only for qualification.
+    #[cfg(feature = "engine-test-hooks")]
+    pub radii_bits: [u64; 2],
+    /// Charged v4 spatial packet/candidate/exact work; zero for v3.
+    pub ray_work: super::ray_work::RayWorkDiagnostics,
+    /// V4 directions that remained unknown at the grant boundary.
+    pub incomplete_rays: usize,
     /// Pellet spatial query work.
     pub pellet_query: SpatialQueryDiagnostics,
     /// Body spatial query work.
@@ -306,6 +338,8 @@ pub struct SensorSampleDiagnostics {
 /// Reusable per-worker scratch for one observation at a time.
 #[derive(Clone, Debug, Default)]
 pub struct SensorScratch {
+    /// Reused candidate v4 storage, with no allocation on a warmed sample.
+    pub(crate) v4: super::sensors_v4::V4SensorScratch,
     food_bins: Vec<f32>,
     hazard_bins: Vec<f32>,
     head_bins: Vec<f32>,
@@ -352,6 +386,8 @@ enum SensorPhase {
 /// Reusable sensor-scratch capacities used to prove warm-path stability.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SensorScratchDiagnostics {
+    /// Inline v4 arrays and retained query/frontier buffers, including dormant storage.
+    pub v4: super::sensors_v4::V4ScratchCapacity,
     /// Food-bin Float32 slots.
     pub food_bin_capacity: usize,
     /// Body-hazard-bin Float32 slots.
@@ -420,6 +456,7 @@ impl SensorScratch {
     #[must_use]
     pub fn diagnostics(&self) -> SensorScratchDiagnostics {
         SensorScratchDiagnostics {
+            v4: self.v4.diagnostics(),
             food_bin_capacity: self.food_bins.capacity(),
             hazard_bin_capacity: self.hazard_bins.capacity(),
             head_bin_capacity: self.head_bins.capacity(),
@@ -454,6 +491,7 @@ pub struct SensorSample {
 /// Validated reusable sensor-v3 evaluator.
 #[derive(Clone, Debug)]
 pub struct SensorEvaluator {
+    v4: Option<Box<super::sensors_v4::SensorV4Evaluator>>,
     config: SensorConfig,
     layout: SensorLayout,
 }
@@ -463,7 +501,188 @@ impl SensorEvaluator {
     pub fn new(config: SensorConfig) -> Result<Self, SensorError> {
         config.validate()?;
         let layout = SensorLayout::new(config.bins)?;
-        Ok(Self { config, layout })
+        Ok(Self {
+            config,
+            layout,
+            v4: None,
+        })
+    }
+
+    /// Explicit candidate v4 constructor for the shared native control pipeline.
+    pub fn new_v4(
+        config: SensorConfig,
+        movement: super::movement::MovementConfig,
+        fixed_dt: f64,
+        profile: super::sensor_contract::SensorProfile,
+    ) -> Result<Self, SensorError> {
+        let layout = SensorLayout::v4(profile, config.bins)?;
+        let evaluator =
+            super::sensors_v4::SensorV4Evaluator::new(profile, config.clone(), movement, fixed_dt)
+                .map_err(SensorError::V4)?;
+        Ok(Self {
+            config,
+            layout,
+            v4: Some(Box::new(evaluator)),
+        })
+    }
+
+    /// Whether this evaluator requires bound v4 context and admitted ray grants.
+    pub fn is_v4(&self) -> bool {
+        self.v4.is_some()
+    }
+
+    /// Version-one baseline behavior retains its own frozen v3 observation model.
+    pub fn legacy_evaluator(&self) -> &Self {
+        self.v4
+            .as_ref()
+            .map_or(self, |evaluator| evaluator.legacy_evaluator())
+    }
+
+    /// Same production sample with an optional diagnostic destination; no additional query.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_prepared_with_trace(
+        &self,
+        indexed: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+        prepared_v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+        trace: Option<&mut super::sensor_trace::SensorTrace>,
+    ) -> Result<SensorSample, SensorError> {
+        let Some(evaluator) = &self.v4 else {
+            return self.sample_with_assessment_traced(
+                indexed,
+                generation,
+                snake_index,
+                output,
+                scratch,
+                assessment,
+                trace,
+            );
+        };
+        let prepared = prepared_v4.ok_or(SensorError::MissingV4Context)?;
+        if prepared.grants_by_snake.len() != indexed.world().snakes.len() {
+            return Err(SensorError::MissingV4Context);
+        }
+        let grant = *prepared
+            .grants_by_snake
+            .get(snake_index)
+            .ok_or(SensorError::UnknownSnakeIndex { snake_index })?;
+        let mut meter = super::ray_work::RayWorkMeter::new(grant);
+        let sample = evaluator
+            .sample_with_trace(
+                indexed,
+                prepared.body_rays,
+                prepared.context,
+                snake_index,
+                output,
+                &mut meter,
+                &mut scratch.v4,
+                trace,
+                prepared.heads,
+            )
+            .map_err(SensorError::V4)?;
+        let capped = sample.diagnostics.body.candidate_limit_reached;
+        Ok(SensorSample {
+            delivery: sample.delivery,
+            radii: sample.radii,
+            diagnostics: SensorSampleDiagnostics {
+                #[cfg(feature = "engine-test-hooks")]
+                radii_bits: [sample.radii.near.to_bits(), sample.radii.far.to_bits()],
+                ray_work: sample.diagnostics.ray,
+                incomplete_rays: sample.diagnostics.incomplete_rays,
+                pellet_query: sample.diagnostics.pellets,
+                body_query: sample.diagnostics.body,
+                pellet_checks: sample.diagnostics.pellets.candidates,
+                segment_checks: if capped {
+                    0
+                } else {
+                    sample.diagnostics.body.candidates
+                },
+                head_checks: sample.diagnostics.head_checks,
+                pellet_cap_hits: u64::from(sample.diagnostics.pellets.candidate_limit_reached),
+                segment_cap_hits: u64::from(capped),
+                conservative_body_saturation: capped,
+                target_outside_world: indexed.world().snakes[snake_index]
+                    .position
+                    .x
+                    .hypot(indexed.world().snakes[snake_index].position.y)
+                    > self.config.world_radius,
+            },
+        })
+    }
+
+    /// Explicit sensor-only query with an independent per-observation meter.
+    /// Its receipt is returned only for diagnostics and must never be committed.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_probe_with_trace(
+        &self,
+        indexed: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+        prepared_v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+        ray_cap: u32,
+        trace: &mut super::sensor_trace::SensorTrace,
+    ) -> Result<SensorSample, SensorError> {
+        let Some(evaluator) = &self.v4 else {
+            return self.sample_with_assessment_traced(
+                indexed,
+                generation,
+                snake_index,
+                output,
+                scratch,
+                assessment,
+                Some(trace),
+            );
+        };
+        let prepared = prepared_v4.ok_or(SensorError::MissingV4Context)?;
+        let mut meter = super::ray_work::RayWorkMeter::new(ray_cap);
+        let sample = evaluator
+            .sample_with_trace(
+                indexed,
+                prepared.body_rays,
+                prepared.context,
+                snake_index,
+                output,
+                &mut meter,
+                &mut scratch.v4,
+                Some(trace),
+                prepared.heads,
+            )
+            .map_err(SensorError::V4)?;
+        let capped = sample.diagnostics.body.candidate_limit_reached;
+        Ok(SensorSample {
+            delivery: sample.delivery,
+            radii: sample.radii,
+            diagnostics: SensorSampleDiagnostics {
+                #[cfg(feature = "engine-test-hooks")]
+                radii_bits: [sample.radii.near.to_bits(), sample.radii.far.to_bits()],
+                ray_work: sample.diagnostics.ray,
+                incomplete_rays: sample.diagnostics.incomplete_rays,
+                pellet_query: sample.diagnostics.pellets,
+                body_query: sample.diagnostics.body,
+                pellet_checks: sample.diagnostics.pellets.candidates,
+                segment_checks: if capped {
+                    0
+                } else {
+                    sample.diagnostics.body.candidates
+                },
+                head_checks: sample.diagnostics.head_checks,
+                pellet_cap_hits: u64::from(sample.diagnostics.pellets.candidate_limit_reached),
+                segment_cap_hits: u64::from(capped),
+                conservative_body_saturation: capped,
+                target_outside_world: indexed.world().snakes[snake_index]
+                    .position
+                    .x
+                    .hypot(indexed.world().snakes[snake_index].position.y)
+                    > self.config.world_radius,
+            },
+        })
     }
 
     /// Read the exact layout required by this evaluator.
@@ -534,6 +753,58 @@ impl SensorEvaluator {
         output: &mut [f32],
         scratch: &mut SensorScratch,
     ) -> Result<SensorSample, SensorError> {
+        self.sample_with_assessment(
+            indexed_world,
+            generation,
+            snake_index,
+            output,
+            scratch,
+            None,
+        )
+    }
+
+    /// V3 life experiments replace only relative-score scalars; wallets and delivery deltas stay physical.
+    pub(crate) fn sample_with_assessment(
+        &self,
+        indexed_world: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+    ) -> Result<SensorSample, SensorError> {
+        self.sample_with_assessment_traced(
+            indexed_world,
+            generation,
+            snake_index,
+            output,
+            scratch,
+            assessment,
+            None,
+        )
+    }
+
+    /// Frozen v3 equations, optionally retaining their actual raw accumulators.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sample_with_assessment_traced(
+        &self,
+        indexed_world: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        snake_index: usize,
+        output: &mut [f32],
+        scratch: &mut SensorScratch,
+        assessment: Option<f64>,
+        mut trace: Option<&mut super::sensor_trace::SensorTrace>,
+    ) -> Result<SensorSample, SensorError> {
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.valid = false;
+        }
+        if self.v4.is_some() {
+            return Err(SensorError::MissingV4Context);
+        }
+        if assessment.is_some_and(|points| !points.is_finite() || points < 0.0) {
+            return Err(SensorError::InvalidGenerationBest);
+        }
         #[cfg(feature = "engine-test-hooks")]
         let mut phase_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         if output.len() != self.layout.input_size {
@@ -569,6 +840,20 @@ impl SensorEvaluator {
         );
         let radii = self.radii(size_normalized);
         let best_points = generation.best_points_this_generation.max(0.001);
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.begin(
+                snake,
+                super::sensor_contract::SensorProfile::V3,
+                self.layout.bins,
+                radii,
+            );
+            trace.size_factor = size_normalized;
+            trace.generation_best_points = Some(generation.best_points_this_generation);
+            trace.assessment_points = Some(assessment.unwrap_or(snake.points));
+            trace.generation_seconds = self.config.generation_seconds;
+            trace.food_saturation = self.config.food_saturation.max(0.1);
+            trace.boost_speed = self.config.snake_boost_speed;
+        }
 
         output[0] = snake.direction.sin() as f32;
         output[1] = snake.direction.cos() as f32;
@@ -579,12 +864,17 @@ impl SensorEvaluator {
             -1.0,
             1.0,
         ) as f32;
-        let logarithmic_fraction = (1.0 + snake.points).ln() / (1.0 + best_points).ln();
+        let assessment_points = assessment.unwrap_or(snake.points);
+        let logarithmic_fraction = (1.0 + assessment_points).ln() / (1.0 + best_points).ln();
         output[4] = clamp(logarithmic_fraction * 2.0 - 1.0, -1.0, 1.0) as f32;
         output[5] =
             ratio_to_bipolar(snake.speed / self.config.snake_boost_speed.max(1.0e-6)) as f32;
         output[6] = if snake.boost { 1.0 } else { -1.0 };
-        output[7] = clamp(2.0 * (snake.points / best_points.max(1.0)) - 1.0, -1.0, 1.0) as f32;
+        output[7] = clamp(
+            2.0 * (assessment_points / best_points.max(1.0)) - 1.0,
+            -1.0,
+            1.0,
+        ) as f32;
         output[8] = clamp(
             (snake.points - snake.delivered_observation_points) / POINTS_DELTA_SCALE,
             -1.0,
@@ -604,6 +894,10 @@ impl SensorEvaluator {
         let effective_cost = self.config.boost_points_cost_per_second
             * (1.0 + self.config.boost_points_cost_size_factor * size_normalized);
         let cost_scale = self.config.boost_points_cost_per_second * 3.0;
+        if let Some(trace) = trace.as_deref_mut() {
+            trace.boost_cost = effective_cost;
+            trace.boost_headroom = snake.points - self.config.minimum_boost_points;
+        }
         output[11] = clamp(
             2.0 * (effective_cost / cost_scale.max(1.0)) - 1.0,
             -1.0,
@@ -635,7 +929,7 @@ impl SensorEvaluator {
         let mut nearest_food_distance = radii.far;
         let mut nearest_food_delta = WorldPoint { x: 0.0, y: 0.0 };
         let mut found_food = false;
-        let pellet_bins = PelletAngularBins::new(snake.direction, self.layout.bins);
+        let pellet_bins = CenteredAngularBins::new(snake.direction, self.layout.bins);
         #[cfg(feature = "engine-test-hooks")]
         let pellet_accumulation_started = scratch.phase_profile.as_ref().map(|_| Instant::now());
         for pellet in indexed_world
@@ -773,8 +1067,14 @@ impl SensorEvaluator {
             let clearance = (distance - hit_threshold).max(0.0);
             let relative = normalize_angle(dy.atan2(dx) - snake.direction);
             let bin = angle_to_centered_bin(relative, self.layout.bins);
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.head_count[bin] += 1;
+            }
             if clearance < f64::from(scratch.head_bins[bin]) {
                 scratch.head_bins[bin] = clearance as f32;
+                if let Some(trace) = trace.as_deref_mut() {
+                    trace.head_ids[bin] = other.id;
+                }
             }
         }
         output[17] = clamp(
@@ -800,6 +1100,10 @@ impl SensorEvaluator {
             let clearance = clamp(distance - snake.radius, 0.0, radii.near);
             output[self.layout.offsets.wall + index] =
                 ratio_to_bipolar(clearance / radii.near) as f32;
+            if let Some(trace) = trace.as_deref_mut() {
+                trace.ray_headings[index] = theta;
+                trace.wall_clearance[index] = clearance;
+            }
         }
 
         let age_ratio = (snake.age_seconds / self.config.generation_seconds.max(1.0)).min(1.0);
@@ -809,13 +1113,37 @@ impl SensorEvaluator {
         }
         #[cfg(feature = "engine-test-hooks")]
         scratch.record_phase(&mut phase_started, SensorPhase::Wall);
+        if let Some(trace) = trace {
+            trace.nearest_food_distance = found_food.then_some(nearest_food_distance);
+            trace.nearest_food_bearing =
+                (found_food && nearest_food_distance > 1.0e-6).then(|| {
+                    normalize_angle(
+                        nearest_food_delta.y.atan2(nearest_food_delta.x) - snake.direction,
+                    )
+                });
+            trace.nearest_body_clearance = Some(nearest_body_distance);
+            trace.nearest_head_clearance = Some(nearest_head_distance);
+            trace.pellet_saturated = pellet_capped;
+            trace.body_saturated = segment_capped;
+            for bin in 0..self.layout.bins {
+                trace.food_strength[bin] = f64::from(scratch.food_bins[bin]);
+                trace.body_clearance[bin] = f64::from(scratch.hazard_bins[bin]);
+                trace.head_clearance[bin] = f64::from(scratch.head_bins[bin]);
+            }
+            trace.valid = true;
+        }
         Ok(SensorSample {
             delivery: ObservationDeliveryMarker {
                 snake_id: snake.id,
                 previous_delivered_points: snake.delivered_observation_points,
+                previous_observation_delivered: snake.observation_delivered,
                 sampled_points: snake.points,
             },
             diagnostics: SensorSampleDiagnostics {
+                #[cfg(feature = "engine-test-hooks")]
+                radii_bits: [radii.near.to_bits(), radii.far.to_bits()],
+                ray_work: super::ray_work::RayWorkDiagnostics::default(),
+                incomplete_rays: 0,
                 pellet_query,
                 body_query,
                 pellet_checks,
@@ -834,6 +1162,10 @@ impl SensorEvaluator {
 /// Sensor configuration, world-view, or delivery-boundary failure.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SensorError {
+    /// A v4 evaluator cannot sample without a coordinator-issued context/grant.
+    MissingV4Context,
+    /// Candidate v4 validation or geometry failed.
+    V4(super::sensors_v4::V4SensorError),
     /// Sensor-layout validation failed.
     Layout(SensorLayoutError),
     /// Spatial query/index validation failed.
@@ -876,6 +1208,11 @@ impl From<SpatialIndexError> for SensorError {
 impl fmt::Display for SensorError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingV4Context => write!(
+                formatter,
+                "sensor-v4 requires a bound observation context and ray grant"
+            ),
+            Self::V4(error) => write!(formatter, "{error}"),
             Self::Layout(error) => write!(formatter, "{error}"),
             Self::Spatial(error) => write!(formatter, "{error}"),
             Self::InvalidConfig { field } => {
@@ -925,7 +1262,7 @@ impl Error for SensorError {}
 
 /// Map one relative angle to the current centered angular bin.
 #[must_use]
-fn angle_to_centered_bin(relative_angle: f64, bins: usize) -> usize {
+pub(crate) fn angle_to_centered_bin(relative_angle: f64, bins: usize) -> usize {
     let mut unit = (relative_angle + PI) / TAU;
     unit = (unit + 0.5 / bins as f64) % 1.0;
     clamp((unit * bins as f64).floor(), 0.0, (bins - 1) as f64) as usize
@@ -940,18 +1277,19 @@ struct PelletBinBoundary {
     bin_after: usize,
 }
 
-/// Per-observation angular boundaries for cheap exact-bin pellet classification.
+/// Per-observation angular boundaries for cheap exact centered-sector classification.
 ///
 /// A vector close to a boundary uses the original atan2 calculation so floating
 /// point rounding at that boundary preserves the existing observation.
-struct PelletAngularBins {
+pub(crate) struct CenteredAngularBins {
     boundaries: [PelletBinBoundary; MAX_SENSOR_BINS],
     count: usize,
     direction: f64,
 }
 
-impl PelletAngularBins {
-    fn new(direction: f64, count: usize) -> Self {
+impl CenteredAngularBins {
+    /// Prepare stack-only boundaries for an already validated 8..32-bin layout.
+    pub(crate) fn new(direction: f64, count: usize) -> Self {
         let mut boundaries = [PelletBinBoundary::default(); MAX_SENSOR_BINS];
         // A finite restored direction can be outside the ordinary movement
         // range. Preserve the original subtraction/remainder rounding there.
@@ -984,8 +1322,17 @@ impl PelletAngularBins {
 
     #[inline]
     fn classify(&self, x: f64, y: f64, distance: f64) -> usize {
+        self.classify_interior(x, y, distance).unwrap_or_else(|| {
+            angle_to_centered_bin(normalize_angle(y.atan2(x) - self.direction), self.count)
+        })
+    }
+
+    /// Return only an unambiguous interior bin. The caller retains its original
+    /// angle normalization for boundary/large-heading fallback; v3 and v4 differ there.
+    #[inline]
+    pub(crate) fn classify_interior(&self, x: f64, y: f64, distance: f64) -> Option<usize> {
         if self.direction.abs() > TAU {
-            return angle_to_centered_bin(normalize_angle(y.atan2(x) - self.direction), self.count);
+            return None;
         }
         let upper = y > 0.0 || (y == 0.0 && x >= 0.0);
         let mut low = 0;
@@ -1009,13 +1356,10 @@ impl PelletAngularBins {
         let following = low % self.count;
         for boundary in [self.boundaries[preceding], self.boundaries[following]] {
             if (x * boundary.y - y * boundary.x).abs() <= 1.0e-10 * distance {
-                return angle_to_centered_bin(
-                    normalize_angle(y.atan2(x) - self.direction),
-                    self.count,
-                );
+                return None;
             }
         }
-        self.boundaries[preceding].bin_after
+        Some(self.boundaries[preceding].bin_after)
     }
 }
 
@@ -1043,12 +1387,16 @@ fn normalize_angle(mut angle: f64) -> f64 {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct ClosestPoint {
-    point: WorldPoint,
-    distance_squared: f64,
+pub(crate) struct ClosestPoint {
+    pub(crate) point: WorldPoint,
+    pub(crate) distance_squared: f64,
 }
 
-fn closest_point_on_segment(point: WorldPoint, start: WorldPoint, end: WorldPoint) -> ClosestPoint {
+pub(crate) fn closest_point_on_segment(
+    point: WorldPoint,
+    start: WorldPoint,
+    end: WorldPoint,
+) -> ClosestPoint {
     let abx = end.x - start.x;
     let aby = end.y - start.y;
     let apx = point.x - start.x;
@@ -1103,7 +1451,7 @@ fn resize_scratch(
     Ok(())
 }
 
-fn validate_snake_for_sensing(snake: &SnakeState) -> Result<(), SensorError> {
+pub(crate) fn validate_snake_for_sensing(snake: &SnakeState) -> Result<(), SensorError> {
     for (field, value) in [
         ("position.x", snake.position.x),
         ("position.y", snake.position.y),
@@ -1164,7 +1512,7 @@ mod tests {
             for direction in [
                 -1.0e20, -1.0e6, -TAU, -PI, -2.1, -0.37, 0.0, 0.37, 2.1, PI, TAU, 1.0e6, 1.0e20,
             ] {
-                let classifier = PelletAngularBins::new(direction, bins);
+                let classifier = CenteredAngularBins::new(direction, bins);
                 for sample in 0..20_000_u64 {
                     let angle = (sample.wrapping_mul(65_537) % 20_000) as f64 / 20_000.0 * TAU;
                     let (y, x) = angle.sin_cos();
@@ -1336,6 +1684,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body,
             skin: 0,
         }
@@ -1414,6 +1766,51 @@ mod tests {
             .sample(&indexed, generation, snake_index, &mut output, &mut scratch)
             .expect("sensor sample should succeed");
         (output, sample)
+    }
+
+    #[test]
+    fn life_assessments_change_only_v3_relative_scores_and_preserve_delivered_wallet_delta() {
+        let evaluator = SensorEvaluator::new(SensorConfig::default()).unwrap();
+        let mut world = WorldState {
+            body_points: vec![WorldPoint { x: 0.0, y: 0.0 }],
+            ..WorldState::default()
+        };
+        let mut entity = snake(
+            1,
+            SnakeKind::Evolved,
+            BodyRange { start: 0, len: 1 },
+            WorldPoint { x: 0.0, y: 0.0 },
+        );
+        entity.points = 2.0;
+        entity.delivered_observation_points = 1.0;
+        world.snakes.push(entity);
+        let mut generation = SensorGenerationState::new();
+        generation.observe_assessments(&[80.0]).unwrap();
+        generation.observe_assessments(&[10.0]).unwrap();
+        assert_eq!(generation.best_points_this_generation(), 80.0);
+        let (legacy, before) = sample(&evaluator, &world, 0, &generation);
+        let indexed = indexed_world(&world);
+        let mut selected = vec![0.0; legacy.len()];
+        let after = evaluator
+            .sample_with_assessment(
+                &indexed,
+                &generation,
+                0,
+                &mut selected,
+                &mut SensorScratch::default(),
+                Some(80.0),
+            )
+            .unwrap();
+        assert_eq!(selected[4], 1.0);
+        assert_eq!(selected[7], 1.0);
+        for index in 0..selected.len() {
+            if index != 4 && index != 7 {
+                assert_eq!(selected[index], legacy[index]);
+            }
+        }
+        assert_eq!(before.delivery, after.delivery);
+        assert_eq!(after.delivery.sampled_points, 2.0);
+        assert_eq!(world.snakes[0].delivered_observation_points, 1.0);
     }
 
     #[test]
@@ -1632,6 +2029,51 @@ mod tests {
     }
 
     #[test]
+    fn first_life_delivery_flag_changes_only_for_matching_consumption_even_without_score_delta() {
+        let evaluator = SensorEvaluator::new(SensorConfig::default()).unwrap();
+        let mut world = WorldState {
+            body_points: vec![
+                WorldPoint { x: 0.0, y: 0.0 },
+                WorldPoint { x: -7.5, y: 0.0 },
+            ],
+            ..WorldState::default()
+        };
+        world.snakes.push(snake(
+            1,
+            SnakeKind::Evolved,
+            BodyRange { start: 0, len: 2 },
+            WorldPoint { x: 0.0, y: 0.0 },
+        ));
+        let generation = SensorGenerationState::new();
+        let (_, probe) = sample(&evaluator, &world, 0, &generation);
+        let (_, accepted) = sample(&evaluator, &world, 0, &generation);
+        assert!(!world.snakes[0].observation_delivered);
+        assert!(!probe.delivery.previous_observation_delivered);
+        let mut wrong_life = world.snakes[0].clone();
+        wrong_life.id += 1;
+        assert!(probe.delivery.commit(&mut wrong_life).is_err());
+        assert!(!wrong_life.observation_delivered);
+        accepted.delivery.commit(&mut world.snakes[0]).unwrap();
+        assert!(world.snakes[0].observation_delivered);
+        assert_eq!(world.snakes[0].delivered_observation_points, 0.0);
+        assert_eq!(
+            probe.delivery.commit(&mut world.snakes[0]),
+            Err(SensorError::StaleDeliveryMarker { snake_id: 1 })
+        );
+        let (_, delivered_life) = sample(&evaluator, &world, 0, &generation);
+        assert!(delivered_life.delivery.previous_observation_delivered);
+        // A new physical life clears the flag independently of score and recurrence.
+        world.snakes[0].id += 1;
+        world.snakes[0].observation_delivered = false;
+        assert!(delivered_life
+            .delivery
+            .commit(&mut world.snakes[0])
+            .is_err());
+        let (_, newborn) = sample(&evaluator, &world, 0, &generation);
+        assert!(!newborn.delivery.previous_observation_delivered);
+    }
+
+    #[test]
     fn generation_best_is_initialized_and_excludes_non_population_snakes() {
         let mut world = WorldState {
             body_points: vec![
@@ -1719,7 +2161,7 @@ mod tests {
             };
             let mut actual = vec![0.0; evaluator.layout().input_size];
             let mut scratch = SensorScratch::default();
-            evaluator
+            let plain = evaluator
                 .sample(
                     &indexed,
                     &generation,
@@ -1728,6 +2170,45 @@ mod tests {
                     &mut scratch,
                 )
                 .unwrap_or_else(|error| panic!("{} sample failed: {error}", case.name));
+            let mut traced_output = vec![0.0; actual.len()];
+            let mut trace = super::super::sensor_trace::SensorTrace::default();
+            let traced = evaluator
+                .sample_with_assessment_traced(
+                    &indexed,
+                    &generation,
+                    target_index,
+                    &mut traced_output,
+                    &mut SensorScratch::default(),
+                    None,
+                    Some(&mut trace),
+                )
+                .unwrap();
+            assert_eq!(traced_output, actual);
+            assert_eq!(traced.diagnostics, plain.diagnostics);
+            assert_eq!(traced.delivery, plain.delivery);
+            assert!(trace.valid);
+            assert_eq!(
+                trace.profile,
+                super::super::sensor_contract::SensorProfile::V3
+            );
+            assert_eq!(trace.physical_id, case.target_id);
+            assert_eq!(trace.body_length, world.snakes[target_index].body.len);
+            assert_eq!(
+                trace.generation_best_points,
+                Some(case.best_points_this_generation)
+            );
+            assert!(trace
+                .body_rays
+                .iter()
+                .all(|ray| *ray == super::super::sensor_trace::SensorTraceRay::NotSampled));
+            for bin in 0..evaluator.layout().bins {
+                assert_eq!(trace.food_strength[bin], f64::from(scratch.food_bins[bin]));
+                assert_eq!(
+                    trace.body_clearance[bin],
+                    f64::from(scratch.hazard_bins[bin])
+                );
+                assert_eq!(trace.head_clearance[bin], f64::from(scratch.head_bins[bin]));
+            }
             assert_eq!(actual.len(), case.expected.len(), "{} length", case.name);
             for (index, (actual, expected)) in actual.iter().zip(&case.expected).enumerate() {
                 let difference = f64::from((*actual - *expected).abs());

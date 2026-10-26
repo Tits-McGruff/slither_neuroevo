@@ -1,5 +1,6 @@
 //! Production-addon handle for one Rust-owned background authority.
 
+use crate::engine::population_work::PopulationWorkLease;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 #[cfg(feature = "engine-test-hooks")]
@@ -10,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use napi::bindgen_prelude::{Array, AsyncTask, JsObjectValue, Object, Task};
 use napi::{Env, Error, JsString, JsValue, Result, Status};
 use napi_derive::napi;
-use serde::Deserialize;
 
 use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
 use crate::engine::contract::{
@@ -20,15 +20,15 @@ use crate::engine::contract::{
 use crate::engine::display::{FrameCopyResult, RunningDisplayStatus, RunningVisualizationStatus};
 use crate::engine::error::{EngineError, EngineErrorCode};
 use crate::engine::export_archive::{
-    compose_export_archive, estimate_import_disk_bytes, prepare_import_archive,
+    compose_export_archive_with_saved_brains, estimate_import_disk_bytes, prepare_import_archive,
     validate_import_archive, ExportArchiveDescriptor, ExportInventoryDescriptor,
     ImportDiskEstimate, PreparedImportArchive, ValidatedImportArchive,
 };
 use crate::engine::fresh_run::{
-    prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
+    prepare_configured_fresh_run_with_math, stage6a_p0_archive_validation_contract,
     FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
 };
-use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec};
+use crate::engine::graph::GraphSpec;
 use crate::engine::run_start::PendingRunStartTransition;
 use crate::engine::runtime::EngineRuntime;
 use crate::engine::work_progress::{ArchivePhaseTrace, ProgressScope};
@@ -42,6 +42,39 @@ use crate::napi_engine::{
     Stage6BackgroundGenerationHealth,
 };
 
+/// Fixed-size work facts, copied only after complete authoritative publication.
+#[napi(object)]
+pub struct BackgroundEvolvedPlacement {
+    pub step: String,
+    pub eligible: u32,
+    pub attempted: u32,
+    pub placed: u32,
+    pub pending_no_placement: u32,
+    pub pending_work_limit: u32,
+    pub deferred: u32,
+    pub candidates: u32,
+    pub geometry_checks: u32,
+}
+/// Compact life counters; hexadecimal words preserve exact long-generation values.
+#[napi(object)]
+pub struct BackgroundEvolvedLifeStatus {
+    pub version: u32,
+    pub population: u32,
+    pub alive: u32,
+    pub waiting: u32,
+    pub pending_placement: u32,
+    pub exhausted: u32,
+    pub dead_no_respawn: u32,
+    pub lives: String,
+    pub deaths: String,
+    pub respawns: String,
+    pub failed_placements: String,
+    pub pending_seconds: f64,
+    pub recent_event_count: u32,
+    pub life_end_cursor: String,
+    pub placement: BackgroundEvolvedPlacement,
+}
+
 /// Cached frame chronology and basic stats; no population or world objects.
 #[napi(object)]
 pub struct BackgroundDisplayStatus {
@@ -50,6 +83,7 @@ pub struct BackgroundDisplayStatus {
     pub completed_step: String,
     pub generation: String,
     pub generation_time: f64,
+    pub evolved: Option<BackgroundEvolvedLifeStatus>,
     pub alive_population: u32,
     pub baseline_bots_alive: u32,
     pub baseline_bots_total: u32,
@@ -66,6 +100,7 @@ pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> Background
         completed_step: u64_hex(status.completed_step),
         generation: u64_hex(status.frame.generation),
         generation_time: status.generation_time,
+        evolved: status.evolved.map(evolved_status_to_napi),
         alive_population: status.alive_population as u32,
         baseline_bots_alive: status.baseline_bots_alive as u32,
         baseline_bots_total: status.baseline_bots_total as u32,
@@ -73,6 +108,40 @@ pub(crate) fn display_status_to_napi(status: RunningDisplayStatus) -> Background
         alive_snakes: status.frame.alive_snakes as u32,
         pellets: status.frame.pellets as u32,
         frame_byte_length: status.frame.byte_length as f64,
+    }
+}
+
+/// Serialize already captured facts; no traversal or simulation runs on the Node thread.
+fn evolved_status_to_napi(
+    status: crate::engine::evolved_telemetry::EvolvedLifecycleTelemetry,
+) -> BackgroundEvolvedLifeStatus {
+    let placement = status.placement;
+    BackgroundEvolvedLifeStatus {
+        version: 1,
+        population: status.population as u32,
+        alive: status.alive as u32,
+        waiting: status.waiting as u32,
+        pending_placement: status.pending_placement as u32,
+        exhausted: status.exhausted as u32,
+        dead_no_respawn: status.dead_no_respawn as u32,
+        lives: u64_hex(status.lives),
+        deaths: u64_hex(status.deaths),
+        respawns: u64_hex(status.respawns),
+        failed_placements: u64_hex(status.failed_placements),
+        pending_seconds: status.pending_seconds,
+        recent_event_count: status.recent_event_count as u32,
+        life_end_cursor: u64_hex(status.life_end_cursor),
+        placement: BackgroundEvolvedPlacement {
+            step: u64_hex(placement.step),
+            eligible: placement.eligible_slots as u32,
+            attempted: placement.attempted_slots as u32,
+            placed: placement.placed_slots as u32,
+            pending_no_placement: placement.pending_no_placement as u32,
+            pending_work_limit: placement.pending_work_limit as u32,
+            deferred: (placement.eligible_slots - placement.attempted_slots) as u32,
+            candidates: placement.candidates as u32,
+            geometry_checks: placement.geometry_checks,
+        },
     }
 }
 
@@ -92,9 +161,25 @@ pub struct BackgroundVisualizationLayer {
     pub is_recurrent: Option<bool>,
 }
 
+/// Reject public selector narrowing before constructing any authoritative command.
+fn checked_entity_index(value: f64, maximum: u32, allow_zero: bool) -> Result<u32> {
+    let minimum = if allow_zero { 0.0 } else { 1.0 };
+    if !value.is_finite()
+        || value.fract() != 0.0
+        || !(minimum..=f64::from(maximum)).contains(&value)
+    {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "entity selector must be an exact bounded integer",
+        ));
+    }
+    Ok(value as u32)
+}
+
 /// Replaceable complete focused neural snapshot.
 #[napi(object)]
 pub struct BackgroundVisualization {
+    pub cleared: bool,
     pub sequence: String,
     pub world_epoch: String,
     pub completed_step: String,
@@ -154,6 +239,7 @@ fn visualization_to_napi(status: RunningVisualizationStatus) -> Result<Backgroun
         ));
     }
     Ok(BackgroundVisualization {
+        cleared: status.cleared,
         sequence: u64_hex(status.sequence),
         world_epoch: u64_hex(status.world_epoch),
         completed_step: u64_hex(status.completed_step),
@@ -301,6 +387,8 @@ pub struct PreparedImportArchiveResult {
 }
 
 /// Trusted fixed-width import inventory consumed only by the SQLite worker.
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 #[napi(object)]
 pub struct PreparedImportInventoryResult {
     pub version: u32,
@@ -309,6 +397,30 @@ pub struct PreparedImportInventoryResult {
     pub stored_byte_count: String,
     pub history_count: String,
     pub hall_of_fame_count: String,
+    #[cfg_attr(
+        feature = "engine-test-hooks",
+        serde(skip_serializing_if = "Option::is_none")
+    )]
+    pub saved_brains_json: Option<String>,
+}
+
+/// Convert the complete trusted inventory once for both production and qualification hosts.
+pub(crate) fn import_inventory_to_napi(
+    inventory: crate::engine::export_archive::ImportInventoryDescriptor,
+) -> std::result::Result<PreparedImportInventoryResult, serde_json::Error> {
+    Ok(PreparedImportInventoryResult {
+        version: inventory.version,
+        relative_filename: inventory.relative_filename,
+        sha256: inventory.sha256,
+        stored_byte_count: inventory.stored_byte_count_hex,
+        history_count: inventory.history_count_hex,
+        hall_of_fame_count: inventory.hall_of_fame_count_hex,
+        saved_brains_json: if inventory.saved_brains.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&inventory.saved_brains)?)
+        },
+    })
 }
 
 /// Small fresh replacement facts. The complete candidate remains in Rust.
@@ -349,8 +461,25 @@ fn catch_background_task_panic<T>(
     }
 }
 
+/// A probe has no concurrent world. Every owned-world task requires a live lease.
+fn population_task_ceiling(
+    runtime: &EngineRuntime,
+    lease: &Option<PopulationWorkLease>,
+    full: usize,
+) -> Result<usize> {
+    match lease {
+        Some(lease) => Ok(lease.admission.remaining_bytes),
+        None if !runtime.owns_authoritative_state() => Ok(full),
+        None => Err(Error::new(
+            Status::GenericFailure,
+            "stage population work before background allocation",
+        )),
+    }
+}
+
 /// Libuv task for constructing and publishing a private generation-one run.
 pub struct PrepareFreshRunTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     managed_directory: PathBuf,
     operation_id: CheckpointOperationId,
@@ -368,12 +497,27 @@ impl Task for PrepareFreshRunTask {
 
     fn compute(&mut self) -> Result<Self::Output> {
         catch_background_task_panic("fresh-run preparation", Some(&self.runtime), || {
-            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
-                self.request.clone(),
+            let mut request = self.request.clone();
+            request.memory_ceiling_bytes = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.request.memory_ceiling_bytes,
+            )?;
+            let math = self
+                .population_work
+                .as_ref()
+                .and_then(|lease| lease.admission.math_backend)
+                .unwrap_or(crate::engine::inference::InferenceMathBackend::Scalar);
+            let mut transition = prepare_configured_fresh_run_with_math(
+                request,
                 &self.settings,
                 self.graph.clone(),
+                math,
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
+            transition
+                .select_retired_source_memory_ceiling(self.request.memory_ceiling_bytes)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             transition
                 .configure_calculation_workers(self.calculation_workers)
                 .map_err(|error| Error::new(Status::GenericFailure, error))?;
@@ -409,12 +553,14 @@ impl Task for PrepareFreshRunTask {
 
 /// Libuv task for file/codec work that must not block the Node event loop.
 pub struct PrepareExportArchiveTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     memory_ceiling_bytes: usize,
     managed_directory: PathBuf,
     operation_id: String,
     checkpoint: crate::engine::checkpoint::CheckpointDescriptor,
     inventory: ExportInventoryDescriptor,
+    saved_brains: Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1>,
     progress: Arc<ArchiveProgressJob>,
     #[cfg(feature = "engine-test-hooks")]
     export_failure: Arc<AtomicU8>,
@@ -435,11 +581,15 @@ impl Task for PrepareExportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = self.memory_ceiling_bytes;
+            let memory_ceiling = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.memory_ceiling_bytes,
+            )?;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, false)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
-            compose_export_archive(
+            compose_export_archive_with_saved_brains(
                 &self.managed_directory,
                 &self.operation_id,
                 &self.checkpoint,
@@ -447,6 +597,7 @@ impl Task for PrepareExportArchiveTask {
                 &checkpoint_limits,
                 &graph_limits,
                 &admission_policy,
+                &self.saved_brains,
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
         })
@@ -471,6 +622,7 @@ impl Task for PrepareExportArchiveTask {
 
 /// Libuv task for validating an untrusted upload without touching authority.
 pub struct ValidateImportArchiveTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     memory_ceiling_bytes: usize,
     archive_path: PathBuf,
@@ -506,6 +658,7 @@ impl Task for EstimateImportDiskTask {
 
 /// Libuv preparation task retaining its admitted candidate in the native handle.
 pub struct PrepareImportArchiveTask {
+    population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     memory_ceiling_bytes: usize,
     archive_path: PathBuf,
@@ -531,7 +684,11 @@ impl Task for PrepareImportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = self.memory_ceiling_bytes;
+            let memory_ceiling = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.memory_ceiling_bytes,
+            )?;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -545,7 +702,7 @@ impl Task for PrepareImportArchiveTask {
                 &checkpoint_limits,
                 &graph_limits,
                 &admission_policy,
-                memory_ceiling,
+                self.memory_ceiling_bytes,
             )
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             prepared
@@ -574,14 +731,8 @@ impl Task for PrepareImportArchiveTask {
             hall_of_fame_count: facts.hall_of_fame_count_hex,
             stored_byte_count: facts.stored_byte_count_hex,
             descriptor: checkpoint_descriptor_to_napi(descriptor),
-            inventory: PreparedImportInventoryResult {
-                version: inventory.version,
-                relative_filename: inventory.relative_filename,
-                sha256: inventory.sha256,
-                stored_byte_count: inventory.stored_byte_count_hex,
-                history_count: inventory.history_count_hex,
-                hall_of_fame_count: inventory.hall_of_fame_count_hex,
-            },
+            inventory: import_inventory_to_napi(inventory)
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?,
             startup_metadata,
         })
     }
@@ -604,7 +755,11 @@ impl Task for ValidateImportArchiveTask {
                 Arc::clone(&self.progress.completed_bytes),
                 self.progress.phase_trace.clone(),
             );
-            let memory_ceiling = self.memory_ceiling_bytes;
+            let memory_ceiling = population_task_ceiling(
+                &self.runtime,
+                &self.population_work,
+                self.memory_ceiling_bytes,
+            )?;
             let (checkpoint_limits, graph_limits, admission_policy) =
                 stage6a_p0_archive_validation_contract(memory_ceiling, true)
                     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
@@ -707,6 +862,45 @@ impl ExperimentalRunningAuthority {
         }
     }
 
+    fn acquire_population_work(
+        &self,
+        allow_unstarted: bool,
+    ) -> Result<Option<PopulationWorkLease>> {
+        if !self.runtime.owns_authoritative_state() {
+            return Ok(None);
+        }
+        if allow_unstarted
+            && self.runtime.health().lifecycle == crate::engine::LifecycleState::Created
+        {
+            let health = self.runtime.health();
+            let epoch = health
+                .running_authority
+                .as_ref()
+                .ok_or_else(|| {
+                    Error::new(Status::GenericFailure, "population source is unavailable")
+                })?
+                .world_epoch;
+            let source = self
+                .runtime
+                .authoritative_state_memory_bytes()
+                .ok_or_else(|| {
+                    Error::new(
+                        Status::GenericFailure,
+                        "population source memory is unavailable",
+                    )
+                })?;
+            return self
+                .prepared_import
+                .acquire_unstarted_work(self.memory_ceiling_bytes, source, epoch)
+                .map(Some)
+                .map_err(|detail| Error::new(Status::GenericFailure, detail));
+        }
+        self.prepared_import
+            .acquire_work(self.memory_ceiling_bytes)
+            .map(Some)
+            .map_err(|detail| Error::new(Status::GenericFailure, detail))
+    }
+
     fn begin_archive_job(
         &self,
         operation_id: String,
@@ -734,6 +928,16 @@ impl ExperimentalRunningAuthority {
 #[cfg(feature = "engine-test-hooks")]
 #[napi]
 impl ExperimentalRunningAuthority {
+    /// Read bounded hexadecimal quality counters from published ordinary observations.
+    #[napi(catch_unwind)]
+    pub fn observation_quality_for_test(&self) -> Result<String> {
+        self.root(|| {
+            self.runtime
+                .observation_quality_for_test()
+                .map_err(engine_error_to_napi)
+        })
+    }
+
     /// Test-addon-only one-shot failure for the next export on this handle.
     #[napi(catch_unwind)]
     pub fn arm_export_failure_for_test(&self, mode: u32) -> Result<()> {
@@ -778,7 +982,15 @@ impl ExperimentalRunningAuthority {
     /// Start the retained coordinator after Node has attached its output router.
     #[napi(catch_unwind)]
     pub fn start(&self) -> Result<()> {
-        self.root(|| self.runtime.start().map_err(engine_error_to_napi))
+        self.root(|| {
+            if self.prepared_import.has_admission() {
+                return Err(Error::new(
+                    Status::GenericFailure,
+                    "population work must finish before coordinator startup",
+                ));
+            }
+            self.runtime.start().map_err(engine_error_to_napi)
+        })
     }
 
     /// Queue immutable publication with bounded, server-controlled inputs.
@@ -812,6 +1024,7 @@ impl ExperimentalRunningAuthority {
         operation_id: JsString<'_>,
         checkpoint: Object<'_>,
         inventory: Object<'_>,
+        saved_brains_json: Option<JsString<'_>>,
     ) -> Result<AsyncTask<PrepareExportArchiveTask>> {
         let managed_directory = parse_managed_path(bounded_js_string(
             managed_directory,
@@ -827,14 +1040,31 @@ impl ExperimentalRunningAuthority {
         )?)?;
         let checkpoint = checkpoint_descriptor_from_napi_object(&checkpoint)?;
         let inventory = parse_export_inventory_descriptor(&inventory, operation_id.as_str())?;
+        let saved_brains = match saved_brains_json {
+            None => Vec::new(),
+            Some(json) => serde_json::from_str::<
+                Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1>,
+            >(&bounded_js_string(
+                json,
+                "savedBrainsJson",
+                128 * 1024,
+                false,
+            )?)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?,
+        };
+        crate::engine::saved_brain_archive::validate_selection(&saved_brains)
+            .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+        let population_work = self.acquire_population_work(true)?;
         let progress = self.begin_archive_job(operation_id.as_str().to_owned(), "export")?;
         Ok(AsyncTask::new(PrepareExportArchiveTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             memory_ceiling_bytes: self.memory_ceiling_bytes,
             managed_directory,
             operation_id: operation_id.as_str().to_owned(),
             checkpoint,
             inventory,
+            saved_brains,
             progress,
             #[cfg(feature = "engine-test-hooks")]
             export_failure: Arc::clone(&self.export_failure),
@@ -867,9 +1097,11 @@ impl ExperimentalRunningAuthority {
             32,
             false,
         )?)?;
+        let population_work = self.acquire_population_work(true)?;
         let progress =
             self.begin_archive_job(operation_id.as_str().to_owned(), "validate-import")?;
         Ok(AsyncTask::new(ValidateImportArchiveTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             memory_ceiling_bytes: self.memory_ceiling_bytes,
             archive_path,
@@ -938,7 +1170,15 @@ impl ExperimentalRunningAuthority {
             ));
         }
         let memory_ceiling_bytes = self.memory_ceiling_bytes;
+        let population_work = match self.acquire_population_work(false) {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.import_active.store(false, Ordering::Release);
+                return Err(error);
+            }
+        };
         Ok(AsyncTask::new(PrepareFreshRunTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             managed_directory,
             operation_id,
@@ -1012,7 +1252,16 @@ impl ExperimentalRunningAuthority {
                 return Err(error);
             }
         };
+        let population_work = match self.acquire_population_work(false) {
+            Ok(lease) => lease,
+            Err(error) => {
+                self.import_active.store(false, Ordering::Release);
+                progress.finished.store(true, Ordering::Release);
+                return Err(error);
+            }
+        };
         Ok(AsyncTask::new(PrepareImportArchiveTask {
+            population_work,
             runtime: Arc::clone(&self.runtime),
             memory_ceiling_bytes: self.memory_ceiling_bytes,
             archive_path,
@@ -1230,19 +1479,122 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue one bounded generation-scoped manual completion request.
+    #[napi(catch_unwind)]
+    pub fn submit_finish_generation(
+        &self,
+        sequence: JsString<'_>,
+        request_id: JsString<'_>,
+        expected_run_id: JsString<'_>,
+        expected_generation: JsString<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::FinishGeneration {
+                request_id: bounded_js_string(request_id, "requestId", 128, false)?,
+                expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
+                expected_generation: parse_background_sequence(expected_generation)?,
+            },
+        )
+    }
+
+    /// Resolve a bounded frame/slot selector through the authoritative command queue.
+    #[napi(catch_unwind)]
+    pub fn submit_entity_selection(
+        &self,
+        sequence: JsString<'_>,
+        target_kind: JsString<'_>,
+        target_index: f64,
+        expected_run_id: JsString<'_>,
+        expected_generation: JsString<'_>,
+    ) -> Result<()> {
+        let kind = bounded_js_string(target_kind, "targetKind", 8, false)?;
+        let target = match kind.as_str() {
+            "frame" => crate::engine::state::EntitySelectionTarget::Frame(checked_entity_index(
+                target_index,
+                crate::engine::state::FRAME_V1_MAX_EXACT_ID,
+                false,
+            )?),
+            "slot" => crate::engine::state::EntitySelectionTarget::PopulationSlot(
+                checked_entity_index(target_index, 299, true)?,
+            ),
+            _ => return Err(napi::Error::from_reason("targetKind must be frame or slot")),
+        };
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SelectEntity {
+                target,
+                expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
+                expected_generation: parse_background_sequence(expected_generation)?,
+            },
+        )
+    }
+
+    /// Admit or close one selected diagnostic cache through the ordinary command queue.
+    #[napi(catch_unwind)]
+    pub fn submit_inspector(
+        &self,
+        sequence: JsString<'_>,
+        expected_run_id: JsString<'_>,
+        token: Option<JsString<'_>>,
+        frame_v1_id: Option<f64>,
+        pure_probe: Option<bool>,
+    ) -> Result<()> {
+        let selection = match (token, frame_v1_id) {
+            (None, None) => None,
+            (Some(token), Some(frame)) => Some(Box::new((
+                crate::engine::state::EntitySelectionToken::parse(&bounded_js_string(
+                    token,
+                    "selectionToken",
+                    64,
+                    false,
+                )?)
+                .map_err(napi::Error::from_reason)?,
+                checked_entity_index(frame, crate::engine::state::FRAME_V1_MAX_EXACT_ID, false)?,
+            ))),
+            _ => {
+                return Err(napi::Error::from_reason(
+                    "inspector needs both token and frame ID, or neither",
+                ))
+            }
+        };
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ConfigureInspector {
+                expected_run_id: bounded_js_string(expected_run_id, "expectedRunId", 256, false)?,
+                selection,
+                pure_probe: pure_probe.unwrap_or(false),
+            },
+        )
+    }
+
     /// Queue one browser-addressed God Mode translation at the next clean boundary.
     #[napi(catch_unwind)]
     pub fn submit_god_mode_move(
         &self,
         sequence: JsString<'_>,
-        snake_id: u32,
+        snake_id: f64,
         x: f64,
         y: f64,
+        token: JsString<'_>,
     ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::GodModeMove {
-                frame_v1_id: snake_id,
+                token: Box::new(
+                    crate::engine::state::EntitySelectionToken::parse(&bounded_js_string(
+                        token,
+                        "selectionToken",
+                        64,
+                        false,
+                    )?)
+                    .map_err(napi::Error::from_reason)?,
+                ),
+                frame_v1_id: checked_entity_index(
+                    snake_id,
+                    crate::engine::state::FRAME_V1_MAX_EXACT_ID,
+                    false,
+                )?,
                 x,
                 y,
             },
@@ -1251,13 +1603,116 @@ impl ExperimentalRunningAuthority {
 
     /// Queue one browser-addressed God Mode death through ordinary side effects.
     #[napi(catch_unwind)]
-    pub fn submit_god_mode_kill(&self, sequence: JsString<'_>, snake_id: u32) -> Result<()> {
+    pub fn submit_god_mode_kill(
+        &self,
+        sequence: JsString<'_>,
+        snake_id: f64,
+        token: JsString<'_>,
+    ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::GodModeKill {
-                frame_v1_id: snake_id,
+                token: Box::new(
+                    crate::engine::state::EntitySelectionToken::parse(&bounded_js_string(
+                        token,
+                        "selectionToken",
+                        64,
+                        false,
+                    )?)
+                    .map_err(napi::Error::from_reason)?,
+                ),
+                frame_v1_id: checked_entity_index(
+                    snake_id,
+                    crate::engine::state::FRAME_V1_MAX_EXACT_ID,
+                    false,
+                )?,
             },
         )
+    }
+
+    /// Activate one cold-validated immutable shadow through the ordinary ordered command queue.
+    #[napi(catch_unwind)]
+    pub fn submit_activate_shadow(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::ActivateShadow(Box::new(
+                crate::napi_shadows::parse_activation(&request)?,
+            )),
+        )
+    }
+
+    /// Disable only the identified activation at a clean authoritative boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_stop_shadow(&self, sequence: JsString<'_>, request: Object<'_>) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            crate::napi_shadows::parse_stop(&request)?,
+        )
+    }
+
+    /// Read bounded published diagnostic summaries without world locks or teacher drains.
+    #[napi(catch_unwind)]
+    pub fn get_shadow_metrics(&self) -> Result<String> {
+        self.root(|| {
+            crate::napi_shadows::metrics_json(
+                self.runtime
+                    .shadow_snapshots()
+                    .map_err(engine_error_to_napi)?,
+            )
+        })
+    }
+
+    /// Queue cold admission of automatic exact teacher rows and a separate bounded queue.
+    #[napi(catch_unwind)]
+    pub fn submit_start_teacher_capture(
+        &self,
+        sequence: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::StartTeacherCapture(Box::new(
+                crate::napi_teacher_capture::parse_request(&request)?,
+            )),
+        )
+    }
+
+    /// Seal one matching diagnostic epoch at the next clean boundary.
+    #[napi(catch_unwind)]
+    pub fn submit_stop_teacher_capture(
+        &self,
+        sequence: JsString<'_>,
+        capture_epoch: JsString<'_>,
+    ) -> Result<()> {
+        let epoch = bounded_js_string(capture_epoch, "captureEpoch", 32, false)?;
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::StopTeacherCapture {
+                capture_epoch: crate::napi_teacher_capture::parse_epoch(&epoch)?,
+            },
+        )
+    }
+
+    /// Drain complete opaque objects from the independent diagnostic queue.
+    #[napi(catch_unwind)]
+    pub fn drain_teacher_chunks(
+        &self,
+        max_chunks: f64,
+        max_owned_bytes: f64,
+    ) -> Result<crate::napi_teacher_capture::TeacherCaptureDrain> {
+        self.root(|| {
+            let chunks = positive_usize(max_chunks, "maxChunks").map_err(engine_error_to_napi)?;
+            let bytes =
+                positive_usize(max_owned_bytes, "maxOwnedBytes").map_err(engine_error_to_napi)?;
+            self.runtime
+                .drain_teacher_chunks(chunks, bytes)
+                .map(crate::napi_teacher_capture::drain_to_napi)
+                .map_err(engine_error_to_napi)
+        })
     }
 
     /// Queue an aggregate subscriber toggle for focused neural capture.
@@ -1269,17 +1724,63 @@ impl ExperimentalRunningAuthority {
         )
     }
 
+    /// Queue exact library deployment; native admission owns graph/sensor/cadence checks.
+    #[napi(catch_unwind)]
+    pub fn submit_saved_brain_spawn(
+        &self,
+        sequence: JsString<'_>,
+        managed_directory: JsString<'_>,
+        request: Object<'_>,
+    ) -> Result<()> {
+        let weights =
+            request.get_named_property::<ManagedHallOfFameWeightsDescriptor>("weights")?;
+        let input = crate::engine::brain_library::SavedBrainSpawnRequest {
+            managed_directory: bounded_js_string(
+                managed_directory,
+                "managedDirectory",
+                32768,
+                false,
+            )?,
+            brain_id: bounded_object_string(&request, "brainId", 64)?,
+            expected_run_id: bounded_object_string(&request, "expectedRunId", 256)?,
+            expected_config_revision: parse_u64_hex(
+                &bounded_object_string(&request, "expectedConfigRevision", 16)?,
+                "expectedConfigRevision",
+                false,
+            )?,
+            expected_world_epoch: parse_u64_hex(
+                &bounded_object_string(&request, "expectedWorldEpoch", 16)?,
+                "expectedWorldEpoch",
+                false,
+            )?,
+            weights: Box::new(hall_of_fame_weights_descriptor_from_napi(weights)?),
+        };
+        input
+            .validate()
+            .map_err(|detail| Error::new(Status::InvalidArg, detail))?;
+        self.submit(
+            parse_background_sequence(sequence)?,
+            RunningAuthorityCommand::SpawnSavedBrain(Box::new(input)),
+        )
+    }
+
     /// Queue one exact retained winner for Rust-owned decoding and resurrection.
     #[napi(catch_unwind)]
     pub fn submit_hall_of_fame_resurrection(
         &self,
         sequence: JsString<'_>,
         managed_directory: JsString<'_>,
+        entry_id: JsString<'_>,
         weights: ManagedHallOfFameWeightsDescriptor,
     ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
             RunningAuthorityCommand::ResurrectHallOfFame {
+                entry_id: parse_u64_hex(
+                    &bounded_js_string(entry_id, "entryId", 16, false)?,
+                    "entryId",
+                    false,
+                )?,
                 managed_directory: bounded_js_string(
                     managed_directory,
                     "managedDirectory",
@@ -1391,6 +1892,26 @@ impl ExperimentalRunningAuthority {
                 .latest_display()
                 .map(|status| status.map(display_status_to_napi))
                 .map_err(engine_error_to_napi)
+        })
+    }
+
+    /// Return one bounded Rust-authored projection; never sample or execute a model here.
+    #[napi(catch_unwind)]
+    pub fn latest_inspector(&self, after_sequence: JsString<'_>) -> Result<Option<String>> {
+        let after_sequence = parse_u64_hex(
+            &bounded_js_string(after_sequence, "afterSequence", 16, false)?,
+            "afterSequence",
+            true,
+        )?;
+        self.root(|| {
+            self.runtime
+                .latest_inspector(after_sequence)
+                .map_err(engine_error_to_napi)?
+                .map(|snapshot| {
+                    crate::engine::inspector_wire::encode(&snapshot)
+                        .map_err(napi::Error::from_reason)
+                })
+                .transpose()
         })
     }
 
@@ -1584,7 +2105,7 @@ fn parse_export_inventory_descriptor(
     let version = descriptor
         .get::<f64>("version")?
         .ok_or_else(|| Error::new(Status::InvalidArg, "export inventory omits version"))?;
-    if version != 1.0 {
+    if version != 1.0 && version != 2.0 && version != 3.0 {
         return Err(Error::new(
             Status::InvalidArg,
             "export inventory version is unsupported",
@@ -1595,14 +2116,14 @@ fn parse_export_inventory_descriptor(
         "relativeFilename",
         32 + ".export-inventory-v1".len() + 1,
     )?;
-    if relative_filename != format!(".{operation_id}.export-inventory-v1") {
+    if relative_filename != format!(".{operation_id}.export-inventory-v{}", version as u32) {
         return Err(Error::new(
             Status::InvalidArg,
             "export inventory does not match the operation ID",
         ));
     }
     Ok(ExportInventoryDescriptor {
-        version: 1,
+        version: version as u32,
         relative_filename,
         sha256: bounded_object_string(descriptor, "sha256", 64)?,
         stored_byte_count_hex: bounded_object_string(descriptor, "storedByteCount", 16)?,
@@ -1694,208 +2215,11 @@ fn parse_fresh_run_settings(updates: &Array<'_>) -> Result<Box<[FreshRunSettingU
     Ok(parsed.into_boxed_slice())
 }
 
-/// Bounded JSON graph root accepted only by private fresh-run construction.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphWire {
-    #[serde(rename = "type")]
-    graph_type: String,
-    nodes: Vec<FreshRunGraphNodeWire>,
-    edges: Vec<FreshRunGraphEdgeWire>,
-    outputs: Vec<FreshRunGraphOutputWire>,
-    output_size: usize,
-}
-
-/// One current browser graph node before conversion to compiler-owned types.
-#[derive(Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
-enum FreshRunGraphNodeWire {
-    Input {
-        id: String,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-    },
-    Dense {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-    },
-    #[serde(rename = "MLP")]
-    Mlp {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "outputSize")]
-        output_size: usize,
-        #[serde(rename = "hiddenSizes", default)]
-        hidden_sizes: Vec<usize>,
-    },
-    #[serde(rename = "GRU")]
-    Gru {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    #[serde(rename = "LSTM")]
-    Lstm {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    #[serde(rename = "RRU")]
-    Rru {
-        id: String,
-        #[serde(rename = "inputSize")]
-        input_size: usize,
-        #[serde(rename = "hiddenSize")]
-        hidden_size: usize,
-    },
-    Concat {
-        id: String,
-    },
-    Split {
-        id: String,
-        #[serde(rename = "outputSizes")]
-        output_sizes: Vec<usize>,
-    },
-}
-
-/// One browser graph edge with optional explicit zero-based ports.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphEdgeWire {
-    from: String,
-    to: String,
-    from_port: Option<i64>,
-    to_port: Option<i64>,
-}
-
-/// One ordered browser graph output reference.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FreshRunGraphOutputWire {
-    node_id: String,
-    port: Option<i64>,
-}
-
 /// Decode one bounded graph document before the background task owns it.
 fn parse_fresh_run_graph(encoded: JsString<'_>) -> Result<GraphSpec> {
     let encoded = bounded_js_string(encoded, "graphSpecJson", 1024 * 1024, false)?;
-    let wire: FreshRunGraphWire = serde_json::from_str(&encoded)
-        .map_err(|_| Error::new(Status::InvalidArg, "fresh-run graph JSON is invalid"))?;
-    if wire.graph_type != "graph"
-        || wire.nodes.is_empty()
-        || wire.nodes.len() > 64
-        || wire.edges.len() > 128
-        || wire.outputs.is_empty()
-        || wire.outputs.len() > 8
-    {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "fresh-run graph exceeds its structural limits",
-        ));
-    }
-    let nodes = wire
-        .nodes
-        .into_iter()
-        .map(|node| {
-            let (id, kind) = match node {
-                FreshRunGraphNodeWire::Input { id, output_size } => {
-                    (id, GraphNodeKind::Input { output_size })
-                }
-                FreshRunGraphNodeWire::Dense {
-                    id,
-                    input_size,
-                    output_size,
-                } => (
-                    id,
-                    GraphNodeKind::Dense {
-                        input_size,
-                        output_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Mlp {
-                    id,
-                    input_size,
-                    output_size,
-                    hidden_sizes,
-                } => (
-                    id,
-                    GraphNodeKind::Mlp {
-                        input_size,
-                        hidden_sizes,
-                        output_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Gru {
-                    id,
-                    input_size,
-                    hidden_size,
-                } => (
-                    id,
-                    GraphNodeKind::Gru {
-                        input_size,
-                        hidden_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Lstm {
-                    id,
-                    input_size,
-                    hidden_size,
-                } => (
-                    id,
-                    GraphNodeKind::Lstm {
-                        input_size,
-                        hidden_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Rru {
-                    id,
-                    input_size,
-                    hidden_size,
-                } => (
-                    id,
-                    GraphNodeKind::Rru {
-                        input_size,
-                        hidden_size,
-                    },
-                ),
-                FreshRunGraphNodeWire::Concat { id } => (id, GraphNodeKind::Concat),
-                FreshRunGraphNodeWire::Split { id, output_sizes } => {
-                    (id, GraphNodeKind::Split { output_sizes })
-                }
-            };
-            GraphNodeSpec { id, kind }
-        })
-        .collect();
-    Ok(GraphSpec {
-        nodes,
-        edges: wire
-            .edges
-            .into_iter()
-            .map(|edge| GraphEdge {
-                from: edge.from,
-                to: edge.to,
-                from_port: edge.from_port,
-                to_port: edge.to_port,
-            })
-            .collect(),
-        outputs: wire
-            .outputs
-            .into_iter()
-            .map(|output| GraphOutputRef {
-                node_id: output.node_id,
-                port: output.port,
-            })
-            .collect(),
-        output_size: wire.output_size,
-    })
+    crate::engine::graph_json::decode_graph_json(encoded.as_bytes())
+        .map_err(|message| Error::new(Status::InvalidArg, message))
 }
 
 /// Validate a fresh legacy identity and stamp its native receipt time.
@@ -2060,10 +2384,24 @@ pub(crate) fn parse_controller_receipt(receipt: &Object<'_>) -> Result<ExternalD
 
 #[cfg(test)]
 mod task_panic_tests {
+    #[test]
+    fn entity_selector_arguments_reject_coercion() {
+        for value in [f64::NAN, f64::INFINITY, -1.0, 1.5, 16_777_217.0] {
+            assert!(super::checked_entity_index(value, 16_777_216, false).is_err());
+        }
+        assert!(super::checked_entity_index(0.0, 16_777_216, false).is_err());
+        assert_eq!(
+            super::checked_entity_index(16_777_216.0, 16_777_216, false).unwrap(),
+            16_777_216
+        );
+        assert_eq!(super::checked_entity_index(0.0, 299, true).unwrap(), 0);
+        assert!(super::checked_entity_index(300.0, 299, true).is_err());
+    }
+
     use super::{
         catch_background_task_panic, ArchiveProgressJob, ExperimentalRunningAuthority,
-        PrepareExportArchiveTask, PrepareFreshRunTask, PrepareImportArchiveTask,
-        ValidateImportArchiveTask,
+        PopulationWorkLease, PrepareExportArchiveTask, PrepareFreshRunTask,
+        PrepareImportArchiveTask, ValidateImportArchiveTask,
     };
     use crate::engine::checkpoint::{CheckpointDescriptor, CheckpointOperationId};
     use crate::engine::contract::{
@@ -2072,10 +2410,9 @@ mod task_panic_tests {
     };
     use crate::engine::export_archive::{compose_export_archive, ExportInventoryDescriptor};
     use crate::engine::fresh_run::{
-        prepare_stage6a_p0_fresh_run_with_settings_and_graph,
-        stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
+        prepare_default_fresh_run, stage6a_p0_archive_validation_contract, Stage6aP0FreshRunRequest,
     };
-    use crate::engine::graph::typescript_default_graph_spec;
+    use crate::engine::graph::default_stack_graph_spec;
     use crate::engine::queues::NoopWakeSink;
     use crate::engine::runtime::EngineRuntime;
     use crate::engine::task_panic_fixture::{PanicInjection, PanicPoint};
@@ -2116,12 +2453,7 @@ mod task_panic_tests {
         }
 
         fn checkpoint(&self) -> CheckpointDescriptor {
-            let mut transition = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
-                self.request(),
-                &[],
-                typescript_default_graph_spec(),
-            )
-            .unwrap();
+            let mut transition = prepare_default_fresh_run(self.request()).unwrap();
             transition
                 .publish_checkpoint(
                     &self.0,
@@ -2220,18 +2552,86 @@ mod task_panic_tests {
     }
 
     #[test]
+    fn unstarted_archive_admission_counts_source_and_prevents_concurrent_start() {
+        let files = TaskFiles::new();
+        let mut pending = prepare_default_fresh_run(files.request()).unwrap();
+        let descriptor = pending
+            .publish_checkpoint(
+                &files.0,
+                CheckpointOperationId::parse("e".repeat(32)).unwrap(),
+            )
+            .unwrap();
+        pending.acknowledge_persistence(&descriptor).unwrap();
+        pending.publish_running_authority().unwrap();
+        let running = pending
+            .into_running_loop(
+                crate::engine::scheduler::FixedStepSchedulerPolicy::provisional_defaults(),
+                0,
+            )
+            .unwrap();
+        let probe = running_test_runtime();
+        let mut init = probe.queue_limits();
+        init.output.max_event_owned_bytes = 4 * 1024 * 1024;
+        init.output.max_reliable_owned_bytes = 8 * 1024 * 1024;
+        init.output.max_discrete_owned_bytes = 8 * 1024 * 1024;
+        init.output.max_total_owned_bytes = 16 * 1024 * 1024;
+        probe.request_stop();
+        probe.join().unwrap();
+        let runtime = Arc::new(
+            EngineRuntime::new_running_authority(init, running, Arc::new(NoopWakeSink))
+                .unwrap_or_else(|error| panic!("running test runtime: {}", error.error())),
+        );
+        let handle = ExperimentalRunningAuthority::from_runtime(
+            Arc::clone(&runtime),
+            1,
+            4 * 1024 * 1024 * 1024,
+        );
+        assert!(handle.acquire_population_work(false).is_err());
+        assert!(super::population_task_ceiling(&runtime, &None, 4 * 1024 * 1024 * 1024).is_err());
+        let lease = handle.acquire_population_work(true).unwrap().unwrap();
+        assert_eq!(
+            lease.admission.remaining_bytes + runtime.authoritative_state_memory_bytes().unwrap(),
+            4 * 1024 * 1024 * 1024
+        );
+        assert!(handle.start().is_err());
+        assert_eq!(
+            runtime.health().lifecycle,
+            crate::engine::LifecycleState::Created
+        );
+        drop(lease);
+        handle.start().unwrap();
+        assert!(handle.acquire_population_work(true).is_err());
+        runtime.request_stop();
+        runtime.join().unwrap();
+    }
+
+    fn task_population_lease(
+        runtime: &Arc<EngineRuntime>,
+        slot: &PreparedImportSlot,
+    ) -> Option<PopulationWorkLease> {
+        if !runtime.owns_authoritative_state() {
+            return None;
+        }
+        let full = 4 * 1024 * 1024 * 1024;
+        slot.reserve_admission(full, runtime.authoritative_state_memory_bytes().unwrap(), 1)
+            .unwrap();
+        Some(slot.acquire_work(full).unwrap())
+    }
+
+    #[test]
     fn fresh_run_task_panic_removes_written_checkpoint_and_keeps_candidate_private() {
         let files = TaskFiles::new();
         let runtime = running_test_runtime();
         let prepared = PreparedImportSlot::new();
         let mut task = PrepareFreshRunTask {
+            population_work: task_population_lease(&runtime, &prepared),
             runtime: Arc::clone(&runtime),
             managed_directory: files.0.clone(),
             operation_id: CheckpointOperationId::parse("c".repeat(32)).unwrap(),
             request: files.request(),
             calculation_workers: 1,
             settings: Box::new([]),
-            graph: typescript_default_graph_spec(),
+            graph: default_stack_graph_spec(264),
             prepared: prepared.clone(),
             active: Arc::new(AtomicBool::new(true)),
         };
@@ -2257,12 +2657,14 @@ mod task_panic_tests {
         let runtime = running_test_runtime();
         let progress = Arc::new(ArchiveProgressJob::new(operation.clone(), "export"));
         let mut task = PrepareExportArchiveTask {
+            population_work: task_population_lease(&runtime, &PreparedImportSlot::new()),
             runtime: Arc::clone(&runtime),
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             managed_directory: files.0.clone(),
             operation_id: operation,
             checkpoint: checkpoint.clone(),
             inventory,
+            saved_brains: Vec::new(),
             progress: Arc::clone(&progress),
             #[cfg(feature = "engine-test-hooks")]
             export_failure: Arc::new(std::sync::atomic::AtomicU8::new(0)),
@@ -2288,6 +2690,7 @@ mod task_panic_tests {
         let before = files.names();
         let runtime = running_test_runtime();
         let mut task = ValidateImportArchiveTask {
+            population_work: task_population_lease(&runtime, &PreparedImportSlot::new()),
             runtime: Arc::clone(&runtime),
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             archive_path: archive.clone(),
@@ -2317,6 +2720,7 @@ mod task_panic_tests {
         let runtime = running_test_runtime();
         let prepared = PreparedImportSlot::new();
         let mut task = PrepareImportArchiveTask {
+            population_work: task_population_lease(&runtime, &prepared),
             runtime: Arc::clone(&runtime),
             memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
             archive_path: archive.clone(),
@@ -2359,6 +2763,7 @@ mod task_panic_tests {
             let prepared = PreparedImportSlot::new();
             let make_task =
                 |runtime: &Arc<EngineRuntime>, operation: &str| PrepareImportArchiveTask {
+                    population_work: task_population_lease(runtime, &prepared),
                     runtime: Arc::clone(runtime),
                     memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
                     archive_path: archive.clone(),
@@ -2525,5 +2930,44 @@ mod task_panic_tests {
         let ordinary_error = ordinary_result.expect_err("ordinary errors must survive");
         assert_eq!(ordinary_error.status, Status::InvalidArg);
         assert_eq!(ordinary_error.reason, "bad archive");
+    }
+}
+
+#[cfg(all(test, feature = "engine-test-hooks"))]
+mod inventory_wire_tests {
+    use super::*;
+    #[test]
+    fn qualification_and_production_inventory_include_library_membership_and_omit_absence() {
+        let mut inventory = crate::engine::export_archive::ImportInventoryDescriptor {
+            version: 3,
+            relative_filename: ".operation.import-inventory-v3".into(),
+            sha256: "a".repeat(64),
+            stored_byte_count_hex: "0000000000000400".into(),
+            history_count_hex: "0000000000000001".into(),
+            hall_of_fame_count_hex: "0000000000000001".into(),
+            saved_brains: vec![],
+        };
+        let empty =
+            serde_json::to_value(import_inventory_to_napi(inventory.clone()).unwrap()).unwrap();
+        assert_eq!(
+            empty,
+            serde_json::json!({"version":3,"relativeFilename":".operation.import-inventory-v3",
+            "sha256":"a".repeat(64),"storedByteCount":"0000000000000400",
+            "historyCount":"0000000000000001","hallOfFameCount":"0000000000000001"})
+        );
+        inventory.saved_brains.push(
+            crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1 {
+                brain_id: "b".repeat(64),
+                name: "Manual brain".into(),
+                created_at_ms: 42,
+                artifact_byte_count: "0000000000001000".into(),
+            },
+        );
+        let actual =
+            serde_json::to_value(import_inventory_to_napi(inventory.clone()).unwrap()).unwrap();
+        let selected: Vec<crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1> =
+            serde_json::from_str(actual["savedBrainsJson"].as_str().unwrap()).unwrap();
+        assert_eq!(selected, inventory.saved_brains);
+        assert_eq!(actual["historyCount"], empty["historyCount"]);
     }
 }

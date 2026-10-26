@@ -1,0 +1,271 @@
+import { DistillationShadows } from './distillationShadows.ts';
+import { randomBytes } from 'node:crypto';
+import type { TeacherCaptureRequest } from '../../src/protocol/distillation.ts';
+import type { RustBackgroundEvent } from '../../src/protocol/rustBackground.ts';
+import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
+import type { BackgroundCommandAdmission } from './commandAdmission.ts';
+import { distillationHex, distillationInteger, type DistillationDataset } from './distillationProtocol.ts';
+import type { DistillationSpoolClient } from './distillationSpoolClient.ts';
+
+/** One explicit ordered arm/stop waiting for its exact native diagnostic receipt. */
+interface PendingControl {
+  /** Sequence assigned by the shared authority command admission. */
+  sequence: string;
+  /** Expected immutable capture identity. */
+  epoch: string;
+  /** Expected arm/stop state. */
+  enabled: boolean;
+  /** Settle only the matching native receipt. */
+  resolve(): void;
+  /** Reject admission/receipt failure independently of game authority. */
+  reject(error: Error): void;
+  /** A retained gameplay barrier can delay control; the API wait is bounded. */
+  timer: NodeJS.Timeout;
+}
+
+/** Periodic opaque drain/spool coordinator with no actor or simulation interface. */
+export class DistillationCapture {
+  /** Optional native students share only the diagnostic worker and ordered admission. */
+  readonly shadows: DistillationShadows;
+  /** At most one bounded in-flight native handoff and worker ingestion. */
+  private activePoll: Promise<void> | undefined;
+  /** Periodic asynchronous diagnostic work. */
+  private timer: NodeJS.Timeout | undefined;
+  /** Exact current diagnostic epoch after a successful native arm. */
+  private epoch: string | undefined;
+  /** Last persisted capture state, for explicit arm/stop gating. */
+  private stopped = true;
+  /** Idle/fully settled epochs need no repeated native wake or SQLite transaction. */
+  private complete = true;
+  /** One ordered capture control awaiting its native result. */
+  private pending: PendingControl | undefined;
+  /** Own asynchronous storage preparation before a native command is pending. */
+  private starting = false;
+  /** Invalidate asynchronous preparation when authority is replaced, including same-run imports. */
+  private incarnation = 0;
+  /** Keep new work excluded until the old poll and interrupted manifest are settled. */
+  private replacement: Promise<void> | undefined;
+  /** Retain failed interruption ownership so the next start can retry its metadata write. */
+  private retiredEpoch: string | undefined;
+  /** Bounded diagnostic failure; it never faults the native game. */
+  private failure: Error | undefined;
+  /** Prevent future polling after server shutdown. */
+  private closed = false;
+  /** Concurrent shutdown callers share one complete final-drain/worker-close witness. */
+  private closePromise: Promise<void> | undefined;
+
+  /** Keep capture work on its own timer and route controls through shared admission. */
+  constructor(
+    private readonly native: () => ExperimentalRunningAuthorityNativeHandle,
+    private readonly admission: BackgroundCommandAdmission,
+    private readonly spool: DistillationSpoolClient,
+    private readonly runIdentity: () => { runId: string; seed: number }
+  ) { this.shadows = new DistillationShadows(native, admission, spool, () => runIdentity().runId); }
+
+  /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
+  async start(value: unknown): Promise<DistillationDataset> {
+    if (this.retiredEpoch && !this.replacement && !this.closed) await this.runReplaced();
+    if (this.closed || this.replacement || this.starting || this.pending || !this.complete) throw new Error('capture already active, draining or closing');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid capture request');
+    const raw = value as Record<string, unknown>;
+    const keys = ['expectedRunId', 'expectedConfigRevision', 'baselineSlots', 'pendingBytes', 'queueChunks', 'queueBytes'];
+    if (Object.keys(raw).length !== keys.length || keys.some(key => !Object.hasOwn(raw, key))) throw new TypeError('invalid capture request fields');
+    if (typeof raw['expectedRunId'] !== 'string' || !raw['expectedRunId'] || Buffer.byteLength(raw['expectedRunId']) > 128 || raw['expectedRunId'].includes('\0')) {
+      throw new TypeError('invalid capture run identity');
+    }
+    const revision = distillationHex(raw['expectedConfigRevision'], 16, 'config revision', true);
+    const slots = raw['baselineSlots'];
+    if (!Array.isArray(slots) || slots.length < 1 || slots.length > 120) throw new TypeError('invalid capture slots');
+    slots.forEach((slot, index) => {
+      distillationInteger(slot, 0, 119, 'baseline slot');
+      if (index > 0 && (slots[index - 1] as number) >= slot) throw new TypeError('capture slots must increase strictly');
+    });
+    const request: TeacherCaptureRequest = { captureEpoch: randomBytes(16).toString('hex'),
+      expectedRunId: raw['expectedRunId'], expectedConfigRevision: revision, baselineSlots: [...slots] as number[],
+      pendingBytes: distillationInteger(raw['pendingBytes'], 1, 16 * 1024 ** 2, 'pending bytes'),
+      queueChunks: distillationInteger(raw['queueChunks'], 1, 65_536, 'queue chunks'),
+      queueBytes: distillationInteger(raw['queueBytes'], 1, 16 * 1024 ** 2, 'queue bytes') };
+    this.starting = true;
+    const incarnation = this.incarnation;
+    try {
+      await this.spool.ready;
+      const policy = await this.spool.storagePolicy();
+      // The store admits at most 256 manifests. This coordinator is the sole
+      // producer, and complete drain ownership excludes any other new epoch.
+      const retained = await this.spool.datasets('0'.repeat(32), 256);
+      if (retained.datasets.length >= policy.maxDatasets) throw new Error('dataset manifest quota exhausted');
+      if (this.closed) throw new Error('capture coordinator closing');
+      if (incarnation !== this.incarnation) throw new Error('capture run replaced');
+      this.failure = undefined;
+      await this.command(request.captureEpoch, true, sequence => this.native().submitStartTeacherCapture(sequence, request));
+      const deadline = performance.now() + 10_000;
+      for (;;) {
+        if (incarnation !== this.incarnation) throw new Error('capture run replaced');
+        await this.poll();
+        try { return await this.spool.dataset(request.captureEpoch); }
+        catch (error) {
+          if (!(error instanceof Error) || !/not found/u.test(error.message) || performance.now() >= deadline) throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    } finally { this.starting = false; }
+  }
+
+  /** Stop an exact epoch; trainer consumption never gates this ordered command. */
+  async stop(epoch: string): Promise<DistillationDataset> {
+    distillationHex(epoch, 32, 'capture epoch', true);
+    if (epoch !== this.epoch || this.retiredEpoch || this.replacement || this.starting || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
+    const incarnation = this.incarnation;
+    await this.command(epoch, false, sequence => this.native().submitStopTeacherCapture(sequence, epoch));
+    await this.poll();
+    const deadline = performance.now() + 10_000;
+    while (!this.complete && performance.now() < deadline) {
+      if (incarnation !== this.incarnation) throw new Error('capture run replaced');
+      await this.poll();
+      if (!this.complete) await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    if (incarnation !== this.incarnation) throw new Error('capture run replaced');
+    if (!this.complete) throw new Error('capture stop drain timed out');
+    return this.spool.dataset(epoch);
+  }
+
+  /** Observe only matching diagnostic receipts; never manufacture a controller acceptance. */
+  event(event: RustBackgroundEvent): void {
+    this.shadows.event(event);
+    if (!this.pending || event.commandSequence !== this.pending.sequence) return;
+    if (event.kind === 'commandRejected') {
+      const pending = this.pending; this.pending = undefined; clearTimeout(pending.timer);
+      pending.reject(new Error(event.rejectionDetail ?? 'native rejected capture')); return;
+    }
+    if (event.kind !== 'teacherCaptureChanged') return;
+    const pending = this.pending; this.pending = undefined; clearTimeout(pending.timer);
+    if (event.teacherCaptureEpoch !== pending.epoch || event.teacherCaptureEnabled !== pending.enabled) {
+      pending.reject(new Error('native capture receipt mismatch')); return;
+    }
+    this.epoch = pending.epoch;
+    this.stopped = !pending.enabled;
+    this.complete = false;
+    // A late receipt still owns a live capture after its original API wait expired.
+    if (pending.enabled && !this.closed) this.startPolling();
+    pending.resolve();
+  }
+
+  /** Coalesce drain requests while a worker write is in progress; native overflow remains independent. */
+  poll(): Promise<void> {
+    if (this.closed || this.retiredEpoch || this.replacement || this.failure) return this.failure ? Promise.reject(this.failure) : Promise.resolve();
+    if (this.complete) return Promise.resolve();
+    this.activePoll ??= this.pollOnce().finally(() => { this.activePoll = undefined; });
+    return this.activePoll;
+  }
+
+  /** Mark replaced runs interrupted without claiming an unobserved diagnostic tail. */
+  runReplaced(): Promise<void> {
+    this.shadows.runReplaced();
+    this.incarnation += 1;
+    if (this.replacement) return this.replacement;
+    const epoch = this.retiredEpoch ?? this.epoch;
+    if (epoch && !this.complete) this.retiredEpoch = epoch;
+    clearInterval(this.timer); this.timer = undefined;
+    if (this.pending) {
+      clearTimeout(this.pending.timer); this.pending.reject(new Error('capture run replaced')); this.pending = undefined;
+    }
+    this.replacement = (async () => {
+      try { await this.activePoll; }
+      catch (error) { this.fail(error); } // An opaque object failure must not bypass metadata finalization.
+      this.stopped = true;
+      if (epoch && !this.complete) {
+        try { await this.spool.interrupt(epoch); }
+        catch (error) {
+          // Initial manifest publication may itself have failed. Verified
+          // absence leaves no durable active epoch to finalize.
+          if (!(error instanceof Error) || error.message !== 'dataset not found') throw error;
+        }
+      }
+      this.retiredEpoch = undefined; this.epoch = undefined; this.complete = true;
+    })().finally(() => { this.replacement = undefined; });
+    return this.replacement;
+  }
+
+  /** Drain final stopped-runtime ownership before closing only the diagnostic worker. */
+  async close(): Promise<void> {
+    this.closePromise ??= this.closeInternal();
+    return this.closePromise;
+  }
+
+  /** Drain the full admitted native count/byte envelope without allowing new requests. */
+  private async closeInternal(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    await this.shadows.close();
+    clearInterval(this.timer);
+    try {
+      await this.replacement;
+      if (this.retiredEpoch) await this.runReplaced();
+      await this.activePoll;
+      if (!this.failure) {
+        // At most 65,536 queued objects plus the 128-object mailbox; 2,048
+        // bounded drains cover both alternating mailbox refills and byte limits.
+        for (let count = 0; count < 2048; count += 1) {
+          const drain = this.native().drainTeacherChunks(64, 1024 * 1024);
+          if (!drain.contract) break;
+          const identity = this.runIdentity();
+          if (identity.runId !== drain.contract.runId) continue;
+          await this.spool.ingest(drain, identity.seed);
+          if (!drain.moreWork) break;
+        }
+      }
+      if (this.epoch && !this.stopped) await this.spool.interrupt(this.epoch);
+    } finally {
+      if (this.pending) { clearTimeout(this.pending.timer); this.pending.reject(new Error('capture coordinator closing')); this.pending = undefined; }
+      await this.spool.close();
+    }
+  }
+
+  /** One at-most-one-MiB opaque handoff; no loop waits for the trainer/storage ACK. */
+  private async pollOnce(): Promise<void> {
+    await this.spool.ready;
+    const drain = this.native().drainTeacherChunks(64, 1024 * 1024);
+    if (!drain.contract) return;
+    if (this.epoch && drain.contract.captureEpoch !== this.epoch) return;
+    const identity = this.runIdentity();
+    if (identity.runId !== drain.contract.runId) return;
+    const dataset = await this.spool.ingest(drain, identity.seed);
+    if (this.epoch && dataset.contract.captureEpoch !== this.epoch) return;
+    this.epoch = dataset.contract.captureEpoch;
+    this.stopped = dataset.state !== 'active';
+    this.complete = this.stopped && !drain.moreWork && drain.releasedThrough === drain.productionWatermark;
+    if (this.complete) { clearInterval(this.timer); this.timer = undefined; }
+    if (drain.error) throw new Error(drain.error);
+  }
+
+  /** Reserve only ordered arm/stop metadata, sharing the existing global command sequence. */
+  private command(epoch: string, enabled: boolean, submit: (sequence: string) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.pending) throw new Error('capture control already pending');
+      const sequence = this.admission.nextSequence();
+      const timer = setTimeout(() => {
+        reject(new Error('native capture control timed out'));
+      }, 30_000);
+      timer.unref();
+      this.pending = { sequence, epoch, enabled, resolve, reject, timer };
+      try {
+        if (!this.admission.trySubmitControl(submit)) throw new Error('native capture admission exhausted');
+      } catch (error) {
+        this.pending = undefined; clearTimeout(timer); reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  /** Poll only an admitted active epoch; discovery and stopped epochs stay idle. */
+  private startPolling(): void {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => { void this.poll().catch(error => this.fail(error)); }, 20);
+    this.timer.unref();
+  }
+
+  /** Capture/storage failure is isolated; the game keeps its existing authority. */
+  private fail(error: unknown): void {
+    this.failure ??= error instanceof Error ? error : new Error(String(error));
+    clearInterval(this.timer);
+  }
+}

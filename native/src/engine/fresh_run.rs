@@ -22,21 +22,21 @@ use super::inference::InferenceMathBackend;
 use super::live_settings::LiveSettingUpdate;
 use super::rng::labelled_stream;
 use super::run_start::{PendingRunStartTransition, RunStartTransitionError};
-use super::sensor_layout::{SENSOR_CHANNEL_COUNT, SENSOR_SCALAR_COUNT};
 use super::state::{
     normalized_config_hash, normalized_settings_schema_hash,
     preflight_generation_boundary_allocation, AllocatorState, AuthorityPhase, BrainHandle,
-    BrainOwner, BrainRuntimeState, ContractVersions, FixedStepContinuationState,
-    GenerationBoundaryKind, GenerationState, GenomeLineage, NormalizedEngineConfig,
-    NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy,
-    StateCandidate, StateError, WorldState, ALLOCATOR_VERSION, BASELINE_ENTITY_ID_START,
-    CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
+    BrainOwner, BrainRuntimeState, ContractVersions, EvolvedRespawnRngState,
+    FixedStepContinuationState, GenerationBoundaryKind, GenerationState, GenomeLineage,
+    NormalizedEngineConfig, NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity,
+    StateAdmissionPolicy, StateCandidate, StateError, WorldState, ALLOCATOR_VERSION,
+    BASELINE_ENTITY_ID_START, CHECKPOINT_VERSION, ENGINE_STATE_VERSION, EXTERNAL_ENTITY_ID_START,
     GENERATION_BOUNDARY_VERSION, NORMALIZED_CONFIG_VERSION, PROTOCOL_VERSION,
-    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, SENSOR_VERSION, SERIALIZER_VERSION,
+    RESURRECTED_ENTITY_ID_START, RNG_BUNDLE_VERSION, RNG_BUNDLE_WITH_EVOLVED_VERSION,
+    SERIALIZER_VERSION,
 };
 use super::step_config::{
-    project_baseline_generation_config, project_running_step_config, typescript_default_settings,
-    RunningStepWorkLimits, StepConfigError,
+    production_default_settings, project_baseline_generation_config, project_running_step_config,
+    typescript_default_settings, RunningStepWorkLimits, StepConfigError,
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -87,6 +87,70 @@ pub struct FreshRunSettingUpdate {
     pub path: String,
     /// Finite numeric representation; booleans are zero or one.
     pub value: f64,
+}
+
+/// Qualified defaults apply only to genuinely new configurations. Recorded
+/// v3/v1 settings continue through their existing explicit constructors.
+fn selected_fresh_default_settings() -> Result<Vec<super::state::NormalizedSetting>, FreshRunError>
+{
+    let mut settings =
+        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    super::sensor_contract::SensorContractIdentity::new(
+        super::sensor_contract::SensorProfile::Motion,
+        16,
+    )
+    .and_then(|contract| contract.record_v4_settings(&mut settings))
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    super::ray_work::RayWorkLimits::new(1, 256, 65536, 512)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?
+        .record_settings(&mut settings);
+    super::baseline_v2::BaselineV2Settings {
+        mode: super::baseline_v2::BaselineV2Mode::Stochastic,
+        control_interval_seconds: 1.0 / 60.0,
+    }
+    .record_settings(&mut settings)
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    settings
+        .iter_mut()
+        .find(|setting| setting.path == "sense.maxPelletChecks")
+        .ok_or_else(|| FreshRunError::Settings("default pellet work setting is missing".into()))?
+        .value = NormalizedSettingValue::Integer(3000);
+    Ok(settings)
+}
+
+/// Only scalar settings cross the fresh-construction interface; Rust derives the digest.
+fn numeric_fresh_settings(
+    settings: Vec<super::state::NormalizedSetting>,
+) -> Vec<FreshRunSettingUpdate> {
+    settings
+        .into_iter()
+        .filter_map(|setting| {
+            Some(FreshRunSettingUpdate {
+                path: setting.path,
+                value: match setting.value {
+                    NormalizedSettingValue::Bool(value) => f64::from(value),
+                    NormalizedSettingValue::Integer(value) => value as f64,
+                    NormalizedSettingValue::Float(value) => value,
+                    NormalizedSettingValue::Text(_) => return None,
+                },
+            })
+        })
+        .collect()
+}
+
+/// One production initial boundary, using the qualified graph/profile and SSE2 path.
+pub fn prepare_default_fresh_run(
+    request: Stage6aP0FreshRunRequest,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let settings = selected_fresh_default_settings()?;
+    let contract = super::sensor_contract::SensorContractIdentity::from_settings(&settings)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    prepare_configured_fresh_run_with_math(
+        request,
+        &numeric_fresh_settings(settings),
+        super::graph::default_stack_graph_spec(contract.input_size()),
+        InferenceMathBackend::Sse2,
+    )
 }
 
 /// One already-decoded legacy genome admitted for a population-only import.
@@ -146,6 +210,183 @@ pub fn prepare_stage6a_p0_fresh_run_with_settings_and_graph(
         prepared.work_limits,
     )
     .map_err(FreshRunError::from)
+}
+
+/// Select a complete modern life contract, or preserve explicitly recorded legacy settings.
+/// Empty inputs denote a genuinely new default configuration, not a recorded reset.
+pub fn prepare_configured_fresh_run_with_settings_and_graph(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_configured_fresh_run_with_math(request, settings, graph, InferenceMathBackend::Scalar)
+}
+
+/// Reset/New Run preserves the arithmetic backend captured with its held source.
+pub(crate) fn prepare_configured_fresh_run_with_math(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let defaults;
+    let settings = if settings.is_empty() {
+        defaults = numeric_fresh_settings(selected_fresh_default_settings()?);
+        defaults.as_slice()
+    } else {
+        settings
+    };
+    let modern = settings.is_empty()
+        || settings
+            .iter()
+            .any(|setting| setting.path == "evolvedRespawn.contractVersion");
+    let mut prepared = if settings
+        .iter()
+        .any(|setting| setting.path == "sense.layoutVersion" && setting.value == 4.0)
+    {
+        prepare_configured_v4_boundary(request, settings, graph, modern)?
+    } else {
+        prepare_fresh_boundary(request, settings, graph, modern)?
+    };
+    prepared.candidate.identity.math_backend = math.label().into();
+    prepared.admission_policy.expected_math_backend = math.label().into();
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+/// Explicit v4 Reset/New Run selection. No qualification-only constructor or
+/// production default is involved; every structural choice and ray limit is
+/// supplied by the caller and admitted before constructing a population.
+fn prepare_configured_v4_boundary(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    modern: bool,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    if settings.len() > 128 {
+        return Err(FreshRunError::Settings(
+            "fresh-run settings exceed 128 entries".into(),
+        ));
+    }
+    let required = |path: &str| -> Result<f64, FreshRunError> {
+        let mut matches = settings.iter().filter(|setting| setting.path == path);
+        let value = matches
+            .next()
+            .ok_or_else(|| FreshRunError::Settings(format!("v4 settings require {path}")))?
+            .value;
+        if matches.next().is_some() || !value.is_finite() {
+            return Err(FreshRunError::Settings(format!(
+                "duplicate or nonfinite v4 setting {path}"
+            )));
+        }
+        Ok(value)
+    };
+    let integer = |path: &str| -> Result<u32, FreshRunError> {
+        let value = required(path)?;
+        if value.fract() != 0.0 || !(0.0..=u32::MAX as f64).contains(&value) {
+            return Err(FreshRunError::Settings(format!(
+                "v4 setting {path} must be a Uint32"
+            )));
+        }
+        Ok(value as u32)
+    };
+    if integer("sense.layoutVersion")? != 4
+        || integer("brain.sensorVersion")? != 4
+        || integer("sense.contractVersion")? != 1
+    {
+        return Err(FreshRunError::Settings(
+            "v4 sensor version/contract markers disagree".into(),
+        ));
+    }
+    let profile = match integer("sense.profile")? {
+        0 => super::sensor_contract::SensorProfile::Basic,
+        1 => super::sensor_contract::SensorProfile::Motion,
+        _ => {
+            return Err(FreshRunError::Settings(
+                "v4 profile must be Basic or Motion".into(),
+            ))
+        }
+    };
+    let contract = super::sensor_contract::SensorContractIdentity::new(
+        profile,
+        integer("sense.bubbleBins")? as usize,
+    )
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let rays = super::ray_work::RayWorkLimits::new(
+        integer("sense.rayMinimum")?,
+        integer("sense.rayCap")?,
+        integer("sense.rayBatch")?,
+        integer("sense.rayMaximumDue")? as usize,
+    )
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let baseline = if settings.iter().any(|setting| {
+        matches!(
+            setting.path.as_str(),
+            "baselineBots.controlVersion" | "baselineBots.mode" | "baselineBots.controlDt"
+        )
+    }) {
+        if integer("baselineBots.controlVersion")? != 2 {
+            return Err(FreshRunError::Settings(
+                "explicit baseline control version must be 2".into(),
+            ));
+        }
+        let mode = match integer("baselineBots.mode")? {
+            0 => super::baseline_v2::BaselineV2Mode::Deterministic,
+            1 => super::baseline_v2::BaselineV2Mode::Stochastic,
+            _ => {
+                return Err(FreshRunError::Settings(
+                    "baseline v2 mode must be Deterministic or Stochastic".into(),
+                ))
+            }
+        };
+        let baseline = super::baseline_v2::BaselineV2Settings {
+            mode,
+            control_interval_seconds: required("baselineBots.controlDt")?,
+        };
+        baseline
+            .validate()
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        Some(baseline)
+    } else {
+        None
+    };
+    let replacements = settings
+        .iter()
+        .filter(|setting| {
+            !matches!(
+                setting.path.as_str(),
+                "sense.contractVersion"
+                    | "sense.profile"
+                    | "sense.rayMinimum"
+                    | "sense.rayCap"
+                    | "sense.rayBatch"
+                    | "sense.rayMaximumDue"
+                    | "baselineBots.controlVersion"
+                    | "baselineBots.mode"
+                    | "baselineBots.controlDt"
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    prepare_fresh_boundary_with_sensor_and_baseline(
+        request,
+        &replacements,
+        graph,
+        modern,
+        Some(contract),
+        RunningStepWorkLimits {
+            ray_work: Some(rays),
+            ..RunningStepWorkLimits::provisional_defaults()
+        },
+        baseline,
+    )
 }
 
 /// Build a new generation-one lineage around an old browser-exported population.
@@ -212,18 +453,76 @@ pub fn prepare_stage6a_p0_checkpoint_restore(
     descriptor: &super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let schema = normalized_settings_schema_hash(&settings)?;
     PendingRunStartTransition::restore_committed(
         managed_directory,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema, true),
+        production_restore_policy(memory_ceiling_bytes, true)?,
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
     )
     .map_err(FreshRunError::from)
+}
+
+/// Restore a candidate v4 boundary with explicit environment admission and unchanged exact build checks.
+/// This test-only entry does not select a production inference or ray-work default.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) fn prepare_sensor_qualification_checkpoint_restore(
+    managed_directory: &std::path::Path,
+    descriptor: &super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    math: InferenceMathBackend,
+    limits: RunningStepWorkLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_sensor_qualification_checkpoint_restore_with_limits(
+        managed_directory,
+        descriptor,
+        memory_ceiling_bytes,
+        profile,
+        bins,
+        math,
+        limits,
+        production_checkpoint_limits(),
+    )
+}
+
+/// Explicit test-hook envelope accompanies the same exact-source restore and contract checks.
+#[cfg(feature = "engine-test-hooks")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_sensor_qualification_checkpoint_restore_with_limits(
+    managed_directory: &std::path::Path,
+    descriptor: &super::checkpoint::CheckpointDescriptor,
+    memory_ceiling_bytes: usize,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    math: InferenceMathBackend,
+    limits: RunningStepWorkLimits,
+    checkpoint_limits: CheckpointLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if profile == super::sensor_contract::SensorProfile::V3 || limits.ray_work.is_none() {
+        return Err(FreshRunError::Settings(
+            "qualified restore requires v4 and explicit ray limits".into(),
+        ));
+    }
+    let contract = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let mut policy = production_restore_policy(memory_ceiling_bytes, true)?;
+    policy.expected_math_backend = math.label().into();
+    policy.allowed_math_backends.clear();
+    let pending = PendingRunStartTransition::restore_committed(
+        managed_directory,
+        descriptor,
+        policy,
+        checkpoint_limits,
+        stage6a_p0_graph_limits(),
+        limits,
+    )?;
+    pending
+        .validate_qualification_sensor_contract(&contract)
+        .map_err(FreshRunError::Settings)?;
+    Ok(pending)
 }
 
 /// Restore one version/target/math-compatible checkpoint from another exact
@@ -233,13 +532,10 @@ pub fn prepare_stage6a_p0_compatible_checkpoint_restore(
     descriptor: &super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let schema = normalized_settings_schema_hash(&settings)?;
     PendingRunStartTransition::restore_committed(
         managed_directory,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema, false),
+        production_restore_policy(memory_ceiling_bytes, false)?,
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
         RunningStepWorkLimits::provisional_defaults(),
@@ -253,16 +549,15 @@ pub(crate) fn prepare_stage6a_p0_validated_import(
     restored: super::checkpoint::RestoredCheckpoint,
     descriptor: super::checkpoint::CheckpointDescriptor,
     memory_ceiling_bytes: usize,
+    checkpoint_limits: CheckpointLimits,
+    graph_limits: GraphLimits,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let schema = normalized_settings_schema_hash(&settings)?;
     PendingRunStartTransition::restore_validated_import(
         restored,
         descriptor,
-        current_build_policy(memory_ceiling_bytes, schema, true),
-        production_checkpoint_limits(),
-        stage6a_p0_graph_limits(),
+        production_restore_policy(memory_ceiling_bytes, true)?,
+        checkpoint_limits,
+        graph_limits,
         RunningStepWorkLimits::provisional_defaults(),
     )
     .map_err(FreshRunError::from)
@@ -284,14 +579,332 @@ fn prepare_stage6a_p0_boundary(
     replacement_settings: &[FreshRunSettingUpdate],
     graph_spec: GraphSpec,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    prepare_fresh_boundary(request, replacement_settings, graph_spec, false)
+}
+
+/// Construct one explicit schema without changing the frozen fixture constructor.
+fn prepare_fresh_boundary(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    prepare_fresh_boundary_with_sensor(
+        request,
+        replacement_settings,
+        graph_spec,
+        modern,
+        None,
+        RunningStepWorkLimits::provisional_defaults(),
+    )
+}
+
+/// Explicit candidate construction for native workload/continuation qualification.
+/// Public fresh defaults stay recorded v3 until the v4 gates select ray limits.
+#[cfg(any(test, feature = "engine-test-hooks"))]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_v4_qualification_run(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    limits: RunningStepWorkLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if profile == super::sensor_contract::SensorProfile::V3 || limits.ray_work.is_none() {
+        return Err(FreshRunError::Settings(
+            "v4 qualification requires a profile and explicit ray limits".into(),
+        ));
+    }
+    let contract = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let prepared = prepare_fresh_boundary_with_sensor(
+        request,
+        replacement_settings,
+        graph_spec,
+        modern,
+        Some(contract),
+        limits,
+    )?;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+/// Construct a measured v3/v4 comparison with one shared modern experiment and explicit arithmetic.
+#[cfg(feature = "engine-test-hooks")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_sensor_qualification_run(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    limits: RunningStepWorkLimits,
+    math: InferenceMathBackend,
+    baseline: Option<super::baseline_v2::BaselineV2Settings>,
+    trained: &[super::brain_artifact::ValidatedBrainArtifact],
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    if (profile != super::sensor_contract::SensorProfile::V3) != limits.ray_work.is_some() {
+        return Err(FreshRunError::Settings(
+            "v4 requires explicit ray limits; v3 does not use them".into(),
+        ));
+    }
+    if let Some(baseline) = baseline {
+        baseline
+            .validate()
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        if profile == super::sensor_contract::SensorProfile::V3 {
+            return Err(FreshRunError::Settings("baseline v2 requires v4".into()));
+        }
+    }
+    let mut prepared = prepare_fresh_boundary_with_sensor_and_baseline(
+        request,
+        settings,
+        graph,
+        true,
+        (profile != super::sensor_contract::SensorProfile::V3).then_some(identity),
+        limits,
+        baseline,
+    )?;
+    if !trained.is_empty() {
+        install_qualified_population_artifacts(&mut prepared, trained)?;
+    }
+    prepared.candidate.identity.math_backend = math.label().into();
+    prepared.admission_policy.expected_math_backend = math.label().into();
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+/// Cold qualification-only population values; ordinary fresh-run construction stays random.
+#[cfg(feature = "engine-test-hooks")]
+fn validate_qualified_population_artifact(
+    prepared: &PreparedStage6aP0Boundary,
+    artifact: &super::brain_artifact::ValidatedBrainArtifact,
+) -> Result<(), FreshRunError> {
+    let contract = super::sensor_contract::SensorContractIdentity::from_settings(
+        &prepared.candidate.config.settings,
+    )
+    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let life_rule = match artifact.deployment.life_state_rule {
+        super::training_graph::TrainingLifeStateRule::Reset => 0,
+        super::training_graph::TrainingLifeStateRule::Preserve => 1,
+    };
+    if artifact.canonical_manifest.layout_sha256 != prepared.graph.layout_digest_hex()
+        || artifact.canonical_manifest.sensor_sha256
+            != contract
+                .sha256_hex()
+                .map_err(|error| FreshRunError::Settings(error.to_string()))?
+        || artifact.deployment.control_interval_seconds
+            != fresh_float(&prepared.candidate.config, "brain.controlDt")?
+        || life_rule != fresh_integer(&prepared.candidate.config, "evolvedRespawn.recurrentState")?
+        || prepared
+            .candidate
+            .population
+            .iter()
+            .any(|genome| genome.weights.len() != artifact.weights.len())
+    {
+        return Err(FreshRunError::Settings(
+            "trained qualification artifact graph/sensors/deployment mismatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate every source before copying; stable population slots select families, never snake IDs.
+#[cfg(feature = "engine-test-hooks")]
+fn install_qualified_population_artifacts(
+    prepared: &mut PreparedStage6aP0Boundary,
+    artifacts: &[super::brain_artifact::ValidatedBrainArtifact],
+) -> Result<(), FreshRunError> {
+    if artifacts.is_empty() || artifacts.len() > 16 {
+        return Err(FreshRunError::Settings(
+            "qualification requires 1..16 policy families".into(),
+        ));
+    }
+    for artifact in artifacts {
+        validate_qualified_population_artifact(prepared, artifact)?;
+    }
+    if prepared
+        .candidate
+        .population
+        .iter()
+        .enumerate()
+        .any(|(index, genome)| genome.slot as usize != index)
+    {
+        return Err(FreshRunError::Settings(
+            "qualification population slots are not dense".into(),
+        ));
+    }
+    // All parameter boxes and recurrent owners were admitted by ordinary fresh construction.
+    // Preserve their pointers, lineages and initialization RNG continuation.
+    for genome in &mut prepared.candidate.population {
+        genome
+            .weights
+            .copy_from_slice(&artifacts[genome.slot as usize % artifacts.len()].weights);
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "engine-test-hooks"))]
+fn install_qualified_population_artifact(
+    prepared: &mut PreparedStage6aP0Boundary,
+    artifact: &super::brain_artifact::ValidatedBrainArtifact,
+) -> Result<(), FreshRunError> {
+    install_qualified_population_artifacts(prepared, std::slice::from_ref(artifact))
+}
+
+fn prepare_fresh_boundary_with_sensor(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    modern: bool,
+    contract: Option<super::sensor_contract::SensorContractIdentity>,
+    limits: RunningStepWorkLimits,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    prepare_fresh_boundary_with_sensor_and_baseline(
+        request, settings, graph, modern, contract, limits, None,
+    )
+}
+
+/// Explicit native v2 candidate construction; ordinary defaults remain qualified separately.
+#[cfg(any(test, feature = "engine-test-hooks"))]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_baseline_v2_qualification_run(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    baseline: super::baseline_v2::BaselineV2Settings,
+    limits: RunningStepWorkLimits,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if profile == super::sensor_contract::SensorProfile::V3 || limits.ray_work.is_none() {
+        return Err(FreshRunError::Settings(
+            "baseline-v2 requires v4 and explicit ray limits".into(),
+        ));
+    }
+    let contract = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let prepared = prepare_fresh_boundary_with_sensor_and_baseline(
+        request,
+        settings,
+        graph,
+        true,
+        Some(contract),
+        limits,
+        Some(baseline),
+    )?;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+fn prepare_fresh_boundary_with_sensor_and_baseline(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    sensor_contract: Option<super::sensor_contract::SensorContractIdentity>,
+    work_limits: RunningStepWorkLimits,
+    baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    initialize_fresh_boundary(prepare_fresh_boundary_shell(
+        request,
+        replacement_settings,
+        graph_spec,
+        modern,
+        sensor_contract,
+        work_limits,
+        baseline_v2,
+        production_checkpoint_limits(),
+    )?)
+}
+
+/// Metadata-only inputs; numeric boxes are initialized only after complete shape admission.
+struct FreshBoundaryShell {
+    candidate: StateCandidate,
+    graph: Arc<GraphBundle>,
+    admission_policy: StateAdmissionPolicy,
+    checkpoint_limits: CheckpointLimits,
+    graph_limits: GraphLimits,
+    work_limits: RunningStepWorkLimits,
+    initialization: GenomeInitializationConfig,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_fresh_boundary_shell(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    sensor_contract: Option<super::sensor_contract::SensorContractIdentity>,
+    work_limits: RunningStepWorkLimits,
+    baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
+    checkpoint_limits: CheckpointLimits,
+) -> Result<FreshBoundaryShell, FreshRunError> {
     let run_id = validated_run_id(&request.run_id)?;
     let graph_limits = stage6a_p0_graph_limits();
     let graph = Arc::new(GraphBundle::compile(graph_spec, &graph_limits)?);
 
-    let work_limits = RunningStepWorkLimits::provisional_defaults();
-    let mut settings =
+    let legacy =
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
+    let mut settings = if modern {
+        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT)
+    } else {
+        legacy.clone()
+    };
+    if modern && !replacement_settings.is_empty() {
+        for setting in settings
+            .iter()
+            .filter(|setting| !legacy.iter().any(|old| old.path == setting.path))
+        {
+            if !replacement_settings
+                .iter()
+                .any(|update| update.path == setting.path)
+            {
+                return Err(FreshRunError::Settings(format!(
+                    "modern settings require {}",
+                    setting.path
+                )));
+            }
+        }
+    }
     apply_fresh_run_settings(&mut settings, replacement_settings)?;
+    if let Some(contract) = &sensor_contract {
+        contract
+            .record_v4_settings(&mut settings)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        if let Some(ray_work) = work_limits.ray_work {
+            ray_work.record_settings(&mut settings);
+        }
+    }
+    if let Some(spec) = baseline_v2 {
+        spec.record_settings(&mut settings)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    }
     let population_count = fresh_setting_integer(&settings, "snakeCount")?;
     let baseline_count = fresh_setting_integer(&settings, "baselineBots.count")?;
     if population_count == 0 || population_count > MAXIMUM_FRESH_RUN_POPULATION_COUNT {
@@ -314,6 +927,14 @@ fn prepare_stage6a_p0_boundary(
     );
     config.requested_sim_speed = fresh_float(&config, "simSpeed")?;
     config.world_radius = fresh_integer(&config, "worldRadius")? as f64;
+    if work_limits
+        .ray_work
+        .is_some_and(|rays| rays.maximum_due() < config.max_world_snakes)
+    {
+        return Err(FreshRunError::Settings(
+            "ray maximum-due admission must cover every configured snake".into(),
+        ));
+    }
     let projected = project_running_step_config(&config, work_limits)?;
     let graph_input_size = graph
         .nodes
@@ -323,14 +944,10 @@ fn prepare_stage6a_p0_boundary(
         .ok_or(FreshRunError::ProfileInvariant {
             reason: "compiled graph omits its input node",
         })?;
-    let sensor_input_size = projected
-        .sensor
-        .bins
-        .checked_mul(SENSOR_CHANNEL_COUNT)
-        .and_then(|binned| binned.checked_add(SENSOR_SCALAR_COUNT))
-        .ok_or(FreshRunError::ArithmeticOverflow {
-            context: "fresh-run sensor input width",
-        })?;
+    let sensor_input_size =
+        super::sensor_contract::SensorContractIdentity::from_settings(&config.settings)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?
+            .input_size();
     if graph_input_size != sensor_input_size {
         return Err(FreshRunError::GraphInputMismatch {
             graph: graph_input_size,
@@ -341,7 +958,6 @@ fn prepare_stage6a_p0_boundary(
     let config_hash = normalized_config_hash(&config)?;
     let admission_policy =
         current_build_policy(request.memory_ceiling_bytes, settings_schema_sha256, true);
-    let checkpoint_limits = production_checkpoint_limits();
 
     let build_identifier = crate::native_addon_build_identifier();
     let mut candidate = boundary_shell(
@@ -353,6 +969,61 @@ fn prepare_stage6a_p0_boundary(
         &graph,
         baseline_config,
     )?;
+    if modern {
+        candidate.versions.rng_bundle = RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        candidate.rng.version = RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        candidate.rng.evolved_respawns =
+            EvolvedRespawnRngState::derive_generation(request.seed, 1, population_count)?;
+    }
+    if baseline_v2.is_some() {
+        candidate.rng.version = super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        candidate.versions.rng_bundle = candidate.rng.version;
+        candidate.rng.evolved_respawns =
+            EvolvedRespawnRngState::derive_generation(request.seed, 1, population_count)?;
+        candidate.rng.baseline_behaviors = super::rng::derive_baseline_v2_behaviors(
+            request.seed,
+            baseline_config.seed,
+            1,
+            baseline_count,
+            baseline_config.randomize_seed_per_generation,
+        )
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        for stream in &mut candidate.rng.baselines {
+            stream.state = super::rng::baseline_v2_lifecycle_rng(
+                request.seed,
+                baseline_config.seed,
+                1,
+                stream.slot,
+                baseline_config.randomize_seed_per_generation,
+            )
+            .export_state();
+        }
+    }
+    Ok(FreshBoundaryShell {
+        candidate,
+        graph,
+        admission_policy,
+        checkpoint_limits,
+        graph_limits,
+        work_limits,
+        initialization: projected.genome_initialization,
+    })
+}
+
+/// Enforce the existing production preflight before allocating a single numeric box.
+fn initialize_fresh_boundary(
+    shell: FreshBoundaryShell,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    let FreshBoundaryShell {
+        mut candidate,
+        graph,
+        admission_policy,
+        checkpoint_limits,
+        graph_limits,
+        work_limits,
+        initialization,
+    } = shell;
+    let population_count = candidate.config.population_count;
     let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
         FreshRunError::ArithmeticOverflow {
             context: "fresh-run population weight count",
@@ -392,11 +1063,7 @@ fn prepare_stage6a_p0_boundary(
             parameters_per_genome: graph.total_parameters,
         });
     }
-    initialize_population_numeric(
-        &mut candidate,
-        graph.compiled(),
-        projected.genome_initialization,
-    )?;
+    initialize_population_numeric(&mut candidate, graph.compiled(), initialization)?;
 
     Ok(PreparedStage6aP0Boundary {
         candidate,
@@ -404,6 +1071,151 @@ fn prepare_stage6a_p0_boundary(
         admission_policy,
         checkpoint_limits,
         graph_limits,
+        work_limits,
+    })
+}
+
+/// Audit or allocate an explicit offline checkpoint candidate through the ordinary constructor.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) fn prepare_checkpoint_capacity_run(
+    request: Stage6aP0FreshRunRequest,
+    options: &super::sensor_qualification::SensorQualificationOptions,
+    policy: super::checkpoint_capacity::CheckpointCapacityPolicy,
+    allocate: bool,
+) -> Result<super::checkpoint_capacity::QualifiedCheckpointRun, FreshRunError> {
+    use super::checkpoint_capacity::{CheckpointCapacityAudit, QualifiedCheckpointRun};
+    if options.trained_artifact.is_some()
+        || options.ray_limits.is_none()
+        || options.profile == super::sensor_contract::SensorProfile::V3
+    {
+        return Err(FreshRunError::Settings(
+            "capacity qualification requires fresh v4 and explicit rays".into(),
+        ));
+    }
+    let (mut updates, spec) = super::sensor_qualification::sensor_workload_spec(options, None)?;
+    // Capacity/live fixtures use the declared teacher cadence for their neural
+    // controls too, including explicitly requested nondefault teacher intervals.
+    if let Some(baseline) = options.baseline {
+        updates
+            .iter_mut()
+            .find(|entry| entry.path == "brain.controlDt")
+            .ok_or_else(|| FreshRunError::Settings("capacity neural cadence is missing".into()))?
+            .value = baseline.control_interval_seconds;
+    }
+    let contract =
+        super::sensor_contract::SensorContractIdentity::new(options.profile, options.bins)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    let work_limits = RunningStepWorkLimits {
+        calculation_workers: options.workers,
+        ray_work: options.ray_limits,
+        ..RunningStepWorkLimits::provisional_defaults()
+    };
+    let limits = policy.limits();
+    let mut shell = prepare_fresh_boundary_shell(
+        request,
+        &updates,
+        spec,
+        true,
+        Some(contract),
+        work_limits,
+        options.baseline,
+        limits.clone(),
+    )?;
+    shell.candidate.identity.math_backend = options.math.label().into();
+    shell.admission_policy.expected_math_backend = options.math.label().into();
+    let count = shell.candidate.population.len();
+    let parameters = shell.graph.total_parameters;
+    let recurrent = shell.graph.total_state_size;
+    let checked = |value: Option<usize>| {
+        value.ok_or(FreshRunError::ArithmeticOverflow {
+            context: "checkpoint capacity audit",
+        })
+    };
+    let weight_floats = checked(count.checked_mul(parameters))?;
+    let recurrent_floats = checked(count.checked_mul(recurrent))?;
+    let state_memory = preflight_generation_boundary_allocation(
+        &shell.candidate,
+        &shell.graph,
+        weight_floats,
+        recurrent_floats,
+        &shell.admission_policy,
+    )?;
+    let roles = super::checkpoint::boundary_decoded_role_byte_counts(
+        &shell.candidate,
+        shell.graph.spec(),
+        shell.graph.compiled(),
+        &limits,
+    )?;
+    let decoded_bytes = roles
+        .iter()
+        .try_fold(0u64, |sum, value| sum.checked_add(*value))
+        .ok_or(FreshRunError::ArithmeticOverflow {
+            context: "checkpoint decoded audit",
+        })?;
+    let workspace = super::checkpoint::checkpoint_workspace_bound(&limits, count)?;
+    let publication_peak = checked(
+        state_memory
+            .total_bytes
+            .checked_sub(shell.candidate.config.checkpoint_scratch_bytes)
+            .and_then(|value| value.checked_add(workspace)),
+    )?;
+    let pair = checked(state_memory.total_bytes.checked_mul(2))?;
+    let minimum_numeric_peak = super::state::generation_numeric_peak_bytes(
+        state_memory.total_bytes,
+        count,
+        shell.graph.compiled(),
+    )?;
+    let numeric_payload_allocated = shell
+        .candidate
+        .population
+        .iter()
+        .any(|genome| !genome.weights.is_empty())
+        || shell
+            .candidate
+            .brains
+            .iter()
+            .any(|brain| !brain.recurrent.is_empty() || brain.non_population_weights.is_some());
+    let audit = CheckpointCapacityAudit {
+        population: count,
+        parameters_per_genome: parameters,
+        recurrent_per_brain: recurrent,
+        role_names: ["state", "graph", "population-index", "weights", "recurrent"],
+        decoded_role_bytes: roles,
+        decoded_bytes,
+        limits: limits.clone(),
+        state_memory,
+        checkpoint_workspace_bytes: workspace,
+        checkpoint_publication_peak_bytes: publication_peak,
+        conservative_two_state_bytes: pair,
+        minimum_successor_numeric_peak_bytes: minimum_numeric_peak,
+        process_memory_ceiling_bytes: shell.admission_policy.memory_ceiling_bytes,
+        decoded_envelope_fits: decoded_bytes <= limits.max_total_decoded_bytes,
+        two_state_budget_fits: pair <= shell.admission_policy.memory_ceiling_bytes,
+        numeric_payload_allocated,
+        worker_scratch_bytes: shell.candidate.config.worker_scratch_bytes,
+        checkpoint_scratch_bytes: shell.candidate.config.checkpoint_scratch_bytes,
+    };
+    let admission_policy = shell.admission_policy.clone();
+    let graph_limits = shell.graph_limits.clone();
+    let pending = if allocate && audit.decoded_envelope_fits {
+        let prepared = initialize_fresh_boundary(shell)?;
+        Some(PendingRunStartTransition::admit(
+            prepared.candidate,
+            prepared.graph,
+            prepared.admission_policy,
+            prepared.checkpoint_limits,
+            prepared.graph_limits,
+            prepared.work_limits,
+        )?)
+    } else {
+        None
+    };
+    Ok(QualifiedCheckpointRun {
+        audit,
+        pending,
+        limits,
+        graph_limits,
+        admission_policy,
         work_limits,
     })
 }
@@ -560,8 +1372,69 @@ fn current_build_policy(
         expected_rustc_version: crate::native_addon_rustc_version(),
         expected_build_contract_sha256: crate::native_addon_build_contract_sha256(),
         expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     }
+}
+
+/// Production restore recognizes only complete frozen or complete life-contract schemas.
+fn production_restore_policy(
+    memory_ceiling_bytes: usize,
+    require_exact_build_identity: bool,
+) -> Result<StateAdmissionPolicy, FreshRunError> {
+    let legacy = normalized_settings_schema_hash(&typescript_default_settings(
+        STAGE6A_P0_POPULATION_COUNT,
+        STAGE6A_P0_BASELINE_COUNT,
+    ))?;
+    let modern = normalized_settings_schema_hash(&production_default_settings(
+        STAGE6A_P0_POPULATION_COUNT,
+        STAGE6A_P0_BASELINE_COUNT,
+    ))?;
+    let mut policy =
+        current_build_policy(memory_ceiling_bytes, legacy, require_exact_build_identity);
+    policy
+        .allowed_math_backends
+        .push(InferenceMathBackend::Sse2.label().into());
+    policy.allowed_settings_schema_sha256.push(modern);
+    for mut settings in [
+        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
+        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
+    ] {
+        super::sensor_contract::SensorContractIdentity::new(
+            super::sensor_contract::SensorProfile::Motion,
+            16,
+        )
+        .and_then(|contract| contract.record_v4_settings(&mut settings))
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&settings)?);
+        let mut recorded_rays = settings.clone();
+        // Only field types enter this hash; these values select no defaults.
+        super::ray_work::RayWorkLimits::new(1, 1, 512, 512)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?
+            .record_settings(&mut recorded_rays);
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&recorded_rays)?);
+        super::baseline_v2::BaselineV2Settings {
+            mode: super::baseline_v2::BaselineV2Mode::Stochastic,
+            control_interval_seconds: 0.06,
+        }
+        .record_settings(&mut settings)
+        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&settings)?);
+        super::ray_work::RayWorkLimits::new(1, 1, 512, 512)
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?
+            .record_settings(&mut settings);
+        policy
+            .allowed_settings_schema_sha256
+            .push(normalized_settings_schema_hash(&settings)?);
+    }
+    Ok(policy)
 }
 
 /// Rebuild the fixed P0 archive validation contract without a second population.
@@ -569,17 +1442,10 @@ pub(crate) fn stage6a_p0_archive_validation_contract(
     memory_ceiling_bytes: usize,
     require_exact_build_identity: bool,
 ) -> Result<(CheckpointLimits, GraphLimits, StateAdmissionPolicy), FreshRunError> {
-    let settings =
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    let settings_schema_sha256 = normalized_settings_schema_hash(&settings)?;
     Ok((
         production_checkpoint_limits(),
         stage6a_p0_graph_limits(),
-        current_build_policy(
-            memory_ceiling_bytes,
-            settings_schema_sha256,
-            require_exact_build_identity,
-        ),
+        production_restore_policy(memory_ceiling_bytes, require_exact_build_identity)?,
     ))
 }
 
@@ -624,6 +1490,7 @@ fn boundary_shell(
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot_u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: Box::new([]),
         });
@@ -642,7 +1509,7 @@ fn boundary_shell(
             engine: ENGINE_CONTRACT_VERSION,
             protocol: PROTOCOL_VERSION,
             serializer: SERIALIZER_VERSION,
-            sensor: SENSOR_VERSION,
+            sensor: fresh_integer(&config, "brain.sensorVersion")? as u32,
             rng_bundle: RNG_BUNDLE_VERSION,
             checkpoint: CHECKPOINT_VERSION,
             graph_layout: graph.layout_version,
@@ -676,6 +1543,8 @@ fn boundary_shell(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(f64::from(seed), "world").export_state(),
             evolution: labelled_stream(f64::from(seed), "evolution").export_state(),
@@ -719,7 +1588,7 @@ fn initialize_population_numeric(
 }
 
 /// Production graph ceilings covering current editor graphs without unbounded allocation.
-fn stage6a_p0_graph_limits() -> GraphLimits {
+pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
     GraphLimits {
         max_nodes: 64,
         max_edges: 128,
@@ -740,7 +1609,7 @@ fn stage6a_p0_graph_limits() -> GraphLimits {
 /// The 512 MiB envelope admits P3's roughly 461 MiB raw weights and bounds decoded
 /// allocation and codec work. Raising it requires remeasuring memory and aligning
 /// Node's candidate/final-file disk reserves; the retention budget is independent.
-fn production_checkpoint_limits() -> CheckpointLimits {
+pub(crate) fn production_checkpoint_limits() -> CheckpointLimits {
     CheckpointLimits {
         max_archive_bytes: 512 * MIB_U64,
         max_manifest_bytes: MIB,
@@ -959,6 +1828,243 @@ mod tests {
         assert!(limits.max_numeric_candidate_bytes >= P3_RAW_WEIGHT_BYTES);
         assert!(limits.max_total_decoded_bytes >= P3_RAW_WEIGHT_BYTES);
         assert!(limits.max_archive_bytes >= P3_RAW_WEIGHT_BYTES);
+    }
+
+    /// Decoding alongside an old population uses a reduced budget. After that
+    /// owner is retired, the imported loop must afford ordinary dual-state evolution.
+    #[test]
+    fn imported_loop_reclaims_retired_population_budget_for_generation_handoffs() {
+        for branch in [false, true] {
+            let managed = TestDirectory::create("import-retired-budget");
+            let full_ceiling = 4 * 1024 * MIB;
+            let mut input = request(42);
+            input.memory_ceiling_bytes = full_ceiling;
+            let prepared = prepare_stage6a_p0_boundary(
+                input,
+                &[FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 3.0,
+                }],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            let mut staging_policy = prepared.admission_policy.clone();
+            let probe = AuthoritativeState::validate_and_own(
+                prepared.candidate,
+                prepared.graph,
+                &staging_policy,
+            )
+            .unwrap();
+            staging_policy.memory_ceiling_bytes = probe.memory_estimate().total_bytes + 8 * MIB;
+            let operation =
+                CheckpointOperationId::parse("00000000000000000000000000000081").unwrap();
+            let descriptor = super::super::checkpoint::publish_checkpoint(
+                managed.path(),
+                operation,
+                1,
+                probe.checkpoint_boundary().unwrap(),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &staging_policy,
+            )
+            .unwrap();
+            let restored = super::super::checkpoint::restore_checkpoint(
+                &managed.path().join(&descriptor.relative_filename),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &staging_policy,
+            )
+            .unwrap();
+            drop(probe); // Old population is now retired; its reservation can be reclaimed.
+            let mut pending = prepare_stage6a_p0_validated_import(
+                restored,
+                descriptor.clone(),
+                full_ceiling,
+                prepared.checkpoint_limits,
+                prepared.graph_limits,
+            )
+            .unwrap();
+            pending.acknowledge_import_persistence(&descriptor).unwrap();
+            let run_id = if branch {
+                let name = "standalone-import-recovery".to_owned();
+                pending = pending
+                    .into_committed_recovery_branch(name.clone())
+                    .unwrap();
+                name
+            } else {
+                descriptor.run_id.clone()
+            };
+            assert_eq!(pending.admitted_memory_ceiling_bytes(), staging_policy.memory_ceiling_bytes,
+            "identity rebinding must retain overlap admission until running ownership transfers");
+            pending.publish_running_authority().unwrap();
+            let mut running = pending
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            running
+                .request_finish_generation("finish-import".into(), run_id, 1)
+                .unwrap();
+            running
+                .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                .expect("retired source budget must support the imported generation transition");
+            let transition = running.pending_generation_transition().unwrap();
+            assert_eq!(transition.memory_ceiling_bytes(), full_ceiling);
+            assert!(transition.combined_state_bytes() > staging_policy.memory_ceiling_bytes);
+            assert!(transition.combined_state_bytes() <= full_ceiling);
+        }
+    }
+
+    /// The real replacement path keeps staging bounded through identity rebinding
+    /// and coordinator construction, then reclaims budget after dropping the old loop.
+    #[test]
+    fn live_import_replacement_reclaims_budget_with_and_without_recovery_branch() {
+        for branch in [false, true] {
+            let managed = TestDirectory::create("live-import-retirement");
+            let full_ceiling = 4 * 1024 * MIB;
+            let mut input = request(42);
+            input.memory_ceiling_bytes = full_ceiling;
+            let prepared = prepare_stage6a_p0_boundary(
+                input.clone(),
+                &[FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 3.0,
+                }],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            let mut policy = prepared.admission_policy.clone();
+            let probe =
+                AuthoritativeState::validate_and_own(prepared.candidate, prepared.graph, &policy)
+                    .unwrap();
+            policy.memory_ceiling_bytes = probe.memory_estimate().total_bytes + 8 * MIB;
+            let descriptor = super::super::checkpoint::publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000082").unwrap(),
+                1,
+                probe.checkpoint_boundary().unwrap(),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &policy,
+            )
+            .unwrap();
+            drop(probe);
+            let restored = super::super::checkpoint::restore_checkpoint(
+                &managed.path().join(&descriptor.relative_filename),
+                &prepared.checkpoint_limits,
+                &prepared.graph_limits,
+                &policy,
+            )
+            .unwrap();
+            let pending = prepare_stage6a_p0_validated_import(
+                restored,
+                descriptor.clone(),
+                full_ceiling,
+                prepared.checkpoint_limits,
+                prepared.graph_limits,
+            )
+            .unwrap();
+            assert_eq!(
+                pending.admitted_memory_ceiling_bytes(),
+                policy.memory_ceiling_bytes
+            );
+            let slot = super::super::contract::PreparedImportSlot::new();
+            slot.put(pending).unwrap();
+            input.run_id = "old-live-import-owner".into();
+            input.seed = 43;
+            let mut old = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+                input,
+                &[FreshRunSettingUpdate {
+                    path: "snakeCount".into(),
+                    value: 3.0,
+                }],
+                typescript_default_graph_spec(),
+            )
+            .unwrap();
+            let old_descriptor = old
+                .publish_checkpoint(
+                    managed.path(),
+                    CheckpointOperationId::parse("00000000000000000000000000000083").unwrap(),
+                )
+                .unwrap();
+            old.acknowledge_persistence(&old_descriptor).unwrap();
+            old.publish_running_authority().unwrap();
+            let mut running = old
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            let branch_id = branch.then_some("live-import-recovery-branch");
+            running.stage_prepared_import(&slot).unwrap();
+            running
+                .publish_prepared_import(&slot, &descriptor, branch_id, 0)
+                .unwrap();
+            assert!(!slot.is_some());
+            running
+                .request_finish_generation(
+                    "finish-live-import".into(),
+                    branch_id.unwrap_or(&descriptor.run_id).to_owned(),
+                    1,
+                )
+                .unwrap();
+            running
+                .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                .unwrap();
+            let transition = running.pending_generation_transition().unwrap();
+            assert_eq!(transition.memory_ceiling_bytes(), full_ceiling);
+            assert!(transition.combined_state_bytes() > policy.memory_ceiling_bytes);
+            assert!(transition.combined_state_bytes() <= full_ceiling);
+        }
+    }
+
+    /// No candidate is required to hold the source, but only that hold's lease
+    /// can release it; active worker ownership cannot be cancelled out from under it.
+    #[test]
+    fn population_work_holds_complete_steps_before_allocation_and_resumes_without_debt() {
+        let managed = TestDirectory::create("population-work-hold");
+        let mut input = request(42);
+        input.memory_ceiling_bytes = 4 * 1024 * MIB;
+        let mut pending = prepare_stage6a_p0_fresh_run(input).unwrap();
+        let descriptor = pending
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("00000000000000000000000000000091").unwrap(),
+            )
+            .unwrap();
+        pending.acknowledge_persistence(&descriptor).unwrap();
+        pending.publish_running_authority().unwrap();
+        let mut running = pending
+            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+            .unwrap();
+        let epoch = running.world_epoch();
+        let slot = super::super::contract::PreparedImportSlot::new();
+        let foreign = super::super::contract::PreparedImportSlot::new();
+        running.stage_prepared_import(&slot).unwrap();
+        let lease = slot.acquire_work(4 * 1024 * MIB).unwrap();
+        assert_eq!(lease.admission.source_world_epoch, epoch);
+        assert_eq!(
+            lease.admission.remaining_bytes + running.authoritative_memory_bytes(),
+            4 * 1024 * MIB
+        );
+        assert!(matches!(
+            running
+                .service_after_command_drain(1000, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::ImportPending
+        ));
+        assert_eq!(running.completed_step(), 0);
+        assert!(running.cancel_prepared_import(&foreign, 1000).is_err());
+        assert!(running.cancel_prepared_import(&slot, 1000).is_err());
+        assert_eq!(running.state(), RunningAuthorityLoopState::ImportPending);
+        drop(lease);
+        running.cancel_prepared_import(&slot, 1000).unwrap();
+        assert!(matches!(
+            running
+                .service_after_command_drain(1000, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::Idle { .. }
+        ));
+        running
+            .service_after_command_drain(1017, SchedulerServiceMode::Background, None)
+            .unwrap();
+        assert_eq!(running.completed_step(), 1);
+        assert_eq!(running.world_epoch(), epoch);
     }
 
     #[test]
@@ -1467,12 +2573,1538 @@ mod tests {
         baseline_state_hex: Vec<String>,
     }
 
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn trained_qualification_values_reuse_admitted_boxes_and_preserve_initialization_rng() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/portable-brain-v1.slither-brain"),
+        )
+        .unwrap();
+        let artifact = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        let contract = super::super::sensor_contract::SensorContractIdentity::new(
+            super::super::sensor_contract::SensorProfile::Basic,
+            8,
+        )
+        .unwrap();
+        let mut settings = production_default_settings(55, 10);
+        for setting in &mut settings {
+            match setting.path.as_str() {
+                "sense.bubbleBins" => setting.value = NormalizedSettingValue::Integer(8),
+                "brain.controlDt" => {
+                    setting.value =
+                        NormalizedSettingValue::Float(artifact.deployment.control_interval_seconds)
+                }
+                "evolvedRespawn.recurrentState" => {
+                    setting.value = NormalizedSettingValue::Integer(1)
+                }
+                _ => {}
+            }
+        }
+        let mut prepared = prepare_fresh_boundary_with_sensor_and_baseline(
+            request(42),
+            &numeric_settings(settings),
+            artifact.graph.spec().clone(),
+            true,
+            Some(contract),
+            RunningStepWorkLimits {
+                ray_work: Some(
+                    super::super::ray_work::RayWorkLimits::new(1, 256, 65536, 512).unwrap(),
+                ),
+                ..RunningStepWorkLimits::provisional_defaults()
+            },
+            None,
+        )
+        .unwrap();
+        let pointers: Vec<_> = prepared
+            .candidate
+            .population
+            .iter()
+            .map(|genome| genome.weights.as_ptr())
+            .collect();
+        let rng = prepared.candidate.rng.clone();
+        let ids: Vec<_> = prepared
+            .candidate
+            .population
+            .iter()
+            .map(|genome| (genome.slot, genome.brain, genome.lineage.clone()))
+            .collect();
+        install_qualified_population_artifact(&mut prepared, &artifact).unwrap();
+        assert_eq!(prepared.candidate.rng, rng);
+        for (index, genome) in prepared.candidate.population.iter().enumerate() {
+            assert_eq!(&*genome.weights, artifact.weights.as_slice());
+            assert_eq!(genome.weights.as_ptr(), pointers[index]);
+            assert_eq!(
+                (genome.slot, genome.brain, genome.lineage.clone()),
+                ids[index]
+            );
+        }
+        assert!(prepared
+            .candidate
+            .brains
+            .iter()
+            .all(|brain| brain.recurrent.iter().all(|value| *value == 0.0)));
+        let mut families = vec![
+            artifact,
+            super::super::brain_artifact::validate_brain_artifact(
+                &super::super::trained_cohort::fixture_bytes(0.125, 0.06),
+            )
+            .unwrap(),
+        ];
+        // A bad later source must reject atomically before touching even slot zero.
+        let original = prepared.candidate.population[0].weights.to_vec();
+        families[1].deployment.control_interval_seconds = 0.03;
+        assert!(install_qualified_population_artifacts(&mut prepared, &families).is_err());
+        assert_eq!(
+            &*prepared.candidate.population[0].weights,
+            original.as_slice()
+        );
+        families[1].deployment.control_interval_seconds = 0.06;
+        install_qualified_population_artifacts(&mut prepared, &families).unwrap();
+        assert_eq!(prepared.candidate.rng, rng);
+        for (index, genome) in prepared.candidate.population.iter().enumerate() {
+            assert_eq!(
+                &*genome.weights,
+                families[genome.slot as usize % 2].weights.as_slice()
+            );
+            assert_eq!(genome.weights.as_ptr(), pointers[index]);
+            assert_eq!(
+                (genome.slot, genome.brain, genome.lineage.clone()),
+                ids[index]
+            );
+        }
+        assert!(prepared
+            .candidate
+            .brains
+            .iter()
+            .all(|brain| brain.recurrent.iter().all(|value| *value == 0.0)));
+        prepared
+            .candidate
+            .config
+            .settings
+            .iter_mut()
+            .find(|entry| entry.path == "brain.controlDt")
+            .unwrap()
+            .value = NormalizedSettingValue::Float(0.03);
+        assert!(install_qualified_population_artifacts(&mut prepared, &families).is_err());
+    }
+
     fn request(seed: u32) -> Stage6aP0FreshRunRequest {
         Stage6aP0FreshRunRequest {
             run_id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee".to_owned(),
             seed,
             memory_ceiling_bytes: TEST_MEMORY_CEILING,
         }
+    }
+
+    fn numeric_settings(
+        settings: Vec<super::super::state::NormalizedSetting>,
+    ) -> Vec<FreshRunSettingUpdate> {
+        settings
+            .into_iter()
+            .map(|setting| FreshRunSettingUpdate {
+                path: setting.path,
+                value: match setting.value {
+                    NormalizedSettingValue::Bool(value) => f64::from(value),
+                    NormalizedSettingValue::Integer(value) => value as f64,
+                    NormalizedSettingValue::Float(value) => value,
+                    NormalizedSettingValue::Text(_) => panic!("numeric fresh setting"),
+                },
+            })
+            .collect()
+    }
+
+    /// Reset carries numeric settings; Rust regenerates the structural digest.
+    fn numeric_metadata_settings(metadata: &str) -> Vec<FreshRunSettingUpdate> {
+        let decoded: serde_json::Value = serde_json::from_str(metadata).unwrap();
+        decoded["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|setting| {
+                let value = setting["value"]
+                    .as_f64()
+                    .or_else(|| setting["value"].as_bool().map(f64::from))?;
+                Some(FreshRunSettingUpdate {
+                    path: setting["path"].as_str().unwrap().into(),
+                    value,
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn qualified_fresh_defaults_restore_with_the_recorded_sse2_backend() {
+        let mut fresh = prepare_default_fresh_run(request(42)).unwrap();
+        let metadata = fresh.startup_metadata_json().unwrap();
+        let decoded: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+        assert_eq!(decoded["sensorVersion"], 4);
+        assert_eq!(decoded["mathBackend"], InferenceMathBackend::Sse2.label());
+        let settings = numeric_metadata_settings(&metadata);
+        for (path, value) in [
+            ("sense.profile", 1.0),
+            ("sense.bubbleBins", 16.0),
+            ("sense.maxPelletChecks", 3000.0),
+            ("sense.maxSegmentChecks", 2200.0),
+            ("sense.rayMinimum", 1.0),
+            ("sense.rayCap", 256.0),
+            ("sense.rayBatch", 65536.0),
+            ("sense.rayMaximumDue", 512.0),
+            ("baselineBots.controlVersion", 2.0),
+            ("baselineBots.mode", 1.0),
+            ("baselineBots.controlDt", 1.0 / 60.0),
+            ("generationSeconds", 240.0),
+            ("evolvedRespawn.enabled", 0.0),
+        ] {
+            assert_eq!(
+                settings
+                    .iter()
+                    .find(|setting| setting.path == path)
+                    .unwrap()
+                    .value,
+                value
+            );
+        }
+        let directory = TestDirectory::create("qualified-fresh-defaults");
+        let descriptor = fresh
+            .publish_checkpoint(
+                directory.path(),
+                CheckpointOperationId::parse("abcdefabcdefabcdefabcdefabcdefab").unwrap(),
+            )
+            .unwrap();
+        let mut restored = prepare_stage6a_p0_checkpoint_restore(
+            directory.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+        )
+        .unwrap();
+        assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+        let recovered = prepare_stage6a_p0_compatible_checkpoint_restore(
+            directory.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+        )
+        .unwrap()
+        .into_committed_recovery_branch("sse2-recovery".into())
+        .unwrap();
+        let recovered_metadata: serde_json::Value =
+            serde_json::from_str(&recovered.startup_metadata_json().unwrap()).unwrap();
+        assert_eq!(
+            recovered_metadata["mathBackend"],
+            InferenceMathBackend::Sse2.label()
+        );
+        for math in [InferenceMathBackend::Scalar, InferenceMathBackend::Sse2] {
+            let reset = prepare_configured_fresh_run_with_math(
+                request(42),
+                &settings,
+                super::super::graph::default_stack_graph_spec(264),
+                math,
+            )
+            .unwrap();
+            let reset_metadata: serde_json::Value =
+                serde_json::from_str(&reset.startup_metadata_json().unwrap()).unwrap();
+            assert_eq!(reset_metadata["mathBackend"], math.label());
+            assert_eq!(reset_metadata["settings"], decoded["settings"]);
+        }
+        fresh.acknowledge_persistence(&descriptor).unwrap();
+        for transition in [&mut fresh, &mut restored] {
+            transition.publish_running_authority().unwrap();
+            transition
+                .publish_first_scheduled_frame_v1(&mut Vec::new())
+                .unwrap();
+            assert_eq!(transition.completed_step(), 1);
+        }
+    }
+
+    #[test]
+    fn configured_fresh_life_contract_is_complete_and_preserves_frozen_numeric_initialization() {
+        let legacy =
+            prepare_stage6a_p0_boundary(request(42), &[], typescript_default_graph_spec()).unwrap();
+        let modern =
+            prepare_fresh_boundary(request(42), &[], typescript_default_graph_spec(), true)
+                .unwrap();
+        assert_eq!(
+            modern.candidate.rng.version,
+            RNG_BUNDLE_WITH_EVOLVED_VERSION
+        );
+        assert_eq!(
+            modern.candidate.versions.rng_bundle,
+            RNG_BUNDLE_WITH_EVOLVED_VERSION
+        );
+        assert_eq!(
+            modern.candidate.rng.evolved_respawns.len(),
+            STAGE6A_P0_POPULATION_COUNT
+        );
+        assert_eq!(modern.candidate.population, legacy.candidate.population);
+        assert_eq!(modern.candidate.rng.world, legacy.candidate.rng.world);
+        assert_eq!(
+            modern.candidate.rng.evolution,
+            legacy.candidate.rng.evolution
+        );
+        assert_eq!(
+            modern.candidate.rng.baselines,
+            legacy.candidate.rng.baselines
+        );
+        let old = numeric_settings(typescript_default_settings(
+            STAGE6A_P0_POPULATION_COUNT,
+            STAGE6A_P0_BASELINE_COUNT,
+        ));
+        let configured = prepare_configured_fresh_run_with_settings_and_graph(
+            request(42),
+            &old,
+            typescript_default_graph_spec(),
+        )
+        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_str(&configured.startup_metadata_json().unwrap()).unwrap();
+        assert!(!metadata["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|setting| setting["path"] == "evolvedRespawn.contractVersion"));
+        for partial in [
+            vec![FreshRunSettingUpdate {
+                path: "evolvedRespawn.contractVersion".into(),
+                value: 1.0,
+            }],
+            vec![FreshRunSettingUpdate {
+                path: "evolvedRespawn.enabled".into(),
+                value: 1.0,
+            }],
+        ] {
+            assert!(prepare_configured_fresh_run_with_settings_and_graph(
+                request(42),
+                &partial,
+                typescript_default_graph_spec()
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn production_restore_roundtrips_the_selected_life_contract_and_rejects_unknown_schemas() {
+        let managed = TestDirectory::create("life-contract-restore");
+        let mut settings = numeric_settings(production_default_settings(3, 0));
+        for setting in &mut settings {
+            if setting.path == "evolvedRespawn.enabled" {
+                setting.value = 1.0;
+            }
+            if setting.path == "evolvedRespawn.recurrentState" {
+                setting.value = 1.0;
+            }
+        }
+        let mut pending = prepare_configured_fresh_run_with_settings_and_graph(
+            request(42),
+            &settings,
+            typescript_default_graph_spec(),
+        )
+        .unwrap();
+        let before: serde_json::Value =
+            serde_json::from_str(&pending.startup_metadata_json().unwrap()).unwrap();
+        let descriptor = pending
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("89898989898989898989898989898989").unwrap(),
+            )
+            .unwrap();
+        let mut restored =
+            prepare_stage6a_p0_checkpoint_restore(managed.path(), &descriptor, TEST_MEMORY_CEILING)
+                .unwrap();
+        let after: serde_json::Value =
+            serde_json::from_str(&restored.startup_metadata_json().unwrap()).unwrap();
+        assert_eq!(before["settings"], after["settings"]);
+        assert_eq!(before["seed"], after["seed"]);
+        restored.publish_running_authority().unwrap();
+        assert_eq!(restored.snake_count(), 3);
+        restored
+            .publish_first_scheduled_frame_v1(&mut Vec::new())
+            .unwrap();
+        let mut prepared = prepare_fresh_boundary(
+            request(42),
+            &settings,
+            typescript_default_graph_spec(),
+            true,
+        )
+        .unwrap();
+        prepared.candidate.config.settings.pop();
+        prepared.candidate.config.settings_schema_sha256 =
+            normalized_settings_schema_hash(&prepared.candidate.config.settings).unwrap();
+        prepared.candidate.identity.config_hash =
+            normalized_config_hash(&prepared.candidate.config).unwrap();
+        assert!(super::super::state::AuthoritativeState::validate_and_own(
+            prepared.candidate,
+            prepared.graph,
+            &production_restore_policy(TEST_MEMORY_CEILING, true).unwrap()
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn baseline_v2_cold_constructor_restores_both_profiles_and_modes_with_exact_metadata() {
+        use crate::engine::baseline_v2::{BaselineV2Mode, BaselineV2Settings};
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        use crate::engine::sensor_contract::{SensorContractIdentity, SensorProfile};
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for mode in [BaselineV2Mode::Deterministic, BaselineV2Mode::Stochastic] {
+                let width = SensorContractIdentity::new(profile, 8)
+                    .unwrap()
+                    .input_size();
+                let graph = GraphSpec {
+                    nodes: vec![
+                        GraphNodeSpec {
+                            id: "input".into(),
+                            kind: GraphNodeKind::Input { output_size: width },
+                        },
+                        GraphNodeSpec {
+                            id: "head".into(),
+                            kind: GraphNodeKind::Dense {
+                                input_size: width,
+                                output_size: 2,
+                            },
+                        },
+                    ],
+                    edges: vec![GraphEdge {
+                        from: "input".into(),
+                        to: "head".into(),
+                        from_port: None,
+                        to_port: None,
+                    }],
+                    outputs: vec![GraphOutputRef {
+                        node_id: "head".into(),
+                        port: None,
+                    }],
+                    output_size: 2,
+                };
+                let settings = numeric_settings(production_default_settings(12, 2));
+                let spec = BaselineV2Settings {
+                    mode,
+                    control_interval_seconds: 0.06,
+                };
+                let limits = RunningStepWorkLimits {
+                    ray_work: Some(
+                        crate::engine::ray_work::RayWorkLimits::new(1, 256, 65536, 512).unwrap(),
+                    ),
+                    calculation_workers: 3,
+                    ..RunningStepWorkLimits::provisional_defaults()
+                };
+                assert!(prepare_baseline_v2_qualification_run(
+                    request(42),
+                    &settings,
+                    graph.clone(),
+                    SensorProfile::V3,
+                    8,
+                    spec,
+                    limits
+                )
+                .is_err());
+                assert!(prepare_baseline_v2_qualification_run(
+                    request(42),
+                    &settings,
+                    graph.clone(),
+                    profile,
+                    8,
+                    spec,
+                    RunningStepWorkLimits {
+                        ray_work: None,
+                        ..limits
+                    }
+                )
+                .is_err());
+                let mut pending = prepare_baseline_v2_qualification_run(
+                    request(42),
+                    &settings,
+                    graph.clone(),
+                    profile,
+                    8,
+                    spec,
+                    limits,
+                )
+                .unwrap();
+                let metadata = pending.startup_metadata_json().unwrap();
+                assert!(metadata.contains("baselineBots.controlVersion"));
+                assert!(metadata.contains("baselineBots.controlDt"));
+                let explicit_settings = numeric_metadata_settings(&metadata);
+                let mut configured = prepare_configured_fresh_run_with_settings_and_graph(
+                    request(42),
+                    &explicit_settings,
+                    graph.clone(),
+                )
+                .unwrap();
+                assert_eq!(configured.startup_metadata_json().unwrap(), metadata);
+                for path in [
+                    "sense.profile",
+                    "sense.contractVersion",
+                    "brain.sensorVersion",
+                    "sense.rayMinimum",
+                    "sense.rayCap",
+                    "sense.rayBatch",
+                    "sense.rayMaximumDue",
+                    "baselineBots.controlVersion",
+                    "baselineBots.mode",
+                    "baselineBots.controlDt",
+                ] {
+                    let partial = explicit_settings
+                        .iter()
+                        .filter(|setting| setting.path != path)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    assert!(
+                        prepare_configured_fresh_run_with_settings_and_graph(
+                            request(42),
+                            &partial,
+                            graph.clone()
+                        )
+                        .is_err(),
+                        "accepted missing {path}"
+                    );
+                }
+                for (path, value) in [
+                    ("sense.profile", 2.0),
+                    ("brain.sensorVersion", 3.0),
+                    ("sense.rayMinimum", 0.0),
+                    ("sense.rayCap", 0.5),
+                    ("sense.rayMaximumDue", 513.0),
+                    ("sense.rayMaximumDue", 1.0),
+                    ("baselineBots.mode", 2.0),
+                    ("baselineBots.controlDt", 0.0),
+                ] {
+                    let mut invalid = explicit_settings.clone();
+                    invalid
+                        .iter_mut()
+                        .find(|setting| setting.path == path)
+                        .unwrap()
+                        .value = value;
+                    assert!(
+                        prepare_configured_fresh_run_with_settings_and_graph(
+                            request(42),
+                            &invalid,
+                            graph.clone()
+                        )
+                        .is_err(),
+                        "accepted invalid {path}"
+                    );
+                }
+                let mut duplicate = explicit_settings.clone();
+                duplicate.push(FreshRunSettingUpdate {
+                    path: "sense.rayMinimum".into(),
+                    value: 1.0,
+                });
+                assert!(prepare_configured_fresh_run_with_settings_and_graph(
+                    request(42),
+                    &duplicate,
+                    graph.clone()
+                )
+                .is_err());
+                assert!(prepare_configured_fresh_run_with_settings_and_graph(
+                    request(42),
+                    &explicit_settings,
+                    typescript_default_graph_spec()
+                )
+                .is_err());
+                let directory = TestDirectory::create("v2-cold-restore");
+                let descriptor = pending
+                    .publish_checkpoint(
+                        directory.path(),
+                        CheckpointOperationId::parse("56565656565656565656565656565656").unwrap(),
+                    )
+                    .unwrap();
+                let configured_directory = TestDirectory::create("v2-configured-reset");
+                let configured_descriptor = configured
+                    .publish_checkpoint(
+                        configured_directory.path(),
+                        CheckpointOperationId::parse("67676767676767676767676767676767").unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    configured_descriptor.logical_root_sha256,
+                    descriptor.logical_root_sha256
+                );
+                let restored = PendingRunStartTransition::restore_committed(
+                    directory.path(),
+                    &descriptor,
+                    production_restore_policy(TEST_MEMORY_CEILING, true).unwrap(),
+                    production_checkpoint_limits(),
+                    stage6a_p0_graph_limits(),
+                    limits,
+                )
+                .unwrap();
+                assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+                let mut oversized = production_restore_policy(TEST_MEMORY_CEILING, true).unwrap();
+                assert_eq!(oversized.allowed_settings_schema_sha256.len(), 9);
+                oversized
+                    .allowed_settings_schema_sha256
+                    .push(oversized.expected_settings_schema_sha256.clone());
+                assert!(PendingRunStartTransition::restore_committed(
+                    directory.path(),
+                    &descriptor,
+                    oversized,
+                    production_checkpoint_limits(),
+                    stage6a_p0_graph_limits(),
+                    limits
+                )
+                .is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn baseline_v2_rng_boundary_roundtrips_managed_checkpoint_and_rejects_mixed_contracts() {
+        use crate::engine::baseline_v2::{BaselineV2Mode, BaselineV2Settings};
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        use crate::engine::rng::{baseline_v2_lifecycle_rng, derive_baseline_v2_behaviors};
+        use crate::engine::sensor_contract::{SensorContractIdentity, SensorProfile};
+        use crate::engine::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        let graph = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 144 },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 144,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![GraphEdge {
+                from: "input".into(),
+                to: "head".into(),
+                from_port: None,
+                to_port: None,
+            }],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let mut prepared = prepare_fresh_boundary_with_sensor(
+            request(42),
+            &numeric_settings(production_default_settings(12, 2)),
+            graph,
+            true,
+            Some(SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap()),
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        BaselineV2Settings {
+            mode: BaselineV2Mode::Stochastic,
+            control_interval_seconds: 0.06,
+        }
+        .record_settings(&mut prepared.candidate.config.settings)
+        .unwrap();
+        prepared.candidate.config.settings_schema_sha256 =
+            normalized_settings_schema_hash(&prepared.candidate.config.settings).unwrap();
+        prepared.candidate.identity.config_hash =
+            normalized_config_hash(&prepared.candidate.config).unwrap();
+        prepared.admission_policy.expected_settings_schema_sha256 =
+            prepared.candidate.config.settings_schema_sha256.clone();
+        prepared.candidate.rng.version = RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        prepared.candidate.versions.rng_bundle = RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        prepared.candidate.rng.baseline_behaviors =
+            derive_baseline_v2_behaviors(42, 1, 1, 2, false).unwrap();
+        for stream in &mut prepared.candidate.rng.baselines {
+            stream.state = baseline_v2_lifecycle_rng(42, 1, 1, stream.slot, false).export_state();
+        }
+        let expected = prepared.candidate.rng.clone();
+        let mut behavior = expected.baseline_behaviors[0].runtime().unwrap();
+        let mut lifecycle =
+            crate::engine::rng::StatefulRng::from_state(&expected.baselines[0].state).unwrap();
+        assert_ne!(
+            behavior.next_f64().to_bits(),
+            lifecycle.next_f64().to_bits()
+        );
+        let authority = AuthoritativeState::validate_and_own(
+            prepared.candidate.clone(),
+            Arc::clone(&prepared.graph),
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        prepared.work_limits.ray_work =
+            Some(crate::engine::ray_work::RayWorkLimits::new(1, 256, 65536, 512).unwrap());
+        crate::engine::running_step::RunningStepCoordinator::try_new(
+            &authority,
+            prepared.work_limits,
+        )
+        .unwrap();
+        let directory = TestDirectory::create("baseline-v2-rng-boundary");
+        let descriptor = crate::engine::checkpoint::publish_checkpoint(
+            directory.path(),
+            CheckpointOperationId::parse("23232323232323232323232323232323").unwrap(),
+            1,
+            authority.checkpoint_boundary().unwrap(),
+            &prepared.checkpoint_limits,
+            &prepared.graph_limits,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        let restored = crate::engine::checkpoint::restore_checkpoint(
+            &directory.path().join(&descriptor.relative_filename),
+            &prepared.checkpoint_limits,
+            &prepared.graph_limits,
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        assert_eq!(restored.state.state().rng, expected);
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            let mut continuations = Vec::new();
+            let mut captured_chunks = Vec::new();
+            for (workers, capture, shadow) in [
+                (1, false, false),
+                (3, false, false),
+                (1, true, false),
+                (3, true, false),
+                (1, true, true),
+                (3, true, true),
+            ] {
+                let limits = RunningStepWorkLimits {
+                    calculation_workers: workers,
+                    ..prepared.work_limits
+                };
+                let mut pending = PendingRunStartTransition::admit(
+                    prepared.candidate.clone(),
+                    Arc::clone(&prepared.graph),
+                    current_build_policy(
+                        TEST_MEMORY_CEILING,
+                        prepared.candidate.config.settings_schema_sha256.clone(),
+                        true,
+                    ),
+                    prepared.checkpoint_limits.clone(),
+                    prepared.graph_limits.clone(),
+                    limits,
+                )
+                .unwrap();
+                let run_directory = TestDirectory::create("v2-joined-control");
+                let checkpoint = pending
+                    .publish_checkpoint(
+                        run_directory.path(),
+                        CheckpointOperationId::parse("34343434343434343434343434343434").unwrap(),
+                    )
+                    .unwrap();
+                pending.acknowledge_persistence(&checkpoint).unwrap();
+                pending.publish_running_authority().unwrap();
+                let mut running = pending
+                    .into_running_loop(
+                        crate::engine::scheduler::FixedStepSchedulerPolicy::provisional_defaults(),
+                        0,
+                    )
+                    .unwrap();
+                assert!(running.published_teacher_boundary().is_none());
+                if capture {
+                    assert!(running.configure_teacher_capture(&[0], 1).is_err());
+                    assert!(running.configure_teacher_capture(&[2], 65536).is_err());
+                    let request = crate::engine::teacher_runtime::TeacherCaptureRequest {
+                        capture_epoch: [17; 16],
+                        expected_run_id: prepared.candidate.identity.run_id.clone(),
+                        expected_config_revision: prepared.candidate.identity.config_revision,
+                        baseline_slots: vec![0].into_boxed_slice(),
+                        limits: crate::engine::teacher_runtime::TeacherCaptureLimits {
+                            pending_bytes: 1024 * 1024,
+                            queue_chunks: 4,
+                            queue_bytes: 4 * 1024 * 1024,
+                        },
+                    };
+                    let mut bad = request.clone();
+                    bad.expected_run_id = "wrong-run".into();
+                    assert!(running.start_teacher_capture(&bad).is_err());
+                    let contract = running.start_teacher_capture(&request).unwrap();
+                    assert_eq!(contract.teacher_mode, 1);
+                    assert_eq!(contract.control_interval_seconds, 0.06);
+                    assert_eq!(
+                        contract.sensor_sha256,
+                        SensorContractIdentity::new(SensorProfile::Motion, 8)
+                            .unwrap()
+                            .sha256()
+                            .unwrap()
+                    );
+                    assert!(running.start_teacher_capture(&request).is_err());
+                    assert!(running.configure_teacher_capture(&[], 0).is_err());
+                    if shadow {
+                        let candidate = crate::engine::shadows::ShadowCandidate::synthetic(
+                            prepared.graph.compiled(),
+                            contract.sensor_sha256,
+                            0.06,
+                        );
+                        let mut activation = crate::engine::shadows::ShadowActivationRequest {
+                            expected_run_id: prepared.candidate.identity.run_id.clone(),
+                            expected_config_revision: prepared.candidate.identity.config_revision,
+                            capture_epoch: [17; 16],
+                            shadow_slot: 0,
+                            baseline_slot: 0,
+                            candidate,
+                        };
+                        let mut stale = activation.clone();
+                        stale.capture_epoch = [18; 16];
+                        assert!(running.activate_shadow(&stale, 1).is_err());
+                        for slot in 0..4 {
+                            activation.shadow_slot = slot;
+                            running
+                                .activate_shadow(&activation, u64::from(slot) + 1)
+                                .unwrap();
+                        }
+                        activation.shadow_slot = 4;
+                        assert!(running.activate_shadow(&activation, 5).is_err());
+                    }
+                }
+                let mut captured_rows = 0;
+                for step in 1..=16 {
+                    let outcome = running
+                        .service_after_command_drain(
+                            (step * 1000u64).div_ceil(60),
+                            crate::engine::scheduler::SchedulerServiceMode::Background,
+                            None,
+                        )
+                        .unwrap();
+                    assert!(matches!(
+                        outcome,
+                        crate::engine::running_loop::RunningAuthorityLoopProgress::Published { .. }
+                    ));
+                    assert_eq!(running.completed_step(), step);
+                    if shadow && step == 1 {
+                        // Resolve the spawned baseline through real frame IDs and native full identities.
+                        let physical = running.published_teacher_boundary().unwrap().decisions[0]
+                            .physical_snake_id;
+                        let mut frame = Vec::with_capacity(running.admitted_frame_bytes());
+                        running.pack_display_into(1, &mut frame).unwrap();
+                        let read = |offset: usize| {
+                            f32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap())
+                        };
+                        let mut offset = 7 * 4;
+                        let mut selected = None;
+                        for _ in 0..read(2 * 4) as usize {
+                            let frame_id = read(offset) as u32;
+                            if let Some(entity) = running
+                                .select_entity(
+                                    crate::engine::state::EntitySelectionTarget::Frame(frame_id),
+                                    &prepared.candidate.identity.run_id,
+                                    1,
+                                )
+                                .unwrap()
+                            {
+                                if entity.token.physical_id() == physical {
+                                    selected = Some(entity);
+                                    break;
+                                }
+                            }
+                            offset += (8 + 2 * read(offset + 7 * 4) as usize) * 4;
+                        }
+                        let selected = selected.expect("spawned teacher in native frame");
+                        running
+                            .configure_inspector(
+                                &prepared.candidate.identity.run_id,
+                                Some((selected.token, selected.frame_v1_id)),
+                                crate::engine::inspector::MAX_INSPECTOR_BYTES,
+                            )
+                            .unwrap();
+                    }
+                    if let Some(rows) = running.published_teacher_boundary() {
+                        assert!(capture);
+                        assert_eq!(rows.key.source_completed_step() + 1, step);
+                        for (index, decision) in rows.decisions.iter().enumerate() {
+                            assert_eq!(decision.baseline_slot, 0);
+                            assert_eq!(rows.observation(index).unwrap().len(), 144);
+                            assert_eq!(
+                                rows.outcome(index).unwrap().physical_snake_id,
+                                decision.physical_snake_id
+                            );
+                            assert!(rows.outcome(index + rows.decisions.len()).is_none());
+                            captured_rows += 1;
+                        }
+                    }
+                }
+                if shadow {
+                    for snapshot in running.shadow_snapshots().iter().flatten() {
+                        assert!(snapshot.enabled, "{:?}", snapshot.error);
+                        assert_eq!(snapshot.totals.samples, captured_rows as u64);
+                        assert_eq!(snapshot.completed_step, 16);
+                    }
+                    let observed = running
+                        .inspector_observation()
+                        .expect("selected actual teacher row");
+                    assert_eq!(
+                        observed.source,
+                        crate::engine::inspector::InspectorObservationSource::BaselineV2
+                    );
+                    assert!(observed.lifecycle.is_none());
+                    for (index, snapshot) in running.shadow_snapshots().iter().enumerate() {
+                        let snapshot = snapshot.unwrap();
+                        let output =
+                            observed.shadow_outputs[index].expect("exact joined shadow output");
+                        assert_eq!(output.sample_step, snapshot.last_sample_step);
+                        assert_eq!(Some(output.sample_step), observed.sample_step());
+                        assert_eq!(output.raw_outputs, snapshot.raw_outputs);
+                        assert_eq!(output.capture_epoch, [17; 16]);
+                        assert_eq!(output.activation_sequence, index as u64 + 1);
+                        assert_eq!(snapshot.physical_snake_id, observed.target.physical_id);
+                    }
+                    let before = running.qualification_continuation_sha256();
+                    assert!(running.stop_shadow(0, [17; 16], 99).is_err());
+                    assert!(running.shadow_snapshots()[0].unwrap().enabled);
+                    running.stop_shadow(0, [17; 16], 1).unwrap();
+                    assert!(!running.shadow_snapshots()[0].unwrap().enabled);
+                    assert!(running.shadow_snapshots()[1].unwrap().enabled);
+                    assert_eq!(before, running.qualification_continuation_sha256());
+                }
+                if capture {
+                    assert!(captured_rows > 0);
+                    running.stop_teacher_capture().unwrap();
+                    assert!(running
+                        .shadow_snapshots()
+                        .iter()
+                        .flatten()
+                        .all(|snapshot| !snapshot.enabled));
+                    let status = running.teacher_capture_status().unwrap();
+                    assert!(status.2 && status.3.is_none());
+                    let drained = running.drain_teacher_chunks(4, 65536).unwrap().unwrap();
+                    assert_eq!(drained.chunks.len(), 1);
+                    let decoded = crate::engine::teacher_samples::TeacherChunkV1::decode(
+                        &drained.chunks[0].bytes,
+                    )
+                    .unwrap();
+                    assert_eq!(decoded.samples.len(), captured_rows);
+                    captured_chunks.push(drained.chunks[0].bytes.clone());
+                }
+                continuations.push(running.qualification_continuation_sha256());
+            }
+            assert!(continuations.iter().all(|value| value == &continuations[0]));
+            assert_eq!(captured_chunks.len(), 4);
+            assert!(captured_chunks
+                .iter()
+                .all(|bytes| bytes == &captured_chunks[0]));
+
+            // Exercise the actual background owner with no teacher consumer and
+            // no controller/generation acknowledgements during normal stepping.
+            let mut candidate = prepared.candidate.clone();
+            candidate.config.requested_sim_speed = 12.0;
+            // This tiny graph/population needs bounded scratch, while the existing
+            // 2 GiB test ceiling must still charge both generation authorities.
+            candidate.config.worker_scratch_bytes = 64 * 1024 * 1024;
+            candidate.config.checkpoint_scratch_bytes = 64 * 1024 * 1024;
+            candidate
+                .config
+                .settings
+                .iter_mut()
+                .find(|setting| setting.path == "simSpeed")
+                .unwrap()
+                .value = NormalizedSettingValue::Float(12.0);
+            candidate.identity.config_hash = normalized_config_hash(&candidate.config).unwrap();
+            let request = crate::engine::teacher_runtime::TeacherCaptureRequest {
+                capture_epoch: [19; 16],
+                expected_run_id: candidate.identity.run_id.clone(),
+                expected_config_revision: candidate.identity.config_revision,
+                baseline_slots: vec![0].into_boxed_slice(),
+                limits: crate::engine::teacher_runtime::TeacherCaptureLimits {
+                    pending_bytes: 1024 * 1024,
+                    queue_chunks: 1,
+                    queue_bytes: 4 * 1024 * 1024,
+                },
+            };
+            let mut pending = PendingRunStartTransition::admit(
+                candidate,
+                Arc::clone(&prepared.graph),
+                current_build_policy(
+                    TEST_MEMORY_CEILING,
+                    prepared.candidate.config.settings_schema_sha256.clone(),
+                    true,
+                ),
+                prepared.checkpoint_limits.clone(),
+                prepared.graph_limits.clone(),
+                prepared.work_limits,
+            )
+            .unwrap();
+            let runtime_directory = TestDirectory::create("v2-background-capture");
+            let checkpoint = pending
+                .publish_checkpoint(
+                    runtime_directory.path(),
+                    CheckpointOperationId::parse("35353535353535353535353535353535").unwrap(),
+                )
+                .unwrap();
+            pending.acknowledge_persistence(&checkpoint).unwrap();
+            pending.publish_running_authority().unwrap();
+            let running = pending
+                .into_running_loop(
+                    crate::engine::scheduler::FixedStepSchedulerPolicy::provisional_defaults(),
+                    0,
+                )
+                .unwrap();
+            let runtime = crate::engine::runtime::EngineRuntime::new_running_authority(
+                crate::engine::generation_handoff_fixture::background_generation_handoff_runtime_init(),
+                running, Arc::new(crate::engine::queues::NoopWakeSink),
+            ).unwrap();
+            runtime.start().unwrap();
+            runtime
+                .try_submit(crate::engine::contract::CommandBatch {
+                    contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
+                    commands: vec![crate::engine::contract::SequencedCommand {
+                        sequence: 1,
+                        command: crate::engine::contract::EngineCommand::RunningAuthority(
+                            crate::engine::contract::RunningAuthorityCommand::StartTeacherCapture(
+                                Box::new(request),
+                            ),
+                        ),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while runtime
+                .health()
+                .running_authority
+                .as_ref()
+                .unwrap()
+                .completed_step
+                < 240
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "background capture never reached target: {:?}",
+                    runtime.health()
+                );
+                assert!(runtime.health().fault.is_none());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let activation = crate::engine::shadows::ShadowActivationRequest {
+                expected_run_id: prepared.candidate.identity.run_id.clone(),
+                expected_config_revision: prepared.candidate.identity.config_revision,
+                capture_epoch: [19; 16],
+                shadow_slot: 0,
+                baseline_slot: 0,
+                candidate: crate::engine::shadows::ShadowCandidate::synthetic(
+                    prepared.graph.compiled(),
+                    SensorContractIdentity::new(SensorProfile::Motion, 8)
+                        .unwrap()
+                        .sha256()
+                        .unwrap(),
+                    0.06,
+                ),
+            };
+            runtime
+                .try_submit(crate::engine::contract::CommandBatch {
+                    contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
+                    commands: vec![crate::engine::contract::SequencedCommand {
+                        sequence: 2,
+                        command: crate::engine::contract::EngineCommand::RunningAuthority(
+                            crate::engine::contract::RunningAuthorityCommand::ActivateShadow(
+                                Box::new(activation),
+                            ),
+                        ),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while runtime.shadow_snapshots().unwrap()[0]
+                .is_none_or(|snapshot| snapshot.totals.samples == 0)
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "shadow command/mailbox made no progress: {:?}",
+                    runtime.health()
+                );
+                assert!(runtime.health().fault.is_none());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            // Retain a real generation barrier without persistence acknowledgement;
+            // diagnostic wake/drain must still make progress and cannot publish it.
+            runtime
+                .try_submit(crate::engine::contract::CommandBatch {
+                    contract_version: crate::engine::contract::ENGINE_CONTRACT_VERSION,
+                    commands: vec![crate::engine::contract::SequencedCommand {
+                        sequence: 3,
+                        command: crate::engine::contract::EngineCommand::RunningAuthority(
+                            crate::engine::contract::RunningAuthorityCommand::FinishGeneration {
+                                request_id: "capture-retained-barrier".into(),
+                                expected_run_id: prepared.candidate.identity.run_id.clone(),
+                                expected_generation: 1,
+                            },
+                        ),
+                    }]
+                    .into_boxed_slice(),
+                })
+                .unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while runtime.health().running_authority.as_ref().unwrap().loop_state
+                != crate::engine::running_loop::RunningAuthorityLoopState::GenerationTransitionPending {
+                assert!(std::time::Instant::now() < deadline, "manual barrier not reached: {:?}", runtime.health());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            let completed_step = runtime
+                .health()
+                .running_authority
+                .as_ref()
+                .unwrap()
+                .completed_step;
+            let teacher = runtime.drain_teacher_chunks(1, 65536).unwrap();
+            assert!(teacher.error.is_none(), "{:?}", teacher.error);
+            assert_eq!(teacher.contract.as_ref().unwrap().capture_epoch, [19; 16]);
+            assert_eq!(teacher.chunks.len(), 1);
+            assert!(teacher.snapshot.production_watermark >= 3);
+            assert!(teacher.snapshot.dropped_chunks > 0);
+            assert!(teacher.more_work);
+            let sensor = SensorContractIdentity::decode_supported(
+                teacher.sensor_contract_json.as_ref().unwrap().as_bytes(),
+            )
+            .unwrap();
+            assert_eq!(
+                sensor.sha256().unwrap(),
+                teacher.contract.as_ref().unwrap().sensor_sha256
+            );
+            let decoded =
+                crate::engine::teacher_samples::TeacherChunkV1::decode(&teacher.chunks[0].bytes)
+                    .unwrap();
+            assert_eq!(
+                decoded.contract.teacher_sha256,
+                teacher.contract.as_ref().unwrap().teacher_sha256
+            );
+            assert_eq!(runtime.health().processed_commands, 3);
+            let mut blocked_chunks = 0;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while blocked_chunks == 0 {
+                let drained = runtime.drain_teacher_chunks(16, 65536).unwrap();
+                blocked_chunks += drained.chunks.len();
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "diagnostic wake failed at retained generation barrier"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            assert_eq!(
+                runtime
+                    .health()
+                    .running_authority
+                    .as_ref()
+                    .unwrap()
+                    .completed_step,
+                completed_step
+            );
+            assert_eq!(
+                runtime
+                    .health()
+                    .running_authority
+                    .as_ref()
+                    .unwrap()
+                    .generation,
+                1
+            );
+            runtime.request_stop();
+            runtime.join().unwrap();
+            let mut count = teacher.chunks.len() + blocked_chunks;
+            for _ in 0..8 {
+                let drained = runtime.drain_teacher_chunks(16, 65536).unwrap();
+                count += drained.chunks.len();
+                if !drained.more_work {
+                    break;
+                }
+            }
+            assert!(count >= 2);
+            assert!(runtime.health().fault.is_none());
+        }
+
+        for change in 0..4 {
+            let mut bad = prepared.candidate.clone();
+            match change {
+                0 => {
+                    bad.rng.version = 2;
+                    bad.versions.rng_bundle = 2;
+                    bad.rng.baseline_behaviors.clear();
+                }
+                1 => {
+                    bad.rng.baseline_behaviors.pop();
+                }
+                2 => bad.rng.baseline_behaviors[0].uniform_state = 0,
+                _ => bad.rng.baseline_behaviors[1].slot = 0,
+            };
+            assert!(AuthoritativeState::validate_and_own(
+                bad,
+                Arc::clone(&prepared.graph),
+                &prepared.admission_policy
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn v4_state_admission_rejects_missing_digest_and_graph_mismatch_without_reinterpreting_numeric_environment(
+    ) {
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        use crate::engine::sensor_contract::{SensorContractIdentity, SensorProfile};
+        let contract = SensorContractIdentity::new(SensorProfile::Motion, 8).unwrap();
+        let graph = GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 144 },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 144,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![GraphEdge {
+                from: "input".into(),
+                to: "head".into(),
+                from_port: None,
+                to_port: None,
+            }],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        };
+        let prepared = prepare_fresh_boundary_with_sensor(
+            request(42),
+            &[],
+            graph,
+            false,
+            Some(contract.clone()),
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        for path in [
+            "sense.contractVersion",
+            "sense.profile",
+            "sense.contractSha256",
+        ] {
+            let mut missing = prepared.candidate.clone();
+            missing.config.settings.retain(|entry| entry.path != path);
+            missing.config.settings_schema_sha256 =
+                normalized_settings_schema_hash(&missing.config.settings).unwrap();
+            missing.identity.config_hash = normalized_config_hash(&missing.config).unwrap();
+            let mut policy = current_build_policy(
+                TEST_MEMORY_CEILING,
+                missing.config.settings_schema_sha256.clone(),
+                true,
+            );
+            policy.expected_settings_schema_sha256 = missing.config.settings_schema_sha256.clone();
+            assert!(matches!(
+                AuthoritativeState::validate_and_own(missing, Arc::clone(&prepared.graph), &policy),
+                Err(StateError::InvalidField {
+                    field: "config.sensor_contract",
+                    ..
+                })
+            ));
+        }
+        let mut modified = prepared.candidate.clone();
+        modified
+            .config
+            .settings
+            .iter_mut()
+            .find(|entry| entry.path == "sense.profile")
+            .unwrap()
+            .value = NormalizedSettingValue::Integer(0);
+        modified.identity.config_hash = normalized_config_hash(&modified.config).unwrap();
+        assert!(matches!(
+            AuthoritativeState::validate_and_own(
+                modified,
+                Arc::clone(&prepared.graph),
+                &prepared.admission_policy
+            ),
+            Err(StateError::InvalidField {
+                field: "config.sensor_contract",
+                ..
+            })
+        ));
+        let mut changed_environment = prepared.candidate.clone();
+        changed_environment
+            .config
+            .settings
+            .iter_mut()
+            .find(|entry| entry.path == "sense.rNearBase")
+            .unwrap()
+            .value = NormalizedSettingValue::Float(600.0);
+        changed_environment.identity.config_hash =
+            normalized_config_hash(&changed_environment.config).unwrap();
+        let authority = AuthoritativeState::validate_and_own(
+            changed_environment,
+            Arc::clone(&prepared.graph),
+            &prepared.admission_policy,
+        )
+        .unwrap();
+        assert_eq!(
+            SensorContractIdentity::from_settings(&authority.state().config.settings).unwrap(),
+            contract
+        );
+        assert!(
+            matches!(crate::engine::running_step::RunningStepCoordinator::try_new(&authority,RunningStepWorkLimits::provisional_defaults()),
+            Err(crate::engine::running_step::RunningStepError::Config(error)) if matches!(*error,crate::engine::step_config::StepConfigError::MissingRayWorkLimits))
+        );
+        assert!(matches!(
+            prepare_fresh_boundary_with_sensor(
+                request(42),
+                &[],
+                typescript_default_graph_spec(),
+                false,
+                Some(contract),
+                RunningStepWorkLimits::provisional_defaults()
+            ),
+            Err(FreshRunError::GraphInputMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn v4_durable_metadata_restores_recorded_ray_limits_and_runs_equivalent_fixed_steps() {
+        use super::super::ray_work::RayWorkLimits;
+        use super::super::sensor_contract::{SensorContractIdentity, SensorProfile};
+        use crate::engine::graph::{GraphEdge, GraphNodeKind, GraphNodeSpec, GraphOutputRef};
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in [8, 16, 32] {
+                let contract = SensorContractIdentity::new(profile, bins).unwrap();
+                let width = contract.input_size();
+                let graph = GraphSpec {
+                    nodes: vec![
+                        GraphNodeSpec {
+                            id: "input".into(),
+                            kind: GraphNodeKind::Input { output_size: width },
+                        },
+                        GraphNodeSpec {
+                            id: "memory".into(),
+                            kind: GraphNodeKind::Rru {
+                                input_size: width,
+                                hidden_size: 8,
+                            },
+                        },
+                        GraphNodeSpec {
+                            id: "head".into(),
+                            kind: GraphNodeKind::Dense {
+                                input_size: 8,
+                                output_size: 2,
+                            },
+                        },
+                    ],
+                    edges: vec![
+                        GraphEdge {
+                            from: "input".into(),
+                            to: "memory".into(),
+                            from_port: None,
+                            to_port: None,
+                        },
+                        GraphEdge {
+                            from: "memory".into(),
+                            to: "head".into(),
+                            from_port: None,
+                            to_port: None,
+                        },
+                    ],
+                    outputs: vec![GraphOutputRef {
+                        node_id: "head".into(),
+                        port: None,
+                    }],
+                    output_size: 2,
+                };
+                let settings = numeric_settings(production_default_settings(12, 2));
+                let limits = RunningStepWorkLimits {
+                    ray_work: Some(RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+                    calculation_workers: 3,
+                    ..RunningStepWorkLimits::provisional_defaults()
+                };
+                let mut pending = prepare_v4_qualification_run(
+                    request(42),
+                    &settings,
+                    graph,
+                    true,
+                    profile,
+                    bins,
+                    limits,
+                )
+                .unwrap();
+                let metadata = pending.startup_metadata_json().unwrap();
+                let decoded: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+                assert_eq!(decoded["sensorVersion"], 4);
+                assert_eq!(
+                    decoded["sensorContract"]["sha256"],
+                    contract.sha256_hex().unwrap()
+                );
+                assert_eq!(
+                    decoded["sensorContract"]["canonicalJson"],
+                    String::from_utf8(contract.canonical_bytes().unwrap()).unwrap()
+                );
+                let managed = TestDirectory::create("v4-durable-contract");
+                let descriptor = pending
+                    .publish_checkpoint(
+                        managed.path(),
+                        CheckpointOperationId::parse("112233445566778899aabbccddeeff00").unwrap(),
+                    )
+                    .unwrap();
+                let policy = production_restore_policy(TEST_MEMORY_CEILING, true).unwrap();
+                let mut restored = PendingRunStartTransition::restore_committed(
+                    managed.path(),
+                    &descriptor,
+                    policy,
+                    production_checkpoint_limits(),
+                    stage6a_p0_graph_limits(),
+                    RunningStepWorkLimits {
+                        ray_work: None,
+                        ..limits
+                    },
+                )
+                .unwrap();
+                assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+                restored.configure_calculation_workers(1).unwrap();
+                let mut conflicting = PendingRunStartTransition::restore_committed(
+                    managed.path(),
+                    &descriptor,
+                    production_restore_policy(TEST_MEMORY_CEILING, true).unwrap(),
+                    production_checkpoint_limits(),
+                    stage6a_p0_graph_limits(),
+                    RunningStepWorkLimits {
+                        ray_work: Some(RayWorkLimits::new(1, 128, 65536, 512).unwrap()),
+                        ..limits
+                    },
+                )
+                .unwrap();
+                conflicting.publish_running_authority().unwrap();
+                let error = conflicting
+                    .publish_first_scheduled_frame_v1(&mut Vec::new())
+                    .unwrap_err();
+                assert!(error.to_string().contains("recorded ray limits differ"));
+                assert_eq!(conflicting.completed_step(), 0);
+                let mut expected_frame = None;
+                for transition in [&mut pending, &mut restored] {
+                    transition.acknowledge_persistence(&descriptor).unwrap();
+                    transition.publish_running_authority().unwrap();
+                    let mut frame = Vec::new();
+                    assert_eq!(
+                        transition
+                            .pack_initial_frame_v1(&mut frame)
+                            .unwrap()
+                            .alive_snakes,
+                        14
+                    );
+                    transition
+                        .publish_first_scheduled_frame_v1(&mut frame)
+                        .unwrap();
+                    assert_eq!(transition.completed_step(), 1);
+                    if let Some(expected) = &expected_frame {
+                        assert_eq!(&frame, expected);
+                    } else {
+                        expected_frame = Some(frame);
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn qualified_checkpoint_restore_preserves_exact_sse2_contract_and_worker_continuation() {
+        use super::super::checkpoint::CheckpointOperationId;
+        use super::super::ray_work::RayWorkLimits;
+        use super::super::sensor_contract::SensorProfile;
+        let artifact = super::super::brain_artifact::validate_brain_artifact(
+            &super::super::trained_cohort::fixture_bytes(0.0, 0.06),
+        )
+        .unwrap();
+        let limits = RunningStepWorkLimits {
+            ray_work: Some(RayWorkLimits::new(1, 256, 65536, 512).unwrap()),
+            calculation_workers: 1,
+            ..RunningStepWorkLimits::provisional_defaults()
+        };
+        let mut pending = prepare_sensor_qualification_run(
+            request(42),
+            &numeric_settings(production_default_settings(12, 2)),
+            artifact.graph.spec().clone(),
+            SensorProfile::Basic,
+            8,
+            limits,
+            InferenceMathBackend::Sse2,
+            Some(super::super::baseline_v2::BaselineV2Settings {
+                mode: super::super::baseline_v2::BaselineV2Mode::Stochastic,
+                control_interval_seconds: 0.06,
+            }),
+            &[],
+        )
+        .unwrap();
+        let metadata = pending.startup_metadata_json().unwrap();
+        let managed = TestDirectory::create("qualified-sse2-restore");
+        let descriptor = pending
+            .publish_checkpoint(
+                managed.path(),
+                CheckpointOperationId::parse("112233445566778899aabbccddeeff00").unwrap(),
+            )
+            .unwrap();
+        let original = std::fs::read(managed.path().join(&descriptor.relative_filename)).unwrap();
+        // Production supports recorded SSE2; an explicit qualification request remains exact.
+        let ordinary =
+            prepare_stage6a_p0_checkpoint_restore(managed.path(), &descriptor, TEST_MEMORY_CEILING)
+                .unwrap();
+        assert_eq!(ordinary.startup_metadata_json().unwrap(), metadata);
+        assert!(prepare_sensor_qualification_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Basic,
+            8,
+            InferenceMathBackend::Scalar,
+            limits
+        )
+        .is_err());
+        assert!(prepare_sensor_qualification_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Motion,
+            8,
+            InferenceMathBackend::Sse2,
+            limits
+        )
+        .is_err());
+        let missing = prepare_sensor_qualification_checkpoint_restore(
+            std::path::Path::new("unused-no-ray-admission"),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Basic,
+            8,
+            InferenceMathBackend::Sse2,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .err()
+        .unwrap();
+        assert!(missing.to_string().contains("explicit ray limits"));
+        let mut restored = prepare_sensor_qualification_checkpoint_restore(
+            managed.path(),
+            &descriptor,
+            TEST_MEMORY_CEILING,
+            SensorProfile::Basic,
+            8,
+            InferenceMathBackend::Sse2,
+            limits,
+        )
+        .unwrap();
+        assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+        restored.configure_calculation_workers(3).unwrap();
+        let mut expected_frame = None;
+        for transition in [&mut pending, &mut restored] {
+            transition.acknowledge_persistence(&descriptor).unwrap();
+            transition.publish_running_authority().unwrap();
+            let mut frame = Vec::new();
+            assert_eq!(
+                transition
+                    .pack_initial_frame_v1(&mut frame)
+                    .unwrap()
+                    .alive_snakes,
+                14
+            );
+            transition
+                .publish_first_scheduled_frame_v1(&mut frame)
+                .unwrap();
+            assert_eq!(transition.completed_step(), 1);
+            if let Some(expected) = &expected_frame {
+                assert_eq!(&frame, expected);
+            } else {
+                expected_frame = Some(frame);
+            }
+        }
+        assert_eq!(
+            std::fs::read(managed.path().join(&descriptor.relative_filename)).unwrap(),
+            original
+        );
     }
 
     #[test]
@@ -1526,8 +4158,17 @@ mod tests {
         let mut running = pending
             .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
             .unwrap();
+        let token = running
+            .select_entity(
+                crate::engine::state::EntitySelectionTarget::Frame(snake_id),
+                &request(42).run_id,
+                1,
+            )
+            .unwrap()
+            .unwrap()
+            .token;
         let (death, effective_step) = running
-            .apply_god_mode_kill(snake_id)
+            .apply_god_mode_kill(token, snake_id)
             .expect("the supported ambient target must leave space for the full normal corpse");
         assert!(death.pellets_dropped > 0);
         assert_eq!(effective_step, 1);

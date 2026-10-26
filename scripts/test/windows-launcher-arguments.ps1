@@ -24,7 +24,13 @@ $ownedProcessIds = @()
 try {
   $ownedProcessIds += Start-Detached 'Simulation Server' @('run', 'server') 'server.pid' 'server.log'
   $ownedProcessIds += Start-Detached 'Vite Dev Server' @('run', 'dev', '--', '--force') 'dev.pid' 'dev.log'
-  foreach ($processId in $ownedProcessIds) { Wait-Process -Id $processId -Timeout 10 -ErrorAction SilentlyContinue }
+  foreach ($processId in $ownedProcessIds) {
+    try { Wait-Process -Id $processId -Timeout 10 -ErrorAction Stop }
+    catch {
+      # An already-exited child satisfies the wait; a live child preserves the original failure.
+      if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { throw }
+    }
+  }
 } finally {
   foreach ($processId in $ownedProcessIds) { Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue }
 }

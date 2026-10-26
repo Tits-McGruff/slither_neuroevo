@@ -22,7 +22,7 @@ A browser-based neuroevolution sandbox inspired by Slither.io. Populations of sn
 - [Home-LAN access](#home-lan-access)
 - [Controls](#controls) and [joining a game](#join-and-spectate)
 - [Slider guide](#slider-guide) and [brain graph editor](#brain-graph-editor)
-- [Import and export](#import-and-export)
+- [Import and export](#import-and-export) and [Brain Library](#brain-library)
 - [Preset recipes](#preset-recipes-qa-friendly)
 - [Test suites](#test-suites) and [troubleshooting](#troubleshooting)
 
@@ -279,6 +279,17 @@ device.
 
 - **Reset-only settings** include population and baseline-bot counts. Apply
   them with **Apply and reset** within the existing UI limits.
+- **Sensor version** selects frozen v3 or v4. V4 exposes **V4 information**
+  (Basic/Motion) and explicit ray-work limits, including **V4 observation capacity**.
+  **Baseline algorithm** v2 requires
+  v4 sensors; its **Baseline variation** and **V2 decision interval** apply on reset.
+  Inactive controls are disabled and are not submitted. Fresh runs use Motion/B16, baseline v2 stochastic at 1/60 s, and SSE2.
+  The selected pellet/segment budgets are 3000/2200; v4 rays use minimum 1,
+  cap 256, batch 65536 and observation capacity 512. Recorded/imported runs
+  retain their settings and scalar/SSE2 arithmetic. A custom graph must have
+  the selected sensor input width; an incompatible graph blocks reset with guidance.
+  **Use stack controls** explicitly leaves custom-graph mode while preserving
+  other pending settings, then **Apply and reset** starts the new population.
 - **Live settings** apply atomically at the next Rust step boundary and remain
   active through later Reset or New Run operations.
 - **Graphs** are sent directly to Rust for independent validation and compilation
@@ -290,7 +301,12 @@ The earlier combined implementation is preserved in the [retirement archive](doc
 
 ## Measured workloads and limits
 
-The retained Rust measurements use Oxygen's Ryzen 7 2700/Debian host at
+Fresh Motion/B16 defaults are covered by the [Windows/Oxygen P0 selection
+measurements](docs/performance/sensor-v4/stage-d-mixed-consumers-20261025.md).
+The table below retains earlier frozen-v3 results; it does not qualify the wider
+v4 large-graph envelope.
+
+The retained v3 Rust measurements use Oxygen's Ryzen 7 2700/Debian host at
 1x simulation speed, with 3,500 target pellets and ten baseline bots.
 Population snakes have individually owned neural weights. The
 large graph has 402,914 parameters per snake; the P3 startup probe uses a
@@ -512,6 +528,20 @@ and downloaded exports are outside this cap. A budget too small for the
 protected current and prior-run anchors stops the next durable transition
 instead of deleting them.
 
+
+`distillationSpoolGiB` sets the encoded teacher-dataset disk quota across retained
+captures. It defaults to 4 GiB and accepts integers from 1 to 64 through
+`server/config.toml`, `DISTILLATION_SPOOL_GIB`, or `--distillation-spool-gib N`.
+The spool also retains its 65,536-object ceiling and one-GiB operating disk
+reserve. On restart, a smaller quota rotates the oldest unpinned objects;
+active download leases protect their objects. This setting applies to the
+separate diagnostic store and leaves native scratch and trainer replay RAM
+unchanged. Existing configuration files are read without migration writes.
+Canonical trainer jobs record the admitted global policy from the diagnostic
+`GET /api/distillation/v1/storage` endpoint. The trainer's `--spool-gib N` option
+binds a job to the producer's selected quota; later changes require a new job.
+
+
 ## Home-LAN access
 
 On the Windows computer running Slither Neuroevolution:
@@ -544,26 +574,17 @@ To use another UI port, update `uiPort` and restart the UI and simulation server
 
 ## Test suites
 
-`npm test` builds/tests native code and runs the JavaScript suite. After the
-addon is built, `npm run test:js` runs the explicit complete JavaScript
-manifest. Focused commands are:
+Build the production addon with `npm --prefix native run build`, then run
+`npm test`. Vitest discovers normal `*.test.ts` files automatically. Use
+`npm run test:unit`, `npm run test:integration`, or `npm run test:native` for a
+focused project. Native and integration/system suffixes describe execution
+requirements; adding a test does not require a central registry. Performance
+measurements use `npm run test:performance` explicitly.
 
-- `test:unit`: small pure/module contracts.
-- `test:component`: multi-module behavior without a full server boundary.
-- `test:integration`: real WebSocket, persistence, worker-pool, and other
-  subsystem boundaries.
-- `test:system`: server/process lifecycle behavior.
-- `test:acceptance`: owner-visible end-to-end contract.
-- `test:regression`: named historical failures.
-- `test:performance`: measured budgets; currently informational in CI.
-- `test:security`: protocol/input and resource-boundary hardening.
-- `test:native-required`: additive native and multi-thread contracts that fail
-  rather than skip when the addon is unavailable.
-
-Server panic tests use a separate release addon with test hooks. The full,
-integration and required-native commands prepare it under `native/target` and
-reuse it while its source identity matches. Normal server startup requires the
-production addon and rejects the test build.
+Native panic tests prepare a separate test-hook addon under `native/target`.
+Normal startup requires the production addon and rejects the test build.
+Scientific qualification and long benchmarks run only through the manual
+Qualification workflow or explicit benchmark commands.
 
 ## Controls
 
@@ -575,7 +596,13 @@ production addon and rejects the test build.
 - Left click: Select a snake (God Mode selection).
 - Right click: Kill the selected snake (God Mode).
 - Shift + left click + drag: Move a selected snake (God Mode).
+- **Follow population individual across lives**: Keep following an evolved owner
+  when it respawns. Turn this off to select only the current physical life.
 - Mouse to steer, hold click to boost (when playing as a user snake).
+
+God Mode resolves selection with the server before applying an action. Old
+selections cannot act on a replacement life, even when a display ID is reused.
+
 - **Settings lock**: Hides all sliders and controls inside the Settings tab; unlock to edit.
 - **Apply and reset**: Rebuild the world using reset-only settings. Reset keeps
   the active seed, creates a new run ID, and durably records generation one.
@@ -621,6 +648,47 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
   the requested multiplier and report dropped scheduler debt.
 - **AI hidden layers**: How many MLP hidden layers to use (1–5). More layers increase capacity.
 - **Neurons layer 1–5**: The size of each hidden layer. Only layers up to the selected count are active.
+
+### Evolved lives and life scoring
+
+These controls use **Apply and reset**. **Respawn evolved snakes** keeps each
+individual's genome while replacing its physical body. **Respawn delay** is in
+simulated seconds; zero waits until the next newborn boundary. **Lives per
+individual** includes the initial life, with zero meaning unlimited.
+
+**Memory across lives** selects Reset or Preserve. **Point assessment** selects
+Reset, Cumulative or Best Life, independently of **Fitness across lives**.
+Cumulative assessment can use Net or Gross earned points, and its boost wallet
+can be Life-local or Carried. **Duration reward scale** optionally normalizes
+extensive fitness to 240 seconds; **Life penalty** can count Deaths or Successful
+respawns. These choices do not change the configured duration or passive credits.
+
+**Replaceable death food** selects Normal, None or Subtract replacement mass.
+Final exhausted deaths retain normal corpse behavior; wall deaths drop none.
+**Full pellet storage** selects atomic Fail or Discard new excess. The checkbox
+alone preserves this choice. **Use respawn preset** selects life defaults,
+enables respawn and selects Discard without changing unrelated pending drafts.
+
+**Early completion** offers Automatic, Physical alive and Duration only.
+Automatic uses the legacy alive threshold when respawn is off, finite exhaustion
+when lives are capped, and duration/manual completion for unlimited lives.
+Recorded legacy configurations keep their contract during ordinary resets and
+New Run. Changing a life control or choosing the preset explicitly selects the
+complete life contract for the next reset.
+
+Each completed modern generation saves bounded life, score, death, corpse and
+fitness summaries with its population checkpoint. Export and import preserve
+these summaries. The Hall of Fame labels its assessed score and length: Reset
+shows the latest life length, Cumulative shows the generation peak, and Best
+Life shows the selected life peak. Older entries keep their legacy physical
+score and length labels. A multi-hour round is durable when its generation
+boundary commits; restarting during a round returns to the saved boundary.
+
+The Stats tab reports waiting and pending owners, exhausted individuals, deaths,
+respawns, total individual waiting time and failed placements. Placement work
+shows its committed step, attempts, deferred owners, candidate count and geometry
+checks. Failed placements consume work without consuming a life. These live
+diagnostics are sampled with server frames.
 
 ### World and food
 
@@ -701,7 +769,7 @@ Most sliders are **live** (apply immediately). Some are **reset-only** (require 
 
 ### Evolution
 
-- **Generation duration seconds**: Length of each generation.
+- **Generation duration**: Simulated length of each generation, from 8 seconds to 7 days. Enter seconds (`240`), unit terms (`1h 2m 3s`) or a clock (`1:02:03`). Invalid drafts block Apply and reset. **Finish generation now** confirms the active generation and finishes its next complete step through the ordinary durable generation transition.
 - **Elite fraction**: Portion of top genomes preserved unchanged.
 - **Mutation rate**: Probability of mutating each weight.
 - **Mutation std**: Strength of weight perturbations.
@@ -897,6 +965,68 @@ Use GRU for smoother, more deliberate behavior.
 - GRU mutation std: 0.12–0.25
 - Brain control dt: 0.010–0.020
 
+## Teacher capture and shadow comparison
+
+The **Distillation** tab appears when the connected server supports diagnostic
+capture. **Start teacher capture** requires an explicitly admitted v4 sensor
+profile, a v2 baseline and at least one configured teacher. Fresh runs select Motion/B16 and baseline v2 stochastic; capture remains off
+until explicitly started. Frozen v3/v1 remains selectable and existing saves
+keep their recorded profile.
+
+Enter existing zero-based teacher slots in increasing comma-separated order,
+then start capture explicitly. **Refresh status** lists retained captures and
+the four native shadow slots. Inspect a capture to see its exact epoch,
+production/storage/resolution watermarks, retained bytes and drop counts.
+**Stop selected capture** seals that exact epoch. Capture, dataset discovery and
+shadows do not join a player or change snake control.
+
+Train a candidate in PyRL-trainer and upload it through its dedicated distillation
+client. Select an active capture, paste the candidate's complete digest into a
+shadow slot, choose its teacher slot and click **Activate candidate**. Rust
+validates compatibility, starts a new metric segment and resets shadow memory.
+Refresh to inspect turn MAE/MSE and boost disagreement for overall, strategy,
+life-stage, rare-event and pre-death groups. **Stop shadow** targets the observed
+activation. Candidate saving and deployment remain explicit Brain Library commands.
+
+A lost shadow reply exposes **Retry shadow command**, preserving the original
+request. Capture starts have a server-assigned epoch and are never automatically
+replayed: refresh retained captures to discover the result of an uncertain start.
+Dismissing a pending request only forgets its local retry/warning. Reconnects,
+run replacements and applied settings changes clear old displayed status; opening
+the tab only fetches metadata.
+
+## Brain Library
+
+The **Brain Library** tab appears when the connected server supports saved brains.
+It stores explicit saved models separately from Hall of Fame champions.
+
+- Enter a name and choose an original `.slither-brain` file, then click **Import file**.
+- To retain a trainer candidate, paste its complete artifact ID and click **Save candidate**.
+  Candidate upload alone does not save it permanently.
+- Use **Details** for graph/sensor/cadence compatibility, source provenance, teacher
+  information and recorded validation metrics. A matching input count does not
+  prove matching sensor meanings. Source configuration differences can change gameplay.
+- **Spawn** asks Rust to deploy a compatible brain and follows it after confirmation.
+  The active graph, structural sensors and neural cadence must match. Each spawn
+  starts with zero recurrent state; the UI does not change settings to make a model fit.
+- **Export** downloads the original self-contained file. **Delete** removes library
+  membership; snakes already running keep their owned weights and provenance.
+- Select a live snake and open **Stats** to see its native origin: a Hall of Fame
+  entry or a saved model's source class, artifact ID and weight digest. This remains
+  available after its library record is deleted.
+
+A timeout or lost reply exposes **Retry spawn**, which checks the original request
+instead of creating another snake. A confirmed rejection clears that pending request.
+Dismissing an uncertain request does not cancel any spawn already admitted by Rust.
+The initial library quota is 100 records and 2 GiB of unique stored model objects.
+To include saved brains in a checkpoint download, select **Include in checkpoint archive**
+on the desired library rows and click **Export checkpoint with selected brains**.
+Selection persists across library pages and clears when the server connection changes.
+Ordinary checkpoint exports exclude the library. Importing an associated archive restores
+its selected library records together with the checkpoint; existing records keep their
+names, and a quota rejection leaves the current game and library membership unchanged.
+Trainer datasets and optimizer checkpoints remain separate exports.
+
 ## Visualizer and Hall of Fame
 
 - **Brain Visualizer**: Shows the focused snake’s network activations. If you don’t see anything, switch to follow mode or select a snake.
@@ -923,3 +1053,16 @@ Use GRU for smoother, more deliberate behavior.
 - **Import input size mismatch**: Re-export from a build with the same v3
   sensor size and graph parameter count; do not delete the database as a first
   troubleshooting step.
+
+The **Stats** tab includes an optional **Decision inspector**. Select a snake on
+the canvas, or enter its zero-based **Population slot** and choose **Select
+individual**, then enable the checkbox. It shows the actual last delivered
+observation, its step and age, raw sensor measurements, normalized inputs and
+available action outputs. Unknown rays remain labelled; channels absent from a
+profile show **not sampled**. One viewer can inspect one target at a time. Turn
+the checkbox off to stop capture. Following an individual retains its selection
+while it waits for another physical life. **Probe once** captures a labelled
+sensor-only sample at the next stable step boundary and holds it until another
+request. **Show delivered** returns to actual decisions. A probe evaluates no
+action and leaves the snake's observation-delivery state unchanged. Following a
+replacement life requires another explicit probe request.

@@ -348,11 +348,28 @@ impl GenerationStartWorkspace {
         self.prepare_baselines(source, world_step, baseline_ids, frame_ids)?;
         self.prepare_initial_pellets(world_step)?;
 
-        let lifecycle = BaselineLifecycleState::initialize_after_complete_spawn(
+        let mut lifecycle = BaselineLifecycleState::initialize_after_complete_spawn(
             world_step.baseline,
             &self.world,
         )?;
+        if world_step.control.baseline_v2.is_some() {
+            for slot in &mut lifecycle.slots {
+                slot.v2_policy = Some(super::baseline_v2::BaselineV2State::default());
+            }
+        }
+        let evolved_generation = super::evolved_lives::EvolvedGenerationState::initialize(
+            &self.world,
+            population_count,
+            world_step.prefix.baseline_spawn.snake_start_len,
+        )
+        .map_err(|error| {
+            GenerationStartError::State(Box::new(StateError::InvalidField {
+                field: "fixed_step.evolved_generation",
+                reason: error.to_string(),
+            }))
+        })?;
         self.fixed_step = Some(FixedStepContinuationState {
+            evolved_generation,
             ambient_pellet_accumulator: 0.0,
             baseline_lifecycle: lifecycle,
             sensor_generation: super::sensors::SensorGenerationState::new(),
@@ -906,6 +923,10 @@ fn new_snake(
         previous_input_boost: false,
         control_accumulator_seconds,
         delivered_observation_points: 0.0,
+        observation_delivered: false,
+        completed_step_heading_delta: 0.0,
+        completed_step_speed_delta: 0.0,
+        completed_step_applied_turn: 0.0,
         body,
         skin,
     }

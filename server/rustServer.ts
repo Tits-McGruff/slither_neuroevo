@@ -1,3 +1,5 @@
+import { distillationSpoolLimitsForGiB } from './rustEngine/distillationProtocol.ts';
+import { DecisionInspectorRouting } from './rustEngine/decisionInspector.ts';
 import type {
   RustBackgroundVisualization,
   RustImportBranchNotice,
@@ -21,6 +23,11 @@ import { serveBrowserAsset } from './browserAssets.ts';
 import { admitBrowserRequest, createBrowserOriginPolicy } from './browserOrigins.ts';
 import { assertReplacementCheckpointBudget, createExperimentalServerRuntime } from './rustEngine/experimentalStartup.ts';
 import { BackgroundOutputPump } from './rustEngine/backgroundOutput.ts';
+import { DistillationSpoolClient } from './rustEngine/distillationSpoolClient.ts';
+import { DistillationCapture } from './rustEngine/distillationCapture.ts';
+import { DistillationHttpRouter } from './rustEngine/distillationHttp.ts';
+import { SavedBrainLibrary } from './rustEngine/savedBrainLibrary.ts';
+import type { BackgroundCommandAdmission } from './rustEngine/commandAdmission.ts';
 import { ExternalControllerRouting } from './rustEngine/externalRouting.ts';
 import { createRustSettings, createRustStats, createRustWelcome, wireInteger } from './rustEngine/browserMetadata.ts';
 import { ExperimentalRuntimeTelemetry } from './rustEngine/runtimeTelemetry.ts';
@@ -30,11 +37,13 @@ import type {
   ManagedBrowserHistoryEntry,
   ManagedCheckpointExportLease,
   ManagedImportBranchResult,
-  ManagedStorageDiagnostics
+  ManagedStorageDiagnostics,
+  SavedBrainArchiveEntryV1
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseManagedCheckpointDescriptor,
-  parseManagedImportInventoryDescriptor
+  parseManagedImportInventoryDescriptor,
+  parseSavedBrainArchiveEntries
 } from './rustEngine/checkpointPersistenceProtocol.ts';
 import {
   parseArchiveContentLength,
@@ -57,7 +66,7 @@ import {
   normalizeLiveSettingsUpdates,
   type LiveSettingsUpdate
 } from '../src/protocol/settings.ts';
-import { normalizeSettingValue } from '../src/protocol/settingDefinitions.ts';
+import { normalizeSettingValue, EVOLVED_SETTING_PATHS } from '../src/protocol/settingDefinitions.ts';
 
 /** Repository-owned built browser assets. */
 const CLIENT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -93,7 +102,7 @@ function storageHealthPayload(
 }
 
 /** Reject an export before writing when its scalar worst-case files do not fit. */
-async function admitExportSpace(directory: string, lease: ManagedCheckpointExportLease): Promise<void> {
+async function admitExportSpace(directory: string, lease: ManagedCheckpointExportLease, selectedBytes = 0n): Promise<void> {
   const population = BigInt(`0x${lease.descriptor.populationCount}`);
   const weights = BigInt(`0x${lease.descriptor.weightCount}`);
   const hallOfFameCount = BigInt(`0x${lease.inventory.hallOfFameCount}`);
@@ -102,7 +111,7 @@ async function admitExportSpace(directory: string, lease: ManagedCheckpointExpor
   }
   const hallOfFameRawBytes = hallOfFameCount * (weights / population) * 4n;
   const projectedAdditionalBytes = BigInt(`0x${lease.descriptor.storedByteCount}`) +
-    BigInt(`0x${lease.inventory.storedByteCount}`) + hallOfFameRawBytes * 2n + 16n * 1024n * 1024n;
+    BigInt(`0x${lease.inventory.storedByteCount}`) + hallOfFameRawBytes * 2n + selectedBytes + 16n * 1024n * 1024n;
   await admitDiskOperation(directory, {
     operation: 'export',
     sourceSpoolBytes: 0n,
@@ -224,6 +233,19 @@ function replacementSettings(
   const current = createRustSettings(metadata);
   const core = current.core as unknown as Record<string, number>;
   const replacements = new Map<string, number>();
+  const seenLifePaths = new Set<string>();
+  for (const update of message?.updates ?? []) if (EVOLVED_SETTING_PATHS.has(update.path)) {
+    if (seenLifePaths.has(update.path)) throw new Error('duplicate life setting: ' + update.path);
+    seenLifePaths.add(update.path);
+  }
+  const selectedLives = message?.updates?.some(update => EVOLVED_SETTING_PATHS.has(update.path)) ?? false;
+  const upgradingLives = selectedLives && !metadata.settings.some(setting => setting.path === 'evolvedRespawn.contractVersion');
+  if (upgradingLives) {
+    if (message?.updates?.find(update => update.path === 'evolvedRespawn.contractVersion')?.value !== 1 ||
+        [...EVOLVED_SETTING_PATHS].some(path => !message.updates?.some(update => update.path === path))) {
+      throw new Error('Selecting life experiments requires the complete version-one life settings.');
+    }
+  }
   for (const [key, value] of Object.entries(message?.settings ?? {})) {
     const definition = getLiveSettingDefinition(key);
     if (!definition || typeof value !== 'number') throw new Error(`reset setting ${key} is invalid`);
@@ -247,12 +269,19 @@ function replacementSettings(
       continue;
     }
     const definition = getLiveSettingDefinition(update.path);
-    if (!definition || !metadata.settings.some(setting => setting.path === update.path)) {
+    const sensorSelection = update.path === 'sense.layoutVersion' || update.path === 'sense.profile' || update.path.startsWith('sense.ray') ||
+      update.path === 'baselineBots.algorithm' || update.path === 'baselineBots.behaviorMode' || update.path === 'baselineBots.controlDt';
+    if (!definition || (!metadata.settings.some(setting => setting.path === update.path) &&
+        !(upgradingLives && EVOLVED_SETTING_PATHS.has(update.path)) && !sensorSelection)) {
       throw new Error(`reset setting ${update.path} is not supported by the current Rust graph`);
     }
-    replacements.set(update.path, normalizeSettingValue(definition, update.value));
+    const value = normalizeSettingValue(definition, update.value);
+    if (sensorSelection && (replacements.has(update.path) || value !== update.value)) {
+      throw new Error(`reset setting ${update.path} must be unique and within its declared bounds`);
+    }
+    replacements.set(update.path, value);
   }
-  return metadata.settings.map(setting => {
+  const result = metadata.settings.filter(setting => setting.path !== 'sense.contractSha256').map(setting => {
     const replacement = replacements.get(setting.path);
     const currentValue = typeof setting.value === 'boolean' ? Number(setting.value) : setting.value;
     if (typeof currentValue !== 'number' || !Number.isFinite(currentValue)) {
@@ -260,6 +289,38 @@ function replacementSettings(
     }
     return { path: setting.path, value: replacement ?? currentValue };
   });
+  if (upgradingLives) for (const path of EVOLVED_SETTING_PATHS) result.push({ path, value: replacements.get(path)! });
+  const values = new Map(result.map(setting => [setting.path, setting.value]));
+  const version = replacements.get('sense.layoutVersion') ?? metadata.sensorVersion;
+  const algorithm = replacements.get('baselineBots.algorithm') ?? values.get('baselineBots.controlVersion') ?? 1;
+  if (algorithm === 2 && version !== 4) throw new Error('Baseline v2 requires v4 sensors.');
+  if (version !== 4 && [...replacements.keys()].some(path => path === 'sense.profile' || path.startsWith('sense.ray'))) {
+    throw new Error('V4 information and ray limits require v4 sensors.');
+  }
+  if (algorithm !== 2 && (replacements.has('baselineBots.behaviorMode') || replacements.has('baselineBots.controlDt'))) {
+    throw new Error('Baseline variation and decision interval require baseline v2.');
+  }
+  if (version === 4) {
+    for (const path of ['sense.profile', 'sense.rayMinimum', 'sense.rayCap', 'sense.rayBatch', 'sense.rayMaximumDue']) {
+      const value = replacements.get(path) ?? values.get(path);
+      if (value === undefined) throw new Error(`Selecting v4 requires explicit ${path}.`);
+      values.set(path, value);
+    }
+    values.set('sense.contractVersion', 1);
+  } else {
+    for (const path of ['sense.contractVersion', 'sense.profile', 'sense.rayMinimum', 'sense.rayCap', 'sense.rayBatch', 'sense.rayMaximumDue']) values.delete(path);
+  }
+  values.set('brain.sensorVersion', version);
+  if (algorithm === 2) {
+    values.set('baselineBots.controlVersion', 2);
+    const mode = replacements.get('baselineBots.behaviorMode') ?? values.get('baselineBots.mode');
+    const cadence = replacements.get('baselineBots.controlDt') ?? values.get('baselineBots.controlDt');
+    if (mode === undefined || cadence === undefined) throw new Error('Selecting baseline v2 requires explicit variation and decision interval.');
+    values.set('baselineBots.mode', mode); values.set('baselineBots.controlDt', cadence);
+  } else {
+    for (const path of ['baselineBots.controlVersion', 'baselineBots.mode', 'baselineBots.controlDt']) values.delete(path);
+  }
+  return [...values].map(([path, value]) => ({path, value}));
 }
 
 /** Project the durable old-checkpoint conversion without exposing persistence internals. */
@@ -299,11 +360,15 @@ function applyMetadataSettings(
 
 /** Start native authority from fresh or retained managed state. */
 export async function startRustServer(config: ServerConfig): Promise<RustServer> {
+  /** Validate diagnostic resource admission before opening the owner database. */
+  const distillationLimits = distillationSpoolLimitsForGiB(config.distillationSpoolGiB);
   if (config.controllerInputHoldMs !== 500 || config.controllerDisconnectGraceMs !== 30_000 || config.checkpointEveryGenerations !== 1) {
     throw new Error('Rust startup requires default controller timing and every-generation checkpoints');
   }
   const browserOrigins = createBrowserOriginPolicy(config);
   const sessionId = randomUUID();
+  /** Ordered source hold shared by coarse archive population work. */
+  let populationWork: { hold(): Promise<void>; release(): Promise<void> } | undefined;
   let schedule = (): void => {};
   let owner: ExperimentalServerRuntime;
   try {
@@ -327,6 +392,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let activeCheckpointId = owner.runStart.checkpointId;
   let retention: CheckpointRetentionInventory;
   let fitnessHistory: ManagedBrowserHistoryEntry[];
+  /** Fixed experiment summaries retained only for bounded on-demand HTTP reads. */
+  let experimentHistory: ManagedBrowserHistoryEntry[];
+  /** Refresh compact stats once per history change, keeping sidecars out of the frame cadence. */
+  const setHistory = (history: ManagedBrowserHistoryEntry[]): void => {
+    experimentHistory = history;
+    fitnessHistory = history.map(({ experiment: _experiment, ...entry }) => entry);
+  };
   let hallOfFame: ManagedBrowserHallOfFameEntry[];
   let storage: ManagedStorageDiagnostics;
   let managedDisk: ManagedDiskDiagnostics;
@@ -334,12 +406,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   try {
     const initialCleanup = await owner.persistence.applyRetention();
     retention = initialCleanup.inventory;
-    [fitnessHistory, hallOfFame, storage, managedDisk] = await Promise.all([
+    [experimentHistory, hallOfFame, storage, managedDisk] = await Promise.all([
       owner.persistence.readBrowserHistory(activeMetadata.runId),
       owner.persistence.readBrowserHallOfFame(activeMetadata.runId),
       owner.persistence.inspectStorage(),
       inspectManagedDisk(owner.managedDirectory)
     ]);
+    setHistory(experimentHistory);
     retentionCleanup = { deletedCheckpointCount: initialCleanup.deletedCheckpointCount,
       deletedStoredByteCount: initialCleanup.deletedStoredByteCount };
   }
@@ -351,6 +424,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let timer: NodeJS.Timeout | undefined;
   let stopAuthorityWatch: (() => void) | undefined;
   let draining: Promise<boolean> | undefined;
+  /** Lazily opened diagnostic store; ordinary capture-off startup creates no spool. */
+  let distillation: DistillationCapture | undefined;
+  /** Dedicated transport installed only when its namespace is requested. */
+  let distillationHttp: DistillationHttpRouter | undefined;
+  /** Explicit library commands share the current native scope and existing disk owners. */
+  let savedBrains: SavedBrainLibrary | undefined;
+  /** The existing shared command owner, available before the HTTP listener starts. */
+  let distillationAdmission: BackgroundCommandAdmission | undefined;
   let lastFrame = 0;
   let lastStats = 0;
   let pumpStart = performance.now();
@@ -361,20 +442,31 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   let visualizationApplied = false;
   let visualizationCommand: { sequence: string; enabled: boolean } | undefined;
   let flushVisualization = (): void => {};
+  /** One selected diagnostic owner shares the existing native command sequence. */
+  let inspector: DecisionInspectorRouting | undefined;
   const pendingSettings = new Map<string, {
     connection: number;
     requestId: string;
     updates: LiveSettingsUpdate[];
   }>();
+  /** One retained manual request; completion follows the native durable successor. */
+  let pendingFinish: {
+    connection: number; requestId: string; runId: string; generation: number;
+    sequence: string; accepted: boolean; step?: number;
+  } | undefined;
+  /** At most one unresolved selection per connection, capped globally at 128. */
+  const pendingSelections = new Map<string, { connection: number; requestId: string }>();
   const pendingGodModeMoves = new Map<string, {
     connection: number;
     requestId: string;
     snakeId: number;
+    token: string;
   }>();
   const pendingGodModeKills = new Map<string, {
     connection: number;
     requestId: string;
     snakeId: number;
+    token: string;
   }>();
   const pendingResurrections = new Map<string, {
     resolve(snakeId: number): void;
@@ -423,24 +515,40 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
 
   /** Keep population-sized bytes in Rust/filesystem/browser networking for one exact lease. */
   const serveExport = async (
-    response: import('node:http').ServerResponse<import('node:http').IncomingMessage>
+    response: import('node:http').ServerResponse<import('node:http').IncomingMessage>,
+    brainIds: string[]
   ): Promise<void> => {
     const lease = await owner.persistence.acquireCurrentExportLease();
     const readyPath = resolve(owner.managedDirectory, `.${lease.operationId}.slither-save.ready`);
     /** Successful native preparation transfers ownership of this exact ready file. */
     let readyOwned = false;
+    /** Batch lease remains held until transfer/cancellation and checkpoint cleanup finish. */
+    let brainLeaseOwned = false;
     try {
+      let selected: SavedBrainArchiveEntryV1[] = [];
+      if (brainIds.length) {
+        const result = await owner.persistence.savedBrainCatalog({action: 'acquireArchive', brainIds, leaseId: lease.operationId});
+        brainLeaseOwned = true;
+        if (result.action !== 'acquireArchive') throw new Error('invalid saved brain archive lease');
+        selected = parseSavedBrainArchiveEntries(result.entries.map(entry => ({brainId: entry.brainId,
+          name: entry.name, createdAtMs: entry.createdAtMs, artifactByteCount: entry.artifactByteCount})));
+      }
       // Source selection may outlive the client; release its lease without starting population work.
       if (response.destroyed) return;
-      await admitExportSpace(owner.managedDirectory, lease);
+      await admitExportSpace(owner.managedDirectory, lease, selected.reduce((sum, entry) => sum + BigInt(`0x${entry.artifactByteCount}`), 0n));
       if (response.destroyed) return;
-      const preparation = owner.runtime.prepareExportArchive(
-        owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory
-      );
-      const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
-      let ready: Awaited<typeof preparation>;
-      try { ready = await preparation; readyOwned = true; }
-      finally { stopWatch(); }
+      if (!populationWork) throw new Error('population work admission is not ready');
+      await populationWork.hold();
+      let ready: Awaited<ReturnType<typeof owner.runtime.prepareExportArchive>>;
+      try {
+        const preparation = owner.runtime.prepareExportArchive(
+          owner.managedDirectory, lease.operationId, lease.descriptor, lease.inventory,
+          ...(selected.length ? [JSON.stringify(selected)] : [])
+        );
+        const stopWatch = watchArchiveWork(owner.runtime, lease.operationId, 'export', reportArchiveStall);
+        try { ready = await preparation; readyOwned = true; }
+        finally { stopWatch(); }
+      } finally { await populationWork.release(); }
       const downloadGeneration = BigInt(`0x${lease.descriptor.generation}`).toString();
       const downloadFilename = `slither-neuroevo-${lease.descriptor.logicalRootSha256.slice(0, 12)}-gen-${downloadGeneration}-v1.slither-save`;
       if (ready.operationId !== lease.operationId ||
@@ -504,7 +612,9 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           });
         }
       } finally {
-        await owner.persistence.releaseExportLease(lease.operationId);
+        try {
+          if (brainLeaseOwned) await owner.persistence.savedBrainCatalog({action: 'release', leaseId: lease.operationId});
+        } finally { await owner.persistence.releaseExportLease(lease.operationId); }
       }
     }
   };
@@ -512,6 +622,23 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     if (!admitBrowserRequest(request, response, browserOrigins)) return;
     const requestUrl = new URL(request.url ?? '/', 'http://localhost');
     const pathname = requestUrl.pathname;
+    if (pathname.startsWith('/api/distillation/v1/')) {
+      if (!distillationHttp) {
+        if (!distillationAdmission || stopping) { response.writeHead(503); response.end(); return; }
+        const spool = new DistillationSpoolClient(`${config.dbPath}.distillation`, distillationLimits);
+        distillation = new DistillationCapture(() => owner.runtime, distillationAdmission, spool,
+          () => ({ runId: activeMetadata.runId, seed: activeMetadata.seed }));
+        savedBrains = new SavedBrainLibrary(owner.persistence, spool, owner.managedDirectory,
+          () => owner.runtime, distillationAdmission,
+          () => ({expectedRunId: activeMetadata.runId, expectedConfigRevision: activeMetadata.configRevision,
+            expectedWorldEpoch: owner.runtime.health().worldEpoch}),
+          () => !fault && !stopping && !importOperation && !exportOperation && !resurrectionOperation && !pinning && !retentionMaintenance,
+          () => schedule());
+        distillationHttp = new DistillationHttpRouter(spool, distillation, savedBrains);
+      }
+      distillationHttp.handle(request, response, requestUrl);
+      return;
+    }
     if (pathname === '/api/health' || pathname === '/health') {
       refreshStorage();
       const nativeHealth = owner.runtime.health(true);
@@ -543,7 +670,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
         return;
       }
-      if (importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
+      if (importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another archive operation is in progress' }));
         return;
@@ -578,18 +705,29 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       return;
     }
     if (request.method === 'GET' && pathname === '/api/export/latest') {
+      /** Explicit IDs are unique, sorted, bounded metadata; the default selects no library records. */
+      const selection = requestUrl.searchParams.getAll('brainIds');
+      const brainIds = selection.length === 1 ? selection[0]!.split(',') : [];
+      if ([...requestUrl.searchParams.keys()].some(key => key !== 'brainIds') || selection.length > 1 ||
+          (selection.length && (brainIds.length < 1 || brainIds.length > 100 || brainIds.some((id, index) =>
+            !/^[0-9a-f]{64}$/u.test(id) || (index > 0 && brainIds[index - 1]! >= id))))) {
+        response.writeHead(400, {'Content-Type': 'application/json'});
+        response.end(JSON.stringify({ok: false, message: 'brainIds must contain 1..100 unique sorted saved brain IDs'}));
+        return;
+      }
+
       if (fault || stopping) {
         response.writeHead(503, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (exportOperation || importOperation || resurrectionOperation || pinning || retentionMaintenance) {
+      if (exportOperation || importOperation || resurrectionOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
       }
       activeExportResponse = response;
-      exportOperation = serveExport(response).catch(error => {
+      exportOperation = serveExport(response, brainIds).catch(error => {
         if (response.destroyed) return;
         if (response.headersSent) {
           response.destroy();
@@ -598,6 +736,11 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.writeHead(500, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: error instanceof Error ? error.message : String(error) }));
       }).finally(() => { activeExportResponse = undefined; exportOperation = undefined; });
+      return;
+    }
+    if (request.method === 'GET' && pathname === '/api/history') {
+      response.writeHead(fault ? 503 : 200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ version: 1, runId: activeMetadata.runId, history: experimentHistory }));
       return;
     }
     if (request.method === 'GET' && pathname === '/api/hof') {
@@ -675,7 +818,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is not ready' }));
         return;
       }
-      if (resurrectionOperation || importOperation || exportOperation || pinning || retentionMaintenance) {
+      if (resurrectionOperation || importOperation || exportOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another authority operation is in progress' }));
         return;
@@ -706,7 +849,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         response.end(JSON.stringify({ ok: false, message: fault ?? 'server is stopping' }));
         return;
       }
-      if (pinning || importOperation || exportOperation || resurrectionOperation || retentionMaintenance) {
+      if (pinning || importOperation || exportOperation || resurrectionOperation || retentionMaintenance || savedBrains?.busy) {
         response.writeHead(409, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ ok: false, message: 'another persistence operation is in progress' }));
         return;
@@ -751,8 +894,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       hub?.closeAll();
       owner.runtime.requestStop();
       await draining?.catch(() => {});
+      await savedBrains?.close().catch(error => { console.error('[saved-brains.shutdown]', error instanceof Error ? error.message : error); });
       try { await owner.close(); }
       finally {
+        await distillation?.close().catch(error => { console.error('[distillation.shutdown]', error instanceof Error ? error.message : error); });
         telemetry.close();
         if (server.listening) await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
       }
@@ -766,10 +911,36 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
     const sockets = hub;
     let routing!: ExternalControllerRouting;
     const output = new BackgroundOutputPump({
-      owner, maxControllers: MAX_CONTROLLERS,
+      owner, metadata: () => activeMetadata, maxControllers: MAX_CONTROLLERS,
       send: (id, message) => sockets.sendJsonTo(Number(BigInt(`0x${id}`)), message),
       event(event) {
         routing.event(event);
+        inspector?.event(event);
+        distillation?.event(event);
+        savedBrains?.event(event);
+        if (pendingFinish && pendingFinish.sequence === event.commandSequence &&
+            (event.kind === 'finishGenerationAccepted' || event.kind === 'commandRejected')) {
+          const pending = pendingFinish;
+          if (event.kind === 'finishGenerationAccepted' && event.finishGenerationEffectiveStep) {
+            pending.accepted = true;
+            pending.step = wireInteger(event.finishGenerationEffectiveStep);
+            sockets.sendJsonTo(pending.connection, { type: 'finishGenerationResult',
+              requestId: pending.requestId, runId: pending.runId, generation: pending.generation,
+              status: 'pending', step: pending.step });
+          } else {
+            sockets.sendJsonTo(pending.connection, { type: 'finishGenerationResult',
+              requestId: pending.requestId, runId: pending.runId, generation: pending.generation,
+              status: 'rejected', reason: event.rejectionDetail ?? 'Rust rejected manual completion' });
+            pendingFinish = undefined;
+          }
+        }
+        if (pendingFinish?.accepted && event.kind === 'generationStartPublished') {
+          const pending = pendingFinish;
+          sockets.sendJsonTo(pending.connection, { type: 'finishGenerationResult',
+            requestId: pending.requestId, runId: pending.runId, generation: pending.generation,
+            status: 'completed', ...(pending.step !== undefined ? { step: pending.step } : {}) });
+          pendingFinish = undefined;
+        }
         if (event.commandSequence && (event.kind === 'liveSettingsApplied' || event.kind === 'commandRejected')) {
           const pending = pendingSettings.get(event.commandSequence);
           if (pending) {
@@ -779,6 +950,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
                 fail(new Error('Rust live-settings result omitted its authoritative identity'));
                 return;
               }
+              inspector?.reset('inspector cleared by applied settings');
               activeMetadata = applyMetadataSettings(
                 activeMetadata,
                 pending.updates,
@@ -804,6 +976,16 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             }
           }
         }
+        if (event.commandSequence && (event.kind === 'entitySelected' || event.kind === 'commandRejected')) {
+          const pending = pendingSelections.get(event.commandSequence);
+          if (pending) {
+            pendingSelections.delete(event.commandSequence);
+            sockets.sendJsonTo(pending.connection, { type: 'entitySelected', requestId: pending.requestId,
+              found: event.kind === 'entitySelected' && !!event.entitySelection,
+              ...(event.entitySelection ? { entity: event.entitySelection } : {}),
+              ...(event.kind === 'commandRejected' ? { reason: event.rejectionDetail ?? 'Rust rejected selection' } : {}) });
+          }
+        }
         if (event.commandSequence && (event.kind === 'godModeMoved' || event.kind === 'commandRejected')) {
           const pending = pendingGodModeMoves.get(event.commandSequence);
           if (pending) {
@@ -812,7 +994,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             if (event.kind === 'godModeMoved' && moved) {
               sockets.sendJsonTo(pending.connection, {
                 type: 'godModeResult', requestId: pending.requestId, action: 'move',
-                snakeId: moved.snakeId, applied: true,
+                snakeId: moved.snakeId, selectionToken: pending.token, applied: true,
                 sequence: wireInteger(event.commandSequence), step: wireInteger(moved.effectiveStep),
                 x: moved.x, y: moved.y
               });
@@ -833,7 +1015,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             if (event.kind === 'godModeKilled' && killed) {
               sockets.sendJsonTo(pending.connection, {
                 type: 'godModeResult', requestId: pending.requestId, action: 'kill',
-                snakeId: killed.snakeId, applied: true,
+                snakeId: killed.snakeId, selectionToken: pending.token, applied: true,
                 sequence: wireInteger(event.commandSequence), step: wireInteger(killed.effectiveStep),
                 pelletsDropped: wireInteger(killed.pelletsDropped)
               });
@@ -890,6 +1072,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         }
       },
       hasFrameRecipients: () => sockets.hasFrameRecipients() && performance.now() - lastFrame >= 1000 / config.uiFrameRateHz,
+      diagnostics: () => inspector?.service(),
       wantsVisualization: () => visualizationConnections.size > 0,
       visualization(snapshot) { latestVisualization = snapshot; },
       frame(lease) { lastFrame = performance.now(); sockets.broadcastFrame(lease.bytes, lease.release); },
@@ -901,7 +1084,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         retentionMaintenance = (async () => {
           // SQLite has committed this generation; Rust still holds its durability
           // boundary. Do not scan while another native publisher is live.
-          if (orphanCleanupPending && !importOperation && !exportOperation && !resurrectionOperation && !pinning) {
+          if (orphanCleanupPending && !importOperation && !exportOperation && !resurrectionOperation && !pinning && !savedBrains?.busy) {
             await reclaimFailedPublication();
           }
           return owner.persistence.applyRetention();
@@ -909,13 +1092,14 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           retention = result.inventory;
           retentionCleanup = { deletedCheckpointCount: result.deletedCheckpointCount,
             deletedStoredByteCount: result.deletedStoredByteCount };
-          fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+          setHistory(await owner.persistence.readBrowserHistory(activeMetadata.runId));
           hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
         });
         try { await retentionMaintenance; }
         finally { retentionMaintenance = undefined; }
       }
     });
+    distillationAdmission = output.admission;
     routing = new ExternalControllerRouting({ native: owner.runtime, admission: output.admission,
       maxControllers: MAX_CONTROLLERS, maxActionsPerSecond: config.maxActionsPerSecond, maxActionsPerTick: config.maxActionsPerTick,
       send: (connection, message) => sockets.sendJsonTo(connection, message),
@@ -923,6 +1107,17 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       observeLifecycleLatency: (kind, operation, durationMs) =>
         telemetry.observeControllerLifecycle(kind, operation, durationMs),
       observeDisconnect: kind => telemetry.observeControllerDisconnect(kind) });
+    populationWork = {
+      async hold() {
+        routing.pauseForReplacement();
+        try { await output.stagePreparedImport(); }
+        catch (error) { routing.resumeAfterReplacement(); throw error; }
+      },
+      async release() {
+        try { await output.cancelPreparedImport(); routing.resumeAfterReplacement(); }
+        catch (error) { fail(error); throw error; }
+      }
+    };
     /** Converge many UI subscriptions onto one ordered native capture toggle. */
     flushVisualization = (): void => {
       const enabled = visualizationConnections.size > 0;
@@ -934,9 +1129,26 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       });
       if (admitted && sequence) visualizationCommand = { sequence, enabled };
     };
+    inspector = new DecisionInspectorRouting({runtime: () => owner.runtime, admission: output.admission,
+      scope: () => ({sessionId, runId: activeMetadata.runId,
+        available: !fault && !stopping && (!importOperation || importAuthorityPublished)}),
+      reliable: (connection, message) => sockets.sendJsonTo(connection, message),
+      replaceable: (connection, message) => sockets.sendInspectorTo(connection, message),
+      clear: connection => sockets.clearInspectorTo(connection), schedule});
     /** Keep health available after a terminal native/interface failure. */
     const fail = (error: unknown): void => {
       const failure = error instanceof Error ? error : new Error(String(error));
+      if (pendingFinish) {
+        sockets.sendJsonTo(pendingFinish.connection, { type: 'finishGenerationResult',
+          requestId: pendingFinish.requestId, runId: pendingFinish.runId, generation: pendingFinish.generation,
+          status: 'rejected', reason: failure.message });
+        pendingFinish = undefined;
+      }
+      for (const pending of pendingSelections.values()) {
+        sockets.sendJsonTo(pending.connection, { type: 'entitySelected', requestId: pending.requestId,
+          found: false, reason: failure.message });
+      }
+      pendingSelections.clear();
       for (const pending of pendingResurrections.values()) pending.reject(failure);
       pendingResurrections.clear();
       if (!fault) sockets.broadcastError(error instanceof Error ? error.message : String(error));
@@ -965,6 +1177,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             owner.runtime.submitHallOfFameResurrection(
               sequence,
               owner.managedDirectory,
+              selected.entryId,
               selected.weights
             );
             admittedSequence = sequence;
@@ -1029,6 +1242,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           finalManagedBytes: BigInt(`0x${diskEstimate.finalManagedBytes}`)
         });
         requireConnected();
+        routing.pauseForReplacement();
+        routingHeld = true;
+        await output.stagePreparedImport();
+        staged = true;
         nativePreparationStarted = true;
         const preparation = owner.runtime.prepareImportArchive(
           upload.readyPath,
@@ -1055,10 +1272,6 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         prepared = true;
         inventoryPath = resolve(owner.managedDirectory, inventory.relativeFilename);
         // Hold the old world before cancelling so newly published, unreferenced files can be reclaimed safely.
-        routing.pauseForReplacement();
-        routingHeld = true;
-        await output.stagePreparedImport();
-        staged = true;
         requireConnected();
         const selected = await owner.persistence.selectStartup();
         if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
@@ -1077,7 +1290,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         await output.publishPreparedImport(durable.descriptor, branchRunId ?? undefined);
         telemetry.rebase(previousHealth, durable.descriptor.completedStep, metadata.fixedStepSeconds);
         activeMetadata = branchRunId === null ? metadata : { ...metadata, runId: branchRunId };
-        fitnessHistory = await owner.persistence.readBrowserHistory(activeMetadata.runId);
+        setHistory(await owner.persistence.readBrowserHistory(activeMetadata.runId));
         hallOfFame = await owner.persistence.readBrowserHallOfFame(activeMetadata.runId);
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
@@ -1088,6 +1301,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
         const welcome = { ...createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers), ...(importBranch ? { importBranch } : {}) };
+        void distillation?.runReplaced().catch(error => { console.error('[distillation.replacement]', error instanceof Error ? error.message : error); });
+        inspector?.reset('inspector cleared by authority replacement');
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason: 'import', checkpointId: durable.checkpointId, welcome
@@ -1162,6 +1377,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       try {
         await owner.admitCheckpoint();
         const preexistingManagedNames = new Set(await readdir(owner.managedDirectory));
+        routing.pauseForReplacement();
+        routingHeld = true;
+        await output.stagePreparedImport();
+        staged = true;
         nativePreparationStarted = true;
         const candidate = await owner.runtime.prepareFreshRun(
           owner.managedDirectory,
@@ -1176,8 +1395,13 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         const metadata = parseRustStartupMetadata(candidate.startupMetadata);
         const returnedSettings = new Map(metadata.settings.map(setting => [setting.path,
           typeof setting.value === 'boolean' ? Number(setting.value) : setting.value]));
-        const settingsMatch = returnedSettings.size === settings.length && settings.every(setting =>
-          Object.is(returnedSettings.get(setting.path), setting.value));
+        // Rust derives the one textual v4 digest from the explicit numeric
+        // selection. The metadata parser independently verifies its bytes and
+        // its agreement with the graph/profile; every requested value still matches.
+        const derivedDigestCount = metadata.sensorVersion === 4 ? 1 : 0;
+        const settingsMatch = returnedSettings.size === settings.length + derivedDigestCount && settings.every(setting =>
+          Object.is(returnedSettings.get(setting.path), setting.value)) &&
+          (metadata.sensorVersion !== 4 || returnedSettings.get('sense.contractSha256') === metadata.sensorContract?.sha256);
         if (descriptor.operationId !== operationId || descriptor.runId !== runId ||
             descriptor.boundaryKind !== 'run-start' ||
             descriptor.generation !== '0000000000000001' ||
@@ -1195,10 +1419,6 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           }
           throw error;
         }
-        routing.pauseForReplacement();
-        routingHeld = true;
-        await output.stagePreparedImport();
-        staged = true;
         const selected = await owner.persistence.selectStartup();
         if (!selected.descriptor || selected.runId !== activeMetadata.runId) {
           throw new Error('staged fresh run found no matching current checkpoint');
@@ -1212,7 +1432,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         await output.publishPreparedImport(durable.descriptor);
         telemetry.rebase(previousHealth, durable.descriptor.completedStep, metadata.fixedStepSeconds);
         activeMetadata = metadata;
-        fitnessHistory = [];
+        setHistory([]);
         hallOfFame = [];
         activeCheckpointId = durable.checkpointId;
         recovery = undefined;
@@ -1223,6 +1443,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         disconnectedDuringImport.clear();
         importAuthorityPublished = true;
         const welcome = createRustWelcome(activeMetadata, sessionId, owner.nativeBuildIdentifier, config.rustCalculationWorkers);
+        void distillation?.runReplaced().catch(error => { console.error('[distillation.replacement]', error instanceof Error ? error.message : error); });
+        inspector?.reset('inspector cleared by authority replacement');
         sockets.replaceWelcome(welcome);
         sockets.enterAwaitingRejoin({
           type: 'stateReplaced', reason, checkpointId: durable.checkpointId, welcome
@@ -1278,7 +1500,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       settings: Array<{ path: string; value: number }> = replacementSettings(activeMetadata),
       graphSpec = activeMetadata.graphSpec
     ): void => {
-      if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance) {
+      if (fault || stopping || importOperation || exportOperation || resurrectionOperation || pinning || retentionMaintenance || savedBrains?.busy) {
         const detail = fault ?? (stopping ? 'server is stopping' : 'another persistence operation is in progress');
         if (newRunMessage) {
           sockets.sendJsonTo(connection, {
@@ -1341,6 +1563,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         if (!fault && !stopping) routing.action(connection, message);
       }); },
       onDisconnect(connection) { route(() => {
+        for (const [sequence, pending] of pendingSelections) {
+          if (pending.connection === connection) pendingSelections.delete(sequence);
+        }
+        inspector?.disconnect(connection);
         visualizationConnections.delete(connection);
         if (visualizationConnections.size === 0) latestVisualization = undefined;
         flushVisualization();
@@ -1390,12 +1616,73 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         });
         schedule();
       },
+      onFinishGeneration(connection, message) {
+        /** Return a bounded rejection to the requesting peer. */
+        const rejection = (reason: string): void => {
+          sockets.sendJsonTo(connection, { type: 'finishGenerationResult', requestId: message.requestId,
+            runId: message.expectedRunId, generation: message.expectedGeneration, status: 'rejected', reason });
+        };
+        if (pendingFinish) {
+          if (pendingFinish.requestId === message.requestId && pendingFinish.runId === message.expectedRunId &&
+              pendingFinish.generation === message.expectedGeneration) {
+            pendingFinish.connection = connection;
+            if (pendingFinish.accepted) sockets.sendJsonTo(connection, { type: 'finishGenerationResult',
+              requestId: message.requestId, runId: pendingFinish.runId, generation: pendingFinish.generation,
+              status: 'pending', ...(pendingFinish.step !== undefined ? { step: pendingFinish.step } : {}) });
+          } else rejection('another finish generation request is already pending');
+          return;
+        }
+        let admittedSequence: string | undefined;
+        const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+          output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitFinishGeneration(sequence, message.requestId, message.expectedRunId,
+              BigInt(message.expectedGeneration).toString(16).padStart(16, '0'));
+            admittedSequence = sequence;
+          });
+        if (!admitted || !admittedSequence) {
+          rejection(fault ?? (stopping ? 'server is stopping' : 'authoritative command queue is busy'));
+          return;
+        }
+        pendingFinish = { connection, requestId: message.requestId, runId: message.expectedRunId,
+          generation: message.expectedGeneration, sequence: admittedSequence, accepted: false };
+        schedule();
+      },
+      onSelectEntity(connection, message) {
+        if (message.expectedSessionId !== sessionId || pendingSelections.size >= 128 ||
+            [...pendingSelections.values()].some(pending => pending.connection === connection)) {
+          sockets.sendJsonTo(connection, { type: 'entitySelected', requestId: message.requestId,
+            found: false, reason: 'entity selection session is stale or another request is pending' });
+          return;
+        }
+        let admittedSequence: string | undefined;
+        const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
+          output.admission.trySubmitControl(sequence => {
+            owner.runtime.submitEntitySelection(sequence, message.snakeId !== undefined ? 'frame' : 'slot',
+              message.snakeId ?? message.populationSlot!, message.expectedRunId,
+              BigInt(message.expectedGeneration).toString(16).padStart(16, '0'));
+            admittedSequence = sequence;
+          });
+        if (!admitted || !admittedSequence) {
+          sockets.sendJsonTo(connection, { type: 'entitySelected', requestId: message.requestId,
+            found: false, reason: fault ?? 'authoritative command queue is busy' });
+          return;
+        }
+        pendingSelections.set(admittedSequence, { connection, requestId: message.requestId });
+        schedule();
+      },
+      onInspectEntity(connection, message) { route(() => { inspector?.request(connection, message); }); },
       onGodMode(connection, message: GodModeMsg) {
+        if (!message.selectionToken) {
+          sockets.sendJsonTo(connection, { type: 'godModeResult', requestId: message.requestId,
+            action: message.action, snakeId: message.snakeId, applied: false,
+            reason: 'resolve selectEntity before mutating a physical life' });
+          return;
+        }
         if (message.action === 'kill') {
           let admittedSequence: string | undefined;
           const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
             output.admission.trySubmitControl(sequence => {
-              owner.runtime.submitGodModeKill(sequence, message.snakeId);
+              owner.runtime.submitGodModeKill(sequence, message.snakeId, message.selectionToken!);
               admittedSequence = sequence;
             });
           if (!admitted || !admittedSequence) {
@@ -1407,7 +1694,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             return;
           }
           pendingGodModeKills.set(admittedSequence, {
-            connection, requestId: message.requestId, snakeId: message.snakeId
+            connection, requestId: message.requestId, snakeId: message.snakeId, token: message.selectionToken
           });
           schedule();
           return;
@@ -1415,7 +1702,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         let admittedSequence: string | undefined;
         const admitted = !fault && !stopping && (!importOperation || importAuthorityPublished) &&
           output.admission.trySubmitControl(sequence => {
-            owner.runtime.submitGodModeMove(sequence, message.snakeId, message.x, message.y);
+            owner.runtime.submitGodModeMove(sequence, message.snakeId, message.x, message.y, message.selectionToken!);
             admittedSequence = sequence;
           });
         if (!admitted || !admittedSequence) {
@@ -1427,7 +1714,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           return;
         }
         pendingGodModeMoves.set(admittedSequence, {
-          connection, requestId: message.requestId, snakeId: message.snakeId
+          connection, requestId: message.requestId, snakeId: message.snakeId, token: message.selectionToken
         });
         schedule();
       },

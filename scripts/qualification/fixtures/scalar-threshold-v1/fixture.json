@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "purpose": {
+    "test": "test_numeric_counterexamples.py",
+    "description": "Four original first-step scalar tolerance failures, minimized from 256-step LSTM/RRU arrays. Full recurrence/weights and same-export correction remain required release-asset qualification."
+  },
+  "files": {
+    "counterexamples.json": {
+      "bytes": 691,
+      "sha256": "f496c88b14b975a2d1cdeb2289087c26236931d977e714f239f9f8476efdf717"
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "kind": "external-evidence-v1",
+  "repository": "https://github.com/Tits-McGruff/slither_neuroevo.git",
+  "sourceCommit": "c73fc59a7773bb3fe3be7b29460fde53508d4bb2",
+  "bytePolicy": "Exact pre-migration working-tree bytes; no normalization of payloads.",
+  "files": {
+    "native/target/pellet-distance-export-20261025/P0.log": [
+      "9f74174138640e57e00a6baac68ba3af36b51d6139fe77bb714b5e55e03582e0",
+      2312
+    ],
+    "native/target/pellet-distance-export-20261025/P0/0-baseline.json": [
+      "da431f7e05dfcec07e53ebcbcbcb86a86c75d87414bae4c703c012980df83912",
+      207556
+    ],
+    "native/target/pellet-distance-export-20261025/P0/1-candidate.json": [
+      "5d1c0264b1988bfe8e3481771567a37cd84753c167c2b9dd8f1ff8a34c15b929",
+      207558
+    ],
+    "native/target/pellet-distance-export-20261025/P0/2-candidate.json": [
+      "c96d0b1ff4c551d6c21369fc871316d530c4f406a8281a55679f445a6f10541b",
+      207490
+    ],
+    "native/target/pellet-distance-export-20261025/P0/3-baseline.json": [
+      "82a58eb11f99fff2c54f3daa8468332d7a85b924718ab68bf439926e96faa665",
+      207523
+    ],
+    "native/target/pellet-distance-export-20261025/P0/comparison.json": [
+      "ea77e074fbe4829ecb3c67b07325aca83a6cec23fe4032f494701529c52d2c15",
+      4040
+    ],
+    "native/target/pellet-distance-export-20261025/P1.log": [
+      "abd2034c415fe0325b99bf7e6a316cd2f758b405d70253f28f4d0b115b268e70",
+      2314
+    ],
+    "native/target/pellet-distance-export-20261025/P1/0-baseline.json": [
+      "502aedaf4552a01c6c8484a907132ee2dcfd32d8e4a5d3a1a32d264722eaf585",
+      214996
+    ],
+    "native/target/pellet-distance-export-20261025/P1/1-candidate.json": [
+      "169bf607c80c406286398d053886f3a8986f444aa8cae8a1d837ec12a0e70997",
+      215017
+    ],
+    "native/target/pellet-distance-export-20261025/P1/2-candidate.json": [
+      "f69c1f58e884e9481c7079bbf068282e3026df6808d8908ee273f1bc05554cc4",
+      215003
+    ],
+    "native/target/pellet-distance-export-20261025/P1/3-baseline.json": [
+      "ad03872e7b8364221bc9ce34499a769a84df52ce9417598248fa091c0f96d83e",
+      215019
+    ],
+    "native/target/pellet-distance-export-20261025/P1/comparison.json": [
+      "2caa548eeb59056b48f5cd2b10beca6ec61f3a66febda894c729bb1fe267c33a",
+      4042
+    ],
+    "native/target/pellet-distance-export-20261025/after.resources.jsonl": [
+      "3934242ed893cf528ce83cc33e1ae3ca37b0b786e3372f839da99642786919c2",
+      713
+    ],
+    "native/target/pellet-distance-export-20261025/before.resources.jsonl": [
+      "9884d93282a531cbd2593097b009897dd95d0e995ae6b7b7bec19848e0fef931",
+      713
+    ],
+    "native/target/pellet-distance-export-20261025/during.resources.jsonl": [
+      "e4b2a29feb5a17c6c0599a3773a71dc2e488120a0c6fd22231eca1af07541dc3",
+      3525
+    ],
+    "native/target/pellet-distance-export-20261025/provenance.json": [
+      "d8ece48985e3dc82a8d68c48289d66618d1aff009a1f3cb3eb067119b50801cc",
+      146810
+    ]
+  },
+  "artifact": {
+    "url": "https://github.com/Tits-McGruff/slither_neuroevo/releases/download/qualification-resume-20261025/pellet-distance-windows.tar.gz",
+    "sha256": "aeafa379a8a0de595270fa441f2bd7f4e83358dcb7ebcccd58b5c160a5aa3ad3",
+    "bytes": 251912,
+    "objects": 16,
+    "decodedBytes": 1854631
+  }
+}

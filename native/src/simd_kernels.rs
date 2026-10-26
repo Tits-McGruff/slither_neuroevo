@@ -1,4 +1,4 @@
-//! Internal x86_64 SIMD dot products for authoritative heterogeneous inference.
+//! Internal x86_64 SIMD kernels for authoritative inference and diagnostic species bounds.
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
@@ -8,6 +8,10 @@ compile_error!("Native SIMD kernels require x86_64 (SSE). No non-x86_64 fallback
 
 /// Compute a SIMD-accelerated dot product.
 ///
+/// Long rows use four independent accumulators to hide add latency while reading
+/// contiguous weights. Reduction order is part of the source/build identity;
+/// scalar/SSE2 comparisons use the established numeric tolerances.
+///
 /// # Safety
 ///
 /// Pointers must be valid for `in_size` reads.
@@ -16,9 +20,48 @@ compile_error!("Native SIMD kernels require x86_64 (SSE). No non-x86_64 fallback
 unsafe fn dense_dot(weights_ptr: *const f32, input_ptr: *const f32, in_size: usize) -> f32 {
     let mut i = 0usize;
     // SAFETY: The caller guarantees both pointers are valid for `in_size` reads;
-    // this loop accesses only complete four-element chunks below that bound.
+    // the unrolled loop reads four complete groups only when i + 16 <= in_size,
+    // and the following loop reads only complete four-element chunks. Inputs may
+    // alias because every pointer access is read-only.
     let mut total = unsafe {
         let mut sum = _mm_setzero_ps();
+        if in_size >= 32 {
+            let mut b = sum;
+            let mut c = sum;
+            let mut d = sum;
+            while i + 16 <= in_size {
+                sum = _mm_add_ps(
+                    sum,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i)),
+                        _mm_loadu_ps(input_ptr.add(i)),
+                    ),
+                );
+                b = _mm_add_ps(
+                    b,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i + 4)),
+                        _mm_loadu_ps(input_ptr.add(i + 4)),
+                    ),
+                );
+                c = _mm_add_ps(
+                    c,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i + 8)),
+                        _mm_loadu_ps(input_ptr.add(i + 8)),
+                    ),
+                );
+                d = _mm_add_ps(
+                    d,
+                    _mm_mul_ps(
+                        _mm_loadu_ps(weights_ptr.add(i + 12)),
+                        _mm_loadu_ps(input_ptr.add(i + 12)),
+                    ),
+                );
+                i += 16;
+            }
+            sum = _mm_add_ps(_mm_add_ps(_mm_add_ps(sum, b), c), d);
+        }
         while i + 4 <= in_size {
             let w = _mm_loadu_ps(weights_ptr.add(i));
             let x = _mm_loadu_ps(input_ptr.add(i));
@@ -121,4 +164,141 @@ pub(crate) fn dot_product_mul_sse2(weights: &[f32], left: &[f32], right: &[f32])
     // SAFETY: Equal safe slices prove every pointer is valid for `left.len()`
     // reads. The runtime backend selector has admitted SSE2 for this process.
     unsafe { dense_dot_mul(weights.as_ptr(), left.as_ptr(), right.as_ptr(), left.len()) }
+}
+
+/// Sum squared Float32 differences in Float64 with a reordered positive reduction.
+///
+/// This is an approximate bound input, not an inference kernel or an exact scalar
+/// distance replacement. Callers must guard any decision against reduction error.
+/// Equal safe slices permit read-only aliasing; a mismatch panics before raw loads.
+/// SSE2 is guaranteed by the supported x86_64 targets.
+pub(crate) fn squared_distance_f64_sse2(left: &[f32], right: &[f32]) -> f64 {
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "SIMD distance slice length mismatch"
+    );
+    let mut index = 0;
+    // SAFETY: Both slices have equal lengths. Each iteration reads two complete
+    // four-f32 spans per slice only when index + 8 <= len. The only write is to
+    // the separate two-f64 stack array; inputs may overlap because all are reads.
+    let lanes = unsafe {
+        let mut a = _mm_setzero_pd();
+        let mut b = a;
+        let mut c = a;
+        let mut d = a;
+        while index + 8 <= left.len() {
+            let left0 = _mm_loadu_ps(left.as_ptr().add(index));
+            let right0 = _mm_loadu_ps(right.as_ptr().add(index));
+            let left1 = _mm_loadu_ps(left.as_ptr().add(index + 4));
+            let right1 = _mm_loadu_ps(right.as_ptr().add(index + 4));
+            let low0 = _mm_sub_pd(_mm_cvtps_pd(left0), _mm_cvtps_pd(right0));
+            let high0 = _mm_sub_pd(
+                _mm_cvtps_pd(_mm_movehl_ps(left0, left0)),
+                _mm_cvtps_pd(_mm_movehl_ps(right0, right0)),
+            );
+            let low1 = _mm_sub_pd(_mm_cvtps_pd(left1), _mm_cvtps_pd(right1));
+            let high1 = _mm_sub_pd(
+                _mm_cvtps_pd(_mm_movehl_ps(left1, left1)),
+                _mm_cvtps_pd(_mm_movehl_ps(right1, right1)),
+            );
+            a = _mm_add_pd(a, _mm_mul_pd(low0, low0));
+            b = _mm_add_pd(b, _mm_mul_pd(high0, high0));
+            c = _mm_add_pd(c, _mm_mul_pd(low1, low1));
+            d = _mm_add_pd(d, _mm_mul_pd(high1, high1));
+            index += 8;
+        }
+        let mut lanes = [0.0_f64; 2];
+        _mm_storeu_pd(
+            lanes.as_mut_ptr(),
+            _mm_add_pd(_mm_add_pd(a, b), _mm_add_pd(c, d)),
+        );
+        lanes
+    };
+    let mut total = lanes[0] + lanes[1];
+    for (&a, &b) in left[index..].iter().zip(&right[index..]) {
+        let difference = f64::from(a) - f64::from(b);
+        total += difference * difference;
+    }
+    total
+}
+
+#[cfg(test)]
+mod distance_tests {
+    use super::squared_distance_f64_sse2;
+
+    #[test]
+    fn positive_distance_reduction_covers_tails_aliases_and_float32_extremes() {
+        let patterns = [
+            0.0_f32,
+            -0.0,
+            f32::from_bits(1),
+            -f32::from_bits(1),
+            0.35,
+            -0.35,
+            1.0,
+            -5.0,
+            f32::MAX,
+            -f32::MAX,
+        ];
+        for length in 0..=273 {
+            let left: Vec<_> = (0..length).map(|i| patterns[i % patterns.len()]).collect();
+            let right: Vec<_> = (0..length)
+                .map(|i| patterns[(i + 3) % patterns.len()])
+                .collect();
+            let scalar = left.iter().zip(&right).fold(0.0, |sum, (&a, &b)| {
+                let difference = f64::from(a) - f64::from(b);
+                sum + difference * difference
+            });
+            let actual = squared_distance_f64_sse2(&left, &right);
+            assert!(actual.is_finite());
+            assert!((actual - scalar).abs() <= scalar * 1e-12);
+            assert_eq!(squared_distance_f64_sse2(&left, &left), 0.0);
+        }
+        let tiny = [f32::from_bits(1); 9];
+        let expected = 9.0 * f64::from(tiny[0]).powi(2);
+        assert_eq!(squared_distance_f64_sse2(&tiny, &[0.0; 9]), expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "SIMD distance slice length mismatch")]
+    fn distance_rejects_unequal_lengths_before_loading() {
+        squared_distance_f64_sse2(&[0.0; 9], &[0.0; 8]);
+    }
+}
+
+#[cfg(test)]
+mod dot_tests {
+    use super::dot_product_sse2;
+
+    /// Independent Float64 oracle covers vector boundaries, odd tails and read-only aliasing.
+    #[test]
+    fn independent_accumulators_cover_every_tail_and_admitted_long_row() {
+        for length in (0..=135).chain([248, 256, 264, 504, 512, 1024]) {
+            let left = (0..length)
+                .map(|i| (((i * 3571) % 10007) as f32 - 5003.0) / 16000.0)
+                .collect::<Vec<_>>();
+            let right = (0..length)
+                .map(|i| (((i * 1741 + 193) % 10007) as f32 - 5003.0) / 5003.0)
+                .collect::<Vec<_>>();
+            for input in [&right, &left] {
+                let expected = left
+                    .iter()
+                    .zip(input)
+                    .fold(0.0_f64, |sum, (&a, &b)| sum + f64::from(a) * f64::from(b));
+                let actual = f64::from(dot_product_sse2(&left, input));
+                assert!(actual.is_finite());
+                assert!(
+                    (actual - expected).abs() <= 1e-5 + 1e-4 * expected.abs(),
+                    "length={length}, actual={actual}, expected={expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "SIMD dot-product slice length mismatch")]
+    fn independent_accumulators_reject_mismatch_before_raw_reads() {
+        dot_product_sse2(&[0.0; 33], &[0.0; 32]);
+    }
 }

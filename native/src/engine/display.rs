@@ -18,6 +18,8 @@ pub struct RunningDisplayStatus {
     pub alive_population: usize,
     pub baseline_bots_alive: usize,
     pub baseline_bots_total: usize,
+    /// Optional until the first physical-life ledger is initialized.
+    pub evolved: Option<super::evolved_telemetry::EvolvedLifecycleTelemetry>,
     pub frame: FrameV1Metadata,
 }
 
@@ -32,6 +34,10 @@ pub struct RunningVisualizationLayer {
 /// Latest complete single-brain visualization copied from one published step.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunningVisualizationStatus {
+    /// Sequenced tombstone retires consumers' old physical diagnostic references.
+    pub cleared: bool,
+    /// Internal physical identity used only for cache lifetime checks.
+    pub physical_id: u64,
     pub sequence: u64,
     pub world_epoch: u64,
     pub completed_step: u64,
@@ -60,6 +66,12 @@ struct CachedDisplay {
     packed_at_ms: u64,
     visualization_sequence: u64,
     visualization: Option<RunningVisualizationStatus>,
+    inspector_sequence: u64,
+    inspector_subscription_sequence: u64,
+    inspector_world_epoch: u64,
+    inspector_completed_step: u64,
+    inspector_published_at_ms: Option<u64>,
+    inspector: Option<Box<super::inspector::InspectorObservation>>,
 }
 
 /// One reusable Rust buffer charged to authority's admitted frame allocation.
@@ -93,6 +105,12 @@ impl RunningDisplayCache {
                 packed_at_ms: 0,
                 visualization_sequence: 0,
                 visualization: None,
+                inspector_sequence: 0,
+                inspector_subscription_sequence: 0,
+                inspector_world_epoch: 0,
+                inspector_completed_step: 0,
+                inspector_published_at_ms: None,
+                inspector: None,
             }),
         })
     }
@@ -100,6 +118,81 @@ impl RunningDisplayCache {
     /// Read cached welcome metadata without traversing or locking authority.
     pub fn latest(&self) -> Result<Option<RunningDisplayStatus>, EngineError> {
         Ok(self.try_cache()?.and_then(|cache| cache.status))
+    }
+
+    /// Copy one fixed-size published diagnostic snapshot, never waiting on authority.
+    pub fn latest_inspector(
+        &self,
+        after_sequence: u64,
+    ) -> Result<Option<super::inspector::RunningInspectorStatus>, EngineError> {
+        Ok(self.try_cache()?.and_then(|cache| {
+            (cache.inspector_sequence > after_sequence).then(|| {
+                super::inspector::RunningInspectorStatus {
+                    sequence: cache.inspector_sequence,
+                    subscription_sequence: cache.inspector_subscription_sequence,
+                    world_epoch: cache.inspector_world_epoch,
+                    completed_step: cache.inspector_completed_step,
+                    observation: cache.inspector.as_deref().copied(),
+                }
+            })
+        }))
+    }
+
+    /// Publish only committed observations, at most 10 Hz; closing emits one small clear.
+    pub(crate) fn publish_inspector(
+        &self,
+        running: &RunningAuthorityLoop,
+        now_ms: u64,
+    ) -> Result<(), EngineError> {
+        self.publish_inspector_snapshot(
+            running.world_epoch(),
+            running.completed_step(),
+            running.inspector_observation(),
+            now_ms,
+        )
+    }
+
+    fn publish_inspector_snapshot(
+        &self,
+        world_epoch: u64,
+        completed_step: u64,
+        observation: Option<&super::inspector::InspectorObservation>,
+        now_ms: u64,
+    ) -> Result<(), EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(());
+        };
+        let Some(observation) = observation else {
+            if cache.inspector.take().is_some() {
+                cache.inspector_sequence = cache.inspector_sequence.saturating_add(1);
+                cache.inspector_world_epoch = world_epoch;
+                cache.inspector_completed_step = completed_step;
+            }
+            return Ok(());
+        };
+        if cache
+            .inspector_published_at_ms
+            .is_some_and(|previous| now_ms.saturating_sub(previous) < 100)
+            || cache.inspector.as_ref().is_some_and(|previous| {
+                previous.key == observation.key
+                    && previous.target == observation.target
+                    && previous.subscription_sequence == observation.subscription_sequence
+                    && cache.inspector_completed_step == completed_step
+            })
+        {
+            return Ok(());
+        }
+        if let Some(stored) = &mut cache.inspector {
+            **stored = *observation;
+        } else {
+            cache.inspector = Some(Box::new(*observation));
+        }
+        cache.inspector_sequence = cache.inspector_sequence.saturating_add(1);
+        cache.inspector_subscription_sequence = observation.subscription_sequence;
+        cache.inspector_world_epoch = world_epoch;
+        cache.inspector_completed_step = completed_step;
+        cache.inspector_published_at_ms = Some(now_ms);
+        Ok(())
     }
 
     /// Copy the newest focused snapshot only when its sequence advanced.
@@ -116,10 +209,31 @@ impl RunningDisplayCache {
         }))
     }
 
-    /// Drop a prior subscription's snapshot before capture is disabled.
-    pub(crate) fn clear_visualization(&self) -> Result<(), EngineError> {
-        if let Some(mut cache) = self.try_cache()? {
-            cache.visualization = None;
+    /// Publish a bounded tombstone; false means a consumer temporarily owns the cache.
+    pub(crate) fn clear_visualization(&self) -> Result<bool, EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(false);
+        };
+        clear_cached_visualization(&mut cache);
+        Ok(true)
+    }
+
+    /// Retain the last action between neural deliveries, but retire any dead,
+    /// replaced or foreign-world physical source. The predicate is Rust-only.
+    pub(crate) fn retain_current_visualization(
+        &self,
+        world_epoch: u64,
+        is_live: impl FnOnce(u64, u32) -> bool,
+    ) -> Result<(), EngineError> {
+        let Some(mut cache) = self.try_cache()? else {
+            return Ok(());
+        };
+        if cache.visualization.as_ref().is_some_and(|status| {
+            !status.cleared
+                && (status.world_epoch != world_epoch
+                    || !is_live(status.physical_id, status.frame_v1_id))
+        }) {
+            clear_cached_visualization(&mut cache);
         }
         Ok(())
     }
@@ -134,9 +248,11 @@ impl RunningDisplayCache {
             return Ok(());
         };
         if cache.visualization.as_ref().is_some_and(|prior| {
-            prior.world_epoch == world_epoch
+            !prior.cleared
+                && prior.world_epoch == world_epoch
                 && prior.completed_step == visualization.completed_step
                 && prior.frame_v1_id == visualization.frame_v1_id
+                && prior.physical_id == visualization.physical_id
         }) {
             return Ok(());
         }
@@ -146,6 +262,8 @@ impl RunningDisplayCache {
             .visualization
             .take()
             .unwrap_or(RunningVisualizationStatus {
+                cleared: false,
+                physical_id: visualization.physical_id,
                 sequence,
                 world_epoch,
                 completed_step: visualization.completed_step,
@@ -154,6 +272,8 @@ impl RunningDisplayCache {
                 values: Vec::new(),
             });
         status.sequence = sequence;
+        status.cleared = false;
+        status.physical_id = visualization.physical_id;
         status.world_epoch = world_epoch;
         status.completed_step = visualization.completed_step;
         status.frame_v1_id = visualization.frame_v1_id;
@@ -260,8 +380,67 @@ impl RunningDisplayCache {
     }
 }
 
+/// Clear once while keeping activation buffers available for the next capture.
+fn clear_cached_visualization(cache: &mut CachedDisplay) {
+    if cache
+        .visualization
+        .as_ref()
+        .is_some_and(|prior| !prior.cleared)
+    {
+        cache.visualization_sequence = cache.visualization_sequence.saturating_add(1);
+        let sequence = cache.visualization_sequence;
+        if let Some(status) = cache.visualization.as_mut() {
+            status.sequence = sequence;
+            status.cleared = true;
+            status.layers.clear();
+            status.values.clear();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn physical_visualization_clear_is_a_single_sequenced_tombstone() {
+        let cache = super::RunningDisplayCache::new(128).unwrap();
+        let capture = super::FocusedVisualization {
+            physical_id: 10,
+            frame_v1_id: 9,
+            completed_step: 3,
+            layers: &[],
+            values: &[],
+        };
+        cache.publish_visualization(5, capture).unwrap();
+        let first = cache.latest_visualization(0).unwrap().unwrap();
+        assert!(!first.cleared);
+        cache
+            .retain_current_visualization(5, |id, frame| id == 10 && frame == 9)
+            .unwrap();
+        assert!(cache
+            .latest_visualization(first.sequence)
+            .unwrap()
+            .is_none());
+        cache
+            .retain_current_visualization(5, |id, frame| id == 11 && frame == 9)
+            .unwrap();
+        let cleared = cache.latest_visualization(first.sequence).unwrap().unwrap();
+        assert!(cleared.cleared);
+        assert!(cleared.layers.is_empty() && cleared.values.is_empty());
+        cache.clear_visualization().unwrap();
+        assert!(cache
+            .latest_visualization(cleared.sequence)
+            .unwrap()
+            .is_none());
+        cache.publish_visualization(5, capture).unwrap();
+        assert!(
+            !cache
+                .latest_visualization(cleared.sequence)
+                .unwrap()
+                .unwrap()
+                .cleared
+        );
+    }
+
     use super::*;
     use crate::engine::contract::{CompletedEvent, OutputLimits, ReliableEvent};
     use crate::engine::queues::{NoopWakeSink, ReplaceResult};
@@ -277,6 +456,7 @@ mod tests {
             alive_population: 0,
             baseline_bots_alive: 0,
             baseline_bots_total: 0,
+            evolved: None,
             frame: FrameV1Metadata {
                 generation: 1,
                 total_snakes: 0,

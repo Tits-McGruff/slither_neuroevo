@@ -8,10 +8,10 @@
 use super::checkpoint::{
     decode_adaptive_numeric_reader, publication_descriptor_for_restored,
     publish_hall_of_fame_weights, read_validated_hall_of_fame_weights, rename_noreplace,
-    restore_committed_checkpoint, scan_strict_ustar_roles, select_adaptive_numeric_file,
-    sync_parent_directory, validate_scanned_entry_size, validated_checkpoint_archive_layout,
-    CheckpointDescriptor, CheckpointError, CheckpointLimits, CheckpointManifest,
-    CheckpointOperationId, HallOfFameWeightsDescriptor, NumericEncoding, RestoredCheckpoint,
+    restore_committed_checkpoint, select_adaptive_numeric_file, sync_parent_directory,
+    validate_scanned_entry_size, validated_checkpoint_archive_layout, CheckpointDescriptor,
+    CheckpointError, CheckpointLimits, CheckpointManifest, CheckpointOperationId,
+    HallOfFameWeightsDescriptor, NumericEncoding, RestoredCheckpoint,
 };
 use super::fresh_run::{
     prepare_stage6a_legacy_population_import, FreshRunSettingUpdate, LegacyPopulationGenome,
@@ -22,6 +22,7 @@ use super::graph::{
     GraphOutputRef, GraphSpec,
 };
 use super::legacy_origin::{LegacyPopulationOrigin, LegacyPopulationSource};
+use super::saved_brain_archive::{self, SavedBrainArchiveEntryV1, MAX_SAVED_BRAINS};
 use super::state::{NormalizedSettingValue, StateAdmissionPolicy};
 use super::step_config::typescript_default_settings;
 use super::work_progress::{
@@ -39,6 +40,12 @@ use std::path::{Path, PathBuf};
 use tar::{Archive as TarArchive, Builder as TarBuilder, EntryType, Header};
 
 const INVENTORY_MAGIC: &[u8; 13] = b"SLITHER-EXPV1";
+const INVENTORY_MAGIC_V2: &[u8; 13] = b"SLITHER-EXPV2";
+const INVENTORY_MAGIC_V3: &[u8; 13] = b"SLITHER-EXPV3";
+const EXPERIMENT_RECORD_BYTES: u64 = 776;
+const EXPERIMENT_PATH: &str = "generation-experiments.bin";
+const COMPLETION_RECORD_BYTES: u64 = 40;
+const COMPLETION_PATH: &str = "generation-completion.bin";
 const INVENTORY_HEADER_BYTES: u64 = 32;
 const HISTORY_RECORD_BYTES: u64 = 56;
 const HOF_RECORD_BYTES: u64 = 120;
@@ -100,7 +107,7 @@ pub struct ImportDiskEstimate {
     pub final_managed_bytes: u64,
 }
 
-/// Inspect at most nine USTAR headers and one small final manifest before any
+/// Inspect at most 111 USTAR headers and one small final manifest before any
 /// decoded import file is staged. Full integrity validation still follows.
 pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, CheckpointError> {
     let metadata = fs::symlink_metadata(path)?;
@@ -134,7 +141,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
     let mut file = File::open(path)?;
     let mut cursor = 0u64;
     let mut manifest_bytes = None;
-    for ordinal in 0..9 {
+    for _ordinal in 0..(11 + MAX_SAVED_BRAINS) {
         let header_end = cursor.checked_add(USTAR_BLOCK_BYTES).ok_or_else(|| {
             CheckpointError::format("IMPORT_DISK_ESTIMATE", "archive header offset overflowed")
         })?;
@@ -170,7 +177,11 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
                 "archive entry is truncated",
             ));
         }
-        if ordinal == 8 {
+        let name = header[..100]
+            .split(|byte| *byte == 0)
+            .next()
+            .unwrap_or_default();
+        if name == MANIFEST_PATH.as_bytes() {
             let name = header[..100]
                 .split(|byte| *byte == 0)
                 .next()
@@ -188,6 +199,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
             bytes.resize(size as usize, 0);
             file.read_exact(&mut bytes)?;
             manifest_bytes = Some(bytes);
+            break;
         }
         cursor = next;
     }
@@ -196,8 +208,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
     })?)
     .map_err(|error| CheckpointError::format("IMPORT_MANIFEST_JSON", error.to_string()))?;
     if manifest.magic != "slither-neuroevo-save"
-        || manifest.archive_version != 1
-        || manifest.roles.len() != 8
+        || manifest.roles.len() != manifest.base_role_count()? + manifest.saved_brains.len()
         || manifest.roles[7].role != "hall-of-fame-weights"
     {
         return Err(CheckpointError::format(
@@ -223,7 +234,12 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
     let checkpoint_and_inventory = metadata.len().checked_add(1024 * 1024).ok_or_else(|| {
         CheckpointError::format("IMPORT_DISK_ESTIMATE", "checkpoint allowance overflowed")
     })?;
+    let saved_numeric_bytes = (manifest.saved_brains.len() as u64)
+        .checked_mul(4_000_000 + 4096)
+        .ok_or_else(|| saved_brain_archive::invalid("saved numeric allowance overflow"))?;
     let objects = hof_decoded
+        .checked_add(saved_numeric_bytes)
+        .ok_or_else(|| saved_brain_archive::invalid("saved object allowance overflow"))?
         .checked_add((hof_count + 1).checked_mul(4096).ok_or_else(|| {
             CheckpointError::format("IMPORT_DISK_ESTIMATE", "object allowance overflowed")
         })?)
@@ -235,6 +251,13 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
         })?;
     let candidate_spool_bytes = final_managed_bytes
         .checked_add(hof_decoded)
+        .and_then(|bytes| {
+            bytes.checked_add(if manifest.saved_brains.is_empty() {
+                0
+            } else {
+                8_000_000
+            })
+        })
         .ok_or_else(|| {
             CheckpointError::format("IMPORT_DISK_ESTIMATE", "candidate allowance overflowed")
         })?;
@@ -285,6 +308,7 @@ pub struct ImportInventoryDescriptor {
     pub stored_byte_count_hex: String,
     pub history_count_hex: String,
     pub hall_of_fame_count_hex: String,
+    pub saved_brains: Vec<SavedBrainArchiveEntryV1>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -294,6 +318,10 @@ struct SaveManifest {
     legacy_conversion: Option<LegacyPopulationOrigin>,
     magic: String,
     archive_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    records_version: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    saved_brains: Vec<SavedBrainArchiveEntryV1>,
     archive_kind: String,
     run_id: String,
     generation_hex: String,
@@ -305,6 +333,28 @@ struct SaveManifest {
     hall_of_fame_weight_count_hex: String,
     checkpoint_manifest: CheckpointManifest,
     roles: Vec<SaveRole>,
+}
+
+impl SaveManifest {
+    /// Outer v4 adds explicit originals while preserving fixed inventory versions 1..3.
+    fn records_version(&self) -> Result<u32, CheckpointError> {
+        let version = match (self.archive_version, self.records_version) {
+            (1..=3, None) if self.saved_brains.is_empty() => self.archive_version,
+            (4, Some(version @ 1..=3)) if !self.saved_brains.is_empty() => version,
+            _ => {
+                return Err(saved_brain_archive::invalid(
+                    "unsupported save/record version pairing",
+                ))
+            }
+        };
+        saved_brain_archive::validate_selection(&self.saved_brains)?;
+        Ok(version)
+    }
+
+    fn base_role_count(&self) -> Result<usize, CheckpointError> {
+        let version = self.records_version()?;
+        Ok(8 + usize::from(version >= 2) + usize::from(version == 3))
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -609,14 +659,19 @@ pub fn prepare_import_archive(
 ) -> Result<PreparedImportArchive, CheckpointError> {
     let _phase = ArchivePhaseScope::enter(ArchivePhase::Import);
     if upload_looks_like_legacy_json(archive_path)? {
-        return prepare_legacy_json_import(
+        let mut legacy = prepare_legacy_json_import(
             archive_path,
             managed_directory,
             operation_id,
             legacy_run_id,
             legacy_seed,
-            memory_ceiling_bytes,
-        );
+            admission_policy.memory_ceiling_bytes,
+        )?;
+        legacy
+            .transition
+            .select_retired_source_memory_ceiling(memory_ceiling_bytes)
+            .map_err(|error| CheckpointError::format("LEGACY_IMPORT_MEMORY", error.to_string()))?;
+        return Ok(legacy);
     }
     let mut candidate = validate_import_candidate(
         archive_path,
@@ -632,16 +687,14 @@ pub fn prepare_import_archive(
     let managed_directory = managed_directory.canonicalize()?;
     let final_path = managed_directory.join(&descriptor.relative_filename);
     if final_path.exists() {
-        let existing = super::checkpoint::restore_checkpoint(
+        let existing = super::checkpoint::verify_existing_checkpoint_content(
             &final_path,
+            candidate.restored.state.state(),
+            candidate.restored.state.graph(),
+            &candidate.restored.content.logical_root_sha256,
             checkpoint_limits,
-            graph_limits,
-            admission_policy,
         )?;
-        if existing.content != candidate.restored.content
-            || existing.state.state() != candidate.restored.state.state()
-            || existing.state.graph_spec() != candidate.restored.state.graph_spec()
-        {
+        if existing != candidate.restored.content {
             return Err(CheckpointError::format(
                 "IMPORT_CHECKPOINT_COLLISION",
                 "existing digest-derived checkpoint differs from the imported candidate",
@@ -654,6 +707,8 @@ pub fn prepare_import_archive(
         candidate.restored,
         descriptor.clone(),
         memory_ceiling_bytes,
+        checkpoint_limits.clone(),
+        graph_limits.clone(),
     )
     .map_err(|error| CheckpointError::format("IMPORT_CANDIDATE", error.to_string()))?;
     drop(construction_phase);
@@ -719,6 +774,17 @@ fn prepare_legacy_json_import(
             "legacy JSON must be one nonempty regular file no larger than 512 MiB",
         ));
     }
+    let decoded_ownership =
+        super::legacy_json_resources::estimate(File::open(archive_path)?, memory_ceiling_bytes)
+            .map_err(|detail| CheckpointError::format("LEGACY_IMPORT_RESOURCE", detail))?;
+    let construction_ceiling = memory_ceiling_bytes
+        .checked_sub(decoded_ownership)
+        .ok_or_else(|| {
+            CheckpointError::format(
+                "LEGACY_IMPORT_RESOURCE",
+                "legacy decoded ownership exceeds admission",
+            )
+        })?;
     let input = BufReader::new(ProgressReader(File::open(archive_path)?));
     let mut decoder = serde_json::Deserializer::from_reader(input);
     let legacy = LegacyPopulationFile::deserialize(&mut decoder).map_err(|error| {
@@ -733,6 +799,7 @@ fn prepare_legacy_json_import(
             format!("legacy population JSON has trailing data: {error}"),
         )
     })?;
+    drop(decoder);
     drop(decode_phase);
     let save_sha256 = hex_digest(hash_file_range(archive_path, 0, metadata.len())?);
     let mut origin = LegacyPopulationOrigin::new(LegacyPopulationSource::BrowserJson);
@@ -742,7 +809,7 @@ fn prepare_legacy_json_import(
         legacy,
         legacy_run_id,
         legacy_seed,
-        memory_ceiling_bytes,
+        construction_ceiling,
         origin,
     )?;
     drop(construction_phase);
@@ -1660,6 +1727,7 @@ fn publish_empty_import_inventory(
     let sha256 = hex_digest(hash_file_range(&final_path, 0, INVENTORY_HEADER_BYTES)?);
     cleanup.paths.clear();
     Ok(ImportInventoryDescriptor {
+        saved_brains: Vec::new(),
         version: 1,
         relative_filename,
         sha256,
@@ -1909,8 +1977,33 @@ pub fn compose_export_archive(
     graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<ExportArchiveDescriptor, CheckpointError> {
+    compose_export_archive_with_saved_brains(
+        managed_directory,
+        operation_id,
+        checkpoint,
+        inventory,
+        checkpoint_limits,
+        graph_limits,
+        admission_policy,
+        &[],
+    )
+}
+
+/// Compose an explicitly selected portable library beside one unchanged checkpoint.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_export_archive_with_saved_brains(
+    managed_directory: &Path,
+    operation_id: &str,
+    checkpoint: &CheckpointDescriptor,
+    inventory: &ExportInventoryDescriptor,
+    checkpoint_limits: &CheckpointLimits,
+    graph_limits: &GraphLimits,
+    admission_policy: &StateAdmissionPolicy,
+    saved_brains: &[SavedBrainArchiveEntryV1],
+) -> Result<ExportArchiveDescriptor, CheckpointError> {
     let _phase = ArchivePhaseScope::enter(ArchivePhase::Export);
     validate_operation_id(operation_id)?;
+    saved_brain_archive::validate_selection(saved_brains)?;
     if checkpoint.operation_id.as_str() == operation_id {
         return Err(CheckpointError::format(
             "EXPORT_OPERATION",
@@ -1956,7 +2049,12 @@ pub fn compose_export_archive(
         ));
     }
 
-    let inventory_facts = validate_inventory(&managed_directory, operation_id, inventory)?;
+    let inventory_facts = validate_inventory(
+        &managed_directory,
+        operation_id,
+        inventory,
+        parse_hex_u64(&checkpoint.completed_step_hex, "completion maximum step")?,
+    )?;
     let expected_history = parse_hex_u64(&checkpoint.generation_hex, "checkpoint generation")?
         .checked_sub(1)
         .ok_or_else(|| {
@@ -2080,7 +2178,57 @@ pub fn compose_export_archive(
             hof_weights_sha256,
         ),
     ]);
-    let save_root = logical_root(&roles)?;
+    if inventory_facts.version >= 2 {
+        let offset = hof_index_offset + inventory_facts.hall_of_fame_bytes;
+        roles.push(save_role(
+            "generation-completion",
+            COMPLETION_PATH,
+            "raw-generation-completion-v1",
+            inventory_facts.completion_bytes,
+            inventory_facts.completion_bytes,
+            inventory_facts.history_count,
+            COMPLETION_RECORD_BYTES as u32,
+            hash_file_range(
+                &inventory_facts.path,
+                offset,
+                inventory_facts.completion_bytes,
+            )?,
+        ));
+    }
+    if inventory_facts.version == 3 {
+        let offset = hof_index_offset
+            + inventory_facts.hall_of_fame_bytes
+            + inventory_facts.completion_bytes;
+        roles.push(save_role(
+            "generation-experiments",
+            EXPERIMENT_PATH,
+            "raw-generation-experiment-v1",
+            inventory_facts.experiment_bytes,
+            inventory_facts.experiment_bytes,
+            inventory_facts.history_count,
+            EXPERIMENT_RECORD_BYTES as u32,
+            hash_file_range(
+                &inventory_facts.path,
+                offset,
+                inventory_facts.experiment_bytes,
+            )?,
+        ));
+    }
+    for entry in saved_brains {
+        saved_brain_archive::validate_file(&managed_directory, entry)?;
+        let bytes = entry.bytes()?;
+        roles.push(save_role(
+            "saved-brain",
+            &entry.path(),
+            "portable-slither-brain-v1",
+            bytes,
+            bytes,
+            1,
+            0,
+            parse_digest(&entry.brain_id, "saved brain identity")?,
+        ));
+    }
+    let save_root = save_logical_root(&roles, saved_brains, inventory_facts.version)?;
     let manifest = SaveManifest {
         archive_kind: if legacy_conversion.is_some() {
             "legacy-population-import"
@@ -2090,7 +2238,17 @@ pub fn compose_export_archive(
         .to_owned(),
         legacy_conversion,
         magic: "slither-neuroevo-save".to_owned(),
-        archive_version: 1,
+        archive_version: if saved_brains.is_empty() {
+            inventory_facts.version
+        } else {
+            4
+        },
+        records_version: if saved_brains.is_empty() {
+            None
+        } else {
+            Some(inventory_facts.version)
+        },
+        saved_brains: saved_brains.to_vec(),
         run_id: checkpoint.run_id.clone(),
         generation_hex: checkpoint.generation_hex.clone(),
         completed_step_hex: checkpoint.completed_step_hex.clone(),
@@ -2129,6 +2287,15 @@ pub fn compose_export_archive(
         hof_numeric.stored_bytes,
         manifest_bytes.len() as u64,
     ]);
+    if inventory_facts.version >= 2 {
+        entry_sizes.insert(entry_sizes.len() - 1, inventory_facts.completion_bytes);
+    }
+    if inventory_facts.version == 3 {
+        entry_sizes.insert(entry_sizes.len() - 1, inventory_facts.experiment_bytes);
+    }
+    for entry in saved_brains {
+        entry_sizes.insert(entry_sizes.len() - 1, entry.bytes()?);
+    }
     let expected_archive_bytes = expected_archive_length(&entry_sizes)?;
     if expected_archive_bytes > MAX_EXPORT_ARCHIVE_BYTES {
         return Err(CheckpointError::format(
@@ -2173,6 +2340,35 @@ pub fn compose_export_archive(
         0,
         hof_numeric.stored_bytes,
     )?;
+    if inventory_facts.version >= 2 {
+        append_file(
+            &mut archive,
+            COMPLETION_PATH,
+            &inventory_facts.path,
+            hof_index_offset + inventory_facts.hall_of_fame_bytes,
+            inventory_facts.completion_bytes,
+        )?;
+    }
+    if inventory_facts.version == 3 {
+        append_file(
+            &mut archive,
+            EXPERIMENT_PATH,
+            &inventory_facts.path,
+            hof_index_offset
+                + inventory_facts.hall_of_fame_bytes
+                + inventory_facts.completion_bytes,
+            inventory_facts.experiment_bytes,
+        )?;
+    }
+    for entry in saved_brains {
+        append_file(
+            &mut archive,
+            &entry.path(),
+            &managed_directory.join(entry.filename()),
+            0,
+            entry.bytes()?,
+        )?;
+    }
     append_bytes(&mut archive, MANIFEST_PATH, &manifest_bytes)?;
     archive.finish()?;
     let mut writer = archive.into_inner()?;
@@ -2239,6 +2435,9 @@ pub fn compose_export_archive(
 }
 
 struct InventoryFacts {
+    version: u32,
+    completion_bytes: u64,
+    experiment_bytes: u64,
     path: PathBuf,
     history_count: u64,
     hall_of_fame_count: u64,
@@ -2250,9 +2449,11 @@ fn validate_inventory(
     directory: &Path,
     operation_id: &str,
     descriptor: &ExportInventoryDescriptor,
+    maximum_step: u64,
 ) -> Result<InventoryFacts, CheckpointError> {
-    if descriptor.version != 1
-        || descriptor.relative_filename != format!(".{operation_id}.export-inventory-v1")
+    if !matches!(descriptor.version, 1..=3)
+        || descriptor.relative_filename
+            != format!(".{operation_id}.export-inventory-v{}", descriptor.version)
     {
         return Err(CheckpointError::format(
             "EXPORT_INVENTORY",
@@ -2278,8 +2479,28 @@ fn validate_inventory(
         .ok_or_else(|| {
             CheckpointError::format("COUNT_OVERFLOW", "Hall-of-Fame inventory length overflowed")
         })?;
+    let completion_bytes = if descriptor.version >= 2 {
+        history_count
+            .checked_mul(COMPLETION_RECORD_BYTES)
+            .ok_or_else(|| {
+                CheckpointError::format("COUNT_OVERFLOW", "completion inventory overflow")
+            })?
+    } else {
+        0
+    };
+    let experiment_bytes = if descriptor.version == 3 {
+        history_count
+            .checked_mul(EXPERIMENT_RECORD_BYTES)
+            .ok_or_else(|| {
+                CheckpointError::format("COUNT_OVERFLOW", "experiment inventory overflow")
+            })?
+    } else {
+        0
+    };
     let expected_bytes = INVENTORY_HEADER_BYTES
-        .checked_add(history_bytes)
+        .checked_add(experiment_bytes)
+        .and_then(|value| value.checked_add(completion_bytes))
+        .and_then(|value| value.checked_add(history_bytes))
         .and_then(|value| value.checked_add(hall_of_fame_bytes))
         .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "inventory length overflowed"))?;
     if parse_hex_u64(&descriptor.stored_byte_count_hex, "inventory stored bytes")? != expected_bytes
@@ -2305,7 +2526,7 @@ fn validate_inventory(
     let mut file = File::open(&path)?;
     let mut header = [0u8; INVENTORY_HEADER_BYTES as usize];
     file.read_exact(&mut header)?;
-    if &header[..INVENTORY_MAGIC.len()] != INVENTORY_MAGIC
+    if &header[..INVENTORY_MAGIC.len()] != inventory_magic(descriptor.version)
         || header[INVENTORY_MAGIC.len()..16]
             .iter()
             .any(|byte| *byte != 0)
@@ -2318,7 +2539,32 @@ fn validate_inventory(
         ));
     }
     validate_history_records(&mut file, history_count)?;
+    if descriptor.version >= 2 {
+        file.seek(SeekFrom::Start(
+            INVENTORY_HEADER_BYTES + history_bytes + hall_of_fame_bytes,
+        ))?;
+        validate_completion_records(&mut file, history_count, maximum_step)?;
+    }
+    if descriptor.version == 3 {
+        let completion_offset = INVENTORY_HEADER_BYTES + history_bytes + hall_of_fame_bytes;
+        file.seek(SeekFrom::Start(completion_offset + completion_bytes))?;
+        let mut validator = ExperimentArchiveValidator::new(
+            &path,
+            completion_offset,
+            INVENTORY_HEADER_BYTES + history_bytes,
+            hall_of_fame_count,
+            maximum_step,
+        )?;
+        let mut record = [0u8; EXPERIMENT_RECORD_BYTES as usize];
+        for generation in 1..=history_count {
+            file.read_exact(&mut record)?;
+            validator.validate(&record, generation)?;
+        }
+    }
     Ok(InventoryFacts {
+        version: descriptor.version,
+        completion_bytes,
+        experiment_bytes,
         path,
         history_count,
         hall_of_fame_count,
@@ -2486,34 +2732,51 @@ fn scan_import_archive(
 ) -> Result<ScannedImportArchive, CheckpointError> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
-    let entries = scan_strict_ustar_roles(&mut file, length, 9, |name, size| {
-        let limit = match name {
-            HISTORY_PATH => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
-            HOF_INDEX_PATH => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
-            HOF_WEIGHTS_PATH | HOF_WEIGHTS_ZSTD_PATH => MAX_EXPORT_ARCHIVE_BYTES,
-            MANIFEST_PATH => 1024 * 1024,
-            _ => return validate_scanned_entry_size(name, size, checkpoint_limits),
-        };
-        if size > limit {
-            return Err(CheckpointError::format(
-                "IMPORT_ENTRY_LIMIT",
-                format!("save entry {name} exceeds its stored limit"),
-            ));
-        }
-        Ok(())
-    })?;
+    let entries = super::checkpoint::scan_strict_ustar_role_range(
+        &mut file,
+        length,
+        9,
+        11 + MAX_SAVED_BRAINS,
+        |name, size| {
+            let limit = match name {
+                HISTORY_PATH => MAX_EXPORT_GENERATIONS * HISTORY_RECORD_BYTES,
+                COMPLETION_PATH => MAX_EXPORT_GENERATIONS * COMPLETION_RECORD_BYTES,
+                EXPERIMENT_PATH => MAX_EXPORT_GENERATIONS * EXPERIMENT_RECORD_BYTES,
+                HOF_INDEX_PATH => MAX_EXPORT_GENERATIONS * HOF_RECORD_BYTES,
+                HOF_WEIGHTS_PATH | HOF_WEIGHTS_ZSTD_PATH => MAX_EXPORT_ARCHIVE_BYTES,
+                MANIFEST_PATH => 1024 * 1024,
+                _ if name.starts_with("brains/") => {
+                    super::brain_artifact::MAX_BRAIN_ARTIFACT_BYTES as u64
+                }
+                _ => return validate_scanned_entry_size(name, size, checkpoint_limits),
+            };
+            if size > limit {
+                return Err(CheckpointError::format(
+                    "IMPORT_ENTRY_LIMIT",
+                    format!("save entry {name} exceeds its stored limit"),
+                ));
+            }
+            Ok(())
+        },
+    )?;
     let mut sizes = Vec::new();
-    sizes.try_reserve_exact(9).map_err(|_| {
-        CheckpointError::format("ALLOCATION", "unable to reserve save entry-size table")
-    })?;
+    sizes
+        .try_reserve_exact(11 + MAX_SAVED_BRAINS)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve save entry-size table")
+        })?;
     let mut hashes = Vec::new();
-    hashes.try_reserve_exact(8).map_err(|_| {
-        CheckpointError::format("ALLOCATION", "unable to reserve save entry-hash table")
-    })?;
+    hashes
+        .try_reserve_exact(10 + MAX_SAVED_BRAINS)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve save entry-hash table")
+        })?;
     let mut paths = Vec::new();
-    paths.try_reserve_exact(9).map_err(|_| {
-        CheckpointError::format("ALLOCATION", "unable to reserve save entry-path table")
-    })?;
+    paths
+        .try_reserve_exact(11 + MAX_SAVED_BRAINS)
+        .map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve save entry-path table")
+        })?;
     let mut manifest = None;
     for (seen, extent) in entries.iter().enumerate() {
         file.seek(SeekFrom::Start(extent.data_offset))?;
@@ -2521,7 +2784,7 @@ fn scan_import_archive(
         let size = extent.size;
         paths.push(extent.name.clone());
         sizes.push(size);
-        if seen < 8 {
+        if seen + 1 < entries.len() {
             let mut hasher = Sha256::new();
             let copied = io::copy(&mut entry, &mut HashWriter(&mut hasher))?;
             if copied != size {
@@ -2579,8 +2842,9 @@ fn validate_import_manifest(
             .validate()
             .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?;
     }
+    let records_version = manifest.records_version()?;
+    let base_roles = manifest.base_role_count()?;
     if manifest.magic != "slither-neuroevo-save"
-        || manifest.archive_version != 1
         || manifest.archive_kind
             != if manifest.legacy_conversion.is_some() {
                 "legacy-population-import"
@@ -2590,11 +2854,11 @@ fn validate_import_manifest(
         || manifest.run_id.is_empty()
         || manifest.run_id.contains('\0')
         || manifest.run_id.len() > 256
-        || manifest.roles.len() != 8
+        || manifest.roles.len() != base_roles + manifest.saved_brains.len()
         || manifest.checkpoint_manifest.roles.len() != 5
-        || entry_paths.len() != 9
-        || entry_sizes.len() != 9
-        || entry_hashes.len() != 8
+        || entry_paths.len() != manifest.roles.len() + 1
+        || entry_sizes.len() != manifest.roles.len() + 1
+        || entry_hashes.len() != manifest.roles.len()
         || entry_paths.last().is_none_or(|path| path != MANIFEST_PATH)
         || entry_paths
             .iter()
@@ -2710,6 +2974,50 @@ fn validate_import_manifest(
             ));
         }
     }
+    if records_version >= 2 {
+        let role = &manifest.roles[8];
+        let size = history_count
+            .checked_mul(COMPLETION_RECORD_BYTES)
+            .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "completion role overflow"))?;
+        if role.role != "generation-completion"
+            || role.path != COMPLETION_PATH
+            || role.encoding != "raw-generation-completion-v1"
+            || role.record_size != COMPLETION_RECORD_BYTES as u32
+            || entry_paths[8] != COMPLETION_PATH
+            || entry_sizes[8] != size
+            || parse_hex_u64(&role.stored_bytes_hex, "completion stored bytes")? != size
+            || parse_hex_u64(&role.decoded_bytes_hex, "completion decoded bytes")? != size
+            || parse_hex_u64(&role.decoded_count_hex, "completion count")? != history_count
+            || parse_digest(&role.logical_sha256, "completion digest")? != entry_hashes[8]
+        {
+            return Err(CheckpointError::format(
+                "IMPORT_COMPLETION",
+                "completion role disagrees with manifest",
+            ));
+        }
+    }
+    if records_version == 3 {
+        let role = &manifest.roles[9];
+        let size = history_count
+            .checked_mul(EXPERIMENT_RECORD_BYTES)
+            .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "experiment role overflow"))?;
+        if role.role != "generation-experiments"
+            || role.path != EXPERIMENT_PATH
+            || role.encoding != "raw-generation-experiment-v1"
+            || role.record_size != EXPERIMENT_RECORD_BYTES as u32
+            || entry_paths[9] != EXPERIMENT_PATH
+            || entry_sizes[9] != size
+            || parse_hex_u64(&role.stored_bytes_hex, "experiment stored bytes")? != size
+            || parse_hex_u64(&role.decoded_bytes_hex, "experiment decoded bytes")? != size
+            || parse_hex_u64(&role.decoded_count_hex, "experiment count")? != history_count
+            || parse_digest(&role.logical_sha256, "experiment digest")? != entry_hashes[9]
+        {
+            return Err(CheckpointError::format(
+                "IMPORT_EXPERIMENT",
+                "experiment role disagrees with manifest",
+            ));
+        }
+    }
     let hof_role = &manifest.roles[7];
     let hof_encoding = NumericEncoding::parse(&hof_role.encoding)?;
     let hof_path = match hof_encoding {
@@ -2736,9 +3044,34 @@ fn validate_import_manifest(
             "save Hall-of-Fame weights disagree with the adaptive role contract",
         ));
     }
+    for (relative, entry) in manifest.saved_brains.iter().enumerate() {
+        let index = base_roles + relative;
+        let role = &manifest.roles[index];
+        let bytes = entry.bytes()?;
+        if role.role != "saved-brain"
+            || role.path != entry.path()
+            || role.encoding != "portable-slither-brain-v1"
+            || role.record_size != 0
+            || entry_paths[index] != entry.path()
+            || entry_sizes[index] != bytes
+            || parse_hex_u64(&role.stored_bytes_hex, "saved brain stored bytes")? != bytes
+            || parse_hex_u64(&role.decoded_bytes_hex, "saved brain decoded bytes")? != bytes
+            || parse_hex_u64(&role.decoded_count_hex, "saved brain count")? != 1
+            || role.logical_sha256 != entry.brain_id
+            || parse_digest(&entry.brain_id, "saved brain identity")? != entry_hashes[index]
+        {
+            return Err(saved_brain_archive::invalid(
+                "saved brain role disagrees with its original",
+            ));
+        }
+    }
     if entry_sizes[5] != history_count.saturating_mul(HISTORY_RECORD_BYTES)
         || entry_sizes[6] != hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES)
-        || hex_digest(logical_root(&manifest.roles)?) != manifest.logical_root_sha256
+        || hex_digest(save_logical_root(
+            &manifest.roles,
+            &manifest.saved_brains,
+            records_version,
+        )?) != manifest.logical_root_sha256
         || expected_archive_length(entry_sizes)? != archive_bytes
     {
         return Err(CheckpointError::format(
@@ -2758,6 +3091,7 @@ fn extract_and_validate_import_roles(
     checkpoint_limits: &CheckpointLimits,
 ) -> Result<Option<ImportInventoryDescriptor>, CheckpointError> {
     let _phase = ArchivePhaseScope::enter(ArchivePhase::TemporaryFileWrite);
+    let records_version = manifest.records_version()?;
     let file = File::open(archive_path)?;
     let mut archive = TarArchive::new(BufReader::new(file));
     let mut entries = archive.entries()?;
@@ -2800,8 +3134,10 @@ fn extract_and_validate_import_roles(
     let stage_directory = checkpoint_path.parent().ok_or_else(|| {
         CheckpointError::format("IMPORT_PATH", "checkpoint validation path has no parent")
     })?;
-    let inventory_partial_path =
-        stage_directory.join(format!(".{operation_id}.import-inventory-v1.partial"));
+    let inventory_partial_path = stage_directory.join(format!(
+        ".{operation_id}.import-inventory-v{}.partial",
+        records_version
+    ));
     let mut inventory_cleanup = ScratchFiles::new();
     let mut inventory_writer = if publication_directory.is_some() {
         inventory_cleanup.track(inventory_partial_path.clone());
@@ -2812,7 +3148,7 @@ fn extract_and_validate_import_roles(
                 .open(&inventory_partial_path)?,
         );
         let mut header = [0u8; INVENTORY_HEADER_BYTES as usize];
-        header[..13].copy_from_slice(INVENTORY_MAGIC);
+        header[..13].copy_from_slice(inventory_magic(records_version));
         header[16..24].copy_from_slice(&history_count.to_le_bytes());
         header[24..32].copy_from_slice(&hall_of_fame_count.to_le_bytes());
         writer.write_all(&header)?;
@@ -3019,44 +3355,124 @@ fn extract_and_validate_import_roles(
     fs::remove_file(&raw_path)?;
     weight_scratch.paths.clear();
 
-    let inventory =
-        if let (Some(directory), Some(mut writer)) = (publication_directory, inventory_writer) {
-            writer.flush()?;
-            let file = writer.into_inner().map_err(|error| error.into_error())?;
-            file.sync_all()?;
-            let expected_bytes = INVENTORY_HEADER_BYTES
-                .checked_add(history_count.saturating_mul(HISTORY_RECORD_BYTES))
-                .and_then(|bytes| {
-                    bytes.checked_add(hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES))
-                })
-                .ok_or_else(|| {
-                    CheckpointError::format("COUNT_OVERFLOW", "import inventory length overflowed")
-                })?;
-            if file.metadata()?.len() != expected_bytes {
-                return Err(CheckpointError::format(
-                    "IMPORT_INVENTORY",
-                    "trusted import inventory has an unexpected length",
-                ));
+    if records_version >= 2 {
+        let mut completion = entries.next().transpose()?.ok_or_else(|| {
+            CheckpointError::format("IMPORT_COMPLETION", "completion entry missing")
+        })?;
+        let maximum_step = parse_hex_u64(&manifest.completed_step_hex, "completion maximum step")?;
+        let mut record = [0u8; COMPLETION_RECORD_BYTES as usize];
+        let mut previous_step = 0;
+        for generation in 1..=history_count {
+            completion.read_exact(&mut record)?;
+            let step = validate_completion_record(&record, generation, maximum_step)?;
+            if step != 0 {
+                if step <= previous_step {
+                    return Err(CheckpointError::format(
+                        "IMPORT_COMPLETION",
+                        "completion steps do not advance",
+                    ));
+                }
+                previous_step = step;
             }
-            drop(file);
-            let relative_filename = format!(".{operation_id}.import-inventory-v1");
-            let final_path = directory.join(&relative_filename);
-            rename_noreplace(&inventory_partial_path, &final_path)?;
-            inventory_cleanup.track(final_path.clone());
-            sync_parent_directory(&directory)?;
-            let sha256 = hex_digest(hash_file_range(&final_path, 0, expected_bytes)?);
-            inventory_cleanup.paths.clear();
-            Some(ImportInventoryDescriptor {
-                version: 1,
-                relative_filename,
-                sha256,
-                stored_byte_count_hex: hex_u64(expected_bytes),
-                history_count_hex: hex_u64(history_count),
-                hall_of_fame_count_hex: hex_u64(hall_of_fame_count),
-            })
+            if let Some(writer) = &mut inventory_writer {
+                writer.write_all(&record)?;
+            }
+        }
+    }
+    if records_version == 3 {
+        let mut experiment = entries.next().transpose()?.ok_or_else(|| {
+            CheckpointError::format("IMPORT_EXPERIMENT", "experiment entry missing")
+        })?;
+        let mut validator = ExperimentArchiveValidator::new(
+            archive_path,
+            save_role_offset(manifest, 8)?,
+            save_role_offset(manifest, 6)?,
+            hall_of_fame_count,
+            parse_hex_u64(&manifest.completed_step_hex, "experiment maximum step")?,
+        )?;
+        let mut record = [0u8; EXPERIMENT_RECORD_BYTES as usize];
+        for generation in 1..=history_count {
+            experiment.read_exact(&mut record)?;
+            validator.validate(&record, generation)?;
+            if let Some(writer) = &mut inventory_writer {
+                writer.write_all(&record)?;
+            }
+        }
+    }
+    for selected in &manifest.saved_brains {
+        let mut entry = entries
+            .next()
+            .transpose()?
+            .ok_or_else(|| saved_brain_archive::invalid("saved original missing"))?;
+        let size = selected.bytes()? as usize;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| saved_brain_archive::invalid("unable to reserve saved original"))?;
+        (&mut entry).take(size as u64 + 1).read_to_end(&mut bytes)?;
+        saved_brain_archive::validate_original(&bytes, selected)?;
+        if publication_directory.is_some() {
+            let path = stage_directory.join(selected.filename());
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+        }
+    }
+    let inventory = if let (Some(directory), Some(mut writer)) =
+        (publication_directory, inventory_writer)
+    {
+        writer.flush()?;
+        let file = writer.into_inner().map_err(|error| error.into_error())?;
+        file.sync_all()?;
+        let completion_bytes = if records_version >= 2 {
+            history_count.saturating_mul(COMPLETION_RECORD_BYTES)
         } else {
-            None
+            0
         };
+        let experiment_bytes = if records_version == 3 {
+            history_count.saturating_mul(EXPERIMENT_RECORD_BYTES)
+        } else {
+            0
+        };
+        let expected_bytes = INVENTORY_HEADER_BYTES
+            .checked_add(experiment_bytes)
+            .and_then(|bytes| bytes.checked_add(completion_bytes))
+            .and_then(|bytes| bytes.checked_add(history_count.saturating_mul(HISTORY_RECORD_BYTES)))
+            .and_then(|bytes| {
+                bytes.checked_add(hall_of_fame_count.saturating_mul(HOF_RECORD_BYTES))
+            })
+            .ok_or_else(|| {
+                CheckpointError::format("COUNT_OVERFLOW", "import inventory length overflowed")
+            })?;
+        if file.metadata()?.len() != expected_bytes {
+            return Err(CheckpointError::format(
+                "IMPORT_INVENTORY",
+                "trusted import inventory has an unexpected length",
+            ));
+        }
+        drop(file);
+        let relative_filename = format!(".{operation_id}.import-inventory-v{}", records_version);
+        let final_path = directory.join(&relative_filename);
+        rename_noreplace(&inventory_partial_path, &final_path)?;
+        inventory_cleanup.track(final_path.clone());
+        sync_parent_directory(&directory)?;
+        let sha256 = hex_digest(hash_file_range(&final_path, 0, expected_bytes)?);
+        inventory_cleanup.paths.clear();
+        Some(ImportInventoryDescriptor {
+            version: records_version,
+            saved_brains: manifest.saved_brains.clone(),
+            relative_filename,
+            sha256,
+            stored_byte_count_hex: hex_u64(expected_bytes),
+            history_count_hex: hex_u64(history_count),
+            hall_of_fame_count_hex: hex_u64(hall_of_fame_count),
+        })
+    } else {
+        None
+    };
     Ok(inventory)
 }
 
@@ -3111,6 +3527,27 @@ fn save_role(
         record_size,
         logical_sha256: hex_digest(logical_sha256),
     }
+}
+
+/// Version-four roots bind catalog labels/timestamps and base inventory version as well as role bytes.
+fn save_logical_root(
+    roles: &[SaveRole],
+    entries: &[SavedBrainArchiveEntryV1],
+    records_version: u32,
+) -> Result<[u8; 32], CheckpointError> {
+    let base = logical_root(roles)?;
+    if entries.is_empty() {
+        return Ok(base);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"slither-neuroevo-save-root\0v4\0");
+    hasher.update(base);
+    hasher.update(records_version.to_le_bytes());
+    hasher.update(
+        serde_json::to_vec(entries)
+            .map_err(|error| saved_brain_archive::invalid(error.to_string()))?,
+    );
+    Ok(hasher.finalize().into())
 }
 
 fn logical_root(roles: &[SaveRole]) -> Result<[u8; 32], CheckpointError> {
@@ -3273,4 +3710,305 @@ fn hex_u64(value: u64) -> String {
 
 fn hex_digest(value: [u8; 32]) -> String {
     value.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Validate the compact completion sidecar, including the explicit absent legacy sentinel.
+fn validate_completion_record(
+    record: &[u8; COMPLETION_RECORD_BYTES as usize],
+    generation: u64,
+    maximum_step: u64,
+) -> Result<u64, CheckpointError> {
+    if read_u64(record, 0) != generation {
+        return Err(CheckpointError::format(
+            "COMPLETION_GENERATION",
+            "completion generation is not contiguous",
+        ));
+    }
+    if record[8..].iter().all(|byte| *byte == 0) {
+        return Ok(0);
+    }
+    let version = u32::from_le_bytes(record[8..12].try_into().unwrap());
+    let reason = u32::from_le_bytes(record[12..16].try_into().unwrap());
+    let actual = f64::from_bits(read_u64(record, 16));
+    let duration = f64::from_bits(read_u64(record, 24));
+    let step = read_u64(record, 32);
+    if version != 1
+        || reason > 2
+        || !actual.is_finite()
+        || actual <= 0.0
+        || !duration.is_finite()
+        || !(8.0..=604_800.0).contains(&duration)
+        || actual > duration + 1.0 / 60.0 + 0.0002
+        || step == 0
+        || step > maximum_step
+    {
+        return Err(CheckpointError::format(
+            "COMPLETION_RECORD",
+            "invalid completion chronology",
+        ));
+    }
+    Ok(step)
+}
+
+fn validate_completion_records(
+    file: &mut File,
+    count: u64,
+    maximum_step: u64,
+) -> Result<(), CheckpointError> {
+    let mut record = [0u8; COMPLETION_RECORD_BYTES as usize];
+    let mut previous_step = 0;
+    for generation in 1..=count {
+        file.read_exact(&mut record)?;
+        let step = validate_completion_record(&record, generation, maximum_step)?;
+        if step != 0 {
+            if step <= previous_step {
+                return Err(CheckpointError::format(
+                    "COMPLETION_STEP",
+                    "completion steps do not advance",
+                ));
+            }
+            previous_step = step;
+        }
+    }
+    Ok(())
+}
+
+/// Inventory versions extend metadata only; checkpoint-v3 retains its own version.
+fn inventory_magic(version: u32) -> &'static [u8; 13] {
+    match version {
+        3 => INVENTORY_MAGIC_V3,
+        2 => INVENTORY_MAGIC_V2,
+        _ => INVENTORY_MAGIC,
+    }
+}
+
+/// Locate one role in the previously validated, closed-order raw USTAR stream.
+fn save_role_offset(manifest: &SaveManifest, ordinal: usize) -> Result<u64, CheckpointError> {
+    let mut offset = USTAR_BLOCK_BYTES;
+    for role in manifest.roles.iter().take(ordinal) {
+        let size = parse_hex_u64(&role.stored_bytes_hex, "role extent")?;
+        let padded = size
+            .checked_add(USTAR_BLOCK_BYTES - 1)
+            .map(|n| n / USTAR_BLOCK_BYTES * USTAR_BLOCK_BYTES)
+            .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "role extent overflow"))?;
+        offset = offset
+            .checked_add(USTAR_BLOCK_BYTES)
+            .and_then(|n| n.checked_add(padded))
+            .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "role offset overflow"))?;
+    }
+    Ok(offset)
+}
+
+/// Independent bounded readers bind dense experiment rows to completion and sparse HoF rows.
+/// Separate opens avoid shared seek positions across platform-specific cloned file handles.
+struct ExperimentArchiveValidator {
+    completion: BufReader<File>,
+    hall: BufReader<File>,
+    hall_remaining: u64,
+    hall_record: [u8; HOF_RECORD_BYTES as usize],
+    hall_loaded: bool,
+    maximum_step: u64,
+    previous_step: u64,
+}
+impl ExperimentArchiveValidator {
+    fn new(
+        path: &Path,
+        completion_offset: u64,
+        hall_offset: u64,
+        hall_count: u64,
+        maximum_step: u64,
+    ) -> Result<Self, CheckpointError> {
+        let mut completion = File::open(path)?;
+        completion.seek(SeekFrom::Start(completion_offset))?;
+        let mut hall = File::open(path)?;
+        hall.seek(SeekFrom::Start(hall_offset))?;
+        Ok(Self {
+            completion: BufReader::new(completion),
+            hall: BufReader::new(hall),
+            hall_remaining: hall_count,
+            hall_record: [0; HOF_RECORD_BYTES as usize],
+            hall_loaded: false,
+            maximum_step,
+            previous_step: 0,
+        })
+    }
+    fn validate(
+        &mut self,
+        record: &[u8; EXPERIMENT_RECORD_BYTES as usize],
+        generation: u64,
+    ) -> Result<(), CheckpointError> {
+        let mut completion = [0u8; COMPLETION_RECORD_BYTES as usize];
+        self.completion.read_exact(&mut completion)?;
+        validate_completion_record(&completion, generation, self.maximum_step)?;
+        if !self.hall_loaded && self.hall_remaining > 0 {
+            self.hall.read_exact(&mut self.hall_record)?;
+            self.hall_remaining -= 1;
+            self.hall_loaded = true;
+        }
+        let matching_hall = self.hall_loaded && read_u64(&self.hall_record, 0) == generation;
+        if self.hall_loaded && read_u64(&self.hall_record, 0) < generation {
+            return Err(CheckpointError::format(
+                "EXPERIMENT_HOF",
+                "HoF generation ordering mismatch",
+            ));
+        }
+        if read_u64(record, 0) != generation {
+            return Err(CheckpointError::format(
+                "EXPERIMENT_GENERATION",
+                "experiment generation is not contiguous",
+            ));
+        }
+        if record[8..].iter().any(|byte| *byte != 0) {
+            let decoded =
+                super::experiment_records::GenerationExperimentRecords::decode(&record[8..])
+                    .map_err(|error| CheckpointError::format("EXPERIMENT_RECORD", error))?;
+            let h = decoded.history;
+            let f = decoded.hall_of_fame;
+            if h[2] != generation
+                || h[3] <= self.previous_step
+                || h[3] > self.maximum_step
+                || completion[8..].iter().all(|byte| *byte == 0)
+                || h[3] != read_u64(&completion, 32)
+                || h[4] != u32::from_le_bytes(completion[12..16].try_into().unwrap()) as u64
+                || h[5] != read_u64(&completion, 16)
+                || h[6] != read_u64(&completion, 24)
+            {
+                return Err(CheckpointError::format(
+                    "EXPERIMENT_COMPLETION",
+                    "experiment does not match completion chronology",
+                ));
+            }
+            if matching_hall
+                && (f[2] != u32::from_le_bytes(self.hall_record[8..12].try_into().unwrap()) as u64
+                    || f[3] != read_u64(&self.hall_record, 16)
+                    || f[20] != read_u64(&self.hall_record, 40)
+                    || f[24] != read_u64(&self.hall_record, 48))
+            {
+                return Err(CheckpointError::format(
+                    "EXPERIMENT_HOF",
+                    "experiment does not match physical HoF source",
+                ));
+            }
+            self.previous_step = h[3];
+        }
+        if matching_hall {
+            self.hall_loaded = false;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod experiment_archive_tests {
+    use super::super::experiment_records::GenerationExperimentRecords;
+    use super::*;
+    /// Synthetic fixed metadata; the production round-trip test uses actual terminal state.
+    fn payload() -> GenerationExperimentRecords {
+        let mut records = GenerationExperimentRecords {
+            history: [0; 64],
+            hall_of_fame: [0; 32],
+        };
+        let h = &mut records.history;
+        for (index, value) in [
+            (0, 1),
+            (2, 1),
+            (3, 10),
+            (5, (10.0_f64 / 60.0).to_bits()),
+            (6, 240.0_f64.to_bits()),
+            (7, 1),
+            (8, 1),
+            (59, 1),
+            (61, 1),
+        ] {
+            h[index] = value;
+        }
+        let f = &mut records.hall_of_fame;
+        for (index, value) in [
+            (0, 2),
+            (1, 1),
+            (3, 17),
+            (5, 2),
+            (7, 1),
+            (13, 5),
+            (21, 1),
+            (24, 5),
+            (25, 5),
+            (26, 5),
+            (27, 5),
+            (28, 5),
+            (30, 1),
+        ] {
+            f[index] = value;
+        }
+        records.validate().unwrap();
+        records
+    }
+    #[test]
+    fn experiment_archive_binds_completion_and_physical_hof_and_allows_explicit_legacy_absence() {
+        let path = std::env::temp_dir().join(format!(
+            "slither-experiment-archive-{}-{}.bin",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let payload = payload();
+        let mut completion = [0u8; 40];
+        completion[..8].copy_from_slice(&1u64.to_le_bytes());
+        completion[8..12].copy_from_slice(&1u32.to_le_bytes());
+        completion[16..24].copy_from_slice(&payload.history[5].to_le_bytes());
+        completion[24..32].copy_from_slice(&payload.history[6].to_le_bytes());
+        completion[32..40].copy_from_slice(&10u64.to_le_bytes());
+        let mut hall = [0u8; 120];
+        hall[..8].copy_from_slice(&1u64.to_le_bytes());
+        hall[16..24].copy_from_slice(&17u64.to_le_bytes());
+        hall[48..56].copy_from_slice(&5u64.to_le_bytes());
+        let mut record = [0u8; 776];
+        record[..8].copy_from_slice(&1u64.to_le_bytes());
+        record[8..].copy_from_slice(&payload.encode());
+        let write_sources = |completion: &[u8], hall: &[u8]| {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .truncate(true)
+                .write(true)
+                .open(&path)
+                .unwrap();
+            file.write_all(completion).unwrap();
+            file.write_all(hall).unwrap();
+        };
+        let check = |record: &[u8; 776]| {
+            ExperimentArchiveValidator::new(&path, 0, 40, 1, 10)
+                .unwrap()
+                .validate(record, 1)
+        };
+        write_sources(&completion, &hall);
+        check(&record).unwrap();
+        let mut wrong = record;
+        wrong[..8].copy_from_slice(&2u64.to_le_bytes());
+        assert!(check(&wrong).is_err());
+        wrong = record;
+        wrong[8..16].copy_from_slice(&2u64.to_le_bytes());
+        assert!(check(&wrong).is_err());
+        for offset in [12usize, 16, 24, 32] {
+            let mut bad = completion;
+            bad[offset] ^= 1;
+            write_sources(&bad, &hall);
+            assert!(check(&record).is_err());
+        }
+        for offset in [8usize, 16, 40, 48] {
+            let mut bad = hall;
+            bad[offset] ^= 1;
+            write_sources(&completion, &bad);
+            assert!(check(&record).is_err());
+        }
+        let mut absent_completion = [0u8; 40];
+        absent_completion[..8].copy_from_slice(&1u64.to_le_bytes());
+        write_sources(&absent_completion, &hall);
+        assert!(check(&record).is_err());
+        let mut absent_record = [0u8; 776];
+        absent_record[..8].copy_from_slice(&1u64.to_le_bytes());
+        check(&absent_record).unwrap();
+        fs::remove_file(path).unwrap();
+    }
 }

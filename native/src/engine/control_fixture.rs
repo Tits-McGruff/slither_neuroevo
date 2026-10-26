@@ -719,6 +719,7 @@ fn build_fixture(scenario: Stage4InferenceScenarioName) -> Result<ControlFixture
         brains.push(BrainRuntimeState {
             handle,
             owner: BrainOwner::PopulationSlot(slot_u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: recurrent.into_boxed_slice(),
         });
@@ -798,6 +799,8 @@ fn execute_boundary(
                 candidates: &fixture.candidates,
                 indexed_world: &indexed,
                 generation: &fixture.generation,
+                assessment_points: None,
+                v4: None,
                 population: &fixture.population,
                 brains: &fixture.brains,
                 reset_brains: &[],
@@ -817,7 +820,7 @@ fn execute_boundary(
         for value in batch.observations() {
             capture.observation_hash.update(value.to_le_bytes());
         }
-        for values in batch.outputs().chunks_exact(2) {
+        for values in batch.outputs().as_chunks::<2>().0 {
             capture.output_hash.update(values[0].to_le_bytes());
             capture.output_hash.update(values[1].to_le_bytes());
             capture

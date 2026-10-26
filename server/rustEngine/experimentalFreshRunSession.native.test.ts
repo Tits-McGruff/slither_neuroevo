@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
+import { parseInspectorSnapshot } from '../../src/protocol/inspector.ts';
 import { writeFileSync, readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createExperimentalServerRuntime } from './experimentalStartup.ts';
 import { RUST_CALCULATION_WORKER_MAX } from '../rustWorkers.ts';
 import { BackgroundOutputPump } from './backgroundOutput.ts';
@@ -391,7 +392,7 @@ describe('experimental server startup composition', () => {
     const owner = await createExperimentalServerRuntime(options);
     try {
       expect(owner.metadata.seed).toBe(42);
-      expect(createRustWelcome(owner.metadata, 'test-session')).toMatchObject({ worldSeed: 42, sensorSpec: { sensorCount: 83 },
+      expect(createRustWelcome(owner.metadata, 'test-session')).toMatchObject({ worldSeed: 42, sensorSpec: { layoutVersion: 'v4', profile: 'motion', sensorCount: 264 },
         settings: { core: { snakeCount: 55, simSpeed: 1 } }, inferenceMode: { activeBackend: 'native' } });
       expect(owner.runtime.health()).toMatchObject({ lifecycle: 'created', completedStep: '0000000000000000' });
       expect(readCurrentPointer(paths.databasePath, owner.metadata.runId)?.checkpoint_id).toBe(owner.runStart.checkpointId);
@@ -464,6 +465,14 @@ describe('experimental server startup composition', () => {
       expect(owner.runtime.health().faultCode).toBeUndefined();
       expect(await owner.persistence.selectCurrent()).toEqual(owner.runStart.descriptor);
       expect(readdirSync(paths.managedRoot).some(name => name.endsWith('.import-validation'))).toBe(false);
+      owner.runtime.start();
+      expect(() => owner.runtime.prepareExportArchive(
+        paths.managedRoot, lease.operationId, lease.descriptor, lease.inventory
+      )).toThrow(/stage population work before background allocation/u);
+      expect(() => owner.runtime.validateImportArchive(
+        readyPath, paths.managedRoot, '01'.repeat(16)
+      )).toThrow(/stage population work before background allocation/u);
+      expect(owner.runtime.health().faultCode).toBeUndefined();
     } finally {
       rmSync(readyPath, { force: true });
       rmSync(corruptPath, { force: true });
@@ -778,9 +787,9 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
     const scheduledFrame = await session.publishFirstScheduledFrameV1();
     expectCompleteFrameV1(scheduledFrame, {
       completedStep: '0000000000000001',
-      pellets: 3_495,
-      floatLength: '00000000000048e7',
-      byteLength: '000000000001239c'
+      pellets: 3_492,
+      floatLength: '00000000000048de',
+      byteLength: '0000000000012378'
     });
     expect(Uint8Array.from(scheduledFrame.bytes)).not.toEqual(initialBytes);
     expect(session.snapshot()).toMatchObject({
@@ -789,7 +798,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       initialFramePublished: true,
       firstScheduledFramePublished: true,
       completedStep: '0000000000000001',
-      pelletCount: '0000000000000da7'
+      pelletCount: '0000000000000da4'
     });
     await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/already.*published/i);
     await expect(session.createBackgroundRuntime(BACKGROUND_INIT, () => {})).rejects.toThrow(
@@ -846,7 +855,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
     const wake = (): void => { wakes += 1; };
     await session.initialize();
     const startup = session.startupMetadata();
-    expect(startup).toMatchObject({ seed: 42, serializerVersion: 1, sensorVersion: 3 });
+    expect(startup).toMatchObject({ seed: 42, serializerVersion: 1, sensorVersion: 4, mathBackend: 'rust-sse2-v1', parameterCount: 25042 });
     expect(startup.settings.find(setting => setting.path === 'snakeCount')?.value).toBe(55);
     expect(session.startupMetadata()).toEqual(startup);
     await expect(session.createBackgroundRuntime(BACKGROUND_INIT, wake)).rejects.toThrow(
@@ -873,6 +882,35 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       await expect(session.initialize()).rejects.toThrow(/already initialized/i);
       await expect(session.publishFirstScheduledFrameV1()).rejects.toThrow(/not been initialized/i);
       expect(() => runtime.drainOutputs(-1, BACKGROUND_INIT.maxOutputEventOwnedBytes)).toThrow(/positive/i);
+      expect(runtime.drainTeacherChunks(1, 65536)).toMatchObject({
+        chunks: [], productionWatermark: '0000000000000000',
+        releasedThrough: '0000000000000000', stopped: false, moreWork: false
+      });
+      expect(() => runtime.drainTeacherChunks(257, 65536)).toThrow(/limits/i);
+      expect(() => runtime.drainTeacherChunks(1, 0)).toThrow(/positive/i);
+      expect(() => runtime.drainTeacherChunks(1, Number.POSITIVE_INFINITY)).toThrow(/finite|integer/i);
+      expect(() => runtime.submitStopTeacherCapture('0000000000000001', '00'.repeat(16))).toThrow(/zero/i);
+      expect(() => runtime.submitStartTeacherCapture('0000000000000001', {
+        captureEpoch: '12'.repeat(16), expectedRunId: startup.runId,
+        expectedConfigRevision: '0000000000000001', baselineSlots: [0, 0],
+        pendingBytes: 1024 * 1024, queueChunks: 4, queueBytes: 16 * 1024 * 1024
+      })).toThrow(/invalid teacher/i);
+      expect(JSON.parse(runtime.getShadowMetrics())).toEqual({ schemaVersion: 1, slots: [null, null, null, null] });
+      expect(() => runtime.submitActivateShadow('0000000000000001', {
+        expectedRunId: startup.runId, expectedConfigRevision: '0000000000000001', captureEpoch: '12'.repeat(16),
+        shadowSlot: 4, baselineSlot: 0, artifactSha256: '47'.repeat(32)
+      })).toThrow(/unavailable|slot/i);
+      expect(() => runtime.submitStopShadow('0000000000000001', {
+        shadowSlot: 0, captureEpoch: '00'.repeat(16), activationSequence: '0000000000000001'
+      })).toThrow(/zero/i);
+      expect(() => runtime.submitStopShadow('0000000000000001', {
+        shadowSlot: 0, captureEpoch: '12'.repeat(16), activationSequence: '0000000000000000'
+      })).toThrow(/zero|positive/i);
+      expect(runtime.latestInspector('0000000000000000')).toBeNull();
+      expect(() => runtime.latestInspector('x'.repeat(1000))).toThrow(/afterSequence/i);
+      expect(() => runtime.submitInspector('0000000000000001', startup.runId, '1'.repeat(64))).toThrow(/both token/i);
+      expect(() => runtime.submitInspector('0000000000000001', startup.runId, '1'.repeat(64), 16_777_217)).toThrow();
+      expect(runtime.health().processedCommands).toBe('0000000000000000');
       runtime.start();
       expect(() => runtime.start()).toThrow(/cannot start/i);
       const deadline = performance.now() + 10_000;
@@ -939,7 +977,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(visualization).toMatchObject({
         kind: 'graph', snakeId: expect.any(Number),
         layers: [
-          { count: 83, hasActivations: false, activations: [] },
+          { count: 264, hasActivations: false, activations: [] },
           { count: 64, activations: expect.any(Array) },
           { count: 64, activations: expect.any(Array) },
           { count: 16, activations: expect.any(Array), isRecurrent: true },
@@ -952,12 +990,13 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
           BigInt(`0x${visualization!.sequence}`)
         );
       }
-      const winnerWeights = Buffer.alloc(13_458 * Float32Array.BYTES_PER_ELEMENT);
+      const winnerWeights = Buffer.alloc(25_042 * Float32Array.BYTES_PER_ELEMENT);
       const winnerSha256 = createHash('sha256').update(winnerWeights).digest('hex');
       writeFileSync(join(paths.managedRoot, `${winnerSha256}.hof-weights-v1`), winnerWeights);
       runtime.submitHallOfFameResurrection(
         '0000000000000002',
         paths.managedRoot,
+        '0000000000000001',
         {
           version: 1,
           logicalSha256: winnerSha256,
@@ -965,7 +1004,7 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
           encoding: 'raw-f32le-v1',
           storedByteCount: winnerWeights.byteLength.toString(16).padStart(16, '0'),
           decodedByteCount: winnerWeights.byteLength.toString(16).padStart(16, '0'),
-          weightCount: (13_458).toString(16).padStart(16, '0')
+          weightCount: (25_042).toString(16).padStart(16, '0')
         }
       );
       while (!events.some(event => event.commandSequence === '0000000000000002') &&
@@ -987,6 +1026,83 @@ describe('experimental fixed-P0 production-addon fresh-run session', () => {
       expect(events).toContainEqual(expect.objectContaining({
         kind: 'commandRejected', commandSequence: '0000000000000003', rejectionCode: 'InvalidCommand'
       }));
+      /** Wait for one actual native receipt without routing or computing any model state. */
+      const inspectorReceipt = async (sequence: string): Promise<RustBackgroundEvent> => {
+        const limit = performance.now() + 5000;
+        while (performance.now() < limit) {
+          const event = runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes).events
+            .find(value => value.commandSequence === sequence);
+          if (event) return event;
+          await new Promise<void>(done => setImmediate(done));
+        }
+        throw new Error('inspector receipt deadline');
+      };
+      runtime.submitEntitySelection('0000000000000004', 'slot', 0, startup.runId, runtime.health().generation!);
+      const selected = (await inspectorReceipt('0000000000000004')).entitySelection;
+      expect(selected).toBeDefined();
+      runtime.submitInspector('0000000000000005', startup.runId, selected!.token, selected!.snakeId);
+      expect(await inspectorReceipt('0000000000000005')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: true});
+      let inspector: string | null = null;
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        inspector = runtime.latestInspector('0000000000000000');
+        expect(inspector).not.toBeNull();
+      }, {timeout: 5000, interval: 10});
+      const inspected = parseInspectorSnapshot(JSON.parse(inspector!));
+      expect(Buffer.byteLength(inspector!, 'utf8')).toBeLessThanOrEqual(64 * 1024);
+      expect(inspected).toMatchObject({schemaVersion: 1, subscriptionSequence: '0000000000000005', sample: {snakeId: selected!.snakeId,
+        profile: 'motion', bins: 16, source: {kind: 'neural'}, normalizedInputs: expect.any(Array)}});
+      expect(inspected.sample!.normalizedInputs).toHaveLength(264);
+      expect(inspected.sample!.trace!.bodyRays).toHaveLength(16);
+      expect(inspected.sample!.trace!.bodyRays.every(ray => ray.kind !== 'not-sampled')).toBe(true);
+      expect(inspected.sample!.lifecycle).toMatchObject({lifeOrdinal: '0000000000000001', livesStarted: '0000000000000001',
+        deaths: '0000000000000000', provisionalFitness: expect.any(Number), fitnessComponents: expect.any(Array),
+        ledger: {lifeLocalWallet: expect.any(Number), priorBankRemaining: expect.any(Number), operations: expect.any(String)}});
+      expect(inspected.sample!.lifecycle!.fitnessComponents).toHaveLength(7);
+      expect(inspected.sample!.shadowOutputs).toEqual([]);
+      expect(inspected.sample!.baselineV1Action).toBeNull();
+      runtime.submitInspector('0000000000000006', 'stale-inspector-run');
+      expect(await inspectorReceipt('0000000000000006')).toMatchObject({kind: 'commandRejected'});
+      expect(JSON.parse(runtime.latestInspector('0000000000000000')!).sample.snakeId).toBe(selected!.snakeId);
+      runtime.submitInspector('0000000000000007', startup.runId);
+      expect(await inspectorReceipt('0000000000000007')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
+      await vi.waitFor(() => {
+        const cleared = runtime.latestInspector(inspected.sequence);
+        expect(cleared).not.toBeNull();
+        expect(JSON.parse(cleared!).sample).toBeNull();
+      }, {timeout: 5000, interval: 10});
+      runtime.submitInspector('0000000000000008', startup.runId, selected!.token, selected!.snakeId);
+      expect(await inspectorReceipt('0000000000000008')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: true});
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        const next = parseInspectorSnapshot(JSON.parse(runtime.latestInspector('0000000000000000')!));
+        expect(next.subscriptionSequence).toBe('0000000000000008');
+        expect(next.sample?.snakeId).toBe(selected!.snakeId);
+      }, {timeout: 5000, interval: 10});
+      runtime.submitInspector('0000000000000009', startup.runId);
+      expect(await inspectorReceipt('0000000000000009')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
+      runtime.submitInspector('000000000000000a', startup.runId, selected!.token, selected!.snakeId, true);
+      expect(await inspectorReceipt('000000000000000a')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: true});
+      let probed: ReturnType<typeof parseInspectorSnapshot> | undefined;
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        const value = parseInspectorSnapshot(JSON.parse(runtime.latestInspector('0000000000000000')!));
+        expect(value.subscriptionSequence).toBe('000000000000000a');
+        expect(value.sample).toMatchObject({pureProbe: true, snakeId: selected!.snakeId, neuralOutputs: null,
+          baselineAction: null, baselineV1Action: null, shadowOutputs: []});
+        probed = value;
+      }, {timeout: 5000, interval: 10});
+      const probeStep = probed!.sample!.sampleStep;
+      await vi.waitFor(() => {
+        runtime.drainOutputs(16, BACKGROUND_INIT.maxOutputEventOwnedBytes);
+        const value = parseInspectorSnapshot(JSON.parse(runtime.latestInspector('0000000000000000')!));
+        expect(BigInt('0x' + value.completedStep)).toBeGreaterThan(BigInt('0x' + probeStep) + 8n);
+        expect(value.sample!.sampleStep).toBe(probeStep);
+        expect(value.sample!.trace).toEqual(probed!.sample!.trace);
+        expect(value.sample!.lifecycle).toEqual(probed!.sample!.lifecycle);
+      }, {timeout: 5000, interval: 10});
+      runtime.submitInspector('000000000000000b', startup.runId);
+      expect(await inspectorReceipt('000000000000000b')).toMatchObject({kind: 'inspectorChanged', inspectorEnabled: false});
       expect(events.filter(event => event.kind === 'started')).toHaveLength(1);
       expect(runtime.health().faultCode).toBeUndefined();
       expect(wakes).toBeGreaterThan(0);

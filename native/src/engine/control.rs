@@ -66,6 +66,8 @@ struct ReadyBatch {
 pub struct NeuralControlCapacityDiagnostics {
     /// Persistent calculation threads allocated for this pipeline.
     pub calculation_workers: usize,
+    /// One shared cold-admitted v4 head-velocity array; zero for frozen v3.
+    pub v4_head_capacity: usize,
     /// Packed observation slots.
     pub observations: usize,
     /// Packed controller-output slots.
@@ -109,6 +111,10 @@ pub struct NeuralControlBatchInputs<'a, 'world> {
     pub indexed_world: &'a IndexedSensorWorld<'world>,
     /// Generation-scoped best-points state initialized before sensing.
     pub generation: &'a SensorGenerationState,
+    /// Optional dense life assessments from the same pre-control boundary.
+    pub assessment_points: Option<&'a [f64]>,
+    /// Bound v4 context and immutable grants; absent for frozen v3.
+    pub v4: Option<super::sensors_v4::PreparedV4Sensing<'a>>,
     /// Dense heterogeneous genome slab.
     pub population: &'a [PopulationGenome],
     /// Stable brain handles and recurrent state before this operation.
@@ -128,7 +134,7 @@ impl NeuralControlBatchView<'_> {
         self.work
     }
 
-    /// Packed sensor-v3 observations in work order.
+    /// Packed active-contract observations in work order.
     pub const fn observations(&self) -> &[f32] {
         self.observations
     }
@@ -158,6 +164,7 @@ impl NeuralControlBatchView<'_> {
 #[derive(Debug)]
 pub struct NeuralControlPipeline {
     sensor: SensorEvaluator,
+    v4_heads: super::sensors_v4::V4HeadWorkspace,
     inference: GraphExecutionPlan,
     workspace: CalculationWorkspace<()>,
     calculation_pool: Option<ThreadPool>,
@@ -253,6 +260,32 @@ impl NeuralControlPipeline {
         ])
     }
 
+    /// Include the optional shared v4 head facts in the same unchanged scratch ceiling.
+    pub fn required_staging_bytes_for_sensor(
+        max_work: usize,
+        sensor: &SensorEvaluator,
+        inference: &GraphExecutionPlan,
+        calculation_workers: usize,
+    ) -> Result<usize, NeuralControlError> {
+        checked_sum(&[
+            Self::required_staging_bytes(max_work, inference, calculation_workers)?,
+            if sensor.is_v4() {
+                checked_element_bytes::<super::state::WorldPoint>(max_work, "shared v4 head facts")?
+            } else {
+                0
+            },
+        ])
+    }
+
+    /// Temporarily lend the admitted shared owner to the pre-movement coordinator.
+    /// The coordinator returns it after all borrowed worker views have expired.
+    pub(crate) fn swap_v4_head_workspace(
+        &mut self,
+        other: &mut super::sensors_v4::V4HeadWorkspace,
+    ) {
+        std::mem::swap(&mut self.v4_heads, other);
+    }
+
     /// Allocate fixed packed staging after checking the sensor/graph contract.
     ///
     /// `staging_budget_bytes` covers this owner, canonical work, graph scratch,
@@ -278,7 +311,12 @@ impl NeuralControlPipeline {
                 required: CONTROLLER_OUTPUT_SIZE,
             });
         }
-        let required = Self::required_staging_bytes(max_work, &inference, calculation_workers)?;
+        let required = Self::required_staging_bytes_for_sensor(
+            max_work,
+            &sensor,
+            &inference,
+            calculation_workers,
+        )?;
         if required > staging_budget_bytes {
             return Err(NeuralControlError::StagingBudgetExceeded {
                 required_bytes: required,
@@ -286,6 +324,11 @@ impl NeuralControlPipeline {
             });
         }
 
+        let v4_heads = if sensor.is_v4() {
+            super::sensors_v4::V4HeadWorkspace::try_new(max_work).map_err(SensorError::V4)?
+        } else {
+            super::sensors_v4::V4HeadWorkspace::default()
+        };
         let workspace = CalculationWorkspace::try_new(
             max_work,
             calculation_workers,
@@ -360,6 +403,10 @@ impl NeuralControlPipeline {
         let allocated_staging_bytes = checked_sum(&[
             size_of::<Self>(),
             workspace.allocated_bytes(),
+            checked_element_bytes::<super::state::WorldPoint>(
+                v4_heads.capacity(),
+                "shared v4 head capacity",
+            )?,
             checked_capacity_bytes(&parallel_sensor_scratch, "parallel sensor scratch records")?,
             checked_capacity_bytes(&parallel_sensor_errors, "parallel sensor error records")?,
             checked_capacity_bytes(
@@ -385,6 +432,7 @@ impl NeuralControlPipeline {
 
         Ok(Self {
             sensor,
+            v4_heads,
             inference,
             workspace,
             calculation_pool,
@@ -417,6 +465,7 @@ impl NeuralControlPipeline {
     pub fn capacity_diagnostics(&self) -> NeuralControlCapacityDiagnostics {
         NeuralControlCapacityDiagnostics {
             calculation_workers: self.workspace.worker_count(),
+            v4_head_capacity: self.v4_heads.capacity(),
             observations: self.observations.capacity(),
             outputs: self.staged_outputs.capacity(),
             recurrent: self.staged_recurrent.capacity(),
@@ -449,16 +498,39 @@ impl NeuralControlPipeline {
         inputs: NeuralControlBatchInputs<'_, '_>,
         sensor_scratch: &mut SensorScratch,
     ) -> Result<NeuralControlBatchView<'a>, NeuralControlError> {
+        self.prepare_and_evaluate_traced(inputs, sensor_scratch, None)
+    }
+
+    /// Capture raw diagnostics in the same sampling pass, in exactly one worker.
+    pub(crate) fn prepare_and_evaluate_traced<'a>(
+        &'a mut self,
+        inputs: NeuralControlBatchInputs<'_, '_>,
+        sensor_scratch: &mut SensorScratch,
+        mut trace: Option<(u64, &mut super::sensor_trace::SensorTrace)>,
+    ) -> Result<NeuralControlBatchView<'a>, NeuralControlError> {
+        if let Some((_, value)) = trace.as_mut() {
+            value.valid = false;
+        }
         let NeuralControlBatchInputs {
             key,
             candidates,
             indexed_world,
             generation,
+            assessment_points,
+            v4,
             population,
             brains,
             reset_brains,
         } = inputs;
         self.ready = None;
+        if assessment_points.is_some_and(|points| {
+            points.len() != population.len()
+                || points
+                    .iter()
+                    .any(|point| !point.is_finite() || *point < 0.0)
+        }) {
+            return Err(NeuralControlError::InvalidAssessmentScores);
+        }
         self.last_cost = NeuralBatchCostMicros::default();
         self.workspace.begin(key);
         for candidate in candidates {
@@ -515,16 +587,32 @@ impl NeuralControlPipeline {
                     .zip(self.parallel_sensor_errors.iter_mut())
                     .enumerate()
                 {
+                    let mut partition_trace = if trace
+                        .as_ref()
+                        .is_some_and(|(id, _)| units.iter().any(|unit| unit.snake_id() == *id))
+                    {
+                        trace.take()
+                    } else {
+                        None
+                    };
                     scope.spawn(move |_| {
                         run_calculation_worker("sensing", partition, || {
                             for (ordinal, unit) in units.iter().enumerate() {
                                 let offset = ordinal * sensor.layout().input_size;
-                                match sensor.sample(
+                                match sensor.sample_prepared_with_trace(
                                     indexed_world,
                                     generation,
                                     unit.snake_index(),
                                     &mut observations[offset..offset + sensor.layout().input_size],
                                     scratch,
+                                    unit.population_slot().and_then(|slot| {
+                                        assessment_points
+                                            .and_then(|points| points.get(slot as usize).copied())
+                                    }),
+                                    v4,
+                                    partition_trace.as_mut().and_then(|(id, value)| {
+                                        (*id == unit.snake_id()).then_some(&mut **value)
+                                    }),
                                 ) {
                                     Ok(sample) => {
                                         deliveries[ordinal] = Some(sample.delivery);
@@ -548,12 +636,19 @@ impl NeuralControlPipeline {
         } else {
             for (ordinal, unit) in work.iter().enumerate() {
                 let offset = ordinal * self.inference.input_size();
-                let sample = self.sensor.sample(
+                let sample = self.sensor.sample_prepared_with_trace(
                     indexed_world,
                     generation,
                     unit.snake_index(),
                     &mut self.observations[offset..offset + self.inference.input_size()],
                     sensor_scratch,
+                    unit.population_slot().and_then(|slot| {
+                        assessment_points.and_then(|points| points.get(slot as usize).copied())
+                    }),
+                    v4,
+                    trace
+                        .as_mut()
+                        .and_then(|(id, value)| (*id == unit.snake_id()).then_some(&mut **value)),
                 )?;
                 self.deliveries[ordinal] = Some(sample.delivery);
                 self.diagnostics[ordinal] = sample.diagnostics;
@@ -976,6 +1071,8 @@ impl NeuralControlPipeline {
 /// Sensing-to-inference staging, identity, or commit failure.
 #[derive(Debug)]
 pub enum NeuralControlError {
+    /// Life-score context must be a finite, nonnegative dense population slab.
+    InvalidAssessmentScores,
     /// Requested calculation-thread count is outside the supported envelope.
     InvalidCalculationWorkers(CalculationWorkerCountError),
     /// The bounded persistent calculation pool could not start.
@@ -1103,6 +1200,7 @@ impl fmt::Display for NeuralControlError {
             Self::AllocationFailed { buffer, elements } => {
                 write!(formatter, "could not allocate {elements} elements for {buffer}")
             }
+            Self::InvalidAssessmentScores => write!(formatter, "invalid population life-assessment sensor context"),
             Self::BatchNotReady => write!(formatter, "no complete neural-control batch is ready"),
             Self::BatchKeyMismatch { staged, current } => write!(
                 formatter,
@@ -1266,7 +1364,7 @@ mod tests {
             max_graph_outputs: 4,
             max_identifier_bytes: 64,
             max_total_referenced_identifier_bytes: 4_096,
-            max_tensor_width: 256,
+            max_tensor_width: 1_024,
             max_mlp_hidden_layers: 4,
             max_split_output_ports: 4,
             max_parameter_floats: 100_000,
@@ -1368,6 +1466,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 1.0 + index as f64,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 3,
@@ -1417,6 +1519,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle,
                 owner: BrainOwner::PopulationSlot(u32::try_from(index).unwrap()),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: (0..plan.total_state_size())
                     .map(|state| (index * 5 + state + 1) as f32 / 100.0)
@@ -1462,6 +1565,7 @@ mod tests {
         ];
         (
             WorldState {
+                ray_cursor: Default::default(),
                 snakes,
                 body_points,
                 pellets,
@@ -1520,6 +1624,8 @@ mod tests {
                     candidates: &candidates,
                     indexed_world: &indexed_world,
                     generation: &generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1535,6 +1641,58 @@ mod tests {
         assert_eq!(world, original_world);
         assert_eq!(brains, original_brains);
         assert!(pipeline.ready.is_none());
+    }
+
+    #[test]
+    fn selected_life_scores_match_across_real_sensing_workers_and_keep_wallet_delivery() {
+        let plan = graph_plan(51);
+        let scores = [80.0, 30.0, 10.0, 5.0];
+        let mut reference = None;
+        for workers in [1, 2] {
+            let (mut world, mut brains, population) = fixture_with_count(&plan, EPOCH, 4);
+            let mut generation = SensorGenerationState::new();
+            generation.observe_assessments(&scores).unwrap();
+            let sensor = SensorEvaluator::new(sensor_config()).unwrap();
+            let mut pipeline =
+                NeuralControlPipeline::try_new(4, sensor, plan.clone(), workers, usize::MAX)
+                    .unwrap();
+            let indexed = indexed(&world);
+            let candidates = (0..4)
+                .rev()
+                .map(|index| CalculationCandidateIndex::new(index, index))
+                .collect::<Vec<_>>();
+            let key = CalculationBatchKey::new(4, 99, EPOCH);
+            let batch = pipeline
+                .prepare_and_evaluate(
+                    NeuralControlBatchInputs {
+                        key,
+                        candidates: &candidates,
+                        indexed_world: &indexed,
+                        generation: &generation,
+                        assessment_points: Some(&scores),
+                        v4: None,
+                        population: &population,
+                        brains: &brains,
+                        reset_brains: &[],
+                    },
+                    &mut SensorScratch::default(),
+                )
+                .unwrap();
+            let observations = batch.observations().to_vec();
+            let outputs = batch.outputs().to_vec();
+            let _ = batch;
+            drop(indexed);
+            pipeline.commit_state(key, &mut world, &mut brains).unwrap();
+            for snake in &world.snakes {
+                assert_eq!(snake.delivered_observation_points, snake.points);
+            }
+            let result = (observations, outputs, world, brains);
+            if let Some(expected) = &reference {
+                assert_eq!(&result, expected);
+            } else {
+                reference = Some(result);
+            }
+        }
     }
 
     #[test]
@@ -1564,6 +1722,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &old_indexed,
                     generation: &generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1642,6 +1802,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &reset_indexed,
                     generation: &generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &reset_brains,
                     reset_brains: &[reset_handle],
@@ -1658,6 +1820,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &reference_indexed,
                     generation: &generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &reference_brains,
                     reset_brains: &[],
@@ -1728,6 +1892,8 @@ mod tests {
                         candidates: &candidates(),
                         indexed_world: &indexed,
                         generation: &generation,
+                        assessment_points: None,
+                        v4: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &invalid,
@@ -1755,6 +1921,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &indexed,
                     generation: &generation,
+                assessment_points: None,
+                v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[stale],
@@ -1797,6 +1965,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &original_indexed,
                     generation: &generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1831,6 +2001,175 @@ mod tests {
     }
 
     #[test]
+    fn shared_head_storage_is_charged_only_for_v4_and_rejects_an_insufficient_budget() {
+        let v3 = SensorEvaluator::new(SensorConfig::default()).unwrap();
+        let v3_plan = graph_plan(v3.layout().input_size);
+        let v3_required = NeuralControlPipeline::required_staging_bytes(12, &v3_plan, 1).unwrap();
+        assert_eq!(
+            NeuralControlPipeline::required_staging_bytes_for_sensor(12, &v3, &v3_plan, 1).unwrap(),
+            v3_required
+        );
+        let pipeline = NeuralControlPipeline::try_new(12, v3, v3_plan, 1, v3_required).unwrap();
+        assert_eq!(pipeline.capacity_diagnostics().v4_head_capacity, 0);
+        let v4 = SensorEvaluator::new_v4(
+            SensorConfig::default(),
+            crate::engine::movement::MovementConfig::typescript_defaults(),
+            1.0 / 60.0,
+            crate::engine::sensor_contract::SensorProfile::Motion,
+        )
+        .unwrap();
+        let plan = graph_plan(v4.layout().input_size);
+        let base = NeuralControlPipeline::required_staging_bytes(12, &plan, 1).unwrap();
+        let required =
+            NeuralControlPipeline::required_staging_bytes_for_sensor(12, &v4, &plan, 1).unwrap();
+        assert_eq!(required - base, 12 * std::mem::size_of::<WorldPoint>());
+        assert!(matches!(
+            NeuralControlPipeline::try_new(12, v4.clone(), plan.clone(), 1, required - 1),
+            Err(NeuralControlError::StagingBudgetExceeded { .. })
+        ));
+        let pipeline = NeuralControlPipeline::try_new(12, v4, plan, 1, required).unwrap();
+        assert_eq!(pipeline.capacity_diagnostics().v4_head_capacity, 12);
+        assert!(pipeline.allocated_staging_bytes() <= required);
+    }
+
+    #[test]
+    fn v4_actual_parallel_sensing_and_inference_match_scalar_with_fixed_grants_and_warm_capacity() {
+        use crate::engine::evolved_lives::{EvolvedExperimentConfig, EvolvedGenerationState};
+        use crate::engine::sensor_contract::SensorProfile;
+        use crate::engine::sensor_rays::BodyRayIndexWorkspace;
+        use crate::engine::sensors_v4::{PreparedV4Sensing, V4ObservationContext};
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in [8, 16, 32] {
+                let sensor = SensorEvaluator::new_v4(
+                    SensorConfig {
+                        bins,
+                        ..SensorConfig::default()
+                    },
+                    crate::engine::movement::MovementConfig::typescript_defaults(),
+                    1.0 / 60.0,
+                    profile,
+                )
+                .unwrap();
+                let plan = graph_plan(sensor.layout().input_size);
+                let (world, brains, population) = fixture_with_count(&plan, EPOCH, 12);
+                let source_world = world.clone();
+                let source_brains = brains.clone();
+                let indexed_world = indexed(&world);
+                let mut hierarchy = BodyRayIndexWorkspace::default();
+                let body_rays = hierarchy.prepare(indexed_world.body_index()).unwrap();
+                let lives = EvolvedGenerationState::default();
+                let grants: Vec<_> = (0..12).map(|index| 40 + index * 7).collect();
+                let mut shared_heads =
+                    super::super::sensors_v4::V4HeadWorkspace::try_new(world.snakes.len()).unwrap();
+                let heads = shared_heads.prepare(&world, profile).unwrap();
+                let context = PreparedV4Sensing {
+                    body_rays,
+                    heads,
+                    context: V4ObservationContext {
+                        generation_elapsed_seconds: 10.0,
+                        evolved: &lives,
+                        experiment: EvolvedExperimentConfig::legacy(240.0),
+                    },
+                    grants_by_snake: &grants,
+                };
+                let mut generation = SensorGenerationState::new();
+                generation.update_after_step(&world).unwrap();
+                let mut expected = None;
+                let mut expected_trace = None;
+                for workers in [1, 2, 3, 4] {
+                    // Twelve due evaluations exceed both parallel-phase thresholds.
+                    assert!(workers == 1 || 12 >= 2 * workers);
+                    let mut pipeline = NeuralControlPipeline::try_new(
+                        12,
+                        sensor.clone(),
+                        plan.clone(),
+                        workers,
+                        usize::MAX,
+                    )
+                    .unwrap();
+                    let candidates: Vec<_> = (0..12)
+                        .rev()
+                        .map(|index| CalculationCandidateIndex::new(index, index))
+                        .collect();
+                    let mut scratch = SensorScratch::default();
+                    let mut retained = None;
+                    for repeat in 0..4 {
+                        let selected_id = world.snakes[9].id;
+                        let mut trace = super::super::sensor_trace::SensorTrace::default();
+                        let trace_request = (repeat != 0).then_some((selected_id, &mut trace));
+                        let batch = pipeline
+                            .prepare_and_evaluate_traced(
+                                NeuralControlBatchInputs {
+                                    key: CalculationBatchKey::new(7, 101, EPOCH),
+                                    candidates: &candidates,
+                                    indexed_world: &indexed_world,
+                                    generation: &generation,
+                                    assessment_points: None,
+                                    v4: Some(context),
+                                    population: &population,
+                                    brains: &brains,
+                                    reset_brains: &[],
+                                },
+                                &mut scratch,
+                                trace_request,
+                            )
+                            .unwrap();
+                        assert_eq!(batch.work().len(), 12);
+                        for (index, diagnostics) in batch.diagnostics().iter().enumerate() {
+                            assert!(diagnostics.ray_work.charged() <= u64::from(grants[index]));
+                        }
+                        let result = (
+                            batch
+                                .observations()
+                                .iter()
+                                .map(|value| value.to_bits())
+                                .collect::<Vec<_>>(),
+                            batch
+                                .outputs()
+                                .iter()
+                                .map(|value| value.to_bits())
+                                .collect::<Vec<_>>(),
+                            batch.diagnostics().to_vec(),
+                            pipeline.staged_recurrent.clone(),
+                        );
+                        if let Some(expected) = &expected {
+                            assert_eq!(&result, expected);
+                        } else {
+                            expected = Some(result);
+                        }
+                        if repeat != 0 {
+                            assert!(trace.valid);
+                            assert_eq!(trace.physical_id, selected_id);
+                            assert_eq!((trace.profile, trace.bins), (profile, bins));
+                            if let Some(expected) = &expected_trace {
+                                assert_eq!(&trace, expected);
+                            } else {
+                                expected_trace = Some(trace);
+                            }
+                        }
+                        let capacity = (
+                            pipeline.capacity_diagnostics(),
+                            scratch.diagnostics(),
+                            pipeline
+                                .parallel_sensor_scratch
+                                .iter()
+                                .map(SensorScratch::diagnostics)
+                                .collect::<Vec<_>>(),
+                        );
+                        if let Some(retained) = &retained {
+                            assert_eq!(&capacity, retained);
+                        } else {
+                            retained = Some(capacity);
+                        }
+                        assert_eq!(world, source_world);
+                        assert_eq!(brains, source_brains);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn malformed_late_genome_leaves_no_ready_batch_or_authoritative_write() {
         let plan = graph_plan(51);
         let (world, brains, mut population) = fixture(&plan, EPOCH);
@@ -1858,6 +2197,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &original_indexed,
                     generation: &generation,
+                assessment_points: None,
+                v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -1909,6 +2250,8 @@ mod tests {
                         candidates: &due,
                         indexed_world: &current_indexed,
                         generation: &generation,
+                        assessment_points: None,
+                        v4: None,
                         population: &population,
                         brains: &brains,
                         reset_brains: &[],
@@ -1948,6 +2291,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &original_indexed,
                     generation: &generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &population,
                     brains: &brains,
                     reset_brains: &[],
@@ -2034,6 +2379,8 @@ mod tests {
                     candidates: &candidates(),
                     indexed_world: &replacement_indexed,
                     generation: &replacement_generation,
+                    assessment_points: None,
+                    v4: None,
                     population: &replacement_population,
                     brains: &replacement_brains,
                     reset_brains: &[],

@@ -1,5 +1,12 @@
 //! Rust-owned authoritative simulation components.
 
+/// Portable independently compiled neural artifacts and bounded provenance.
+pub mod brain_artifact;
+/// Cold library artifact and shared-weight publication.
+pub mod brain_library;
+/// Explicit bounded portable originals in self-contained save archives.
+pub mod saved_brain_archive;
+
 /// Staged once-per-fixed-step generation and live-snake scalar accounting.
 pub mod accounting;
 /// Cold generation-boundary release of unused allocator pages.
@@ -10,10 +17,15 @@ pub mod ambient;
 pub mod baseline;
 /// Pure baseline strategy evaluation from shared corrected observations.
 pub mod baseline_control;
+/// Declared-information v4 baseline policy with isolated behavior continuation.
+pub mod baseline_v2;
 /// Deterministic scalar calculation work, scratch, and staged-result contracts.
 pub mod calculation;
 /// Process-available logical CPU limits for the Rust calculation pool.
 pub mod calculation_workers;
+/// Actual committed capture throughput and bounded slow-drain evidence.
+#[cfg(feature = "engine-test-hooks")]
+pub mod capture_qualification;
 /// Bounded managed checkpoint-v3 codec and immutable-file publication.
 pub mod checkpoint;
 /// Deterministic test-hook fixture for the real checkpoint publication boundary.
@@ -44,6 +56,14 @@ pub mod effects;
 pub mod error;
 /// Serial TypeScript-compatible fitness, selection, crossover, and mutation.
 pub mod evolution;
+/// Population-slot physical lives and ordered economic accounting.
+pub mod evolved_lives;
+/// Private bounded in-place population replacement and publication witnesses.
+mod evolved_replacement;
+/// Constant-sized committed life diagnostics for replaceable display stats.
+pub mod evolved_telemetry;
+/// Bounded versioned experiment-history and assessment records.
+pub mod experiment_records;
 /// Self-contained save archive assembly from one leased managed checkpoint.
 pub mod export_archive;
 /// One-shot archive completion/validation failures confined to the test addon.
@@ -72,11 +92,17 @@ pub mod genome;
 pub mod god_mode;
 /// Deterministic graph validation, layout, and compilation contracts.
 pub mod graph;
+/// Bounded shared source-graph JSON decoder used by admission and offline tools.
+pub mod graph_json;
 /// Safe scalar complete-graph and heterogeneous-population inference.
 pub mod inference;
 /// Deterministic Stage 4 whole-population inference evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod inference_fixture;
+/// One selected actual-delivery diagnostic cache, isolated from authoritative state.
+pub mod inspector;
+/// Bounded Rust-authored presentation of committed selected observations.
+pub mod inspector_wire;
 /// Bounded immutable origin of a population imported from an older representation.
 pub mod legacy_origin;
 /// Atomic runtime-setting replacement at a clean authoritative boundary.
@@ -87,6 +113,10 @@ pub mod movement;
 pub mod physics;
 /// Bounded inbound/outbound queues and coalesced wake contracts.
 pub mod queues;
+/// Transaction-staged fair work grants for sensor-v4 capsule rays.
+pub mod ray_work;
+/// Bounded immutable provenance shared by retained neural owners.
+pub mod retained_origin;
 /// Versioned deterministic random-number generation shared by engine state.
 pub mod rng;
 /// Durable generation-one checkpoint and running-authority activation barrier.
@@ -105,10 +135,25 @@ pub mod scheduler;
 /// Deterministic Stage 4 corrected-sensing performance evidence.
 #[cfg(feature = "engine-test-hooks")]
 pub mod sensing_fixture;
+/// Canonical structural sensor identity, separate from numeric environments.
+pub mod sensor_contract;
+/// Pure sensor-v4 capsule, wall and projected head-motion geometry.
+pub mod sensor_geometry;
 /// Sensor-v3 labels, offsets, and input-size contract.
 pub mod sensor_layout;
+/// Actual native workload timing and bounded committed-observation histograms.
+#[cfg(feature = "engine-test-hooks")]
+pub mod sensor_qualification;
+/// Bounded reusable sensor-only traversal over complete body segments.
+pub mod sensor_rays;
+/// Opt-in actual-sample raw diagnostics with fixed bounded storage.
+pub mod sensor_trace;
 /// Corrected sensor-v3 construction and delivered-observation boundaries.
 pub mod sensors;
+/// Complete Basic/Motion candidate observations for native qualification.
+pub mod sensors_v4;
+/// Isolated native shadow inference and bounded committed-sample metrics.
+pub mod shadows;
 /// Complete derived body-segment and pellet spatial indexes.
 pub mod spatial;
 /// Deterministic collision-safe initial-body placement with bounded fallback.
@@ -123,6 +168,23 @@ pub mod step_fixture;
 /// Thread-local panic injection compiled only into Rust unit tests.
 #[cfg(test)]
 pub(crate) mod task_panic_fixture;
+/// Pending exact teacher observations retained from shared control evaluation.
+pub mod teacher_capture;
+/// Nonblocking owner handoff to the separate diagnostic transport drain.
+pub mod teacher_mailbox;
+/// Separate bounded diagnostic queue for immutable teacher chunks.
+pub mod teacher_queue;
+/// Cold automatic teacher-capture admission from current native authority.
+pub mod teacher_runtime;
+/// Bounded Rust-owned committed-teacher chunk encoding and structural validation.
+pub mod teacher_samples;
+/// Committed physical-stream assembly without authority or trainer coupling.
+pub mod teacher_stream;
+/// Canonical cold training metadata derived from the authoritative graph compiler.
+pub mod training_graph;
+/// Bounded offline complete-graph inference using the deployed native executor.
+#[cfg(any(test, feature = "engine-test-hooks"))]
+pub mod training_runner;
 /// Worker-local archive byte counters visible to the Node watchdog.
 pub mod work_progress;
 /// Complete post-control world-step staging before one authority publication.
@@ -142,3 +204,41 @@ pub use scheduler::{
 };
 pub use state::GenerationStartPublication;
 pub use world_step::ExternalDeliveryStatus;
+
+/// Seeded tactical batches using the real native prefix/control/physics pipeline.
+#[cfg(feature = "engine-test-hooks")]
+pub mod baseline_qualification;
+
+/// Bounded synthetic committed-row export for offline tactical training.
+#[cfg(feature = "engine-test-hooks")]
+mod tactical_corpus;
+
+/// Offline checkpoint envelope/resource qualification; never a production startup override.
+#[cfg(feature = "engine-test-hooks")]
+pub mod checkpoint_capacity;
+
+/// Offline full-library and inspector coexistence qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod coexistence_capacity;
+
+/// Shared native admission for background population ownership.
+pub(crate) mod population_work;
+
+/// Pre-materialization resource pricing for legacy population JSON.
+pub(crate) mod legacy_json_resources;
+
+/// Continuous native long-run pressure qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod soak_qualification;
+
+/// Synthetic in-arena v4 sensing pressure; separate from complete gameplay qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod crowded_sensor_qualification;
+
+/// Bounded same-graph learned families for native qualification, never a production founder API.
+#[cfg(feature = "engine-test-hooks")]
+pub mod trained_cohort;
+
+/// Complete ordinary observation quality, confined to qualification builds.
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) mod observation_quality;

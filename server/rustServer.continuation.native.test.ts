@@ -17,8 +17,8 @@ import type { GraphSpec } from '../src/brains/graph/schema.ts';
 const GRAPH: GraphSpec = {
   type: 'graph', outputSize: 2,
   nodes: [
-    { id: 'input', type: 'Input', outputSize: 83 },
-    { id: 'dense', type: 'Dense', inputSize: 83, outputSize: 8 },
+    { id: 'input', type: 'Input', outputSize: 264 },
+    { id: 'dense', type: 'Dense', inputSize: 264, outputSize: 8 },
     { id: 'gru', type: 'GRU', inputSize: 8, hiddenSize: 4 },
     { id: 'lstm', type: 'LSTM', inputSize: 4, hiddenSize: 4 },
     { id: 'rru', type: 'RRU', inputSize: 4, hiddenSize: 4 },
@@ -70,14 +70,24 @@ function records(databasePath: string, runId: string): { history: unknown[]; hal
   } finally { database.close(); }
 }
 
-/** Download the actual selected checkpoint while the source coordinator awaits its durable reply. */
+/** Lease the exact held checkpoint, then retire its predecessor before native archive allocation. */
 async function archive(server: RustServer, boundary: HeldBoundary): Promise<Buffer> {
-  const response = await fixtureArchiveDownload(server.port, 'continuation checkpoint');
-  expect(response.status, response.status === 200 ? undefined : await response.text()).toBe(200);
-  expect(response.headers.get('x-slither-checkpoint-id')).toBe(boundary.descriptor.logicalRootSha256);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
-  return bytes;
+  const originalAcquire = CheckpointPersistenceClient.prototype.acquireCurrentExportLease;
+  const leasing = vi.spyOn(CheckpointPersistenceClient.prototype, 'acquireCurrentExportLease')
+    .mockImplementationOnce(async function(this: CheckpointPersistenceClient) {
+      const lease = await originalAcquire.call(this);
+      expect(lease.descriptor).toEqual(boundary.descriptor);
+      boundary.release();
+      return lease;
+    });
+  try {
+    const response = await fixtureArchiveDownload(server.port, 'continuation checkpoint');
+    expect(response.status, response.status === 200 ? undefined : await response.text()).toBe(200);
+    expect(response.headers.get('x-slither-checkpoint-id')).toBe(boundary.descriptor.logicalRootSha256);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    return bytes;
+  } finally { leasing.mockRestore(); }
 }
 
 describeNetworkSuite('Rust archive exact continuation', () => {
@@ -210,8 +220,6 @@ describeNetworkSuite('Rust archive exact continuation', () => {
         expect(sourceRecords.hallOfFame.length).toBeGreaterThan(0);
         expect(records(targetPath, original.descriptor.runId)).toEqual(sourceRecords);
         const directArchive = await archive(source, direct);
-        const restoredArchive = await archive(target, restored);
-        expect(restoredArchive).toEqual(directArchive);
 
         restored.release();
         await target.close();
@@ -220,6 +228,10 @@ describeNetworkSuite('Rust archive exact continuation', () => {
           resume: 'latest', rustCalculationWorkers: scenario.workers });
         servers.push(restarted);
         expect(restarted.startupFault).toBeUndefined();
+        // Compare the same successor archive after restart before allowing another generation.
+        // Leasing releases the already durable boundary; native reservation still precedes decoding.
+        const restoredArchive = await archive(restarted, restored);
+        expect(restoredArchive).toEqual(directArchive);
         const afterRestart = await observed(() => restoredAfterRestart,
           'restored post-restart boundary', CONTINUATION_TIMEOUT_MS);
         direct.release();

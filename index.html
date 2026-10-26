@@ -39,6 +39,8 @@
       <button class="tab-btn" data-tab="tab-viz">Visualizer</button>
       <button class="tab-btn" data-tab="tab-stats">Stats</button>
       <button class="tab-btn" data-tab="tab-hof">Hall of Fame</button>
+      <button class="tab-btn" data-tab="tab-library" hidden>Brain Library</button>
+      <button class="tab-btn" data-tab="tab-distillation" hidden>Distillation</button>
     </div>
 
     <!-- Tab: Settings -->
@@ -167,6 +169,7 @@
           <div class="graph-actions">
             <button id="graphApply" class="btn">Apply graph</button>
             <button id="graphReset" class="btn">Reset graph</button>
+            <button id="graphUseStack" class="btn">Use stack controls</button>
             <div id="graphSpecStatus" class="meta">Graph not applied yet.</div>
           </div>
         </div>
@@ -217,10 +220,12 @@
           <button id="apply">Apply and reset</button>
           <button id="defaults">Defaults</button>
         </div>
+        <div id="finishGenerationStatus" class="meta" role="status" hidden></div>
         <div id="resetStatus" class="meta reset-status" role="status" hidden></div>
 
         <div class="btnrow">
           <button id="newRun">New Run (new seed)</button>
+          <button id="finishGeneration" hidden>Finish generation now</button>
         </div>
         <div class="meta">Starts and checkpoints a new seed without deleting earlier saves.</div>
 
@@ -258,12 +263,65 @@
       </div>
       <canvas id="statsCanvas" width="360" height="300"></canvas>
       <div id="statsInfo" class="info-block"></div>
+      <p id="selectedEntityInfo" class="meta selected-entity-info" aria-live="polite">Select a snake to inspect its live origin.</p>
+      <section id="decisionInspector" class="decision-inspector" hidden>
+        <label><input id="decisionInspectorEnabled" type="checkbox"> Decision inspector</label>
+        <div class="row inspector-owner"><label for="decisionInspectorSlot">Population slot (0-based)</label><input id="decisionInspectorSlot" type="number" min="0" max="299" step="1" value="0"><button id="decisionInspectorSelect" class="btn">Select individual</button></div>
+        <div class="row"><button id="decisionInspectorProbe" class="btn">Probe once</button><button id="decisionInspectorDelivered" class="btn">Show delivered</button></div>
+        <p id="decisionInspectorStatus" class="meta" role="status">Decision inspector is off.</p>
+        <div id="decisionInspectorData" hidden>
+          <p id="decisionInspectorSummary" class="meta selected-entity-info"></p>
+          <canvas id="decisionInspectorCanvas" width="320" height="320" aria-label="Native sensor directions and clearances"></canvas>
+          <p id="decisionInspectorLegend" class="meta">Red: body hits · dashed amber: unknown rays · blue: wall clearance · green: food strength. Plot distances stop at near reach; the values below retain the sampler's measurements.</p>
+          <details open><summary>Raw scalars and economics</summary><pre id="decisionInspectorScalars"></pre></details>
+          <details open><summary>Actual action and policy</summary><pre id="decisionInspectorPolicy"></pre></details>
+          <details id="decisionInspectorLifecycleSection" hidden><summary>Life ledger and provisional fitness at sample</summary><pre id="decisionInspectorLifecycle"></pre></details>
+          <details id="decisionInspectorShadowsSection" hidden><summary>Matching shadow outputs at sample</summary><pre id="decisionInspectorShadows"></pre></details>
+          <details><summary>Raw sectors, rays and motion</summary><pre id="decisionInspectorSectors"></pre></details>
+          <details><summary>Exact normalized input vector</summary><pre id="decisionInspectorInputs"></pre></details>
+        </div>
+      </section>
       
       <div class="row" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
         <h3>God Mode Log</h3>
         <p class="meta">Recent interactions (last 10)</p>
       </div>
+      <label class="meta"><input id="followIndividual" type="checkbox" checked> Follow population individual across lives</label>
       <div id="godModeLog" class="god-mode-log" style="font-family: monospace; font-size: 11px; color: #aaa; max-height: 150px; overflow-y: auto;"></div>
+    </div>
+
+    <!-- Explicit retained models; all graph execution remains native. -->
+    <div id="tab-library" class="tab-content">
+      <h3>Brain Library</h3>
+      <p class="meta">Saved brains are separate from Hall of Fame champions. Compatible brains spawn as retained snakes.</p>
+      <div class="row"><label for="brainLibraryName">Saved brain name</label><input id="brainLibraryName" type="text" maxlength="256" autocomplete="off"></div>
+      <div class="row"><label for="brainLibraryFile">Import portable brain</label><input id="brainLibraryFile" type="file" accept=".slither-brain"><button id="brainLibraryImport" class="btn">Import file</button></div>
+      <div class="row"><label for="brainCandidateId">Trainer candidate artifact ID</label><input id="brainCandidateId" type="text" maxlength="64" spellcheck="false" autocomplete="off"><button id="brainLibrarySave" class="btn">Save candidate</button></div>
+      <div class="brain-library-actions"><button id="brainLibraryRefresh" class="btn">Refresh</button><button id="brainLibraryPrevious" class="btn">Previous</button><button id="brainLibraryNext" class="btn">Next</button></div>
+      <div id="brainLibraryArchiveControls" hidden><p id="brainLibraryArchiveCount" class="meta"></p><div class="brain-library-actions"><button id="brainLibraryArchive" class="btn">Export checkpoint with selected brains</button><button id="brainLibraryClearArchive" class="btn">Clear selection</button></div></div>
+      <p id="brainLibraryStatus" class="meta" role="status" aria-live="polite"></p>
+      <p id="brainLibraryPending" class="meta" hidden>The last spawn may already have happened. Retry to check it before spawning another. Dismissing this request does not cancel an admitted spawn.</p>
+      <div class="brain-library-actions"><button id="brainLibraryRetry" class="btn" hidden>Retry spawn</button><button id="brainLibraryDismiss" class="btn" hidden>Dismiss pending request</button></div>
+      <div id="brainLibraryList"></div><div id="brainLibraryDetails"></div>
+    </div>
+
+    <!-- Tab: Distillation diagnostics -->
+    <div id="tab-distillation" class="tab-content distillation-panel">
+      <h3>Teacher capture and shadows</h3>
+      <p class="meta">Record delivered baseline observations and compare up to four candidates. Rust runs the shadows; they never control a snake. Train candidates separately in PyRL-trainer.</p>
+      <div class="brain-library-actions"><button id="distillationRefresh" class="btn">Refresh status</button><button id="distillationPrevious" class="btn">Previous captures</button><button id="distillationNext" class="btn">Next captures</button></div>
+      <label for="distillationTeachers">Teacher slots (0-based, increasing, comma-separated)</label>
+      <input id="distillationTeachers" type="text" maxlength="479" value="0,1,2,3,4,5,6,7,8,9">
+      <p class="meta">Starting capture requires an admitted v4 profile and v2 baseline. Select slots that exist in the current run. Capture starts off and never starts automatically.</p>
+      <div class="brain-library-actions"><button id="distillationStart" class="btn">Start teacher capture</button><button id="distillationStop" class="btn">Stop selected capture</button></div>
+      <p id="distillationStatus" class="meta" role="status" aria-live="polite"></p>
+      <p id="distillationPending" class="meta" hidden>The last shadow command may already have completed. Retry checks the original request. Dismissing does not cancel an admitted command.</p>
+      <div class="brain-library-actions"><button id="distillationRetry" class="btn" hidden>Retry shadow command</button><button id="distillationDismiss" class="btn" hidden>Dismiss pending request</button></div>
+      <div id="distillationDatasets"></div>
+      <p id="distillationDataset" class="meta"></p>
+      <h3>Shadow candidates</h3>
+      <p class="meta">Select an active capture, then enter a candidate digest uploaded by your trainer and its teacher slot. Activation starts a new metric segment and resets shadow memory. Refresh shows native status and action-error strata.</p>
+      <div id="distillationShadows"></div>
     </div>
 
     <!-- Tab: Hall of Fame -->

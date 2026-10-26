@@ -179,7 +179,7 @@ if [ "${SLITHER_SKIP_BUILD:-0}" != "1" ]; then
   fi
 
   if [ "$need_build" -eq 0 ]; then
-    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src native/Cargo.toml native/Cargo.lock native/src "$CONFIG_PATH" scripts/resolve-launcher-config.ts; do
+    for _path in package.json package-lock.json tsconfig.json vite.config.ts index.html styles.css server src contracts/types.ts native/Cargo.toml native/Cargo.lock native/src "$CONFIG_PATH" scripts/resolve-launcher-config.ts; do
       if [ -e "$_path" ] && find "$_path" -type f -newer "$BUILD_STAMP" -print -quit 2>/dev/null | grep -q .; then
         need_build=1
         break

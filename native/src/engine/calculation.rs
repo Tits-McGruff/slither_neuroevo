@@ -1250,6 +1250,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange { start: 0, len: 0 },
             skin: 0,
         }
@@ -1268,6 +1272,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle,
                 owner: BrainOwner::Entity(id),
+                retained_origin: None,
                 non_population_weights: Some(vec![index as f32].into_boxed_slice()),
                 recurrent: Vec::new().into_boxed_slice(),
             });
@@ -1288,6 +1293,7 @@ mod tests {
         let brains = vec![BrainRuntimeState {
             handle,
             owner: BrainOwner::PopulationSlot(0),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: Vec::new().into_boxed_slice(),
         }];

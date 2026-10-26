@@ -1,4 +1,7 @@
+import { SENSOR_HASH_DOMAIN } from "../../contracts/types.ts";
 import type { RustLegacyConversionNotice, RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
+import { createHash } from 'node:crypto';
+import { sensorLayoutFromContract, type SensorContractEnvelope } from '../../src/protocol/sensors.ts';
 import type { GraphSpec } from '../../src/brains/graph/schema.ts';
 import { validateGraph } from '../../src/brains/graph/validate.ts';
 
@@ -55,13 +58,37 @@ export function parseRustStartupMetadata(encoded: unknown): RustStartupMetadata 
   }
   const graphSpec = rawGraph as GraphSpec;
   if (validateGraph(graphSpec).ok !== true) throw new TypeError('invalid Rust startup graphSpec');
+  const sensorVersion = integer('sensorVersion',3,4);
+  const rawContract = record['sensorContract'];
+  let sensorContract: SensorContractEnvelope | undefined;
+  if (rawContract !== undefined) {
+    if (!rawContract || typeof rawContract !== 'object' || Array.isArray(rawContract)) throw new TypeError('invalid native sensor contract');
+    const envelope = rawContract as Record<string,unknown>;
+    if (Object.keys(envelope).some(key=>key !== 'canonicalJson' && key !== 'sha256') ||
+        typeof envelope['canonicalJson'] !== 'string' || Buffer.byteLength(envelope['canonicalJson']) > 65536 ||
+        typeof envelope['sha256'] !== 'string') throw new TypeError('invalid bounded native sensor contract');
+    sensorContract = {canonicalJson:envelope['canonicalJson'],sha256:envelope['sha256']};
+    const digest = createHash('sha256').update(SENSOR_HASH_DOMAIN).update(sensorContract.canonicalJson).digest('hex');
+    if (digest !== sensorContract.sha256) throw new TypeError('native sensor contract digest mismatch');
+    const layout = sensorLayoutFromContract(sensorContract);
+    const setting = (path:string): unknown => settings.find(entry=>entry.path===path)?.value;
+    if (layout.layoutVersion !== 'v'+sensorVersion || setting('sense.bubbleBins') !== layout.bins ||
+        setting('brain.sensorVersion') !== sensorVersion || setting('sense.layoutVersion') !== sensorVersion ||
+        graphSpec.nodes.find(node=>node.type==='Input')?.outputSize !== layout.inputSize) {
+      throw new TypeError('native sensor contract does not match settings or graph');
+    }
+    if (sensorVersion === 4 && (setting('sense.contractVersion') !== 1 ||
+        setting('sense.profile') !== (layout.profile === 'basic' ? 0 : 1) ||
+        setting('sense.contractSha256') !== digest)) throw new TypeError('native recorded v4 identity mismatch');
+  } else if (sensorVersion === 4) throw new TypeError('v4 requires native sensor contract metadata');
   return {
+    ...(sensorContract ? {sensorContract} : {}),
     ...(record['legacyConversion'] == null ? {} : { legacyConversion: parseRustLegacyOrigin(record['legacyConversion']) }),
     runId: text('runId', 256), seed: integer('seed', 0, 0xffff_ffff), configRevision,
     configHash: text('configHash', 256), fixedStepSeconds,
     maximumFrameBytes: integer('maximumFrameBytes', 1), graphKey: text('graphKey', 256 * 1024), graphSpec,
     parameterCount: integer('parameterCount', 1), mathBackend: text('mathBackend', 128),
-    serializerVersion: integer('serializerVersion', 1, 1), sensorVersion: integer('sensorVersion', 3, 3), settings
+    serializerVersion: integer('serializerVersion', 1, 1), sensorVersion, settings
   };
 }
 

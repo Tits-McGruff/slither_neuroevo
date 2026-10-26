@@ -64,18 +64,50 @@ pub struct SerializedRngState {
 /// Errors raised by invalid RNG requests or serialized state.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RngError {
+    /// Evolved stream derivation requires a positive generation and bounded population.
+    InvalidEvolvedRespawnScope {
+        generation: u64,
+        population_count: usize,
+    },
+    /// Population-sized stream storage could not be reserved.
+    EvolvedRespawnAllocation {
+        population_count: usize,
+    },
+    /// Baseline-v2 scope or bounded stream allocation is invalid.
+    InvalidBaselineBehaviorScope {
+        generation: u64,
+        count: usize,
+    },
+    BaselineBehaviorAllocation {
+        count: usize,
+    },
     /// The float interval had non-finite endpoints or reversed bounds.
-    InvalidFloatBounds { min: f64, max: f64 },
+    InvalidFloatBounds {
+        min: f64,
+        max: f64,
+    },
     /// The integer upper bound was not a positive JavaScript safe integer.
-    InvalidIntegerBound { max_exclusive: u64 },
+    InvalidIntegerBound {
+        max_exclusive: u64,
+    },
     /// The uniform algorithm identifier or version was unsupported.
-    UnsupportedUniformState { algorithm: String, version: u32 },
+    UnsupportedUniformState {
+        algorithm: String,
+        version: u32,
+    },
     /// The Gaussian algorithm identifier or version was unsupported.
-    UnsupportedGaussianState { algorithm: String, version: u32 },
+    UnsupportedGaussianState {
+        algorithm: String,
+        version: u32,
+    },
     /// A Uint32 hexadecimal field did not have the required exact form.
-    InvalidUint32State { value: String },
+    InvalidUint32State {
+        value: String,
+    },
     /// A Float64 hexadecimal field did not have the required exact form.
-    InvalidFloat64State { value: String },
+    InvalidFloat64State {
+        value: String,
+    },
     /// The xorshift32 state was the forbidden all-zero state.
     ZeroXorshiftState,
     /// The Gaussian cache flag and optional cached value disagreed.
@@ -87,6 +119,12 @@ pub enum RngError {
 impl fmt::Display for RngError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidEvolvedRespawnScope { generation, population_count } =>
+                write!(formatter, "invalid evolved respawn scope generation {generation}, population {population_count}"),
+            Self::EvolvedRespawnAllocation { population_count } =>
+                write!(formatter, "could not reserve {population_count} evolved respawn streams"),
+            Self::InvalidBaselineBehaviorScope { generation, count } => write!(formatter, "invalid baseline v2 scope generation {generation}, count {count}"),
+            Self::BaselineBehaviorAllocation { count } => write!(formatter, "could not reserve {count} baseline behavior streams"),
             Self::InvalidFloatBounds { min, max } => {
                 write!(formatter, "invalid RNG float bounds: [{min}, {max})")
             }
@@ -198,6 +236,113 @@ fn fnv_mix(hash: u32, byte: u8) -> u32 {
     (hash ^ u32::from(byte)).wrapping_mul(FNV_PRIME)
 }
 
+/// Derive population-owned evolved placement streams using the full generation
+/// identity as labelled ASCII decimal. Reset repeats these streams; run IDs and
+/// evolution draws never participate. The 32-bit output is not globally injective.
+pub fn derive_evolved_respawn_rngs(
+    run_seed: u32,
+    generation: u64,
+    population_count: usize,
+) -> Result<Vec<SerializedRngState>, RngError> {
+    if generation == 0 || population_count > 300 {
+        return Err(RngError::InvalidEvolvedRespawnScope {
+            generation,
+            population_count,
+        });
+    }
+    let mut streams = Vec::new();
+    streams
+        .try_reserve_exact(population_count)
+        .map_err(|_| RngError::EvolvedRespawnAllocation { population_count })?;
+    for slot in 0..population_count {
+        let label = format!("evolved-respawn/v1/generation/{generation}/slot/{slot}");
+        streams.push(labelled_stream(f64::from(run_seed), &label).export_state());
+    }
+    Ok(streams)
+}
+
+/// Isolated baseline-v2 behavior seed; lifecycle and v1 strategy draws never
+/// participate. Full generation identity is used only when configured to vary.
+#[must_use]
+pub fn baseline_v2_behavior_word(
+    run_seed: u32,
+    baseline_seed: u32,
+    generation: u64,
+    slot: u32,
+    randomize_per_generation: bool,
+) -> u32 {
+    let generation = if randomize_per_generation {
+        generation
+    } else {
+        0
+    };
+    let label =
+        format!("baseline-behavior/v2/seed/{baseline_seed}/generation/{generation}/slot/{slot}");
+    labelled_stream(f64::from(run_seed), &label).uniform_state()
+}
+
+/// Dense authoritative baseline-v2 uniform-only behavior continuation.
+/// Placement/lifecycle Gaussian state remains in its independent stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BaselineBehaviorRngState {
+    pub slot: u32,
+    pub uniform_state: u32,
+}
+impl BaselineBehaviorRngState {
+    pub(crate) fn runtime(self) -> Result<StatefulRng, RngError> {
+        StatefulRng::from_uniform_state(self.uniform_state)
+    }
+}
+
+/// Bounded cold derivation; run IDs and lifecycle draws never participate.
+pub fn derive_baseline_v2_behaviors(
+    run_seed: u32,
+    baseline_seed: u32,
+    generation: u64,
+    count: usize,
+    randomize_per_generation: bool,
+) -> Result<Vec<BaselineBehaviorRngState>, RngError> {
+    if generation == 0 || count > 120 {
+        return Err(RngError::InvalidBaselineBehaviorScope { generation, count });
+    }
+    let mut streams = Vec::new();
+    streams
+        .try_reserve_exact(count)
+        .map_err(|_| RngError::BaselineBehaviorAllocation { count })?;
+    for slot in 0..count {
+        streams.push(BaselineBehaviorRngState {
+            slot: slot as u32,
+            uniform_state: baseline_v2_behavior_word(
+                run_seed,
+                baseline_seed,
+                generation,
+                slot as u32,
+                randomize_per_generation,
+            ),
+        });
+    }
+    Ok(streams)
+}
+
+/// Separate v2 lifecycle seed, using full generation scope when configured.
+#[must_use]
+pub fn baseline_v2_lifecycle_rng(
+    run_seed: u32,
+    baseline_seed: u32,
+    generation: u64,
+    slot: u32,
+    randomize_per_generation: bool,
+) -> StatefulRng {
+    let generation = if randomize_per_generation {
+        generation
+    } else {
+        0
+    };
+    let label =
+        format!("baseline-lifecycle/v2/seed/{baseline_seed}/generation/{generation}/slot/{slot}");
+    labelled_stream(f64::from(run_seed), &label)
+}
+
 /// Stateful xorshift32 stream with a versioned polar Box-Muller cache.
 #[derive(Clone, Debug)]
 pub struct StatefulRng {
@@ -218,6 +363,22 @@ impl StatefulRng {
             },
             gaussian_spare: None,
         }
+    }
+
+    /// Restore an evolved uniform-only continuation without allocating text.
+    pub(crate) fn from_uniform_state(state: u32) -> Result<Self, RngError> {
+        if state == 0 {
+            return Err(RngError::ZeroXorshiftState);
+        }
+        Ok(Self {
+            state,
+            gaussian_spare: None,
+        })
+    }
+
+    /// Exact uniform state for bounded evolved respawn storage.
+    pub(crate) const fn uniform_state(&self) -> u32 {
+        self.state
     }
 
     /// Restore a stream after strict algorithm, version, and bit-pattern validation.
@@ -450,6 +611,38 @@ fn decode_f64(value: &str) -> Result<f64, RngError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn baseline_v2_labels_separate_lifecycle_behavior_slots_and_full_generation() {
+        use super::*;
+        for generation in [1, (1u64 << 32) + 1, u64::MAX] {
+            let streams = derive_baseline_v2_behaviors(42, 1, generation, 120, true).unwrap();
+            assert_eq!(streams.len(), 120);
+            assert_eq!(
+                streams,
+                derive_baseline_v2_behaviors(42, 1, generation, 120, true).unwrap()
+            );
+            for stream in &streams {
+                assert!(stream.runtime().is_ok());
+                let mut behavior = stream.runtime().unwrap();
+                let mut lifecycle = baseline_v2_lifecycle_rng(42, 1, generation, stream.slot, true);
+                assert_ne!(
+                    behavior.next_f64().to_bits(),
+                    lifecycle.next_f64().to_bits()
+                );
+            }
+        }
+        assert_ne!(
+            derive_baseline_v2_behaviors(42, 1, 1, 2, true).unwrap(),
+            derive_baseline_v2_behaviors(42, 1, (1u64 << 32) + 1, 2, true).unwrap()
+        );
+        assert_eq!(
+            derive_baseline_v2_behaviors(42, 1, 1, 2, false).unwrap(),
+            derive_baseline_v2_behaviors(42, 1, (1u64 << 32) + 1, 2, false).unwrap()
+        );
+        assert!(derive_baseline_v2_behaviors(42, 1, 0, 2, true).is_err());
+        assert!(derive_baseline_v2_behaviors(42, 1, 1, 121, true).is_err());
+    }
+
     use super::*;
 
     /// Apply an invalid state and prove the failed restore was atomic.
@@ -466,6 +659,43 @@ mod tests {
     }
 
     /// The retained TypeScript xorshift32 v1 sequence is a cross-language fixture.
+    #[test]
+    fn evolved_labels_mix_full_generation_identity_and_reset_repeats() {
+        // Frozen independent byte-wise FNV probe for selected full-width labels.
+        for (generation, frozen) in [
+            (1, ["0x67eafa58", "0x8ded74c1", "0xd0693342"]),
+            (
+                (1_u64 << 32) + 1,
+                ["0x453d82ee", "0x6b3ffd57", "0xbfda9734"],
+            ),
+            (
+                (1_u64 << 53) + 17,
+                ["0xb7462df6", "0xdd48a85f", "0xb748a03c"],
+            ),
+            (u64::MAX, ["0x1cf86698", "0x42fae101", "0xbef12382"]),
+        ] {
+            let streams = derive_evolved_respawn_rngs(0xabcdef01, generation, 300).unwrap();
+            assert_eq!(
+                streams,
+                derive_evolved_respawn_rngs(0xabcdef01, generation, 300).unwrap()
+            );
+            for (ordinal, slot) in [0, 1, 299].into_iter().enumerate() {
+                assert_eq!(streams[slot].state_hex, frozen[ordinal]);
+                let label = format!("evolved-respawn/v1/generation/{generation}/slot/{slot}");
+                assert_eq!(
+                    streams[slot],
+                    labelled_stream(f64::from(0xabcdef01_u32), &label).export_state()
+                );
+            }
+        }
+        assert_ne!(
+            derive_evolved_respawn_rngs(7, 1, 1).unwrap(),
+            derive_evolved_respawn_rngs(7, (1_u64 << 32) + 1, 1).unwrap()
+        );
+        assert!(derive_evolved_respawn_rngs(7, 0, 1).is_err());
+        assert!(derive_evolved_respawn_rngs(7, 1, 301).is_err());
+    }
+
     #[test]
     fn matches_retained_xorshift32_v1_fixture() {
         let mut rng = StatefulRng::new(1.0);

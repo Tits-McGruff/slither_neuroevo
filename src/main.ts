@@ -1,6 +1,14 @@
+import { DistillationClient } from './net/distillation.ts';
+import { DistillationView } from './distillationView.ts';
+import { DecisionInspectorClient } from './net/decisionInspector.ts';
+import { DecisionInspectorView } from './decisionInspectorView.ts';
 /** Entry point for the simulation UI, canvas, and client networking. */
 
-import { CFG, resetCFGToDefaults, syncBrainInputSize } from './config.ts';
+import { BrainLibraryClient } from './net/brainLibrary.ts';
+import { BrainLibraryView, type LibraryEnvironment } from './brainLibraryView.ts';
+import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
+import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize, applyAuthoritativeSensorSpec } from './config.ts';
+import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
 import {
   BASELINE_BOT_SEED_HINT_ID,
   BASELINE_BOT_SEED_INPUT_ID,
@@ -8,9 +16,12 @@ import {
   BROWSER_CAMERA_SETTING_PATHS,
   applyValuesToSlidersFromCFG,
   setupSettingsUI,
-  updateCFGFromUI
+  updateCFGFromUI,
+  validateSettingDrafts, collectSettingsUpdates, refreshSensorSettings,
+  readSettingChoice, readLifeSettingInput,
+  type SettingInputElement
 } from './settings.ts';
-import { lerp, setByPath } from './utils.ts';
+import { lerp, setByPath, getByPath } from './utils.ts';
 import { renderWorldStruct } from './render.ts';
 import {
   exportJsonToFile,
@@ -32,6 +43,7 @@ import {
   type WelcomeInferenceMode
 } from './net/wsClient.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
+import { createEntitySelectionClient, describeSelectedEntity } from './net/entitySelection.ts';
 import {
   PlayerActionPump,
   normalizePlayerActionRate,
@@ -50,6 +62,7 @@ import type {
   RustRecoveryNotice
 } from './protocol/rustBackground.ts';
 import { coerceSettingsUpdateValue } from './protocol/settings.ts';
+import { parseDurationDraft, formatDurationTimer } from './protocol/duration.ts';
 import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './protocol/settingDefinitions.ts';
 import type {
   CoreSettings,
@@ -91,6 +104,8 @@ interface GodModeLogEntry {
 
 /** Selected snake snapshot used by God Mode interactions. */
 interface SelectedSnake {
+  /** Native physical identity, absent on an unresolved frame snapshot. */
+  token?: string;
   id: number;
   x: number;
   y: number;
@@ -115,9 +130,9 @@ let wsClient: ReturnType<typeof createWsClient> | null = null;
 /** Extracted coalescing and God Mode transport bound to the current socket. */
 const authoritativeControls = createAuthoritativeControls({
   sendSettings: (requestId, updates) => wsClient?.sendSettings(requestId, updates),
-  sendGodModeKill: (requestId, snakeId) => wsClient?.sendGodModeKill(requestId, snakeId),
-  sendGodModeMove: (requestId, snakeId, x, y) =>
-    wsClient?.sendGodModeMove(requestId, snakeId, x, y),
+  sendGodModeKill: (requestId, snakeId, token) => wsClient?.sendGodModeKill(requestId, snakeId, token),
+  sendGodModeMove: (requestId, snakeId, x, y, token) =>
+    wsClient?.sendGodModeMove(requestId, snakeId, x, y, token),
   sendNewRun: (requestId) => wsClient?.sendNewRun(requestId)
 });
 /** Current connection mode state. */
@@ -130,6 +145,10 @@ let serverConfigRevision = 0;
 let serverSimSpeed = 1;
 /** Latest server world seed from the welcome message. */
 let serverWorldSeed: number | null = null;
+/** Current run for generation-scoped UI commands. */
+let serverRunId = '';
+/** One manual finish request awaiting native durability. */
+let pendingFinishRequestId: string | null = null;
 /** Inference mode advertised for the active server run. */
 let serverInferenceMode: WelcomeInferenceMode | null = null;
 /** Durable recovery provenance advertised for the active branch. */
@@ -332,6 +351,10 @@ const resetStatus = document.getElementById('resetStatus') as HTMLElement | null
 const btnDefaults = document.getElementById('defaults') as HTMLButtonElement;
 /** Button that starts a separately seeded, durably checkpointed run. */
 const btnNewRun = document.getElementById('newRun') as HTMLButtonElement;
+/** Optional manual completion action, shown only when advertised. */
+const btnFinishGeneration = document.getElementById('finishGeneration') as HTMLButtonElement | null;
+/** Native manual completion status. */
+const finishGenerationStatus = document.getElementById('finishGenerationStatus') as HTMLElement | null;
 /** Button to toggle the settings panel. */
 const btnToggle = document.getElementById('toggle') as HTMLButtonElement;
 /** Button that restores the full-arena camera after manual navigation. */
@@ -409,6 +432,22 @@ function loadSavedPlayerName(): void {
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
 /** Currently active tab id. */
 let activeTab = 'tab-settings';
+/** Applied library compatibility facts never read editable graph/settings drafts. */
+const libraryEnvironment: LibraryEnvironment = {graphSourceJson: null, sensorSha256: null, cadence: 1 / 60, configHash: ''};
+/** User-driven library UI; it performs no animation-frame fetch or neural execution. */
+const brainLibrary = new BrainLibraryView(new BrainLibraryClient(() => wsClient?.isConnected()
+  ? resolveServerHttpBase(serverUrl || resolveServerUrl()) : null), () => libraryEnvironment, snakeId => {
+  spectatorFollowSnakeId = snakeId; resetManualCamera(); proxyWorld.viewMode = 'follow';
+});
+/** Last advertised diagnostic controls, independent of editable settings drafts. */
+let distillationAvailable = false;
+/** Applied native v4/v2 capture admission advertised at welcome or run replacement. */
+let teacherCaptureReady = false;
+/** Explicit metadata and diagnostic commands use only the currently connected applied scope. */
+const distillation = new DistillationView(new DistillationClient(() => {
+  const base = wsClient?.isConnected() && distillationAvailable ? resolveServerHttpBase(serverUrl || resolveServerUrl()) : null;
+  return base ? { base, runId: serverRunId, configRevision: BigInt(serverConfigRevision).toString(16).padStart(16, '0') } : null;
+}));
 /** Currently selected stats view key. */
 let statsView = 'fitness';
 tabBtns.forEach(btn => {
@@ -421,6 +460,8 @@ tabBtns.forEach(btn => {
     const tabEl = document.getElementById(tabId);
     if (tabEl) tabEl.classList.add('active');
     activeTab = tabId;
+    if (tabId === 'tab-library') brainLibrary.refresh();
+    if (tabId === 'tab-distillation') distillation.refresh();
     if (wsClient && wsClient.isConnected()) {
       wsClient.sendViz(activeTab === 'tab-viz');
     }
@@ -593,6 +634,7 @@ function applyStoredBaselineBotSettings(): void {
  */
 function applyBaselineSeed(seed: number): void {
   if (!Number.isFinite(seed) || !Number.isInteger(seed) || seed < 0) return;
+  if (!validateSettingDrafts(resolveSettingsRoot())) return;
   setByPath(CFG, 'baselineBots.seed', seed);
   if (baselineBotSeedInput) {
     baselineBotSeedInput.value = String(seed);
@@ -687,8 +729,11 @@ function applyCoreSettingsToUi(settings: Partial<CoreSettings>): void {
  * @param input - Input element to read.
  * @returns Parsed numeric value or null when invalid.
  */
-function readSettingsInputValue(input: HTMLInputElement): number | null {
-  if (input.type === "checkbox") return input.checked ? 1 : 0;
+function readSettingsInputValue(input: SettingInputElement): number | null {
+  if (input.dataset['lifeContract'] === '1') return readLifeSettingInput(input);
+  if (input.dataset['controlType'] === 'select') return readSettingChoice(input as HTMLSelectElement);
+  if (input.dataset['controlType'] === 'duration') return parseDurationDraft(input.value, input.dataset['recordedDuration']);
+  if (input.type === "checkbox" && 'checked' in input) return input.checked ? 1 : 0;
   if (input.dataset['path'] === 'baselineBots.seed') {
     return parseBaselineSeedValue(input.value);
   }
@@ -698,30 +743,13 @@ function readSettingsInputValue(input: HTMLInputElement): number | null {
 }
 
 /**
- * Collect authoritative slider updates under a root element, excluding local camera presentation.
- * @param root - Root element containing settings inputs.
- * @returns List of settings updates.
- */
-function collectSettingsUpdates(root: HTMLElement): SettingsUpdate[] {
-  const sliders = root.querySelectorAll<HTMLInputElement>('input[data-path]');
-  const updates: SettingsUpdate[] = [];
-  sliders.forEach(sl => {
-    if (BROWSER_CAMERA_SETTING_PATHS.has(sl.dataset['path']!)) return;
-    const value = readSettingsInputValue(sl);
-    if (value == null) return;
-    updates.push({ path: sl.dataset['path']! as SettingsUpdate['path'], value });
-  });
-  return updates;
-}
-
-/**
  * Resolve the root element containing CFG-backed settings sliders.
  * @returns Root element containing data-path inputs.
  */
 function resolveSettingsRoot(): HTMLElement {
   const hasContainerInputs =
     typeof settingsContainer?.querySelector === 'function' &&
-    settingsContainer.querySelector('input[data-path]') != null;
+    settingsContainer.querySelector('input[data-path], select[data-path]') != null;
   if (hasContainerInputs) return settingsContainer;
   return settingsControls ?? settingsContainer;
 }
@@ -1033,6 +1061,24 @@ if (graphReset) {
   });
 }
 
+// Explicitly leave custom-graph mode without changing other pending settings.
+document.getElementById('graphUseStack')?.addEventListener('click', () => {
+  if (!validateSettingDrafts(resolveSettingsRoot())) return;
+  updateCFGFromUI(resolveSettingsRoot());
+  stageStackGraph('Using stack controls. Apply and reset to start a new population.');
+});
+
+/** Stage the selected stack without treating an initial/default preview as a custom graph. */
+function stageStackGraph(note: string): void {
+  customGraphSpec = null;
+  CFG.brain.graphSpec = null;
+  graphDraft = buildStackGraphSpec(readSettingsFromCoreUI(), CFG);
+  try { localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY); } catch { /* Storage is optional. */ }
+  refreshCoreUIState();
+  renderGraphEditor();
+  setGraphSpecStatus(note);
+}
+
 if (graphPresetSave) {
   graphPresetSave.addEventListener('click', async () => {
     const name = graphPresetName?.value.trim() ?? '';
@@ -1141,6 +1187,75 @@ let fitnessHistory: FitnessHistoryUiEntry[] = [];
 let godModeLog: GodModeLogEntry[] = [];
 /** Currently selected snake for God mode actions. */
 let selectedSnake: SelectedSnake | null = null;
+/** Presentation-only preference for following a population owner across lives. */
+const followIndividualInput = document.getElementById('followIndividual') as HTMLInputElement | null;
+if (followIndividualInput) {
+  followIndividualInput.checked = CFG.diagnostics.followIndividual;
+  followIndividualInput.addEventListener('change', () => { CFG.diagnostics.followIndividual = followIndividualInput.checked; });
+}
+/** Text-only live provenance comes from the selected native owner, never a catalog lookup. */
+const selectedEntityInfo = document.getElementById('selectedEntityInfo');
+if (selectedEntityInfo) selectedEntityInfo.textContent = describeSelectedEntity(null);
+/** On-demand decision data remains separate from the ordinary frame renderer. */
+const decisionInspectorView = new DecisionInspectorView();
+/** One selected native subscription; default-off presentation never samples locally. */
+const decisionInspector = new DecisionInspectorClient({send: request => wsClient?.sendInspector(request),
+  changed: snapshot => decisionInspectorView.snapshot(snapshot), status: message => decisionInspectorView.status(message)});
+/** Explicit capture preference, independent of gameplay settings. */
+const decisionInspectorInput = document.getElementById('decisionInspectorEnabled') as HTMLInputElement | null;
+if (decisionInspectorInput) {
+  decisionInspectorInput.checked = CFG.diagnostics.inspectorEnabled;
+  decisionInspectorInput.addEventListener('change', () => {
+    CFG.diagnostics.inspectorEnabled = decisionInspectorInput.checked;
+    decisionInspector.setEnabled(decisionInspectorInput.checked);
+  });
+}
+/** Explicit diagnostic buttons enable capture and choose one-shot or delivered data. */
+function chooseInspectorProbe(probe: boolean): void {
+  CFG.diagnostics.inspectorEnabled = true;
+  if (decisionInspectorInput) decisionInspectorInput.checked = true;
+  if (probe) decisionInspector.probeOnce(); else decisionInspector.showDelivered();
+}
+document.getElementById('decisionInspectorProbe')?.addEventListener('click', () => chooseInspectorProbe(true));
+document.getElementById('decisionInspectorDelivered')?.addEventListener('click', () => chooseInspectorProbe(false));
+
+decisionInspectorView.supported(false);
+/** Bounded native selection transport; no gameplay identity is reconstructed in the browser. */
+const entitySelection = createEntitySelectionClient({
+  send: request => wsClient?.sendSelectEntity(request),
+  kill: (id, token) => { authoritativeControls.killSnake(id, token); },
+  followIndividual: () => followIndividualInput?.checked ?? true,
+  changed: entity => {
+    decisionInspector.selection(entity);
+    if (!entity && entitySelection.followedPopulationSlot() !== null && decisionInspectorInput?.checked) {
+      decisionInspectorView.status('Waiting for the selected individual’s next physical life.');
+    }
+    const description = describeSelectedEntity(entity);
+    if (selectedEntityInfo && selectedEntityInfo.textContent !== description) selectedEntityInfo.textContent = description;
+    if (selectedSnake?.token !== entity?.token) {
+      authoritativeControls.cancelMoves();
+      isDragging = false;
+      currentVizData = null;
+    }
+    selectedSnake = entity ? { id: entity.snakeId, x: entity.x, y: entity.y,
+      radius: entity.radius, skin: entity.skin, token: entity.token } : null;
+  }
+});
+/** Keyboard selection names a population owner rather than guessing a physical ID. */
+const decisionInspectorSlot = document.getElementById('decisionInspectorSlot') as HTMLInputElement | null;
+/** Native identity lookup is shared with ordinary canvas selection. */
+const decisionInspectorSelect = document.getElementById('decisionInspectorSelect');
+decisionInspectorSelect?.addEventListener('click', () => {
+  const slot = Number(decisionInspectorSlot?.value ?? '');
+  if (!Number.isSafeInteger(slot) || slot < 0 || slot >= 300) {
+    decisionInspectorView.status('Choose a population slot from 0 to 299.'); return;
+  }
+  entitySelection.selectIndividual(slot);
+});
+/** Exact generation from scalar native stats; frame floats can round large counters. */
+let selectionGeneration = 1;
+/** Observed server process identity for selection scope updates. */
+let selectionSessionId = '';
 /** Whether a pointer drag is in progress. */
 let isDragging = false;
 /** Client-side camera X for overlays and input. */
@@ -1255,9 +1370,7 @@ function setJoinStatus(text: string): void {
  * @returns Display string in `elapsed/total` format.
  */
 function formatGenTimer(elapsed: number, duration: number): string {
-  const safeElapsed = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
-  const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
-  return `${safeElapsed.toFixed(2)}/${safeDuration.toFixed(2)}`;
+  return formatDurationTimer(elapsed) + '/' + formatDurationTimer(duration);
 }
 
 /**
@@ -1667,27 +1780,6 @@ function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
 }
 
 /**
- * Clear the applied custom graph spec and revert to the default stack graph.
- * @param note - Status message to display after clearing.
- */
-function clearCustomGraphSpec(note = 'Custom graph cleared.'): void {
-  customGraphSpec = null;
-  CFG.brain.graphSpec = null;
-  graphDraft = null;
-  if (graphSpecInput) {
-    graphSpecInput.value = JSON.stringify(buildLinearMlpTemplate(), null, 2);
-  }
-  try {
-    localStorage.removeItem(GRAPH_SPEC_STORAGE_KEY);
-  } catch {
-    // Ignore storage failures.
-  }
-  refreshCoreUIState();
-  renderGraphEditor();
-  setGraphSpecStatus(note);
-}
-
-/**
  * Reset the graph draft to the applied or default graph.
  */
 function resetGraphDraft(): void {
@@ -1796,8 +1888,7 @@ function loadStoredGraphSpec(): void {
   try {
     const raw = localStorage.getItem(GRAPH_SPEC_STORAGE_KEY);
     if (!raw) {
-      const fallback = buildLinearMlpTemplate();
-      applyGraphSpec(fallback, 'Default graph applied.');
+      stageStackGraph('Using stack controls.');
       return;
     }
     const parsed = JSON.parse(raw) as GraphSpec;
@@ -1805,13 +1896,13 @@ function loadStoredGraphSpec(): void {
     if (result.ok) {
       const applied = applyGraphSpec(parsed, 'Loaded saved graph.');
       if (!applied) {
-        applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+        stageStackGraph('Stored graph invalid. Using stack controls.');
       }
     } else {
-      applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+      stageStackGraph('Stored graph invalid. Using stack controls.');
     }
   } catch {
-    applyGraphSpec(buildLinearMlpTemplate(), 'Stored graph invalid. Using default.');
+    stageStackGraph('Stored graph invalid. Using stack controls.');
   }
 }
 
@@ -3215,6 +3306,7 @@ function applySettingsLock(): void {
   controls.forEach(control => {
     (control as HTMLInputElement).disabled = settingsLocked;
   });
+  refreshSensorSettings(resolveSettingsRoot(), settingsLocked);
   if (!settingsLocked) refreshCoreUIState();
 }
 
@@ -3371,8 +3463,12 @@ function updateClientCamera(): void {
     return;
   }
 
-  const targetId = isPlayerControlActive() ? playerSnakeId : spectatorFollowSnakeId;
-  const focus = findSnakeInFrame(frame, targetId);
+  const waitingForIndividual = !isPlayerControlActive() && (followIndividualInput?.checked ?? true)
+    && entitySelection.followedPopulationSlot() !== null;
+  if (waitingForIndividual && !selectedSnake) { publishClientCamera(); return; }
+  const targetId = isPlayerControlActive() ? playerSnakeId : selectedSnake?.id ?? spectatorFollowSnakeId;
+  const focus = targetId !== null && !frameContainsSnake(targetId) ? null : findSnakeInFrame(frame, targetId);
+  if (!focus && waitingForIndividual) { publishClientCamera(); return; }
   if (focus) {
     clientCamX = focus.x;
     clientCamY = focus.y;
@@ -3407,18 +3503,14 @@ async function resurrectHallOfFameOnServer(entryId: string): Promise<number | nu
 /**
  * Validate the applied graph spec against the active sensor input size.
  * @param settings - Core values used to build the ordinary stack graph.
- * @returns A sensor-compatible explicit graph for authoritative replacement.
+ * @returns A matching graph, or null after displaying why reset is blocked.
  */
-function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec {
+function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec | null {
   const graphSpec = customGraphSpec ?? buildStackGraphSpec(settings, CFG);
   const inputSize = getGraphSpecInputSize(graphSpec);
   if (inputSize == null || inputSize !== CFG.brain.inSize) {
-    console.warn('[sensors.layout.reset_fallback]', {
-      expected: CFG.brain.inSize,
-      actual: inputSize ?? null
-    });
-    clearCustomGraphSpec('Custom graph cleared due to input size mismatch.');
-    return buildStackGraphSpec(settings, CFG);
+    setResetStatus(`The selected sensors require ${CFG.brain.inSize} graph inputs. Update the custom graph or select the default stack before resetting.`, true);
+    return null;
   }
   return graphSpec;
 }
@@ -3427,11 +3519,19 @@ function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec {
  * Apply a full reset through the authoritative server.
  */
 function applyResetToSimulation(): void {
-  authoritativeControls.dispose();
+  if (!validateSettingDrafts(resolveSettingsRoot())) {
+    setResetStatus('Correct the invalid settings before Apply and reset.', true);
+    return;
+  }
+  updateCFGFromUI(resolveSettingsRoot());
+  refreshCoreUIState();
+  persistBaselineBotSettings();
   const settings = readSettingsFromCoreUI();
   const updates = collectSettingsUpdatesFromUI();
   if (wsClient && wsClient.isConnected()) {
     const graphSpec = resolveGraphSpecForReset(settings);
+    if (!graphSpec) return;
+    authoritativeControls.dispose();
     setResetStatus('Checking settings and preparing reset...');
     wsClient.sendReset(settings, updates, graphSpec);
     return;
@@ -3486,19 +3586,31 @@ function applyAuthoritativeSettingsState(
   core: CoreSettings,
   updates: readonly SettingsUpdate[]
 ): void {
+  // Missing extension is an explicit legacy configuration. Reset its presentation
+  // drafts so a previously viewed modern run cannot silently upgrade it.
+  for (const path of EVOLVED_SETTING_PATHS) setByPath(CFG, path, getByPath(CFG_DEFAULT, path));
+  CFG.evolvedRespawn.contractVersion = 0;
+  if (CFG.sense.layoutVersion === 'v3') CFG.sense.profile = CFG_DEFAULT.sense.profile;
+  for (const key of ['rayMinimum', 'rayCap', 'rayBatch', 'rayMaximumDue'] as const) CFG.sense[key] = CFG_DEFAULT.sense[key];
+  CFG.baselineBots.algorithm = 1;
+  CFG.baselineBots.behaviorMode = CFG_DEFAULT.baselineBots.behaviorMode;
+  CFG.baselineBots.controlDt = CFG_DEFAULT.baselineBots.controlDt;
   serverSimSpeed = core.simSpeed;
+  libraryEnvironment.cadence = 1 / 60;
   applyCoreSettingsToUi(core);
   for (const update of updates) {
+    if (update.path === 'brain.controlDt') libraryEnvironment.cadence = Number(update.value);
     setByPath(CFG, update.path, coerceSettingsUpdateValue(update.path, update.value));
   }
   syncBrainInputSize();
-  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
   refreshCoreUIState();
   persistBaselineBotSettings();
 }
 
 /** Restore the exact admitted graph, keeping ordinary stack graphs in slider mode. */
 function applyAuthoritativeGraphSpec(spec: GraphSpec | undefined, core: CoreSettings): void {
+  libraryEnvironment.graphSourceJson = spec ? JSON.stringify(spec) : null;
   if (!spec) return;
   const stack = buildStackGraphSpec(core, CFG);
   if (graphKey(spec) === graphKey(stack)) {
@@ -3520,6 +3632,7 @@ function applyAuthoritativeGraphSpec(spec: GraphSpec | undefined, core: CoreSett
 function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): void {
   let baselineSettingsChanged = false;
   for (const update of updates) {
+    if (update.path === 'brain.controlDt') libraryEnvironment.cadence = Number(update.value);
     if (update.path === 'simSpeed') {
       serverSimSpeed = update.value;
       elSimSpeed.value = String(update.value);
@@ -3529,7 +3642,7 @@ function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): vo
     baselineSettingsChanged ||= update.path.startsWith('baselineBots.');
   }
   syncBrainInputSize();
-  applyValuesToSlidersFromCFG(resolveSettingsRoot());
+  applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
   refreshCoreUIState();
   if (baselineSettingsChanged) persistBaselineBotSettings();
 }
@@ -3549,6 +3662,11 @@ function refreshServerHallOfFame(clearExisting = true): void {
 
 wsClient = createWsClient({
   onConnected: (info) => {
+    decisionInspector.context({sessionId: info.sessionId, runId: info.runId, supported: info.capabilities?.decisionInspector === true});
+    decisionInspectorView.supported(info.capabilities?.decisionInspector === true);
+    entitySelection.reset();
+    selectionGeneration = 1; selectionSessionId = info.sessionId;
+    entitySelection.setScope({ sessionId: info.sessionId, runId: info.runId, generation: 1 });
     setResetStatus('');
     resetManualCamera();
     storeServerUrl(serverUrl);
@@ -3567,12 +3685,26 @@ wsClient = createWsClient({
         formatLegacyConversionRuntimeStatus(serverLegacyConversion)
       );
     }
+    serverRunId = info.runId;
+    pendingFinishRequestId = null;
+    if (btnFinishGeneration) {
+      btnFinishGeneration.hidden = info.capabilities?.finishGeneration !== true;
+      btnFinishGeneration.disabled = settingsLocked;
+    }
+    if (finishGenerationStatus) finishGenerationStatus.hidden = true;
     serverWorldSeed = info.worldSeed;
     serverInferenceMode = info.inferenceMode;
     serverArchiveExport = info.capabilities?.archiveExport === true;
     serverArchiveImport = info.capabilities?.archiveImport === true;
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeSensorSpec(info.sensorSpec);
+    libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
+    libraryEnvironment.configHash = info.configHash;
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
+    distillationAvailable = info.capabilities?.distillation === true;
+    teacherCaptureReady = info.capabilities?.teacherCapture === true;
+    distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     spectatorFollowSnakeId = null;
     currentStats = {
@@ -3606,6 +3738,12 @@ wsClient = createWsClient({
     refreshServerHallOfFame();
   },
   onDisconnected: () => {
+    decisionInspector.dispose();
+    decisionInspectorView.supported(false);
+    brainLibrary.contextChanged(false);
+    distillationAvailable = teacherCaptureReady = false;
+    distillation.contextChanged(false, false, '');
+    entitySelection.reset();
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = true;
     serverArchiveExport = false;
     serverArchiveImport = false;
@@ -3637,8 +3775,13 @@ wsClient = createWsClient({
   },
   onFrame: (buffer) => {
     applyFrameBuffer(buffer);
+    entitySelection.observeFrame(selectionGeneration, frameContainsSnake, performance.now());
   },
   onStats: (msg) => {
+    if (msg.gen !== selectionGeneration) {
+      selectionGeneration = msg.gen;
+      entitySelection.setScope({ sessionId: selectionSessionId, runId: serverRunId, generation: msg.gen });
+    }
     if (serverArchiveExport && msg.gen !== serverHallOfFameGeneration) {
       serverHallOfFameGeneration = msg.gen;
       refreshServerHallOfFame(false);
@@ -3657,6 +3800,9 @@ wsClient = createWsClient({
       baselineBotsTotal,
       fps: msg.fps
     };
+    const evolved = parseEvolvedLifecycleTelemetry(msg.evolved);
+    if (evolved) currentStats.evolved = evolved;
+    else delete currentStats.evolved;
     proxyWorld.generation = msg.gen;
     if (msg.fitnessHistory) {
       fitnessHistory.length = 0;
@@ -3691,7 +3837,7 @@ wsClient = createWsClient({
     }
     if (msg.viz) {
       currentVizData = normalizeVizData(msg.viz);
-    }
+    } else { currentVizData = null; }
     if (msg.hofEntry) {
       void hof.add(msg.hofEntry).then(() => {
         if (connectionMode === 'server') {
@@ -3749,13 +3895,19 @@ wsClient = createWsClient({
     serverConfigRevision = msg.configRevision;
     if (msg.applied) {
       applyAuthoritativeLivePatch(msg.updates);
+      libraryEnvironment.configHash = msg.configHash;
+      brainLibrary.environmentChanged();
+      distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
       return;
     }
-    applyValuesToSlidersFromCFG(resolveSettingsRoot());
+    applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
     elSimSpeed.value = String(serverSimSpeed);
     refreshCoreUIState();
     console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
   },
+  onEntitySelected: msg => entitySelection.receive(msg),
+  onInspectorResult: msg => decisionInspector.result(msg),
+  onInspector: msg => decisionInspector.snapshot(msg.snapshot),
   onGodModeResult: (msg) => {
     godModeLog.push({
       time: Date.now(),
@@ -3763,9 +3915,23 @@ wsClient = createWsClient({
       snakeId: msg.snakeId,
       result: msg.applied ? 'success' : `rejected: ${msg.reason ?? 'unknown reason'}`
     });
-    if (msg.applied && msg.action === 'move' && selectedSnake && selectedSnake.id === msg.snakeId) {
+    if (msg.applied && msg.action === 'move' && selectedSnake && selectedSnake.id === msg.snakeId && selectedSnake.token === msg.selectionToken) {
       if (Number.isFinite(msg.x)) selectedSnake.x = msg.x!;
       if (Number.isFinite(msg.y)) selectedSnake.y = msg.y!;
+    }
+  },
+  onFinishGenerationResult: (msg) => {
+    if (msg.requestId !== pendingFinishRequestId || msg.runId !== serverRunId) return;
+    if (finishGenerationStatus) {
+      finishGenerationStatus.hidden = false;
+      finishGenerationStatus.textContent = msg.status === 'pending'
+        ? 'Finishing generation; waiting for authoritative checkpoint and successor...'
+        : msg.status === 'completed' ? 'Generation ' + msg.generation + ' finished and saved.'
+          : 'Finish rejected: ' + (msg.reason ?? 'request rejected');
+    }
+    if (msg.status !== 'pending') {
+      pendingFinishRequestId = null;
+      if (btnFinishGeneration) btnFinishGeneration.disabled = settingsLocked;
     }
   },
   onNewRunResult: (msg) => {
@@ -3784,12 +3950,17 @@ wsClient = createWsClient({
       serverLegacyConversion = null;
       setConnectionStatus('server');
     }
-    selectedSnake = null;
+    entitySelection.clear();
     console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
   },
   onStateReplaced: (msg) => {
     setResetStatus(msg.reason === 'reset' ? 'Reset applied.' : '');
     const info = msg.welcome;
+    decisionInspector.context({sessionId: info.sessionId, runId: info.runId, supported: info.capabilities?.decisionInspector === true});
+    decisionInspectorView.supported(info.capabilities?.decisionInspector === true);
+    entitySelection.reset();
+    selectionGeneration = 1; selectionSessionId = info.sessionId;
+    entitySelection.setScope({ sessionId: info.sessionId, runId: info.runId, generation: 1 });
     const rejoinPlayer = playerSnakeId !== null || joinPending;
     playerActionPump.stop();
     authoritativeControls.dispose();
@@ -3805,6 +3976,13 @@ wsClient = createWsClient({
     currentVizData = null;
     try { localStorage.removeItem(PLAYER_RESUME_TOKEN_KEY); } catch { /* Storage is optional. */ }
     serverConfigRevision = info.configRevision;
+    serverRunId = info.runId;
+    pendingFinishRequestId = null;
+    if (btnFinishGeneration) {
+      btnFinishGeneration.hidden = info.capabilities?.finishGeneration !== true;
+      btnFinishGeneration.disabled = settingsLocked;
+    }
+    if (finishGenerationStatus) finishGenerationStatus.hidden = true;
     serverWorldSeed = info.worldSeed;
     serverRecovery = info.recovery ?? null;
     serverImportBranch = info.importBranch ?? null;
@@ -3813,6 +3991,13 @@ wsClient = createWsClient({
     serverArchiveExport = info.capabilities?.archiveExport === true;
     serverArchiveImport = info.capabilities?.archiveImport === true;
     applyAuthoritativeSettingsState(info.settings.core, info.settings.updates);
+    applyAuthoritativeSensorSpec(info.sensorSpec);
+    libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
+    libraryEnvironment.configHash = info.configHash;
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
+    distillationAvailable = info.capabilities?.distillation === true;
+    teacherCaptureReady = info.capabilities?.teacherCapture === true;
+    distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
     if (btnPinCheckpoint) btnPinCheckpoint.hidden = info.capabilities?.checkpointPinning !== true;
     refreshServerHallOfFame();
@@ -3862,7 +4047,7 @@ if (typeof WebSocket === 'undefined') {
  * Live update handler for sliders that do not require a reset.
  * @param sliderEl - Slider input element to read.
  */
-function liveUpdateFromSlider(sliderEl: HTMLInputElement): void {
+function liveUpdateFromSlider(sliderEl: SettingInputElement): void {
   const path = sliderEl.dataset['path'] as LiveSettingPath | undefined;
   if (!path) return;
   const value = readSettingsInputValue(sliderEl);
@@ -3894,14 +4079,14 @@ elN5.addEventListener('input', refreshCoreUIState);
 
 // Apply new configuration and reset world
 btnApply.addEventListener('click', () => {
-  refreshCoreUIState();
-  updateCFGFromUI(resolveSettingsRoot());
-  persistBaselineBotSettings();
   applyResetToSimulation();
 });
 // Restore defaults
 btnDefaults.addEventListener('click', () => {
   resetCFGToDefaults();
+  if (followIndividualInput) followIndividualInput.checked = CFG.diagnostics.followIndividual;
+  if (decisionInspectorInput) decisionInspectorInput.checked = CFG.diagnostics.inspectorEnabled;
+  decisionInspector.setEnabled(CFG.diagnostics.inspectorEnabled);
   setupSettingsUI(settingsContainer, liveUpdateFromSlider); // Re-apply defaults to dynamic UI
   wireBaselineBotControls();
   elSnakes.value = '55';
@@ -3912,11 +4097,25 @@ btnDefaults.addEventListener('click', () => {
   elN3.value = '64';
   elN4.value = '48';
   elN5.value = '32';
-  applyGraphSpec(buildLinearMlpTemplate(), 'Default graph applied.');
+  stageStackGraph('Default stack selected.');
   refreshCoreUIState();
   applySettingsLock();
   persistBaselineBotSettings();
   applyResetToSimulation();
+});
+// Confirm the observed generation and request its next complete terminal step.
+btnFinishGeneration?.addEventListener('click', () => {
+  if (!wsClient?.isConnected() || pendingFinishRequestId || !serverRunId) return;
+  const generation = currentStats.gen;
+  const elapsed = currentStats.generationTime;
+  if (!window.confirm('Finish generation ' + generation + ' now at ' + elapsed.toFixed(1) + ' simulated seconds?')) return;
+  pendingFinishRequestId = crypto.randomUUID();
+  btnFinishGeneration.disabled = true;
+  if (finishGenerationStatus) {
+    finishGenerationStatus.hidden = false;
+    finishGenerationStatus.textContent = 'Requesting authoritative generation completion...';
+  }
+  wsClient.sendFinishGeneration(pendingFinishRequestId, serverRunId, generation);
 });
 // Start a separately seeded run after its generation-one checkpoint commits.
 btnNewRun.addEventListener('click', () => {
@@ -3970,6 +4169,23 @@ function screenToWorld(screenX: number, screenY: number): { x: number; y: number
   const worldX = camX + (screenX - centerX) / zoom;
   const worldY = camY + (screenY - centerY) / zoom;
   return { x: worldX, y: worldY };
+}
+
+/** Scan compact frame headers without constructing snake/body snapshots. */
+function frameContainsSnake(targetId: number): boolean {
+  const buffer = currentFrameBuffer;
+  if (!buffer || buffer.length < FRAME_HEADER_FLOATS) return false;
+  const count = buffer[FRAME_HEADER_OFFSETS.aliveCount] ?? 0;
+  let cursor = FRAME_HEADER_FLOATS;
+  for (let index = 0; index < count; index++) {
+    if (cursor + 8 > buffer.length) return false;
+    const points = buffer[cursor + 7]!;
+    const next = cursor + 8 + 2 * points;
+    if (!Number.isSafeInteger(points) || points < 0 || next > buffer.length) return false;
+    if (buffer[cursor] === targetId) return true;
+    cursor = next;
+  }
+  return false;
 }
 
 /**
@@ -4100,16 +4316,16 @@ canvas.addEventListener('click', (e) => {
 
   const snake = findSnakeNear(world.x, world.y);
   if (snake) {
-    selectedSnake = snake;
+    entitySelection.select(snake.id);
     godModeLog.push({
       time: Date.now(),
       action: 'select',
       snakeId: snake.id,
-      result: 'success'
+      result: 'pending native selection'
     });
     console.log(`Selected snake #${snake.id} (skin: ${snake.skin})`);
   } else {
-    selectedSnake = null;
+    entitySelection.clear();
   }
 });
 
@@ -4124,7 +4340,7 @@ canvas.addEventListener('contextmenu', (e) => {
   const world = screenToWorld(screenX, screenY);
 
   const snake = findSnakeNear(world.x, world.y);
-  if (snake && wsClient?.isConnected()) authoritativeControls.killSnake(snake.id);
+  if (snake && wsClient?.isConnected()) entitySelection.kill(snake.id);
 });
 
 // Left-drag pans while spectating; Shift+left-drag moves a selected snake.
@@ -4144,7 +4360,7 @@ canvas.addEventListener('mousedown', (e) => {
     playerActionPump.requestImmediate();
     return;
   }
-  if (e.button === 0 && e.shiftKey && selectedSnake) {
+  if (e.button === 0 && e.shiftKey && selectedSnake?.token) {
     isDragging = true;
   }
 });
@@ -4157,13 +4373,13 @@ canvas.addEventListener('mousemove', (e) => {
     playerActionPump.requestImmediate();
     return;
   }
-  if (isDragging && selectedSnake) {
+  if (isDragging && selectedSnake?.token) {
     const rect = canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
     const world = screenToWorld(screenX, screenY);
     if (wsClient?.isConnected()) {
-      authoritativeControls.moveSnake(selectedSnake.id, world.x, world.y);
+      authoritativeControls.moveSnake(selectedSnake.id, world.x, world.y, selectedSnake.token);
     }
   }
 });
@@ -4185,10 +4401,10 @@ function finishGodModeDrag(e: MouseEvent): void {
   }
   if (!isDragging || e.button !== 0) return;
   isDragging = false;
-  if (!selectedSnake || !wsClient?.isConnected()) return;
+  if (!selectedSnake?.token || !wsClient?.isConnected()) return;
   const rect = canvas.getBoundingClientRect();
   const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-  authoritativeControls.finishMove(selectedSnake.id, world.x, world.y);
+  authoritativeControls.finishMove(selectedSnake.id, world.x, world.y, selectedSnake.token);
 }
 
 canvas.addEventListener('mouseup', finishGodModeDrag);
@@ -4445,12 +4661,21 @@ function frame(): void {
     ? currentStats.baselineBotsTotal
     : 0;
   const stepInfo = `Gen: ${currentStats.gen}  Alive: ${currentStats.alive}  Total: ${aliveTotal}  Baseline: ${baselineBotsAlive}/${baselineBotsTotal}  FPS: ${Math.round(currentStats.fps)}`;
+  const life = currentStats.evolved;
+  const lifeInfoHtml = life ?
+    `<div class="stat-box"><span class="label">Waiting / pending</span><span class="val">${life.waiting} / ${life.pendingPlacement}</span></div>` +
+    `<div class="stat-box"><span class="label">Exhausted individuals</span><span class="val">${life.exhausted}</span></div>` +
+    `<div class="stat-box"><span class="label">Deaths / respawns</span><span class="val">${BigInt('0x' + life.deaths)} / ${BigInt('0x' + life.respawns)}</span></div>` +
+    `<div class="stat-box"><span class="label">Individual waiting total</span><span class="val">${life.pendingSeconds.toFixed(1)} sim s</span></div>` +
+    `<div class="stat-box"><span class="label">Failed placements</span><span class="val">${BigInt('0x' + life.failedPlacements)}</span></div>` +
+    `<div class="note">Placement step ${BigInt('0x' + life.placement.step)}: ${life.placement.attempted} attempted, ${life.placement.deferred} deferred; ${life.placement.candidates}/2048 candidates, ${life.placement.geometryChecks}/250000 geometry checks.</div>` : '';
   const statsInfoHtml =
     `<div class="stat-box"><span class="label">Generation</span><span class="val">${currentStats.gen}</span></div>` +
     `<div class="stat-box"><span class="label">Alive (Pop)</span><span class="val">${currentStats.alive}</span></div>` +
     `<div class="stat-box"><span class="label">Alive (Total)</span><span class="val">${aliveTotal}</span></div>` +
     `<div class="stat-box"><span class="label">Baseline Bots</span><span class="val">${baselineBotsAlive}/${baselineBotsTotal}</span></div>` +
     `<div class="stat-box"><span class="label">Sim Speed</span><span class="val">${Math.round(currentStats.fps)} FPS</span></div>` +
+    lifeInfoHtml +
     `<div class="note" style="margin-top: 10px; font-size: 11px;">${stepInfo}</div>`;
 
   const statsEl = document.getElementById('statsInfo');
@@ -4508,9 +4733,11 @@ async function updateHoFTable(world: ProxyWorld): Promise<void> {
 
   let html = '';
   list.forEach((entry: HallOfFameEntry, idx: number) => {
+    const pointLabel = entry.assessment?.pointMethod === 'reset' ? 'Reset' : entry.assessment?.pointMethod === 'cumulative-net' ? 'Cumulative net' : entry.assessment?.pointMethod === 'cumulative-gross' ? 'Cumulative gross' : entry.assessment?.pointMethod === 'best-life' ? 'Best Life' : 'Legacy physical score';
+    const lengthLabel = entry.assessment?.displayLengthKind === 'generation-peak' ? 'generation peak length' : entry.assessment?.displayLengthKind === 'selected-life-peak' ? 'selected life peak length' : entry.assessment ? 'latest life length' : 'legacy physical length';
     html += `
       <div class="hof-item">
-        <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})</span>
+        <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})<br><small>${pointLabel}: ${entry.points.toFixed(1)} · ${lengthLabel}: ${entry.length}</small></span>
         <button onclick="window.spawnHoF(${idx})"${entry.entryId ? '' : ' disabled'}>Spawn</button>
       </div>`;
   });

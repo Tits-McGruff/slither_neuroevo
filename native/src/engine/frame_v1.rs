@@ -505,6 +505,10 @@ mod tests {
                 previous_input_boost: false,
                 control_accumulator_seconds: 0.0,
                 delivered_observation_points: 0.0,
+                observation_delivered: false,
+                completed_step_heading_delta: 0.0,
+                completed_step_speed_delta: 0.0,
+                completed_step_applied_turn: 0.0,
                 body: BodyRange {
                     start: body_start,
                     len: snake.body.len(),
@@ -513,6 +517,7 @@ mod tests {
             });
         }
         WorldState {
+            ray_cursor: Default::default(),
             snakes,
             body_points,
             pellets: source
@@ -576,6 +581,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body,
             skin,
         }
@@ -606,6 +615,7 @@ mod tests {
         first.population_slot = Some(0);
         last.population_slot = Some(1);
         WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![first, dead, last],
             body_points,
             pellets: vec![

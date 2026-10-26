@@ -199,5 +199,66 @@ mod tests {
             report.result.allocator_operations_per_commit.nonzero_passes,
             0
         );
+        // Keep this in the same process-level counting test: concurrent tests
+        // would contaminate the global allocation counter with unrelated work.
+        use slither_native::engine::baseline_v2::{
+            BaselineV2Mode, BaselineV2Policy, BaselineV2State,
+        };
+        use slither_native::engine::sensor_contract::SensorProfile;
+        use slither_native::engine::sensor_layout::SensorLayout;
+        use slither_native::engine::sensors::SensorConfig;
+        for profile in [SensorProfile::Basic, SensorProfile::Motion] {
+            for bins in [8, 16, 32] {
+                for mode in [BaselineV2Mode::Deterministic, BaselineV2Mode::Stochastic] {
+                    let layout = SensorLayout::for_profile(profile, bins).unwrap();
+                    let policy = BaselineV2Policy::new(
+                        &layout,
+                        SensorConfig {
+                            bins,
+                            ..SensorConfig::default()
+                        },
+                        mode,
+                    )
+                    .unwrap();
+                    let mut row = vec![0.0; layout.input_size];
+                    row[1] = 1.0;
+                    row[2] = -1.0;
+                    row[6] = -1.0;
+                    for i in [8, 9, 10, 21, 22, 23] {
+                        row[i] = -1.0;
+                    }
+                    for channel in 0..6 {
+                        row[24 + channel * bins..24 + (channel + 1) * bins].fill(if channel < 2 {
+                            -1.0
+                        } else {
+                            1.0
+                        });
+                    }
+                    if profile == SensorProfile::Motion {
+                        row[24 + 6 * bins..24 + 7 * bins].fill(-1.0);
+                    }
+                    let warm = policy
+                        .evaluate(&row, BaselineV2State::default(), 12345, 0.06)
+                        .unwrap();
+                    let mut state = warm.next_state;
+                    let mut word = warm.next_behavior_rng_word;
+                    let before = allocation_snapshot();
+                    for _ in 0..256 {
+                        let action = std::hint::black_box(
+                            policy
+                                .evaluate(std::hint::black_box(&row), state, word, 0.06)
+                                .unwrap(),
+                        );
+                        state = action.next_state;
+                        word = action.next_behavior_rng_word;
+                    }
+                    let after = allocation_snapshot();
+                    assert_eq!(
+                        after, before,
+                        "v2 policy allocated for {profile:?}/{bins}/{mode:?}"
+                    );
+                }
+            }
+        }
     }
 }

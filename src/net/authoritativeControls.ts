@@ -12,9 +12,9 @@ export interface AuthoritativeControlTransport {
   /** Send an atomic live-settings request. */
   sendSettings: (requestId: string, updates: LiveSettingsUpdate[]) => void;
   /** Send a God Mode kill request. */
-  sendGodModeKill: (requestId: string, snakeId: number) => void;
+  sendGodModeKill: (requestId: string, snakeId: number, token: string) => void;
   /** Send a God Mode move request. */
-  sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number) => void;
+  sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number, token: string) => void;
   /** Send a New Run request. */
   sendNewRun: (requestId: string) => void;
 }
@@ -48,19 +48,23 @@ export interface AuthoritativeControls {
   /** Immediately send all currently queued settings as one atomic request. */
   flushSettings: () => void;
   /** Send one God Mode kill request and return its correlation id. */
-  killSnake: (snakeId: number) => string;
+  killSnake: (snakeId: number, token: string) => string;
   /** Throttle one intermediate God Mode drag position. */
-  moveSnake: (snakeId: number, x: number, y: number) => void;
+  moveSnake: (snakeId: number, x: number, y: number, token: string) => void;
   /** Always send the final mouse-up position immediately. */
-  finishMove: (snakeId: number, x: number, y: number) => string;
+  finishMove: (snakeId: number, x: number, y: number, token: string) => string;
   /** Send one New Run request and return its correlation id. */
   requestNewRun: () => string;
+  /** Cancel only queued physical drag actions when selection changes. */
+  cancelMoves: () => void;
   /** Cancel timers and discard unsent local values. */
   dispose: () => void;
 }
 
 /** Pending coalesced God Mode drag position. */
 interface PendingMove {
+  /** Identity captured with this drag position, never refreshed at send time. */
+  token: string;
   /** Target snake id. */
   snakeId: number;
   /** Requested head X. */
@@ -137,7 +141,7 @@ export function createAuthoritativeControls(
   /** Send one move immediately and update throttle accounting. */
   const sendMove = (move: PendingMove): string => {
     const requestId = nextRequestId();
-    transport.sendGodModeMove(requestId, move.snakeId, move.x, move.y);
+    transport.sendGodModeMove(requestId, move.snakeId, move.x, move.y, move.token);
     lastMoveSentAt = clock.now();
     return requestId;
   };
@@ -151,8 +155,8 @@ export function createAuthoritativeControls(
   };
 
   /** Throttle intermediate drag positions while retaining the newest one. */
-  const moveSnake = (snakeId: number, x: number, y: number): void => {
-    pendingMove = { snakeId, x, y };
+  const moveSnake = (snakeId: number, x: number, y: number, token: string): void => {
+    pendingMove = { snakeId, x, y, token };
     const remaining = dragThrottleMs - (clock.now() - lastMoveSentAt);
     if (remaining <= 0 && dragTimer === null) {
       flushMove();
@@ -164,19 +168,19 @@ export function createAuthoritativeControls(
   };
 
   /** Cancel a pending intermediate position and always send mouse-up state. */
-  const finishMove = (snakeId: number, x: number, y: number): string => {
+  const finishMove = (snakeId: number, x: number, y: number, token: string): string => {
     if (dragTimer !== null) {
       clock.cancel(dragTimer);
       dragTimer = null;
     }
     pendingMove = null;
-    return sendMove({ snakeId, x, y });
+    return sendMove({ snakeId, x, y, token });
   };
 
   /** Send one kill request immediately. */
-  const killSnake = (snakeId: number): string => {
+  const killSnake = (snakeId: number, token: string): string => {
     const requestId = nextRequestId();
-    transport.sendGodModeKill(requestId, snakeId);
+    transport.sendGodModeKill(requestId, snakeId, token);
     return requestId;
   };
 
@@ -185,6 +189,13 @@ export function createAuthoritativeControls(
     const requestId = nextRequestId();
     transport.sendNewRun(requestId);
     return requestId;
+  };
+
+  /** Retire queued positions while preserving unrelated unsent settings. */
+  const cancelMoves = (): void => {
+    if (dragTimer !== null) clock.cancel(dragTimer);
+    dragTimer = null;
+    pendingMove = null;
   };
 
   /** Cancel timers and discard all unsent client-local state. */
@@ -204,6 +215,7 @@ export function createAuthoritativeControls(
     moveSnake,
     finishMove,
     requestNewRun,
+    cancelMoves,
     dispose
   };
 }

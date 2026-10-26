@@ -58,9 +58,13 @@ pub struct SensorOffsets {
     pub head: usize,
 }
 
-/// Validated sensor-v3 layout used by graphs, observations, and handshakes.
+/// Exact frozen v3 or candidate v4 layout used by graphs and observation staging.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SensorLayout {
+    /// Explicit structural version; v3 remains the historical default.
+    pub layout_version: &'static str,
+    /// Profile is part of structural compatibility even at equal width.
+    pub profile: super::sensor_contract::SensorProfile,
     /// Number of angular bins in each binned channel.
     pub bins: usize,
     /// Number of scalar prefix values.
@@ -100,6 +104,8 @@ impl SensorLayout {
         }
         debug_assert_eq!(order.len(), input_size);
         Ok(Self {
+            layout_version: "v3",
+            profile: super::sensor_contract::SensorProfile::V3,
             bins,
             scalar_count: SENSOR_SCALAR_COUNT,
             channel_count: SENSOR_CHANNEL_COUNT,
@@ -109,13 +115,51 @@ impl SensorLayout {
         })
     }
 
+    /// Dispatch a structural profile to its exact native layout.
+    pub fn for_profile(
+        profile: super::sensor_contract::SensorProfile,
+        bins: usize,
+    ) -> Result<Self, SensorLayoutError> {
+        if profile == super::sensor_contract::SensorProfile::V3 {
+            Self::new(bins)
+        } else {
+            Self::v4(profile, bins)
+        }
+    }
+
+    /// Build the candidate v4 layout without padding or reinterpreting v3.
+    pub fn v4(
+        profile: super::sensor_contract::SensorProfile,
+        bins: usize,
+    ) -> Result<Self, SensorLayoutError> {
+        if profile == super::sensor_contract::SensorProfile::V3 {
+            return Err(SensorLayoutError::UnsupportedProfile);
+        }
+        let mut layout = Self::new(bins)?;
+        let contract = super::sensor_contract::SensorContractIdentity::new(profile, bins)
+            .map_err(|_| SensorLayoutError::UnsupportedProfile)?;
+        layout.layout_version = "v4";
+        layout.profile = profile;
+        layout.scalar_count = contract.scalar_count();
+        layout.channel_count = contract.channels().len();
+        layout.input_size = contract.input_size();
+        layout.order = contract.order().to_vec().into_boxed_slice();
+        layout.offsets = SensorOffsets {
+            food: 24,
+            hazard: 24 + 2 * bins,
+            wall: 24 + 4 * bins,
+            head: 24 + 5 * bins,
+        };
+        Ok(layout)
+    }
+
     /// Build the small network-handshake view without exposing engine state.
     #[must_use]
     pub fn specification(&self) -> SensorSpecification {
         SensorSpecification {
             sensor_count: self.input_size,
             order: self.order.clone(),
-            layout_version: SENSOR_LAYOUT_VERSION,
+            layout_version: self.layout_version,
         }
     }
 }
@@ -134,6 +178,8 @@ pub struct SensorSpecification {
 /// Sensor-layout validation failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SensorLayoutError {
+    /// Requested profile is incompatible with this constructor.
+    UnsupportedProfile,
     /// Requested bins fall outside the owner-supported v3 range.
     UnsupportedBinCount { bins: usize },
     /// Checked input-size arithmetic overflowed.
@@ -143,6 +189,7 @@ pub enum SensorLayoutError {
 impl fmt::Display for SensorLayoutError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::UnsupportedProfile => write!(formatter, "unsupported sensor profile"),
             Self::UnsupportedBinCount { bins } => write!(
                 formatter,
                 "sensor-v3 bins must be in {MIN_SENSOR_BINS}..={MAX_SENSOR_BINS}; received {bins}"

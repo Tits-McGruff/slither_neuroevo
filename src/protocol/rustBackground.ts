@@ -1,3 +1,5 @@
+import type { EvolvedLifecycleTelemetry } from './evolvedLives.ts';
+import type { SelectedEntity } from './entitySelection.ts';
 import type { VizData } from './messages.ts';
 import type { GraphSpec } from '../brains/graph/schema.ts';
 
@@ -112,6 +114,8 @@ export interface RustQueueDiagnostics {
 
 /** Immutable Rust-owned facts used to construct the initial server welcome. */
 export interface RustStartupMetadata {
+  /** Native canonical sensor manifest; mandatory for v4 and optional for historical v3. */
+  sensorContract?: import('./sensors.ts').SensorContractEnvelope;
   /** Immutable population-only source facts when this lineage came from legacy data. */
   legacyConversion?: RustLegacyConversionNotice;
   /** Exact admitted lineage. */
@@ -149,6 +153,8 @@ export interface RustStartupMetadata {
 
 /** Cached stats from the same committed boundary as the Rust-packed frame. */
 export interface RustBackgroundDisplay {
+  /** Optional bounded life diagnostics from the same committed frame. */
+  evolved?: EvolvedLifecycleTelemetry;
   /** Monotonic display publication, independent of command sequences. */
   sequence: RustBackgroundIdentity;
   /** Published authority incarnation. */
@@ -177,6 +183,8 @@ export interface RustBackgroundDisplay {
 
 /** Replaceable activation data for exactly one Rust-selected neural snake. */
 export interface RustBackgroundVisualization extends VizData {
+  /** Sequenced native invalidation; carries no activations when true. */
+  cleared?: boolean;
   /** Monotonic cache publication identity. */
   sequence: RustBackgroundIdentity;
   /** Authority incarnation that produced the snapshot. */
@@ -480,6 +488,10 @@ export interface RustBackgroundEvent {
   settingsConfigHash?: string;
   /** First step that observes the newly active settings. */
   settingsEffectiveStep?: RustBackgroundIdentity;
+  /** Next eligible complete step for an accepted manual completion. */
+  finishGenerationEffectiveStep?: RustBackgroundIdentity;
+  /** On-demand scalar identity snapshot for one current physical life. */
+  entitySelection?: SelectedEntity | null;
   /** Successful in-bounds God Mode translation. */
   godModeMove?: {
     /** Exact browser/frame snake identity. */
@@ -500,6 +512,13 @@ export interface RustBackgroundEvent {
     /** First fixed step that observes this death. */
     effectiveStep: RustBackgroundIdentity;
   };
+  /** Explicit library deployment, independent of winning status. */
+  savedBrainSpawn?: {
+    /** Exact browser/frame snake identity. */
+    snakeId: number;
+    /** First fixed step observing the new retained owner. */
+    effectiveStep: RustBackgroundIdentity;
+  };
   /** Successful retained-winner resurrection. */
   hallOfFameResurrection?: {
     /** Exact browser/frame snake identity. */
@@ -509,6 +528,23 @@ export interface RustBackgroundEvent {
   };
   /** Aggregate visualization subscription state confirmed by Rust. */
   visualizationEnabled?: boolean;
+  /** Selected diagnostic cache admission confirmed by Rust; rows use a separate mailbox. */
+  inspectorEnabled?: boolean;
+  /** Explicit immutable shadow activation/stop at a completed boundary. */
+  shadowChange?: {
+    /** Independent diagnostic slot from zero through three. */
+    shadowSlot: number;
+    /** Complete candidate digest validated by Rust. */
+    artifactSha256: string;
+    /** Whether this diagnostic slot will consume teacher rows. */
+    enabled: boolean;
+    /** Completed authoritative boundary at activation or stop. */
+    effectiveStep: RustBackgroundIdentity;
+  };
+  /** Exact capture epoch for a successful ordered arm/stop receipt. */
+  teacherCaptureEpoch?: string;
+  /** Whether the matching diagnostic epoch is accepting committed samples. */
+  teacherCaptureEnabled?: boolean;
   /** Exact close result; false means stale or already disconnected. */
   controllerDisconnect?: {
     /** Requested assignment epoch. */

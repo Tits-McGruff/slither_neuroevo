@@ -82,6 +82,22 @@ pub struct PendingRunStartTransition {
 }
 
 impl PendingRunStartTransition {
+    /// Require the explicitly admitted qualification sensor identity after independent file validation.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn validate_qualification_sensor_contract(
+        &self,
+        expected: &super::sensor_contract::SensorContractIdentity,
+    ) -> Result<(), String> {
+        let actual = super::sensor_contract::SensorContractIdentity::from_settings(
+            &self.authority.state().config.settings,
+        )
+        .map_err(|error| error.to_string())?;
+        if actual != *expected {
+            return Err("qualified restore sensor contract mismatch".into());
+        }
+        Ok(())
+    }
+
     /// Select non-gameplay calculation threads before this authority becomes runnable.
     pub(crate) fn configure_calculation_workers(&mut self, workers: usize) -> Result<(), String> {
         if self.authority_published {
@@ -197,6 +213,39 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Keep the selected runtime ceiling separate from private boundary admission.
+    pub(crate) fn selected_running_memory_ceiling_bytes(&self) -> usize {
+        self.admission_policy.memory_ceiling_bytes
+    }
+
+    pub(crate) fn restrict_overlap_memory_ceiling(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published {
+            return Err(RunStartTransitionError::AuthorityAlreadyPublished);
+        }
+        self.authority
+            .restrict_overlap_memory_budget(ceiling)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn select_retired_source_memory_ceiling(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), RunStartTransitionError> {
+        if self.authority_published || ceiling < self.authority.memory_ceiling_bytes() {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        self.admission_policy.memory_ceiling_bytes = ceiling;
+        Ok(())
+    }
+
+    /// Current overlap ceiling before the imported owner replaces its predecessor.
+    pub(crate) fn admitted_memory_ceiling_bytes(&self) -> usize {
+        self.authority.memory_ceiling_bytes()
+    }
+
     /// Verify the committed source before moving a private candidate to a branch.
     pub fn validate_recovery_source(
         &self,
@@ -237,12 +286,45 @@ impl PendingRunStartTransition {
         if !self.restored_checkpoint {
             return Err(RunStartTransitionError::InvalidBoundary);
         }
+        // Rebinding identity does not retire the prior live population. Keep
+        // its overlap charge until the final running-authority ownership swap.
+        let mut branch_policy = self.admission_policy.clone();
+        branch_policy.memory_ceiling_bytes = self.admitted_memory_ceiling_bytes();
         self.authority = self
             .authority
-            .into_recovery_branch(branch_run_id, &self.admission_policy)?;
+            .into_recovery_branch(branch_run_id, &branch_policy)?;
         self.admission_policy.require_exact_build_identity = true;
         self.compatible_recovery_branch_required = false;
         Ok(self)
+    }
+
+    /// Borrow the admitted offline candidate for exact capacity comparisons.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_authority(&self) -> &AuthoritativeState {
+        &self.authority
+    }
+
+    /// Read the exact limits retained after an offline import.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_checkpoint_limits(&self) -> &CheckpointLimits {
+        &self.checkpoint_limits
+    }
+
+    /// Apply explicit offline v4 work admission before any authority publication.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn configure_qualification_work_limits(
+        &mut self,
+        limits: RunningStepWorkLimits,
+    ) -> Result<(), String> {
+        if self.authority_published || limits.ray_work.is_none() {
+            return Err(
+                "qualification limits require unpublished v4 authority and explicit rays".into(),
+            );
+        }
+        validate_calculation_workers(limits.calculation_workers)
+            .map_err(|error| error.to_string())?;
+        self.work_limits = limits;
+        Ok(())
     }
 
     /// Publish or exactly retry the immutable run-start file.
@@ -455,12 +537,34 @@ impl PendingRunStartTransition {
     ///
     /// This is the future background-thread handoff. The experimental one-shot
     /// step and the retained loop are deliberately exclusive so two scheduler
-    /// owners can never advance the same authority incarnation.
+    /// owners can never advance the same authority incarnation. Any predecessor
+    /// population must already be retired; live replacement uses the separate
+    /// overlap-preserving handoff below.
     pub fn into_running_loop(
         self,
         policy: FixedStepSchedulerPolicy,
         wall_origin_ms: u64,
     ) -> Result<RunningAuthorityLoop, RunStartLoopHandoffError> {
+        self.into_running_loop_with_retirement(policy, wall_origin_ms, true)
+            .map(|(running, _)| running)
+    }
+
+    /// Build a replacement under its reduced overlap admission. The existing
+    /// loop must retire its predecessor before reclaiming the returned budget.
+    pub(crate) fn into_replacement_running_loop(
+        self,
+        policy: FixedStepSchedulerPolicy,
+        wall_origin_ms: u64,
+    ) -> Result<(RunningAuthorityLoop, usize), RunStartLoopHandoffError> {
+        self.into_running_loop_with_retirement(policy, wall_origin_ms, false)
+    }
+
+    fn into_running_loop_with_retirement(
+        mut self,
+        policy: FixedStepSchedulerPolicy,
+        wall_origin_ms: u64,
+        predecessor_retired: bool,
+    ) -> Result<(RunningAuthorityLoop, usize), RunStartLoopHandoffError> {
         if !self.authority_published {
             return Err(RunStartLoopHandoffError::new(
                 self,
@@ -489,9 +593,21 @@ impl PendingRunStartTransition {
                 ))
             }
         };
-        Ok(RunningAuthorityLoop::from_prepared(
-            self.authority,
-            prepared,
+        let running_ceiling = self.admission_policy.memory_ceiling_bytes;
+        if predecessor_retired {
+            if let Err(error) = self
+                .authority
+                .reclaim_retired_memory_budget(running_ceiling)
+            {
+                return Err(RunStartLoopHandoffError::new(
+                    self,
+                    RunStartTransitionError::from(error),
+                ));
+            }
+        }
+        Ok((
+            RunningAuthorityLoop::from_prepared(self.authority, prepared),
+            running_ceiling,
         ))
     }
 
@@ -608,7 +724,30 @@ impl PendingRunStartTransition {
             })
             .collect::<Vec<_>>();
         let graph_spec = graph_spec_metadata(self.authority.graph_spec());
-        let metadata = serde_json::json!({
+        // Compact historical v3 format fixtures can carry no sensing settings.
+        // Preserve that old metadata surface; v4 never admits an absent contract.
+        let compact_v3 = state.versions.sensor == 3
+            && !state.config.settings.iter().any(|entry| {
+                matches!(
+                    entry.path.as_str(),
+                    "sense.layoutVersion"
+                        | "sense.bubbleBins"
+                        | "sense.contractVersion"
+                        | "sense.profile"
+                        | "sense.contractSha256"
+                )
+            });
+        let contract = if compact_v3 {
+            None
+        } else {
+            Some(
+                super::sensor_contract::SensorContractIdentity::from_settings(
+                    &state.config.settings,
+                )
+                .map_err(|error| error.to_string())?,
+            )
+        };
+        let mut metadata = serde_json::json!({
             "runId": state.identity.run_id,
             "seed": state.identity.seed,
             "legacyConversion": state.identity.legacy_conversion,
@@ -623,8 +762,17 @@ impl PendingRunStartTransition {
             "serializerVersion": state.versions.serializer,
             "sensorVersion": state.versions.sensor,
             "settings": settings,
-        })
-        .to_string();
+        });
+        if let Some(contract) = contract {
+            let canonical = String::from_utf8(
+                contract
+                    .canonical_bytes()
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            metadata["sensorContract"] = serde_json::json!({"canonicalJson":canonical,"sha256":contract.sha256_hex().map_err(|error|error.to_string())?});
+        }
+        let metadata = metadata.to_string();
         if metadata.len() > 1024 * 1024 {
             return Err("startup metadata exceeds one MiB".into());
         }
@@ -633,7 +781,7 @@ impl PendingRunStartTransition {
 }
 
 /// Encode the Rust-admitted source graph into the current browser schema.
-fn graph_spec_metadata(spec: &GraphSpec) -> serde_json::Value {
+pub(crate) fn graph_spec_metadata(spec: &GraphSpec) -> serde_json::Value {
     let nodes = spec
         .nodes
         .iter()

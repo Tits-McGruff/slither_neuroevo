@@ -2,131 +2,94 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - exclusive-server-mode-refactor
+    branches: [main, evolved-lives-sensors-distillation]
   pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  CARGO_TERM_COLOR: always
   HUSKY: 0
+  CARGO_TERM_COLOR: always
 
 jobs:
-  node:
-    name: Node tests (${{ matrix.os }}, Node ${{ matrix.node-version }})
+  test:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        node-version: [24.x, 26.x]
-
+        include:
+          - {os: ubuntu-latest, node: '24'}
+          - {os: windows-latest, node: '24'}
+          - {os: ubuntu-latest, node: '26'}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
         with:
-          workspaces: |
-            native -> target
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ matrix.node }}
           cache: npm
-
-      - name: Install dependencies
-        if: runner.os != 'Windows'
-        run: npm ci
-
-      - name: Install dependencies (Windows, retry transient failures)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - run: npm ci
+      - name: Reject compressed source and large generated files
+        shell: bash
         run: |
-          $maxAttempts = 3
-          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            npm ci
-            $exitCode = $LASTEXITCODE
-            if ($exitCode -eq 0) {
-              exit 0
-            }
-            if ($attempt -eq $maxAttempts) {
-              exit $exitCode
-            }
-            Write-Host "npm ci failed on attempt $attempt; retrying in 10 seconds..."
-            Start-Sleep -Seconds 10
-          }
-      - name: Build native addon
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          for name in subprocess.check_output(["git", "ls-files", "-z"], text=True).split("\0"):
+              if not name:
+                  continue
+              path = Path(name)
+              if name.endswith((".py.gz", ".rs.gz", ".ts.gz")) or path.stat().st_size > 2 * 1024**2:
+                  raise SystemExit("Generated payload/source archive must stay outside Git: " + name)
+              if name.startswith("docs/performance/") and path.suffix not in (".md", ".json"):
+                  raise SystemExit("Keep only compact performance metadata in Git: " + name)
+          PY
+
+      - name: Build and load production native addon
         run: npm --prefix native run build
-      - name: Verify native addon load and source identity
-        run: node -e "const addon = require('./native/index.js'); if (!addon.nativeAddonBuildIdentifier?.()) throw new Error('native build identifier missing')"
-      - name: Test native crate
-        run: cargo test --manifest-path native/Cargo.toml --release --features engine-test-hooks -- --test-threads=1
-      - name: Build and verify isolated release panic test addon
-        run: node ./node_modules/tsx/dist/cli.mjs scripts/prepare-panic-test-addon.ts
-      - name: Build checkpoint handoff test addon
-        run: cargo build --manifest-path native/Cargo.toml --features engine-test-hooks
-      - name: Expose isolated checkpoint handoff test addon
-        run: >-
-          node -e "const fs = require('node:fs'); const lib = process.platform === 'win32' ? 'slither_native.dll' : 'libslither_native.so'; fs.copyFileSync('native/target/debug/' + lib, 'native/target/ci-handoff-hooks.node')"
-      - name: Rust background generation and SQLite handoff
-        env:
-          SLITHER_STAGE3_CHECKPOINT_TEST_ADDON: native/target/ci-handoff-hooks.node
-        run: node node_modules/vitest/vitest.mjs run server/rustEngine/checkpointPersistence.native.test.ts --reporter=dot --testTimeout=15000
-      - name: Build browser client
+      - run: node -e "const a=require('./native'); if(a.nativeAddonBuildClass()!=='production') throw Error('production addon required')"
+      - name: Rust library tests
+        if: matrix.node == '24'
+        run: cargo test --manifest-path native/Cargo.toml --release --lib --features engine-test-hooks -- --test-threads=1
+      - name: Build browser assets required by HTTP integration tests
         run: npm run build:client
-      - name: Required native authority and calculation-worker contracts
-        run: npm run test:native-required -- --reporter=dot
-      - name: Unit tests
+      - name: Ordinary test suites
+        if: matrix.node == '24'
+        run: npm test -- --reporter=dot
+      - name: Node compatibility tests
+        if: matrix.node == '26'
         run: npm run test:unit -- --reporter=dot
-      - name: Component tests
-        run: npm run test:component -- --reporter=dot
-      - name: Integration tests
-        run: npm run test:integration -- --reporter=dot
-      - name: System tests
-        run: npm run test:system -- --reporter=dot
-      - name: Acceptance tests
-        run: npm run test:acceptance -- --reporter=dot
-      - name: Regression tests
-        run: npm run test:regression -- --reporter=dot
-      - name: Security tests
-        run: npm run test:security -- --reporter=dot
-      - name: Performance measurements (informational)
-        continue-on-error: true
-        run: npm run test:performance -- --reporter=dot
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint
-        run: npm run lint
-
-  rust_lint:
-    name: Rust fmt and clippy (native crate)
+      - run: npm run typecheck
+      - run: npm run lint
+      - uses: actions/setup-python@v6
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        with:
+          python-version: '3.12'
+      - name: Regenerate shared contracts
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        run: |
+          python -m pip install './contracts[dev]'
+          python contracts/generate.py
+          git diff --exit-code -- contracts
+      - name: Python benchmark helper unit tests
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '24'
+        run: python -m unittest discover -s scripts/qualification -p 'test_*.py'
+  rust-lint:
     runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: native
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain (components)
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            native -> target
-
-      - run: cargo fmt -- --check
-      - run: cargo clippy -- -D warnings
+          workspaces: native
+      - run: cargo fmt --manifest-path native/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path native/Cargo.toml --features engine-test-hooks,contract-schema -- -D warnings

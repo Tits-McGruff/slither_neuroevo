@@ -123,6 +123,7 @@ impl FixedStepPrefixConfig {
 }
 
 /// Immutable inputs from one admitted authority and operation epoch.
+#[derive(Clone, Copy)]
 pub struct FixedStepPrefixInputs<'source> {
     /// Complete world/generation/config/operation identity.
     pub key: PhysicsStepKey,
@@ -210,6 +211,7 @@ pub(crate) struct RngCopyScratch {
 /// Complete, still non-authoritative pre-control boundary.
 #[derive(Clone, Copy, Debug)]
 pub struct PreparedFixedStepPrefix<'workspace, 'source> {
+    recurrent_resets: &'workspace [super::state::BrainHandle],
     key: PhysicsStepKey,
     source_world: &'source WorldState,
     source_rng: &'source RngStateBundle,
@@ -228,6 +230,11 @@ pub struct PreparedFixedStepPrefix<'workspace, 'source> {
 }
 
 impl<'workspace, 'source> PreparedFixedStepPrefix<'workspace, 'source> {
+    /// Zero-source first inference markers created by successful evolved births.
+    pub(crate) const fn evolved_recurrent_resets(self) -> &'workspace [super::state::BrainHandle] {
+        self.recurrent_resets
+    }
+
     /// Exact authority/config/operation identity prepared.
     #[must_use]
     pub const fn key(self) -> PhysicsStepKey {
@@ -336,6 +343,7 @@ impl<'workspace, 'source> PreparedFixedStepPrefix<'workspace, 'source> {
 /// Reusable owner of the corrected fixed-step prefix.
 #[derive(Debug, Default)]
 pub struct FixedStepPrefixWorkspace {
+    evolved: super::evolved_replacement::EvolvedReplacementWorkspace,
     accounting: StepAccountingWorkspace,
     ambient: AmbientWorkspace,
     baseline: BaselineLifecycleWorkspace,
@@ -356,6 +364,12 @@ pub struct FixedStepPrefixWorkspace {
 }
 
 impl FixedStepPrefixWorkspace {
+    /// Immutable pre-control source retained after publication; never resamples sensors.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_world(&self) -> &WorldState {
+        &self.world
+    }
+
     /// Construct empty reusable prefix scratch.
     #[must_use]
     pub fn new() -> Self {
@@ -374,6 +388,7 @@ impl FixedStepPrefixWorkspace {
         inputs: FixedStepPrefixInputs<'source>,
     ) -> Result<PreparedFixedStepPrefix<'workspace, 'source>, FixedStepPrefixError> {
         self.ready = false;
+        self.evolved.clear();
         self.baseline_respawn_diagnostics = BaselineRespawnDiagnostics::default();
         self.due_respawn_slots.clear();
         self.replaced_baseline_ids.clear();
@@ -504,6 +519,50 @@ impl FixedStepPrefixWorkspace {
         self.ready = true;
 
         self.prepared(inputs)
+    }
+
+    /// Join evolved births after the existing prefix phases, before shared control.
+    pub(crate) fn prepare_with_evolved<'workspace, 'source>(
+        &'workspace mut self,
+        inputs: FixedStepPrefixInputs<'source>,
+        lives: &mut super::evolved_lives::EvolvedGenerationState,
+        policy: super::evolved_lives::EvolvedExperimentConfig,
+        initial_accumulator: f64,
+    ) -> Result<PreparedFixedStepPrefix<'workspace, 'source>, FixedStepPrefixError> {
+        let _prefix = self.prepare(inputs)?;
+        self.ready = false;
+        self.evolved.prepare(
+            inputs.key,
+            &mut self.world,
+            self.rng
+                .as_mut()
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?,
+            self.allocators
+                .as_mut()
+                .ok_or(FixedStepPrefixError::InternalShapeMismatch)?,
+            lives,
+            policy,
+            inputs.config,
+            inputs.generation_elapsed_seconds,
+            initial_accumulator,
+        )?;
+        self.ready = true;
+        self.prepared(inputs)
+    }
+
+    /// Seal identity/RNG work only after the whole physics result exists.
+    pub(crate) fn seal_evolved(
+        &mut self,
+        key: PhysicsStepKey,
+        rng: &RngStateBundle,
+    ) -> Result<(), super::evolved_lives::EvolvedLifeError> {
+        self.evolved.seal(key, rng)
+    }
+
+    pub(crate) fn evolved_proof(
+        &self,
+    ) -> Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof> {
+        self.evolved.proof()
     }
 
     /// Resolve every due baseline slot on the private prefix working copy.
@@ -861,6 +920,10 @@ impl FixedStepPrefixWorkspace {
                 previous_input_boost: false,
                 control_accumulator_seconds: 0.0,
                 delivered_observation_points: 0.0,
+                observation_delivered: false,
+                completed_step_heading_delta: 0.0,
+                completed_step_speed_delta: 0.0,
+                completed_step_applied_turn: 0.0,
                 body: BodyRange {
                     start: body_start,
                     len: self.respawn_body.len(),
@@ -964,6 +1027,7 @@ impl FixedStepPrefixWorkspace {
             return Err(FixedStepPrefixError::ResultNotReady);
         }
         Ok(PreparedFixedStepPrefix {
+            recurrent_resets: self.evolved.recurrent_resets(),
             key: inputs.key,
             source_world: inputs.world,
             source_rng: inputs.rng,
@@ -1011,7 +1075,7 @@ fn find_baseline_slot_index(world: &WorldState, slot: u32) -> Result<usize, Fixe
     })
 }
 
-fn compact_world_bodies(
+pub(crate) fn compact_world_bodies(
     world: &mut WorldState,
     scratch: &mut Vec<WorldPoint>,
     maximum_body_points: usize,
@@ -1072,6 +1136,7 @@ pub(crate) fn copy_world_reusing(
     source: &WorldState,
     required_pellets: usize,
 ) -> Result<(), FixedStepPrefixError> {
+    target.ray_cursor = source.ray_cursor;
     reserve_for(&mut target.snakes, source.snakes.len(), "working snakes")?;
     reserve_for(
         &mut target.body_points,
@@ -1183,6 +1248,8 @@ pub(crate) fn copy_rng_bundle_reusing(
 ) -> Result<(), FixedStepPrefixError> {
     if target.is_none() {
         *target = Some(RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: source.version,
             world: empty_serialized_rng(),
             evolution: empty_serialized_rng(),
@@ -1194,6 +1261,24 @@ pub(crate) fn copy_rng_bundle_reusing(
         .as_mut()
         .ok_or(FixedStepPrefixError::InternalShapeMismatch)?;
     target.version = source.version;
+    reserve_for(
+        &mut target.baseline_behaviors,
+        source.baseline_behaviors.len(),
+        "baseline behavior RNG states",
+    )?;
+    target.baseline_behaviors.clear();
+    target
+        .baseline_behaviors
+        .extend_from_slice(&source.baseline_behaviors);
+    reserve_for(
+        &mut target.evolved_respawns,
+        source.evolved_respawns.len(),
+        "evolved RNG states",
+    )?;
+    target.evolved_respawns.clear();
+    target
+        .evolved_respawns
+        .extend_from_slice(&source.evolved_respawns);
     copy_serialized_rng_reusing(
         &mut target.world,
         &source.world,
@@ -1419,6 +1504,8 @@ fn reserve_string(
 /// Rejected fixed-step-prefix preparation. No variant publishes authority.
 #[derive(Debug)]
 pub enum FixedStepPrefixError {
+    /// Evolved accounting or lifecycle staging failed.
+    Evolved(super::evolved_lives::EvolvedLifeError),
     /// Joined prefix settings or capacity are invalid.
     InvalidConfig { field: &'static str },
     /// One exact authority/config/operation key component changed.
@@ -1478,6 +1565,7 @@ impl From<BaselineLifecycleError> for FixedStepPrefixError {
 impl Display for FixedStepPrefixError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Evolved(error) => write!(formatter, "{error}"),
             Self::InvalidConfig { field } => write!(formatter, "invalid fixed-step prefix {field}"),
             Self::StepKeyMismatch { field } => {
                 write!(formatter, "fixed-step prefix key changed at {field:?}")
@@ -1518,6 +1606,7 @@ impl Display for FixedStepPrefixError {
 impl Error for FixedStepPrefixError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Evolved(error) => Some(error),
             Self::Accounting(error) => Some(error.as_ref()),
             Self::Ambient(error) => Some(error.as_ref()),
             Self::Baseline(error) => Some(error.as_ref()),
@@ -1580,6 +1669,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 2,
@@ -1591,6 +1684,7 @@ mod tests {
     fn world() -> WorldState {
         let snake = snake(10, SnakeKind::Evolved, 0);
         WorldState {
+            ray_cursor: Default::default(),
             body_points: vec![
                 snake.position,
                 WorldPoint {
@@ -1606,6 +1700,8 @@ mod tests {
 
     fn rng_bundle(baseline_count: usize) -> RngStateBundle {
         RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: StatefulRng::new(101.0).export_state(),
             evolution: StatefulRng::new(202.0).export_state(),
@@ -1658,6 +1754,8 @@ mod tests {
         let lifecycle = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: baseline.id,
                 strategy_timer_seconds: 0.0,
@@ -1747,6 +1845,40 @@ mod tests {
             Some(10.0 - DT)
         );
         assert!(workspace.is_ready());
+    }
+
+    #[test]
+    fn dense_v2_behavior_rng_copy_reuses_capacity_and_preserves_lifecycle_rng() {
+        let mut source = rng_bundle(2);
+        source.version = crate::engine::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        source.baseline_behaviors =
+            crate::engine::rng::derive_baseline_v2_behaviors(42, 1, 9, 2, true).unwrap();
+        let mut target = None;
+        let mut scratch = RngCopyScratch::default();
+        copy_rng_bundle_reusing(&mut target, &mut scratch, &source).unwrap();
+        let pointer = target.as_ref().unwrap().baseline_behaviors.as_ptr();
+        let capacity = target.as_ref().unwrap().baseline_behaviors.capacity();
+        for _ in 0..100 {
+            let mut behavior = source.baseline_behaviors[0].runtime().unwrap();
+            behavior.next_f64();
+            source.baseline_behaviors[0].uniform_state = behavior.uniform_state();
+            copy_rng_bundle_reusing(&mut target, &mut scratch, &source).unwrap();
+            assert_eq!(target.as_ref().unwrap(), &source);
+            assert_eq!(
+                target.as_ref().unwrap().baseline_behaviors.as_ptr(),
+                pointer
+            );
+            assert_eq!(
+                target.as_ref().unwrap().baseline_behaviors.capacity(),
+                capacity
+            );
+        }
+        let lifecycle = source.baselines.clone();
+        source.baseline_behaviors.clear();
+        source.version = 2;
+        copy_rng_bundle_reusing(&mut target, &mut scratch, &source).unwrap();
+        assert!(target.as_ref().unwrap().baseline_behaviors.is_empty());
+        assert_eq!(target.as_ref().unwrap().baselines, lifecycle);
     }
 
     #[test]
@@ -1854,6 +1986,8 @@ mod tests {
         let source_lifecycle = BaselineLifecycleState {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: source_world.snakes[0].id,
                 strategy_timer_seconds: 0.0,
@@ -1956,12 +2090,14 @@ mod tests {
             },
         ];
         let world_a = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![first.clone(), second.clone()],
             body_points: body_points.clone(),
             pellets: Vec::new(),
             controller_leases: Vec::new(),
         };
         let world_b = WorldState {
+            ray_cursor: Default::default(),
             snakes: vec![second, first],
             body_points,
             pellets: Vec::new(),
@@ -1971,6 +2107,8 @@ mod tests {
             version: BASELINE_LIFECYCLE_VERSION,
             slots: vec![
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 0,
                     snake_id: BASELINE_ENTITY_ID_START + 10,
                     strategy_timer_seconds: 0.0,
@@ -1981,6 +2119,8 @@ mod tests {
                     respawn_remaining_seconds: Some(DT * 0.5),
                 },
                 BaselineSlotRuntime {
+                    v2_policy: None,
+                    v2_last_control_step: None,
                     slot: 1,
                     snake_id: BASELINE_ENTITY_ID_START + 20,
                     strategy_timer_seconds: 0.0,

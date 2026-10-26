@@ -6,6 +6,12 @@ import {
 
 /** Ordered list of config paths accepted by reset/import snapshots. */
 export const SETTINGS_PATHS = [
+  'evolvedRespawn.contractVersion', 'evolvedRespawn.enabled', 'evolvedRespawn.delaySeconds',
+  'evolvedRespawn.delayMode', 'evolvedRespawn.maxLives', 'evolvedRespawn.recurrentState',
+  'evolvedRespawn.rngMode', 'evolvedRespawn.corpseMode', 'lifeScoring.mode',
+  'lifeScoring.cumulativeBasis', 'lifeScoring.cumulativeWallet', 'reward.lifeAccounting',
+  'reward.durationScaling', 'reward.lifePenalty', 'reward.lifePenaltyBasis',
+  'observer.earlyEndMode', 'world.pelletOverflow',
   'worldRadius',
   'pelletCountTarget',
   'pelletSpawnPerSecond',
@@ -22,6 +28,8 @@ export const SETTINGS_PATHS = [
   'foodSpawn.freqSmall',
   'foodSpawn.dustStrength',
   'sense.layoutVersion',
+  'sense.profile',
+  'sense.rayMinimum', 'sense.rayCap', 'sense.rayBatch', 'sense.rayMaximumDue',
   'sense.bubbleBins',
   'sense.rNearBase',
   'sense.rNearScale',
@@ -36,6 +44,7 @@ export const SETTINGS_PATHS = [
   'sense.maxSegmentChecks',
   'sense.debug',
   'baselineBots.count',
+  'baselineBots.algorithm', 'baselineBots.behaviorMode', 'baselineBots.controlDt',
   'baselineBots.seed',
   'baselineBots.randomizeSeedPerGen',
   'baselineBots.respawnDelay',
@@ -151,15 +160,40 @@ export function coerceSettingsUpdateValue(
   value: number
 ): number | string | boolean {
   if (path === 'sense.layoutVersion') {
-    return 'v3';
+    if (value === 4) return 'v4';
+    // Historical UI snapshots encoded v2/v3 as zero/one; retain their v3 presentation conversion.
+    if (value === 0 || value === 1 || value === 3) return 'v3';
+    throw new TypeError('unsupported sensor layout version');
   }
   if (path === 'brain.useMlp') {
     return value !== 0;
+  }
+  if (path === 'sense.profile') {
+    if (value === 0) return 'basic';
+    if (value === 1) return 'motion';
+    throw new TypeError('unsupported sensor profile');
   }
   const definition = SETTING_DEFINITION_BY_PATH.get(path);
   if (!definition) return value;
   const normalized = normalizeSettingValue(definition, value);
   return definition.valueType === 'boolean' ? normalized === 1 : normalized;
+}
+
+/** Encode the two string-valued presentation choices as canonical wire codes. */
+export function encodeSettingsUpdateValue(path: string, value: unknown): number {
+  if (path === 'sense.layoutVersion') {
+    if (value === 'v3') return 3;
+    if (value === 'v4') return 4;
+    throw new TypeError('unsupported sensor layout version');
+  }
+  if (path === 'sense.profile') {
+    if (value === 'basic') return 0;
+    if (value === 'motion') return 1;
+    throw new TypeError('unsupported sensor profile');
+  }
+  if (typeof value === 'boolean') return Number(value);
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new TypeError(`non-numeric setting ${path}`);
+  return value;
 }
 
 /**

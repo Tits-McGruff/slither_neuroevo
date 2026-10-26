@@ -1,5 +1,5 @@
 import { DEFAULT_CORE_SETTINGS, SETTINGS_PATHS } from '../../src/protocol/settings.ts';
-import { getSensorLayout, getSensorSpec } from '../../src/protocol/sensors.ts';
+import { getSensorLayout, getSensorSpec, sensorLayoutFromContract, type SensorLayout } from '../../src/protocol/sensors.ts';
 import type {
   RustBackgroundDisplay,
   RustBackgroundVisualization,
@@ -25,13 +25,24 @@ export function nativeSetting(metadata: RustStartupMetadata, path: string): numb
   return raw;
 }
 
+/** Resolve Rust structural metadata, retaining the historical v3 handshake reader. */
+export function nativeSensorLayout(metadata: RustStartupMetadata): SensorLayout {
+  if (metadata.sensorContract) return sensorLayoutFromContract(metadata.sensorContract);
+  if (metadata.sensorVersion !== 3) throw new TypeError('missing native structural sensor metadata');
+  return getSensorLayout(nativeSetting(metadata,'sense.bubbleBins'));
+}
+
 /** Project graph controls and scalar settings without assigning transport identities. */
 export function createRustSettings(metadata: RustStartupMetadata): WelcomeMsg['settings'] {
   const core = { ...DEFAULT_CORE_SETTINGS, snakeCount: nativeSetting(metadata, 'snakeCount'), simSpeed: nativeSetting(metadata, 'simSpeed') };
-  const inputSize = getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins')).inputSize;
+  const inputSize = nativeSensorLayout(metadata).inputSize;
   const stack = deriveStackPresentation(metadata.graphSpec, core, inputSize);
   const updates = new Map(SETTINGS_PATHS.filter(path => metadata.settings.some(setting => setting.path === path))
     .map(path => [path, nativeSetting(metadata, path)]));
+  // UI names stay separate from the frozen native checkpoint field names.
+  updates.set('baselineBots.algorithm', metadata.settings.some(setting => setting.path === 'baselineBots.controlVersion')
+    ? nativeSetting(metadata, 'baselineBots.controlVersion') : 1);
+  if (updates.get('baselineBots.algorithm') === 2) updates.set('baselineBots.behaviorMode', nativeSetting(metadata, 'baselineBots.mode'));
   for (const update of stack?.updates ?? []) updates.set(update.path, update.value);
   return { core: stack?.core ?? core, updates: [...updates].map(([path, value]) => ({ path, value })) };
 }
@@ -50,9 +61,13 @@ export function createRustWelcome(
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
     graphSpec: metadata.graphSpec,
-    capabilities: { checkpointPinning: true, archiveExport: true, archiveImport: true },
+    capabilities: { distillation: true,
+      teacherCapture: nativeSensorLayout(metadata).layoutVersion === 'v4' &&
+        metadata.settings.some(setting => setting.path === 'baselineBots.controlVersion' && setting.value === 2) &&
+        nativeSetting(metadata, 'baselineBots.count') > 0,
+      checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true, decisionInspector: true },
     settings: createRustSettings(metadata),
-    sensorSpec: getSensorSpec(getSensorLayout(nativeSetting(metadata, 'sense.bubbleBins'))),
+    sensorSpec: getSensorSpec(nativeSensorLayout(metadata), metadata.sensorContract),
     inferenceMode: {
       requestedBackend: 'native', activeBackend: 'native', requestedMt: calculationWorkers > 1,
       activeWorkerCount: calculationWorkers > 1 ? calculationWorkers : 0,
@@ -74,6 +89,7 @@ export function createRustStats(
     type: 'stats', tick: wireInteger(display.completedStep), gen: wireInteger(display.generation),
     generationTime: display.generationTime, generationSeconds: nativeSetting(metadata, 'generationSeconds'),
     alive: display.alivePopulation, aliveTotal: display.aliveSnakes,
+    ...(display.evolved ? { evolved: display.evolved } : {}),
     baselineBotsAlive: display.baselineBotsAlive, baselineBotsTotal: display.baselineBotsTotal,
     fps: pumpsPerSecond, fitnessHistory,
     ...(visualization ? { viz: visualization } : {})

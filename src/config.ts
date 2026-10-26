@@ -1,12 +1,14 @@
 /** Browser settings drafts and presentation defaults; Rust owns game configuration. */
 
 import { deepClone } from './utils.ts';
-import { getSensorLayout, type SensorLayout, type SensorLayoutVersion } from './protocol/sensors.ts';
+import { getSensorLayout, type SensorLayout, type SensorLayoutVersion, type SensorSpec, type SensorV4Profile, sensorLayoutFromContract } from './protocol/sensors.ts';
 import { defaultStackBrain } from './brains/stackBuilder.ts';
 import type { GraphSpec } from './brains/graph/schema.ts';
 
 /** Initial browser settings/presentation values, replaced by authoritative metadata. */
 export const CFG_DEFAULT = {
+  /** Local diagnostic presentation; never submitted as authoritative gameplay settings. */
+  diagnostics: { followIndividual: true, inspectorEnabled: false },
   worldRadius: 3500,
   pelletCountTarget: 3500,
   pelletSpawnPerSecond: 170,
@@ -45,6 +47,10 @@ export const CFG_DEFAULT = {
     // Speckle strength added to the web.
     dustStrength: 0.35
   },
+  evolvedRespawn: { contractVersion: 1, enabled: false, delaySeconds: 0, delayMode: 0,
+    maxLives: 0, recurrentState: 0, rngMode: 0, corpseMode: 0 },
+  lifeScoring: { mode: 0, cumulativeBasis: 0, cumulativeWallet: 0 },
+  world: { pelletOverflow: 0 },
   generationSeconds: 240,
   eliteFrac: 0.12,
   // With larger input vectors and higher-capacity brains, defaults that were
@@ -54,6 +60,7 @@ export const CFG_DEFAULT = {
   mutationStd: 0.35,
   crossoverRate: 0.85,
   observer: {
+    earlyEndMode: 0,
     focusRecheckSeconds: 1.0,
     focusSwitchMargin: 1.08,
     earlyEndMinSeconds: 8,
@@ -68,7 +75,10 @@ export const CFG_DEFAULT = {
     // 360° "bubble" sensing around the head.
     // The bubble radius increases with snake length using the same zoom curve
     // as the follow camera (larger snakes see farther).
-    layoutVersion: 'v3' as SensorLayoutVersion,
+    layoutVersion: 'v4' as SensorLayoutVersion,
+    profile: 'motion' as SensorV4Profile,
+    // Explicit candidate drafts, submitted only when v4 is selected.
+    rayMinimum: 1, rayCap: 256, rayBatch: 65536, rayMaximumDue: 512,
     bubbleBins: 16,
     rNearBase: 520,
     rNearScale: 260,
@@ -84,13 +94,13 @@ export const CFG_DEFAULT = {
 
     // Caps on work per snake per tick when the local region is extremely dense.
     // These apply to bubble food/hazard sensing.
-    maxPelletChecks: 900,
+    maxPelletChecks: 3000,
     maxSegmentChecks: 2200
   },
   // Brain configuration.
   // Input size is derived from the active sensor layout.
   brain: {
-    ...defaultStackBrain(getSensorLayout(16).inputSize),
+    ...defaultStackBrain(getSensorLayout(16, 'v4', 'motion').inputSize),
     graphSpec: null as GraphSpec | null,
 
     // Brain is evaluated on a fixed controller timestep independent of physics substeps.
@@ -114,6 +124,9 @@ export const CFG_DEFAULT = {
     rruInitGateBias: 0.1
   },
   baselineBots: {
+    algorithm: 2,
+    behaviorMode: 1,
+    controlDt: 1 / 60,
     count: 10,
     seed: 1,
     randomizeSeedPerGen: false,
@@ -135,6 +148,7 @@ export const CFG_DEFAULT = {
     pelletJitter: 10
   },
   reward: {
+    lifeAccounting: 0, durationScaling: 0, lifePenalty: 0, lifePenaltyBasis: 0,
     pointsPerFood: 20.0,
     pointsPerKill: 400.0,
     pointsPerSecondAlive: 0.60,
@@ -181,7 +195,27 @@ function logV3LayoutOnce(layout: SensorLayout): void {
  */
 export function syncBrainInputSize(): void {
   const sense = CFG.sense ?? {};
-  const layout = getSensorLayout(sense.bubbleBins ?? 16);
+  const layout = getSensorLayout(sense.bubbleBins ?? 16, sense.layoutVersion, sense.profile);
   CFG.brain.inSize = layout.inputSize;
   logV3LayoutOnce(layout);
+}
+
+
+/** Apply explicit v4 structure before rebuilding browser stack/editor presentation. */
+export function applyAuthoritativeSensorSpec(spec: SensorSpec): void {
+  if (spec.layoutVersion === 'v3') {
+    CFG.sense.layoutVersion = 'v3';
+    // Historical v3 handshakes keep bin selection in the numeric settings.
+    syncBrainInputSize();
+    return;
+  }
+  if (!spec.contract) throw new TypeError('missing authoritative v4 sensor contract');
+  const layout = sensorLayoutFromContract(spec.contract);
+  if (layout.layoutVersion !== spec.layoutVersion || layout.profile !== spec.profile ||
+      spec.sensorCount !== layout.inputSize || spec.order.length !== layout.order.length ||
+      spec.order.some((label,index)=>label !== layout.order[index])) throw new TypeError('authoritative sensor shape mismatch');
+  CFG.sense.layoutVersion = 'v4';
+  CFG.sense.profile = layout.profile as SensorV4Profile;
+  CFG.sense.bubbleBins = layout.bins;
+  syncBrainInputSize();
 }

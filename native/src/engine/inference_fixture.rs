@@ -716,6 +716,7 @@ fn build_fixture(
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot_u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: recurrent.into_boxed_slice(),
         });
@@ -790,6 +791,10 @@ fn fixture_snake(slot: usize, brain: BrainHandle) -> Result<SnakeState, String> 
         previous_input_boost: false,
         control_accumulator_seconds: 0.0,
         delivered_observation_points: 0.0,
+        observation_delivered: false,
+        completed_step_heading_delta: 0.0,
+        completed_step_speed_delta: 0.0,
+        completed_step_applied_turn: 0.0,
         body: BodyRange { start: 0, len: 0 },
         skin: slot_u32,
     })

@@ -4,6 +4,8 @@ import type {
   RustBackgroundVisualization
 } from '../../src/protocol/rustBackground.ts';
 import type { AssignMsg, ReclaimResultMsg, SensorsMsg } from '../protocol.ts';
+import { nativeSensorLayout } from './browserMetadata.ts';
+import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { BackgroundFramePool, type BackgroundFrameLease } from './backgroundFrames.ts';
 import { BackgroundGenerationRouter } from './backgroundGeneration.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
@@ -28,6 +30,8 @@ export interface RustImportPublication {
 export interface BackgroundOutputOptions {
   /** Durable, unstarted authority produced by experimental startup. */
   owner: ExperimentalServerRuntime;
+  /** Current committed metadata after Reset/import; fixed owners may use startup metadata. */
+  metadata?(): RustStartupMetadata;
   /** Exact socket acceptance; only small Protocol 2 messages cross here. */
   send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg): boolean;
   /** Observe scalar routing/lifecycle results before delivery of their messages. */
@@ -39,7 +43,9 @@ export interface BackgroundOutputOptions {
   /** Whether any UI currently requests focused neural data. */
   wantsVisualization?(): boolean;
   /** Accept one newer complete focused neural snapshot. */
-  visualization?(snapshot: RustBackgroundVisualization): void;
+  visualization?(snapshot: RustBackgroundVisualization | undefined): void;
+  /** Service optional diagnostics only after reliable output and frame work. */
+  diagnostics?(): void;
   /** Bound connected external controllers independently of native input capacity. */
   maxControllers: number;
   /** Observe one complete generation durability barrier. */
@@ -62,6 +68,10 @@ export class BackgroundOutputPump {
   private readonly generation: BackgroundGenerationRouter;
   /** Two admitted Node send buffers, never a frame backlog. */
   private readonly frames: BackgroundFramePool;
+  /** Metadata object whose structural width is cached; only cold revisions reparse it. */
+  private sensorMetadata: RustStartupMetadata | undefined;
+  /** Exact current sensor count, with no per-observation metadata allocation. */
+  private sensorCount = 0;
   /** Last frame actually handed to the transport. */
   private frameSequence: RustBackgroundIdentity = '0000000000000000';
   /** Last focused snapshot copied from the replaceable Rust cache. */
@@ -82,6 +92,7 @@ export class BackgroundOutputPump {
     const { owner, send, maxControllers } = options;
     this.admission = new BackgroundCommandAdmission(owner.runtime);
     this.ordinary = new ControllerDeliveryRouter(maxControllers, {
+      sensorCount: () => this.currentSensorCount(),
       send, nextSequence: () => this.admission.nextSequence(),
       trySubmitReceipt: (sequence, receipt) => this.admission.trySubmitReceipt(sequence, receipt)
     });
@@ -103,6 +114,16 @@ export class BackgroundOutputPump {
     this.frames = new BackgroundFramePool(owner.runtime, owner.metadata.maximumFrameBytes);
   }
 
+  /** Recompute only when an authoritative reset/import/live revision replaces metadata. */
+  private currentSensorCount(): number {
+    const metadata = this.options.metadata?.() ?? this.options.owner.metadata;
+    if (this.sensorMetadata !== metadata) {
+      this.sensorCount = nativeSensorLayout(metadata).inputSize;
+      this.sensorMetadata = metadata;
+    }
+    return this.sensorCount;
+  }
+
   /** Drain a bounded turn; callers reschedule when true and periodically retry input capacity. */
   drain(): Promise<boolean> {
     this.active ??= Promise.resolve().then(() => this.drainOneTurn()).catch(error => {
@@ -116,9 +137,8 @@ export class BackgroundOutputPump {
     return this.active;
   }
 
-  /** Pause stepping after Rust has prepared a complete private import. */
+  /** Hold the old authority before population allocation or its durability transaction. */
   stagePreparedImport(): Promise<void> {
-    if (this.generation.active) return Promise.reject(new Error('generation persistence is busy'));
     return this.issueImportCommand('stage', sequence =>
       this.options.owner.runtime.submitStagePreparedImport(sequence)
     ).then(() => undefined);
@@ -225,17 +245,19 @@ export class BackgroundOutputPump {
           const nativeVisualization = runtime.latestVisualization(this.visualizationSequence);
           if (nativeVisualization) {
             const visualization = normalizeVisualization(nativeVisualization);
-            this.options.visualization?.(visualization);
+            this.options.visualization?.(nativeVisualization.cleared ? undefined : visualization);
             this.visualizationSequence = nativeVisualization.sequence;
           }
         }
         if (this.options.hasFrameRecipients()) {
-          const lease = this.frames.tryAcquireLatest(this.frameSequence);
+          const metadata = this.options.metadata?.() ?? this.options.owner.metadata;
+          const lease = this.frames.tryAcquireLatest(this.frameSequence, metadata.maximumFrameBytes);
           if (lease) {
             try { this.options.frame(lease); this.frameSequence = lease.display.sequence; }
             catch (error) { lease.release(); throw error; }
           }
         }
+        this.options.diagnostics?.();
         return this.admission.blocked;
       }
     }

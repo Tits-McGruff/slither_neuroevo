@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "profile": "motion",
+  "bins": 16,
+  "replicated": false,
+  "variants": {
+    "full": [
+      {
+        "file": "full-1.slither-brain",
+        "sha256": "d19a7f2df7a4c2edccfe3c0f214f1936a483332b273d53b70089b64cccaffe52",
+        "origin": "full/trained.slither-brain"
+      }
+    ],
+    "core-only": [
+      {
+        "file": "core-only-1.slither-brain",
+        "sha256": "1662565dc03fbcd233c1df81d10de48880658e2cf7f2edf183f50c0d91a81a78",
+        "origin": "core-only/trained.slither-brain"
+      }
+    ]
+  }
+}

@@ -103,6 +103,23 @@ describe('Rust generation assignment transport', () => {
 });
 
 describe('Rust ordinary controller transport', () => {
+  it('delivers every v4 width and rejects a wrong active count before any send or receipt',()=>{
+    for (const width of [72,120,216,144,264,504]) {
+      const sent: unknown[]=[];
+      const receipts: RustGenerationAssignmentReceipt[]=[];
+      const router=new ControllerDeliveryRouter(2,{
+        sensorCount:()=>width,send(_connection,message){sent.push(message);return true;},
+        nextSequence:()=> '0000000000000001',trySubmitReceipt(_sequence,receipt){receipts.push(receipt);return true;}
+      });
+      const message={...observation(),sensors:Array.from({length:width},(_,index)=>Math.fround(index/width))};
+      expect(()=>router.deliver([message,{...message,sensors:Array(83).fill(0)}])).toThrow('admitted');
+      expect(sent).toHaveLength(0);
+      expect(receipts).toHaveLength(0);
+      expect(router.deliver([message])).toBe(true);
+      expect((sent[0] as {sensors:number[]}).sensors).toBe(message.sensors);
+      expect(receipts[0]?.accepted).toBe(true);
+    }
+  });
   it('retains exact receipts under partial input admission without repeating sends', () => {
     const sent: unknown[] = [];
     const submitted: Array<{ sequence: string; receipt: RustGenerationAssignmentReceipt }> = [];

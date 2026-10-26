@@ -101,9 +101,36 @@ function metadata(path: string): Array<{ name: string; rows: unknown[] }> {
   } finally { database.close(); }
 }
 
+/** Bounded loopback fixture transport, independent of Fetch's browser unsafe-port list. */
+async function loopbackResponse(url: string, init: {method?: string; headers?: Record<string, string>; body?: Buffer} = {}): Promise<Response> {
+  const target = new URL(url);
+  if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1') throw new Error('fixture requires loopback HTTP');
+  return await new Promise<Response>((done, reject) => {
+    const client = request(target, {method: init.method ?? 'GET', headers: {
+      ...init.headers, ...(init.body === undefined ? {} : {'Content-Length': init.body.byteLength})
+    }}, response => {
+      const chunks: Buffer[] = []; let length = 0;
+      response.on('data', (chunk: Buffer) => {
+        length += chunk.byteLength;
+        if (length > 8 * 1024 * 1024) response.destroy(new Error('loopback fixture response exceeds eight MiB'));
+        else chunks.push(chunk);
+      });
+      response.once('error', reject);
+      response.once('end', () => {
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(response.headers)) if (value !== undefined) headers.set(key, String(value));
+        done(new Response(new Uint8Array(Buffer.concat(chunks)), {status: response.statusCode ?? 500, headers}));
+      });
+    });
+    client.once('error', reject);
+    client.setTimeout(10_000, () => client.destroy(new Error('loopback fixture request stalled')));
+    client.end(init.body);
+  });
+}
+
 /** Read actual health without retaining display frames or population state. */
 async function health(server: RustServer): Promise<Record<string, unknown>> {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/health`);
+  const response = await loopbackResponse(`http://127.0.0.1:${server.port}/api/health`);
   expect(response.status).toBe(200);
   return await response.json() as Record<string, unknown>;
 }
@@ -184,9 +211,11 @@ async function experiment(action: (fixture: Fixture) => Promise<void>, privateQu
     let archive: Buffer;
     try {
       const response = await fixtureArchiveDownload(server.port, 'transport fixture baseline');
-      expect(response.status).toBe(200);
+      expect(response.status, response.status === 200 ? undefined : await response.text()).toBe(200);
       archive = Buffer.from(await response.arrayBuffer());
-      expect(archive.byteLength).toBeLessThan(4 * 1024 * 1024);
+      // Motion/B16 doubles the default weight payload; stay within the bounded
+      // eight-MiB loopback reader while retaining the full ordinary population.
+      expect(archive.byteLength).toBeLessThan(8 * 1024 * 1024);
       // Body completion and ready-file removal precede the worker's actual
       // lease-release acknowledgement. Observe that real completion before
       // testing another operation; keep the existing five-second deadline.
@@ -261,7 +290,19 @@ function archiveEntries(archive: Buffer): Array<{ header: number; data: number; 
     entries.push({ header, data, size, end });
     header = end;
   }
-  expect(entries).toHaveLength(9);
+  expect(entries.length).toBeGreaterThanOrEqual(9);
+  expect(entries.length).toBeLessThanOrEqual(111);
+  const final = entries.at(-1)!;
+  expect(archive.subarray(final.header, final.header + 100).toString().split('\0')[0]).toBe('manifest.json');
+  const manifest = JSON.parse(archive.subarray(final.data, final.data + final.size).toString()) as { archiveVersion: number; recordsVersion?: number; savedBrains?: unknown[]; roles: unknown[] };
+  expect([1, 2, 3, 4]).toContain(manifest.archiveVersion);
+  const recordsVersion = manifest.archiveVersion === 4 ? manifest.recordsVersion! : manifest.archiveVersion;
+  expect([1, 2, 3]).toContain(recordsVersion);
+  const selected = manifest.archiveVersion === 4 ? manifest.savedBrains!.length : 0;
+  expect(entries).toHaveLength(recordsVersion + 8 + selected);
+  if (recordsVersion >= 2) expect(manifest.roles[8]).toMatchObject({ role: 'generation-completion', path: 'generation-completion.bin', encoding: 'raw-generation-completion-v1', recordSize: 40 });
+  if (recordsVersion === 3) expect(manifest.roles[9]).toMatchObject({ role: 'generation-experiments', path: 'generation-experiments.bin', encoding: 'raw-generation-experiment-v1', recordSize: 776 });
+  expect(manifest.roles).toHaveLength(entries.length - 1);
   expect(header + 1024).toBe(archive.byteLength);
   expect(archive.subarray(header).every(byte => byte === 0)).toBe(true);
   return entries;
@@ -290,7 +331,7 @@ interface SemanticRole {
 
 /** Selected manifest fields; JSON parsing retains all other production fields. */
 interface SemanticManifest {
-  /** Save root over all eight ordered roles. */
+  /** Save root over the versioned ordered roles. */
   logicalRootSha256: string;
   /** Nested checkpoint root referenced by the save. */
   checkpointLogicalRootSha256: string;
@@ -330,7 +371,8 @@ function semanticRoot(domain: string, roles: SemanticRole[]): string {
 function semanticArchive(archive: Buffer, roleIndex?: number, changed?: Buffer): Buffer {
   const entries = archiveEntries(archive);
   const bodies: Buffer[] = entries.map(entry => Buffer.from(archive.subarray(entry.data, entry.data + entry.size)));
-  const manifest = JSON.parse(bodies[8]!.toString()) as SemanticManifest;
+  const manifestIndex = bodies.length - 1;
+  const manifest = JSON.parse(bodies[manifestIndex]!.toString()) as SemanticManifest;
   const checkpointDomain = 'slither-neuroevo-logical-checkpoint-root\0v1\0';
   const saveDomain = 'slither-neuroevo-save-root\0v1\0';
   expect(semanticRoot(checkpointDomain, manifest.checkpointManifest.roles)).toBe(manifest.checkpointLogicalRootSha256);
@@ -353,7 +395,7 @@ function semanticArchive(archive: Buffer, roleIndex?: number, changed?: Buffer):
   manifest.checkpointManifest.logicalRootSha256 = semanticRoot(checkpointDomain, manifest.checkpointManifest.roles);
   manifest.checkpointLogicalRootSha256 = manifest.checkpointManifest.logicalRootSha256;
   manifest.logicalRootSha256 = semanticRoot(saveDomain, manifest.roles);
-  bodies[8] = Buffer.from(JSON.stringify(manifest));
+  bodies[manifestIndex] = Buffer.from(JSON.stringify(manifest));
   const chunks: Buffer[] = [];
   for (const [index, body] of bodies.entries()) {
     const header = Buffer.from(archive.subarray(entries[index]!.header, entries[index]!.data));
@@ -394,9 +436,9 @@ function reversedConcatRole(role: Buffer): Buffer {
 function orderingGraph(reversed = false): GraphSpec {
   return {
     type: 'graph',
-    nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
-      { id: 'split', type: 'Split', outputSizes: [41, 42] }, { id: 'concat', type: 'Concat' },
-      { id: 'head', type: 'Dense', inputSize: 83, outputSize: 2 }],
+    nodes: [{ id: 'input', type: 'Input', outputSize: 264 },
+      { id: 'split', type: 'Split', outputSizes: [131, 133] }, { id: 'concat', type: 'Concat' },
+      { id: 'head', type: 'Dense', inputSize: 264, outputSize: 2 }],
     edges: [{ from: 'input', to: 'split', fromPort: 0 },
       { from: 'split', to: 'concat', fromPort: 0, toPort: reversed ? 1 : 0 },
       { from: 'split', to: 'concat', fromPort: 1, toPort: reversed ? 0 : 1 },
@@ -423,7 +465,7 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
       { path: 'pelletCountTarget', value: 100 }, ...(streaming ? [{ path: 'worldRadius', value: 10000 }] : [])],
     // A few large brains provide the real >8 MiB response required for socket
     // backpressure without making this transport fixture a 300-snake sensor test.
-    graphSpec: streaming ? buildLargeBrainGraph(83) : orderingGraph() }));
+    graphSpec: streaming ? buildLargeBrainGraph(264) : orderingGraph() }));
   await bounded(reset, 'ordering fixture reset did not commit');
   viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
   const rejoined = new Promise<Buffer>(done => viewer.once('pong', done));
@@ -459,11 +501,19 @@ async function evolvedArchiveFixture(fixture: Fixture, mode: 'ordering' | 'strea
   viewer.send(JSON.stringify({ type: 'settings', requestId: 'ordering-fixture-speed',
     updates: [{ path: 'simSpeed', value: 0.1 }] }));
   await bounded(slowed, 'ordering fixture did not slow after evolution');
-  const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
-  expect(response.status).toBe(200);
-  fixture.archive = Buffer.from(await response.arrayBuffer());
-  expect(fixture.archive.byteLength).toBeLessThan((streaming ? 64 : 4) * 1024 * 1024);
-  if (streaming) expect(fixture.archive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+  const release = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+  try {
+    const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/export/latest`);
+    expect(response.status).toBe(200);
+    fixture.archive = Buffer.from(await response.arrayBuffer());
+    expect(fixture.archive.byteLength).toBeLessThan((streaming ? 64 : 4) * 1024 * 1024);
+    if (streaming) expect(fixture.archive.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+    // File cleanup precedes the real worker acknowledgement. Observe that same
+    // lease-release boundary as the base fixture before importing this archive.
+    await outcome(() => release.mock.calls.length === 1, 'evolved fixture export did not release its lease');
+    await bounded(release.mock.results[0]!.value, 'evolved fixture export release was not acknowledged');
+    await new Promise<void>(done => setImmediate(done));
+  } finally { release.mockRestore(); }
   await noTransferScratch(fixture.managedDirectory);
   const repacked = semanticArchive(fixture.archive);
   const previousToken = rejoinToken;
@@ -570,7 +620,7 @@ async function conflictingArchive(fixture: Fixture): Promise<Buffer> {
     const response = await fetch(`http://127.0.0.1:${server.port}/api/export/latest`);
     expect(response.status).toBe(200);
     const bytes = Buffer.from(await response.arrayBuffer());
-    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    expect(bytes.byteLength).toBeLessThan(8 * 1024 * 1024);
     return bytes;
   } finally { await server.close(); }
 }
@@ -599,7 +649,8 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
     });
     viewer.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(147),
       settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
-        { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
+        { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 },
+        {path: 'sense.layoutVersion', value: 3}, {path: 'baselineBots.algorithm', value: 1}
       ] }));
     const runId = await bounded(reset, 'large-brain source did not complete reset');
     viewer.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken }));
@@ -617,7 +668,7 @@ async function largeBrainArchive(fixture: Fixture): Promise<Buffer> {
     const exported = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
     expect(exported.status).toBe(200);
     const bytes = Buffer.from(await exported.arrayBuffer());
-    expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+    expect(bytes.byteLength).toBeLessThan(8 * 1024 * 1024);
     await noTransferScratch(`${join(dirname(fixture.databasePath), 'large-brain.sqlite')}.checkpoints`);
     const imported = await fetch(`http://127.0.0.1:${source.port}/api/import/archive`,
       { method: 'POST', body: new Uint8Array(bytes), signal: AbortSignal.timeout(5000) });
@@ -800,6 +851,88 @@ async function heldInput(peers: ControllerPeer[], replacePlayer = true): Promise
 }
 
 describeNetworkSuite('Rust archive HTTP framing', () => {
+  it('exports only explicitly selected saved brains and atomically restores heterogeneous library membership', async () => {
+    await experiment(async fixture => {
+      const base = `http://127.0.0.1:${fixture.server.port}`;
+      const saved: Array<{brainId: string; name: string; createdAtMs: number; bytes: Buffer}> = [];
+      for (const name of ['portable-brain-v1.slither-brain', 'portable-dense-basic8-v1.slither-brain']) {
+        const bytes = await readFile(resolve('native/fixtures', name));
+        const response = await loopbackResponse(`${base}/api/distillation/v1/library/import?name=${encodeURIComponent(name)}`, {
+          method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: bytes
+        });
+        expect(response.status).toBe(201);
+        const result = await response.json() as {brainId: string; name: string; createdAtMs: number};
+        saved.push({...result, bytes});
+      }
+      saved.sort((a, b) => a.brainId.localeCompare(b.brainId));
+      for (const query of ['?brainIds=', `?brainIds=${saved[0]!.brainId},${saved[0]!.brainId}`, '?unexpected=true']) {
+        const invalid = await loopbackResponse(`${base}/api/export/latest${query}`);
+        expect(invalid.status).toBe(400); await invalid.arrayBuffer();
+      }
+      const released = vi.spyOn(CheckpointPersistenceClient.prototype, 'releaseExportLease');
+      onTestFinished(() => released.mockRestore());
+      /** Wait for the worker acknowledgement after ready-file removal, before another cold operation. */
+      const releaseCompleted = async (count: number): Promise<void> => {
+        await vi.waitFor(() => expect(released).toHaveBeenCalledTimes(count), {timeout: 5000, interval: 10});
+        await released.mock.results[count - 1]!.value;
+        await new Promise<void>(done => setImmediate(done));
+      };
+      const missing = await loopbackResponse(`${base}/api/export/latest?brainIds=${'0'.repeat(64)}`);
+      expect(missing.status).not.toBe(200); await missing.arrayBuffer();
+      await releaseCompleted(1);
+      await noTransferScratch(fixture.managedDirectory);
+      const response = await loopbackResponse(`${base}/api/export/latest?brainIds=${saved.map(entry => entry.brainId).join(',')}`);
+      expect(response.status).toBe(200);
+      const selectedArchive = Buffer.from(await response.arrayBuffer());
+      await releaseCompleted(2);
+      await noTransferScratch(fixture.managedDirectory);
+      const entries = archiveEntries(selectedArchive);
+      const last = entries.at(-1)!;
+      const manifest = JSON.parse(selectedArchive.subarray(last.data, last.data + last.size).toString()) as {
+        archiveVersion: number; recordsVersion: number; savedBrains: Array<Record<string, unknown>>;
+      };
+      expect(manifest.archiveVersion).toBe(4); expect(manifest.recordsVersion).toBeGreaterThanOrEqual(1);
+      expect(manifest.savedBrains).toEqual(saved.map(({brainId, name, createdAtMs, bytes}) => ({brainId, name, createdAtMs,
+        artifactByteCount: bytes.byteLength.toString(16).padStart(16, '0')})));
+      for (const savedBrain of saved) {
+        const entry = entries.find(entry => selectedArchive.subarray(entry.header, entry.header + 100).toString().split('\0')[0] === `brains/${savedBrain.brainId}.slither-brain`)!;
+        expect(entry).toBeDefined(); expect(selectedArchive.subarray(entry.data, entry.data + entry.size)).toEqual(savedBrain.bytes);
+        const deletion = await loopbackResponse(`${base}/api/distillation/v1/library/${savedBrain.brainId}`, {method: 'DELETE'});
+        expect(deletion.status).toBe(200); await deletion.arrayBuffer();
+      }
+      const beforeImport = await loopbackResponse(`${base}/api/distillation/v1/library`);
+      expect((await beforeImport.json() as {page: {entries: unknown[]}}).page.entries).toEqual([]);
+      const beforeFailure = await health(fixture.server);
+      const injected = new Database(fixture.databasePath);
+      try {
+        injected.exec(`CREATE TRIGGER reject_second_archive_brain BEFORE INSERT ON rust_saved_brains_v1
+          WHEN NEW.brain_id = '${saved[1]!.brainId}' BEGIN SELECT RAISE(ABORT, 'injected archive membership failure'); END`);
+        const rejected = await loopbackResponse(`${base}/api/import/archive`, {method: 'POST', headers: {'Content-Type': 'application/vnd.slither-neuroevo.save'}, body: selectedArchive});
+        expect(rejected.status).not.toBe(200); expect(await rejected.text()).toContain('injected archive membership failure');
+        await noTransferScratch(fixture.managedDirectory);
+        const unchanged = await loopbackResponse(`${base}/api/distillation/v1/library`);
+        expect((await unchanged.json() as {page: {entries: unknown[]}}).page.entries).toEqual([]);
+        expect(await health(fixture.server)).toMatchObject({ok: true, runId: beforeFailure['runId'],
+          worldEpoch: beforeFailure['worldEpoch'], startupCheckpointId: beforeFailure['startupCheckpointId']});
+      } finally { injected.exec('DROP TRIGGER IF EXISTS reject_second_archive_brain'); injected.close(); }
+      const imported = await loopbackResponse(`${base}/api/import/archive`, {method: 'POST', headers: {'Content-Type': 'application/vnd.slither-neuroevo.save'}, body: selectedArchive});
+      expect(imported.status).toBe(200); await imported.arrayBuffer();
+      await noTransferScratch(fixture.managedDirectory);
+      const restored = await loopbackResponse(`${base}/api/distillation/v1/library`);
+      const page = (await restored.json() as {page: {entries: Array<Record<string, unknown>>}}).page;
+      expect(page.entries).toHaveLength(2);
+      for (const entry of saved) expect(page.entries.find(row => row['brainId'] === entry.brainId)).toMatchObject({name: entry.name, createdAtMs: entry.createdAtMs});
+      const ordinary = await loopbackResponse(`${base}/api/export/latest`); expect(ordinary.status).toBe(200);
+      const bytes = Buffer.from(await ordinary.arrayBuffer());
+      await releaseCompleted(3);
+      const final = archiveEntries(bytes).at(-1)!;
+      const ordinaryManifest = JSON.parse(bytes.subarray(final.data, final.data + final.size).toString()) as Record<string, unknown>;
+      expect(ordinaryManifest['archiveVersion']).toBeLessThan(4);
+      expect(ordinaryManifest).not.toHaveProperty('savedBrains');
+      await noTransferScratch(fixture.managedDirectory);
+    });
+  }, ARCHIVE_RETRY_FIXTURE_TIMEOUT_MS);
+
   it('keeps the newer HTTP disconnect observer when an older fixture cleans up late', async () => {
     let requests = 0;
     const server = createServer((_incoming, response) => {
@@ -1032,7 +1165,8 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
     }, 20_000);
 
   it('rejects independently valid import and reset exceeding native state memory before replacement', async () => {
-    const ceiling = 1400n * 1024n ** 2n;
+    // Admit the default source plus its baseline export, but reject the larger graph beside it.
+    const ceiling = 2720n * 1024n ** 2n;
     const inspect = CheckpointPersistenceClient.prototype.inspectRetention;
     const retention = vi.spyOn(CheckpointPersistenceClient.prototype, 'inspectRetention')
       .mockImplementation(async function (this: CheckpointPersistenceClient) {
@@ -1050,6 +1184,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const candidateHash = createHash('sha256').update(candidate).digest('hex');
         const stage = vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport');
         const commit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commitImport');
+        const cancel = vi.spyOn(BackgroundOutputPump.prototype, 'cancelPreparedImport');
         try {
           const response = await fetch(`http://127.0.0.1:${fixture.server.port}/api/import/archive`,
             { method: 'POST', body: new Uint8Array(candidate), signal: AbortSignal.timeout(5000) });
@@ -1057,8 +1192,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const rejected = await response.json() as { ok: boolean; message: string };
           expect(rejected).toMatchObject({ ok: false });
           expect(rejected.message).toMatch(/checkpoint state admission failed: state requires an estimated \d+ bytes/iu);
-          expect(rejected.message).toContain(`exceeding the ${ceiling}-byte ceiling`);
-          expect(stage).not.toHaveBeenCalled();
+          const remaining = /exceeding the (\d+)-byte ceiling/u.exec(rejected.message)?.[1];
+          expect(remaining).toBeDefined();
+          expect(BigInt(remaining!)).toBeGreaterThan(0n);
+          expect(BigInt(remaining!)).toBeLessThan(ceiling);
+          expect(stage).toHaveBeenCalledTimes(1);
+          expect(cancel).toHaveBeenCalledTimes(1);
           expect(commit).not.toHaveBeenCalled();
           await preserved(fixture);
           await advancing(fixture);
@@ -1066,13 +1205,20 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const peer = await controller(fixture, 'ui');
           peer.socket.send(JSON.stringify({ type: 'reset', graphSpec: buildLargeBrainGraph(147),
             settings: { snakeCount: 2, simSpeed: 0.1 }, updates: [
-              { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 }
+              { path: 'sense.bubbleBins', value: 32 }, { path: 'baselineBots.count', value: 0 },
+        {path: 'sense.layoutVersion', value: 3}, {path: 'baselineBots.algorithm', value: 1}
             ] }));
           await outcome(() => peer.packets.some(packet => packet['type'] === 'error' &&
-            String(packet['message']).includes(`${ceiling}-byte ceiling`)),
+            /exceeding the \d+-byte ceiling/u.test(String(packet['message']))),
           'oversized reset did not reject the retained native ceiling');
+          const resetError = peer.packets.find(packet => packet['type'] === 'error' &&
+            /exceeding the \d+-byte ceiling/u.test(String(packet['message'])));
+          const resetRemaining = /exceeding the (\d+)-byte ceiling/u.exec(String(resetError?.['message']))?.[1];
+          expect(BigInt(resetRemaining!)).toBeGreaterThan(0n);
+          expect(BigInt(resetRemaining!)).toBeLessThan(ceiling);
           expect(peer.packets.filter(packet => packet['type'] === 'stateReplaced')).toEqual([]);
-          expect(stage).not.toHaveBeenCalled();
+          expect(stage).toHaveBeenCalledTimes(2);
+          expect(cancel).toHaveBeenCalledTimes(2);
           expect(commit).not.toHaveBeenCalled();
           await preserved(fixture);
           await advancing(fixture);
@@ -1092,7 +1238,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(BigInt(`0x${replaced['worldEpoch'] as string}`))
             .toBeGreaterThan(BigInt(`0x${fixture.identity['worldEpoch'] as string}`));
           await advancing(fixture);
-        } finally { stage.mockRestore(); commit.mockRestore(); }
+        } finally { stage.mockRestore(); commit.mockRestore(); cancel.mockRestore(); }
       });
     } finally { construction.mockRestore(); retention.mockRestore(); }
   }, 30_000);
@@ -1283,7 +1429,12 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(peer.assignment).toBeUndefined();
           peer.socket.send(JSON.stringify({ type: 'join', rejoinToken: peer.packets.findLast(packet => packet['type'] === 'stateReplaced')?.['rejoinToken'], mode: 'player', name: `Import-${index === 0 ? 'ui' : 'bot'}` }));
         }
-        await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'explicit rejoin did not assign new leases');
+        await outcome(() => peers.every(peer => !!peer.assignment && !!peer.sample), 'explicit rejoin did not assign new leases')
+          .catch((error: Error) => { throw new Error(error.message + ': ' + JSON.stringify(peers.map(peer => ({
+            assigned: !!peer.assignment, sampled: !!peer.sample, packets: peer.packets.map(packet => ({
+              type: packet['type'], reason: packet['reason'], message: packet['message'], reclaimed: packet['reclaimed']
+            }))
+          })))); });
         const samples = peers.map(peer => peer.sample!);
         for (const [index, peer] of peers.entries()) {
           expect(peer.assignment!.resumeToken).not.toBe(baselines[index]!.assignment.resumeToken);
@@ -1449,18 +1600,27 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           expect(receivedBytes).toBeGreaterThan(0);
           expect(receivedBytes).toBeLessThan(fixture.archive.byteLength);
           expect(actualResponse!.writableFinished).toBe(false);
-          if (boundary === 'while waiting for drain') {
-            await outcome(() => actualResponse!.writableNeedDrain && !actualResponse!.writableFinished,
-              'real download did not wait for socket drain');
-          }
           await heldInput(peers, false);
-          expect(actualResponse!.writableFinished).toBe(false);
+          await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
+            headingChange(baselines[index]!.sample, peer.sample!) < -0.01),
+          'simulation did not resume before archive body delivery completed');
+          // Observe and cancel in one synchronous predicate after the controller
+          // awaits; a socket drain observed before an await is not a stable state.
           if (boundary === 'while waiting for drain') {
-            expect(actualResponse!.writableNeedDrain).toBe(true);
-            expect(actualResponse!.writableLength).toBeGreaterThan(0);
+            await outcome(() => {
+              if (!actualResponse!.writableNeedDrain || actualResponse!.writableFinished) return false;
+              expect(actualResponse!.writableFinished).toBe(false);
+              expect(actualResponse!.writableNeedDrain).toBe(true);
+              expect(actualResponse!.writableLength).toBeGreaterThan(0);
+              clientResponse!.destroy();
+              client.destroy();
+              return true;
+            }, 'real download did not wait for socket drain');
+          } else {
+            expect(actualResponse!.writableFinished).toBe(false);
+            clientResponse!.destroy();
+            client.destroy();
           }
-          clientResponse!.destroy();
-          client.destroy();
           await bounded(disconnected, 'server did not observe mid-body cancellation');
           expect(closedBeforeFinish).toBe(true);
           await noTransferScratch(fixture.managedDirectory);
@@ -1670,7 +1830,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         expect(await response.json(), fault).toMatchObject({ ok: false,
           message: expect.stringContaining(`checkpoint ${code}:`) });
         expect(spool).toHaveBeenCalledOnce();
-        expect(stage).not.toHaveBeenCalled();
+        expect(stage).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         await preserved(fixture);
         await outcome(() => peers.every((peer, index) => peer.sample!.tick > baselines[index]!.sample.tick &&
@@ -1715,7 +1875,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           const manifest = JSON.parse(damaged.subarray(entry.data, entry.data + entry.size).toString()) as {
             archiveVersion: number; logicalRootSha256: string; roles: Array<{ decodedBytesHex: string }>;
           };
-          if (fault === 'unsupported save version') manifest.archiveVersion = 2;
+          if (fault === 'unsupported save version') manifest.archiveVersion = 5;
           else if (fault === 'corrupted logical root') {
             manifest.logicalRootSha256 = (manifest.logicalRootSha256.startsWith('0') ? '1' : '0') +
               manifest.logicalRootSha256.slice(1);
@@ -1810,7 +1970,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           method: 'POST', body: damaged, signal: AbortSignal.timeout(5000) });
         expect(response.status).toBe(400);
         expect(await response.json()).toMatchObject({ ok: false, message: expect.stringContaining(`checkpoint ${code}:`) });
-        expect(stage).not.toHaveBeenCalled();
+        expect(stage).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         await preserved(fixture);
         await advancing(fixture);
@@ -1844,12 +2004,23 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         const originalSpool = archiveUpload.spoolArchiveUpload;
         const originalStage = BackgroundOutputPump.prototype.stagePreparedImport;
         const originalSelect = CheckpointPersistenceClient.prototype.selectStartup;
+        const binding = createRequire(import.meta.url)(resolve('native/index.js')) as {
+          ExperimentalRunningAuthority: { prototype: ExperimentalRunningAuthorityNativeHandle };
+        };
+        const originalPrepare = binding.ExperimentalRunningAuthority.prototype.prepareImportArchive;
         const boundarySpy = boundary === 'afterSpool'
           ? vi.spyOn(archiveUpload, 'spoolArchiveUpload').mockImplementationOnce(async options => {
             const result = await originalSpool(options);
             await hold();
             return result;
           })
+          : boundary === 'afterPreparation'
+            ? vi.spyOn(binding.ExperimentalRunningAuthority.prototype, 'prepareImportArchive')
+              .mockImplementationOnce(async function(this: ExperimentalRunningAuthorityNativeHandle, ...args) {
+                const result = await originalPrepare.apply(this, args);
+                await hold();
+                return result;
+              })
           : boundary === 'beforeCommit'
             ? vi.spyOn(CheckpointPersistenceClient.prototype, 'selectStartup')
               .mockImplementationOnce(async function(this: CheckpointPersistenceClient, ...args) {
@@ -1859,7 +2030,6 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
               })
             : vi.spyOn(BackgroundOutputPump.prototype, 'stagePreparedImport')
             .mockImplementationOnce(async function(this: BackgroundOutputPump) {
-              if (boundary === 'afterPreparation') await hold();
               await originalStage.call(this);
               if (boundary === 'afterStage') await hold();
             });
@@ -1879,7 +2049,7 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
           client.on('error', () => {});
           client.end(body);
           await bounded(paused, `import never reached ${boundary}`);
-          if (boundary !== 'afterSpool') {
+          if (boundary === 'afterPreparation' || boundary === 'beforeCommit') {
             const checkpoints = (await readdir(fixture.managedDirectory)).filter(name => name.endsWith('.checkpoint-v3'));
             expect(checkpoints.length).toBeGreaterThan(
               fixture.files.filter(file => file.filename.endsWith('.checkpoint-v3')).length);
@@ -2001,7 +2171,8 @@ describeNetworkSuite('Rust archive HTTP framing', () => {
         resume.resolve();
         await exportAfterDisconnect(fixture);
         expect(spool).not.toHaveBeenCalled();
-        expect(preparation).not.toHaveBeenCalled();
+        // The successful export retry owns one reservation; the disconnected import owned none.
+        expect(preparation).toHaveBeenCalledOnce();
         expect(commit).not.toHaveBeenCalled();
         await preserved(fixture);
         await advancing(fixture);

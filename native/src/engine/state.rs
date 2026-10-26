@@ -9,6 +9,8 @@
 use super::baseline::{BaselineLifecycleState, BaselineSlotRuntime};
 #[path = "controller_join.rs"]
 mod controller_join;
+#[path = "entity_selection.rs"]
+mod entity_selection;
 #[path = "resurrection.rs"]
 mod resurrection;
 use super::contract::ENGINE_CONTRACT_VERSION;
@@ -24,6 +26,7 @@ use super::live_settings::{
     prepare_live_settings, LiveSettingUpdate, LiveSettingsError, PreparedLiveSettings,
 };
 use super::physics::{PhysicsStepKey, PhysicsStepKeyField};
+pub use super::retained_origin::RetainedNeuralOrigin;
 use super::rng::{RngError, SerializedRngState, StatefulRng};
 use super::run_start::RunStartPersistenceProof;
 use super::running_step::{ResolvedGenerationStartReplacement, ResolvedRunningStepReplacement};
@@ -33,6 +36,7 @@ use super::step_config::{
     RunningStepWorkLimits, StepConfigError,
 };
 pub use controller_join::{ControllerJoinInput, PreparedControllerJoin};
+pub use entity_selection::{EntitySelection, EntitySelectionTarget, EntitySelectionToken};
 pub use resurrection::ResurrectionPublication;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -49,10 +53,14 @@ pub const ENGINE_STATE_VERSION: u32 = 1;
 pub const PROTOCOL_VERSION: u32 = 2;
 /// Binary display-frame v1 remains the first browser target.
 pub const SERIALIZER_VERSION: u32 = 1;
-/// Sensor v3 is the only supported sensor layout.
+/// Frozen historical sensor version and ordinary production default.
 pub const SENSOR_VERSION: u32 = 3;
 /// Version of the independent RNG-stream bundle.
 pub const RNG_BUNDLE_VERSION: u32 = 1;
+/// Additive bundle encoding with dense uniform-only evolved respawn streams.
+pub const RNG_BUNDLE_WITH_EVOLVED_VERSION: u32 = 2;
+/// Version three adds dense isolated baseline-v2 behavior continuations.
+pub const RNG_BUNDLE_WITH_BASELINE_V2_VERSION: u32 = 3;
 /// Version of normalized configuration encoded by this state contract.
 pub const NORMALIZED_CONFIG_VERSION: u32 = 1;
 /// Version of the monotonic allocator continuation bundle.
@@ -92,7 +100,7 @@ pub const RESURRECTED_ENTITY_ID_START: u64 = (1_u64 << 63) | (1_u64 << 62);
 pub const RESURRECTED_ENTITY_ID_EXHAUSTED: u64 = u64::MAX;
 
 /// Exact running-build identity and admission ceiling supplied by the wrapper.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StateAdmissionPolicy {
     /// Remaining hard peak ceiling after the caller accounts for the current
     /// engine, Node, transfer spools, and any simultaneously staged state.
@@ -118,8 +126,12 @@ pub struct StateAdmissionPolicy {
     pub expected_build_contract_sha256: String,
     /// Stable math backend identity included in exact-continuation scope.
     pub expected_math_backend: String,
+    /// A bounded restore-only alternative. Running admission normally stays exact.
+    pub allowed_math_backends: Vec<String>,
     /// Versioned path-and-value-kind layout expected for normalized settings.
     pub expected_settings_schema_sha256: String,
+    /// Explicit additional schema fingerprints; empty for frozen and running admission.
+    pub allowed_settings_schema_sha256: Vec<String>,
 }
 
 /// Version identities required to interpret one engine state.
@@ -295,6 +307,8 @@ pub struct BrainRuntimeState {
     /// Packed parameters for a non-population brain. Population-brain weights
     /// remain owned once by the matching [`PopulationGenome`].
     pub non_population_weights: Option<Box<[f32]>>,
+    /// Immutable validated retained provenance; population/external owners have none.
+    pub retained_origin: Option<Arc<RetainedNeuralOrigin>>,
     /// Packed recurrent state in compiled-graph order.
     pub recurrent: Box<[f32]>,
 }
@@ -313,6 +327,59 @@ pub struct RngStateBundle {
     pub external_controller: SerializedRngState,
     /// Stable per-baseline-slot streams.
     pub baselines: Vec<BaselineRngState>,
+    /// Per-population-slot respawn streams; absent in the frozen v1 contract.
+    pub evolved_respawns: Vec<EvolvedRespawnRngState>,
+    /// Dense uniform-only baseline-v2 behavior; absent in frozen v1/v2 bundles.
+    pub baseline_behaviors: Vec<super::rng::BaselineBehaviorRngState>,
+}
+
+/// Dense uniform-only respawn continuation. Delay and placement never use
+/// Gaussian sampling, so no string or spare storage is needed in hot copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EvolvedRespawnRngState {
+    pub slot: u32,
+    pub uniform_state: u32,
+}
+
+impl EvolvedRespawnRngState {
+    /// Derive one generation's streams through the canonical full-width labels.
+    pub fn derive_generation(
+        seed: u32,
+        generation: u64,
+        count: usize,
+    ) -> Result<Vec<Self>, StateError> {
+        let serialized =
+            super::rng::derive_evolved_respawn_rngs(seed, generation, count).map_err(|error| {
+                StateError::InvalidRng {
+                    stream: "evolved-respawn".into(),
+                    reason: error.to_string(),
+                }
+            })?;
+        let mut states = Vec::new();
+        states
+            .try_reserve_exact(count)
+            .map_err(|_| StateError::InvalidField {
+                field: "rng.evolved_respawns",
+                reason: "could not allocate evolved RNG states".into(),
+            })?;
+        for (slot, stream) in serialized.iter().enumerate() {
+            let runtime =
+                StatefulRng::from_state(stream).map_err(|error| StateError::InvalidRng {
+                    stream: "evolved-respawn".into(),
+                    reason: error.to_string(),
+                })?;
+            states.push(Self {
+                slot: slot as u32,
+                uniform_state: runtime.uniform_state(),
+            });
+        }
+        Ok(states)
+    }
+
+    /// Restore one temporary runtime without altering its authoritative record.
+    pub(crate) fn runtime(self) -> Result<StatefulRng, RngError> {
+        StatefulRng::from_uniform_state(self.uniform_state)
+    }
 }
 
 /// One stable baseline-bot RNG continuation.
@@ -599,7 +666,7 @@ pub enum SnakeKind {
     Baseline,
     /// Browser player or external RL-controlled snake.
     External,
-    /// Hall-of-Fame resurrection.
+    /// Retained non-population neural owner: Hall-of-Fame or saved brain.
     Resurrected,
 }
 
@@ -677,6 +744,14 @@ pub struct SnakeState {
     pub control_accumulator_seconds: f64,
     /// Points at the prior delivered-observation boundary.
     pub delivered_observation_points: f64,
+    /// Whether an observation was consumed or accepted in this physical life.
+    pub observation_delivered: bool,
+    /// Signed wrapped heading change over the last complete physical fixed step.
+    pub completed_step_heading_delta: f64,
+    /// Speed change over the last complete physical fixed step.
+    pub completed_step_speed_delta: f64,
+    /// Turn actually applied during that complete step, independent of delivery cadence.
+    pub completed_step_applied_turn: f32,
     /// Pooled head-to-tail body range.
     pub body: BodyRange,
     /// Stable display skin/color identifier.
@@ -777,6 +852,8 @@ pub struct ControllerLease {
 /// Complete world-storage skeleton. Spatial indexes are derived, not authority.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WorldState {
+    /// Generation-scoped sensor ray fairness, published only with complete steps.
+    pub ray_cursor: super::ray_work::RayQuotaCursor,
     /// Snake records.
     pub snakes: Vec<SnakeState>,
     /// Pooled head-to-tail body coordinates.
@@ -796,6 +873,8 @@ pub struct WorldState {
 /// world, RNG, allocators, brains, and scheduler continuation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FixedStepContinuationState {
+    /// Dense population-owned life and economic continuation.
+    pub evolved_generation: super::evolved_lives::EvolvedGenerationState,
     /// Fractional ambient-pellet credit carried between fixed steps.
     pub ambient_pellet_accumulator: f64,
     /// Durable generation-scoped baseline slot timers and actions.
@@ -809,6 +888,7 @@ impl FixedStepContinuationState {
     #[must_use]
     pub fn generation_boundary() -> Self {
         Self {
+            evolved_generation: super::evolved_lives::EvolvedGenerationState::default(),
             ambient_pellet_accumulator: 0.0,
             baseline_lifecycle: BaselineLifecycleState::generation_boundary(),
             sensor_generation: SensorGenerationState::new(),
@@ -851,6 +931,8 @@ pub struct StateCandidate {
 
 /// Reusable checked memory estimate for an engine candidate.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct StateMemoryEstimate {
     /// Rust structs and vector element buffers.
     pub structural_bytes: usize,
@@ -885,6 +967,8 @@ pub struct StateMemoryEstimate {
 /// resolve terminal-generation, controller-delivery and replacement policy
 /// before calling the publication method.
 pub(crate) struct RunningStepReplacement<'buffers> {
+    /// Ledger derived from exactly the same prefix and physics transaction.
+    pub evolved_generation: &'buffers mut super::evolved_lives::EvolvedGenerationState,
     /// Complete keyed attempt derived from the current authority.
     pub key: PhysicsStepKey,
     /// Post-physics world, including controller leases.
@@ -961,11 +1045,32 @@ pub(crate) struct InitialRunStartReplacement<'buffers> {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct RunningStepMutationContract<'proof> {
     proof: Option<&'proof ExternalReplacementAuthorityProof>,
+    baseline_v2: Option<super::control_phase::BaselineV2ControlProof>,
+    evolved: Option<&'proof super::evolved_replacement::EvolvedReplacementAuthorityProof>,
 }
 
 impl<'proof> RunningStepMutationContract<'proof> {
+    pub(crate) const fn with_baseline_v2(
+        mut self,
+        proof: Option<super::control_phase::BaselineV2ControlProof>,
+    ) -> Self {
+        self.baseline_v2 = proof;
+        self
+    }
     pub(crate) const fn external(proof: &'proof ExternalReplacementAuthorityProof) -> Self {
-        Self { proof: Some(proof) }
+        Self {
+            proof: Some(proof),
+            baseline_v2: None,
+            evolved: None,
+        }
+    }
+
+    pub(crate) const fn with_evolved(
+        mut self,
+        proof: Option<&'proof super::evolved_replacement::EvolvedReplacementAuthorityProof>,
+    ) -> Self {
+        self.evolved = proof;
+        self
     }
 
     pub(crate) const fn external_replacements(self) -> usize {
@@ -988,7 +1093,13 @@ impl<'proof> RunningStepMutationContract<'proof> {
     }
 
     fn matches(self, replacement: &RunningStepReplacement<'_>) -> bool {
-        self.proof.is_none_or(|proof| {
+        self.baseline_v2.is_none_or(|proof| {
+            proof.matches(
+                replacement.key,
+                replacement.rng,
+                &*replacement.baseline_lifecycle,
+            )
+        }) && self.proof.is_none_or(|proof| {
             proof.matches(
                 replacement.key,
                 replacement.world,
@@ -1073,6 +1184,7 @@ pub(crate) struct GenerationStartPreflight {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RunningStepBufferIdentity {
+    evolved_generation: usize,
     world: usize,
     rng: usize,
     allocators: usize,
@@ -1083,6 +1195,8 @@ struct RunningStepBufferIdentity {
     generation_elapsed_seconds: u64,
     wall_accumulator_seconds: u64,
     mutation_proof: usize,
+    evolved_mutation_proof: usize,
+    baseline_v2_proof: Option<(Option<PhysicsStepKey>, [u8; 32])>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1136,6 +1250,8 @@ pub struct AuthoritativeState {
     graph: Arc<GraphBundle>,
     memory: StateMemoryEstimate,
     memory_ceiling_bytes: usize,
+    /// Ephemeral nonce protects selections across process restarts and replacement worlds.
+    selection_nonce: [u64; 2],
     world_epoch: u64,
     latest_operation_epoch: u64,
     world_validation: WorldValidationScratch,
@@ -1394,6 +1510,7 @@ impl AuthoritativeState {
             graph,
             memory,
             memory_ceiling_bytes: policy.memory_ceiling_bytes,
+            selection_nonce: entity_selection::new_selection_nonce()?,
             world_epoch,
             latest_operation_epoch: 0,
             world_validation,
@@ -1426,7 +1543,7 @@ impl AuthoritativeState {
         self.candidate.identity.rustc_version = policy.expected_rustc_version.clone();
         self.candidate.identity.build_contract_sha256 =
             policy.expected_build_contract_sha256.clone();
-        self.candidate.identity.math_backend = policy.expected_math_backend.clone();
+        // Recovery changes build identity, not the recorded scalar/SSE2 arithmetic.
         Self::validate_and_own(self.candidate, self.graph, policy)
     }
 
@@ -1483,19 +1600,74 @@ impl AuthoritativeState {
         frame_v1_id: u32,
         physics: super::physics::PhysicsConfig,
     ) -> Result<super::god_mode::GodModeKillPublication, super::god_mode::GodModeError> {
-        let prepared = super::god_mode::prepare_god_mode_kill(
+        use super::evolved_lives::{EvolvedGenerationState, EvolvedLifeError};
+        use super::god_mode::GodModeError;
+        let policy = super::step_config::project_evolved_experiment_config(&self.candidate.config)
+            .map_err(|_| GodModeError::LifeAccounting(EvolvedLifeError::InvalidPolicy))?;
+        let mut staged_lives = if self
+            .candidate
+            .fixed_step
+            .evolved_generation
+            .slots
+            .is_empty()
+        {
+            EvolvedGenerationState::initialize(
+                &self.candidate.world,
+                self.candidate.population.len(),
+                physics.movement.snake_start_len,
+            )
+            .map_err(GodModeError::LifeAccounting)?
+        } else {
+            self.candidate.fixed_step.evolved_generation.clone()
+        };
+        let mut prepared = super::god_mode::prepare_god_mode_kill(
             &self.candidate.world,
             &self.candidate.rng,
             &self.candidate.allocators,
             physics,
             frame_v1_id,
+            Some(super::effects::EffectLifecyclePolicy {
+                experiment: policy,
+                lives: &staged_lives,
+            }),
         )?;
-        super::god_mode::commit_god_mode_kill(
+        let (count, value, discarded_count, discarded_value) = prepared.corpse_summary();
+        if let Some(slot) = self
+            .candidate
+            .world
+            .snakes
+            .iter()
+            .find(|snake| {
+                snake.frame_v1_id == frame_v1_id && snake.alive && snake.kind == SnakeKind::Evolved
+            })
+            .and_then(|snake| snake.population_slot)
+        {
+            staged_lives
+                .finalize_god_mode(
+                    slot as usize,
+                    (count, value, discarded_count, discarded_value),
+                )
+                .map_err(GodModeError::LifeAccounting)?;
+        }
+        // Delay draws and exhaustion belong to this ordered command's commitment,
+        // before the next prefix can advance ambient/world RNG.
+        staged_lives
+            .schedule_deaths(
+                policy,
+                prepared.rng_mut(),
+                self.candidate.generation.completed_step,
+                self.candidate.generation.elapsed_seconds,
+                self.candidate.config.fixed_step_seconds,
+            )
+            .map_err(GodModeError::LifeAccounting)?;
+        let publication = super::god_mode::commit_god_mode_kill(
             &mut self.candidate.world,
             &mut self.candidate.rng,
             &mut self.candidate.allocators,
             prepared,
-        )
+        )?;
+        self.candidate.fixed_step.evolved_generation = staged_lives;
+        Ok(publication)
     }
 
     /// Read the immutable compiled graph shared by compatible genomes.
@@ -1543,6 +1715,72 @@ impl AuthoritativeState {
     /// Project the complete selection-pressure contract from admitted run state.
     pub fn evolution_config(&self) -> Result<super::evolution::EvolutionConfig, StepConfigError> {
         project_evolution_config(&self.candidate.config, self.graph().total_parameters)
+    }
+
+    /// Budget currently available while this state may overlap another owner.
+    pub(crate) const fn memory_ceiling_bytes(&self) -> usize {
+        self.memory_ceiling_bytes
+    }
+
+    /// Restrict a private boundary before it can allocate running-world storage.
+    pub(crate) fn restrict_overlap_memory_budget(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), StateError> {
+        if !matches!(self.candidate.phase, AuthorityPhase::GenerationBoundary(_)) {
+            return invalid(
+                "memory.overlap",
+                "only a private boundary can receive overlap admission",
+            );
+        }
+        let selected = self.memory_ceiling_bytes.min(ceiling);
+        if self.memory.total_bytes > selected {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: self.memory.total_bytes,
+                ceiling_bytes: selected,
+            });
+        }
+        self.memory_ceiling_bytes = selected;
+        Ok(())
+    }
+
+    /// Restore a caller-selected running budget only after predecessor retirement.
+    /// This changes no state allocation, RNG, graph, or persisted configuration.
+    pub(crate) fn reclaim_retired_memory_budget(
+        &mut self,
+        ceiling: usize,
+    ) -> Result<(), StateError> {
+        if self.candidate.phase != AuthorityPhase::Running || ceiling < self.memory_ceiling_bytes {
+            return invalid(
+                "memory.retirement",
+                "budget reclamation requires running authority and a nondecreasing ceiling",
+            );
+        }
+        if self.memory.total_bytes > ceiling {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: self.memory.total_bytes,
+                ceiling_bytes: ceiling,
+            });
+        }
+        self.memory_ceiling_bytes = ceiling;
+        Ok(())
+    }
+
+    /// Reject an impossible successor numeric allocation before evolution constructs it.
+    /// Full successor/state/codec admission remains a separate, stronger gate.
+    pub(crate) fn preflight_generation_numeric_allocation(&self) -> Result<(), StateError> {
+        let peak = generation_numeric_peak_bytes(
+            self.memory.total_bytes,
+            self.candidate.population.len(),
+            self.graph.compiled(),
+        )?;
+        if peak > self.memory_ceiling_bytes {
+            return Err(StateError::MemoryCeilingExceeded {
+                estimated_bytes: peak,
+                ceiling_bytes: self.memory_ceiling_bytes,
+            });
+        }
+        Ok(())
     }
 
     /// Admit one exact next-generation boundary while retaining this authority.
@@ -2372,6 +2610,8 @@ fn successor_admission_policy(
         expected_rustc_version: source.identity.rustc_version.clone(),
         expected_build_contract_sha256: source.identity.build_contract_sha256.clone(),
         expected_math_backend: source.identity.math_backend.clone(),
+        allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: source.config.settings_schema_sha256.clone(),
     }
 }
@@ -2384,6 +2624,7 @@ fn running_step_buffer_identity(
         rng: std::ptr::from_ref(&*replacement.rng).addr(),
         allocators: std::ptr::from_ref(&*replacement.allocators).addr(),
         brains: std::ptr::from_ref(&*replacement.brains).addr(),
+        evolved_generation: std::ptr::from_ref(&*replacement.evolved_generation).addr(),
         baseline_lifecycle: std::ptr::from_ref(&*replacement.baseline_lifecycle).addr(),
         ambient_pellet_accumulator: replacement.ambient_pellet_accumulator.to_bits(),
         sensor_generation_best: replacement
@@ -2393,6 +2634,14 @@ fn running_step_buffer_identity(
         generation_elapsed_seconds: replacement.generation_elapsed_seconds.to_bits(),
         wall_accumulator_seconds: replacement.wall_accumulator_seconds.to_bits(),
         mutation_proof: replacement.mutation.proof_identity(),
+        baseline_v2_proof: replacement
+            .mutation
+            .baseline_v2
+            .map(|proof| proof.identity()),
+        evolved_mutation_proof: replacement
+            .mutation
+            .evolved
+            .map_or(0, |proof| std::ptr::from_ref(proof).addr()),
     }
 }
 
@@ -2516,6 +2765,8 @@ fn validate_generation_start_replacement_contract(
     }
     if replacement.rng.version != boundary.rng.version
         || replacement.rng.evolution != boundary.rng.evolution
+        || replacement.rng.evolved_respawns != boundary.rng.evolved_respawns
+        || replacement.rng.baseline_behaviors != boundary.rng.baseline_behaviors
         || (external_replacements == 0
             && replacement.rng.external_controller != boundary.rng.external_controller)
     {
@@ -2542,6 +2793,10 @@ fn swap_running_step_buffers(
     std::mem::swap(&mut candidate.allocators, replacement.allocators);
     std::mem::swap(&mut candidate.brains, replacement.brains);
     std::mem::swap(
+        &mut candidate.fixed_step.evolved_generation,
+        replacement.evolved_generation,
+    );
+    std::mem::swap(
         &mut candidate.fixed_step.baseline_lifecycle,
         replacement.baseline_lifecycle,
     );
@@ -2552,6 +2807,14 @@ fn validate_running_replacement_contract(
     candidate: &StateCandidate,
     replacement: &RunningStepReplacement<'_>,
 ) -> Result<(), StateError> {
+    if candidate.rng.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+        && replacement.mutation.baseline_v2.is_none()
+    {
+        return invalid(
+            "fixed_step.baseline_v2",
+            "complete v2 control seal is required",
+        );
+    }
     if !replacement.mutation.matches(replacement) {
         return invalid(
             "fixed_step.external_replacement",
@@ -2575,6 +2838,27 @@ fn validate_resolved_running_replacement_contract(
     external_replacements: usize,
     removed_dead_external_leases: usize,
 ) -> Result<(), StateError> {
+    if candidate.rng.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+        && replacement.mutation.baseline_v2.is_none()
+    {
+        return invalid(
+            "fixed_step.baseline_v2",
+            "resolved v2 control seal is required",
+        );
+    }
+    if replacement.mutation.baseline_v2.is_some_and(|proof| {
+        !proof.matches(
+            replacement.key,
+            replacement.rng,
+            &*replacement.baseline_lifecycle,
+        )
+    }) {
+        return invalid(
+            "fixed_step.baseline_v2",
+            "resolved v2 continuation changed after control",
+        );
+    }
+
     validate_running_replacement_contract_with_counts(
         candidate,
         replacement,
@@ -2589,6 +2873,73 @@ fn validate_running_replacement_contract_with_counts(
     external_replacements: usize,
     removed_dead_external_leases: usize,
 ) -> Result<(), StateError> {
+    if replacement.mutation.evolved.is_some_and(|proof| {
+        !proof.matches(
+            replacement.key,
+            candidate,
+            replacement.world,
+            replacement.rng,
+            replacement.allocators,
+        )
+    }) {
+        return invalid(
+            "fixed_step.evolved_replacement",
+            "private evolved witness does not match source or staged identity/RNG",
+        );
+    }
+    // Once initialized, a live continuation cannot silently drop its ledger or
+    // reassign a population owner. Each evolved replacement carries its own
+    // narrow witness independently of external replacement permissions.
+    let source_lives = &candidate.fixed_step.evolved_generation;
+    if !source_lives.slots.is_empty() {
+        replacement
+            .evolved_generation
+            .validate_event_continuation(source_lives)
+            .map_err(|error| StateError::InvalidField {
+                field: "fixed_step.evolved_generation.life_ends",
+                reason: error.to_string(),
+            })?;
+        if replacement.evolved_generation.version != source_lives.version
+            || replacement.evolved_generation.slots.len() != source_lives.slots.len()
+        {
+            return invalid(
+                "fixed_step.evolved_generation",
+                "running life continuation was removed or changed version",
+            );
+        }
+        for (source, staged) in source_lives
+            .slots
+            .iter()
+            .zip(&replacement.evolved_generation.slots)
+        {
+            let record = replacement
+                .mutation
+                .evolved
+                .and_then(|proof| proof.record(source.population_slot));
+            let identity_valid = if let Some(record) = record {
+                source.physical_id == record.old_id
+                    && staged.physical_id == record.new_id
+                    && source.lives_started.checked_add(1) == Some(staged.lives_started)
+                    && source.successful_respawns.checked_add(1) == Some(staged.successful_respawns)
+            } else {
+                source.physical_id == staged.physical_id
+                    && source.lives_started == staged.lives_started
+                    && source.successful_respawns == staged.successful_respawns
+            };
+            if source.population_slot != staged.population_slot
+                || !identity_valid
+                || staged.deaths < source.deaths
+                || staged.ledger.operations < source.ledger.operations
+                || staged.ledger.generation_gross_earned < source.ledger.generation_gross_earned
+                || staged.ledger.generation_boost_spent < source.ledger.generation_boost_spent
+            {
+                return invalid(
+                    "fixed_step.evolved_generation",
+                    "stable population life or monotonic accounting changed",
+                );
+            }
+        }
+    }
     let expected_elapsed =
         candidate.generation.elapsed_seconds + candidate.config.fixed_step_seconds;
     if !expected_elapsed.is_finite() {
@@ -2615,7 +2966,11 @@ fn validate_running_replacement_contract_with_counts(
         );
     }
     if replacement.rng.version != candidate.rng.version
+        || (replacement.mutation.baseline_v2.is_none()
+            && replacement.rng.baseline_behaviors != candidate.rng.baseline_behaviors)
         || replacement.rng.evolution != candidate.rng.evolution
+        || (replacement.mutation.evolved.is_none()
+            && replacement.rng.evolved_respawns != candidate.rng.evolved_respawns)
     {
         return invalid(
             "fixed_step.rng",
@@ -2726,6 +3081,7 @@ fn validate_running_brain_continuation(
         let retained = replacement.brains.iter().any(|staged| {
             source.handle == staged.handle
                 && source.owner == staged.owner
+                && source.retained_origin == staged.retained_origin
                 && optional_f32_bits_equal(
                     source.non_population_weights.as_deref(),
                     staged.non_population_weights.as_deref(),
@@ -2804,7 +3160,10 @@ fn validate_running_recurrent_state(
 }
 
 /// Decode one already-versioned SHA-256 identity without allocating.
-fn decode_sha256_identity(field: &'static str, identity: &str) -> Result<[u8; 32], StateError> {
+pub(crate) fn decode_sha256_identity(
+    field: &'static str,
+    identity: &str,
+) -> Result<[u8; 32], StateError> {
     let Some(hex) = identity.strip_prefix("sha256:") else {
         return invalid(field, "must use the sha256:<64 lowercase hex> form");
     };
@@ -3058,6 +3417,26 @@ pub fn checked_allocation_bytes(
         .ok_or(StateError::ArithmeticOverflow { context })
 }
 
+/// Minimum current-plus-successor numeric peak, checked before any output weights exist.
+pub(crate) fn generation_numeric_peak_bytes(
+    current_bytes: usize,
+    population: usize,
+    graph: &CompiledGraph,
+) -> Result<usize, StateError> {
+    let scalars = graph
+        .total_parameters
+        .checked_add(graph.total_state_size)
+        .and_then(|per_genome| per_genome.checked_mul(population))
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "next generation numeric shape",
+        })?;
+    checked_add(
+        current_bytes,
+        checked_allocation_bytes(scalars, size_of::<f32>(), "next generation numeric bytes")?,
+        "current plus next generation numeric memory",
+    )
+}
+
 /// Estimate complete candidate and compiled-graph owned memory without
 /// publishing authority.
 pub fn estimate_state_memory(
@@ -3090,7 +3469,65 @@ pub fn estimate_state_memory(
         &mut estimate,
         candidate.brains.capacity().max(maximum_brains),
     )?;
+    // Conservatively reserve one Arc allocation per possible retained owner,
+    // including its reference counters; shared copies may only reduce this bound.
+    estimate.structural_bytes = checked_add(
+        estimate.structural_bytes,
+        checked_allocation_bytes(
+            candidate.config.max_non_population_brains,
+            size_of::<RetainedNeuralOrigin>() + ARC_COUNTER_BYTES,
+            "retained brain origins",
+        )?,
+        "retained origin memory",
+    )?;
     add_structural::<BaselineRngState>(&mut estimate, candidate.rng.baselines.capacity())?;
+    add_structural::<super::rng::BaselineBehaviorRngState>(
+        &mut estimate,
+        candidate.rng.baseline_behaviors.capacity().max(
+            if candidate.rng.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+                candidate.config.baseline_count
+            } else {
+                0
+            },
+        ),
+    )?;
+    add_structural::<EvolvedRespawnRngState>(
+        &mut estimate,
+        candidate.rng.evolved_respawns.capacity().max(
+            if candidate.rng.version >= RNG_BUNDLE_WITH_EVOLVED_VERSION {
+                candidate.config.population_count
+            } else {
+                0
+            },
+        ),
+    )?;
+    add_structural::<super::evolved_lives::EvolvedSlotRuntime>(
+        &mut estimate,
+        candidate
+            .fixed_step
+            .evolved_generation
+            .slots
+            .capacity()
+            .max(candidate.config.population_count),
+    )?;
+    add_structural::<super::evolved_lives::EvolvedLifeEndRecord>(
+        &mut estimate,
+        candidate
+            .fixed_step
+            .evolved_generation
+            .transaction_life_ends
+            .capacity()
+            .max(candidate.config.population_count),
+    )?;
+    add_structural::<super::evolved_lives::EvolvedLifeEndRecord>(
+        &mut estimate,
+        candidate
+            .fixed_step
+            .evolved_generation
+            .recent_life_ends
+            .capacity()
+            .max(super::evolved_lives::MAX_RECENT_LIFE_ENDS),
+    )?;
     add_structural::<BaselineSlotRuntime>(
         &mut estimate,
         candidate
@@ -3253,10 +3690,11 @@ pub fn preflight_generation_boundary_allocation(
         .population
         .iter()
         .any(|genome| !genome.weights.is_empty())
-        || candidate_shell
-            .brains
-            .iter()
-            .any(|brain| brain.non_population_weights.is_some() || !brain.recurrent.is_empty())
+        || candidate_shell.brains.iter().any(|brain| {
+            brain.non_population_weights.is_some()
+                || brain.retained_origin.is_some()
+                || !brain.recurrent.is_empty()
+        })
     {
         return invalid(
             "population",
@@ -3485,6 +3923,12 @@ fn validate_admission_header(
     policy: &StateAdmissionPolicy,
 ) -> Result<(), StateError> {
     validate_versions(&candidate.versions, graph)?;
+    if candidate.versions.rng_bundle != candidate.rng.version {
+        return invalid(
+            "versions.rng_bundle",
+            "recorded RNG version differs from its payload",
+        );
+    }
     validate_identity(&candidate.identity, policy)?;
     validate_config(
         &candidate.config,
@@ -3492,6 +3936,34 @@ fn validate_admission_header(
         &candidate.identity,
         policy,
     )?;
+    if candidate.versions.sensor == 4
+        || candidate
+            .config
+            .settings
+            .iter()
+            .any(|entry| entry.path == "sense.contractVersion")
+    {
+        let contract = super::sensor_contract::SensorContractIdentity::from_settings(
+            &candidate.config.settings,
+        )
+        .map_err(|error| StateError::InvalidField {
+            field: "config.sensor_contract",
+            reason: error.to_string(),
+        })?;
+        let width = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_type == super::graph::CompiledNodeType::Input)
+            .map(|node| node.output_size);
+        if contract.layout_version() != candidate.versions.sensor
+            || width != Some(contract.input_size())
+        {
+            return invalid(
+                "config.sensor_contract",
+                "version or graph Input does not match structural sensor contract",
+            );
+        }
+    }
     if candidate.config.graph_architecture_key != graph.architecture_key {
         return invalid(
             "config.graph_architecture_key",
@@ -3541,10 +4013,32 @@ fn validate_policy(policy: &StateAdmissionPolicy) -> Result<(), StateError> {
         "admission.expected_math_backend",
         &policy.expected_math_backend,
     )?;
+    if policy.allowed_math_backends.len() > 1
+        || policy.allowed_math_backends.iter().any(|backend| {
+            backend == &policy.expected_math_backend
+                || super::inference::InferenceMathBackend::from_label(backend).is_none()
+        })
+    {
+        return invalid(
+            "admission.allowed_math_backends",
+            "at most one distinct supported arithmetic alternative",
+        );
+    }
     validate_sha256(
         "admission.expected_settings_schema_sha256",
         &policy.expected_settings_schema_sha256,
     )?;
+    // Frozen/life and v4/v2 families, including explicitly recorded ray budgets.
+    // One primary hash plus nine alternatives keeps admission finite.
+    if policy.allowed_settings_schema_sha256.len() > 9 {
+        return invalid(
+            "admission.allowed_settings_schema_sha256",
+            "at most nine explicitly admitted alternative schemas",
+        );
+    }
+    for schema in &policy.allowed_settings_schema_sha256 {
+        validate_sha256("admission.allowed_settings_schema_sha256", schema)?;
+    }
     Ok(())
 }
 
@@ -3560,12 +4054,6 @@ fn validate_versions(versions: &ContractVersions, graph: &CompiledGraph) -> Resu
             versions.serializer,
             SERIALIZER_VERSION,
         ),
-        ("versions.sensor", versions.sensor, SENSOR_VERSION),
-        (
-            "versions.rng_bundle",
-            versions.rng_bundle,
-            RNG_BUNDLE_VERSION,
-        ),
         (
             "versions.checkpoint",
             versions.checkpoint,
@@ -3575,6 +4063,15 @@ fn validate_versions(versions: &ContractVersions, graph: &CompiledGraph) -> Resu
         if actual != expected {
             return invalid(field, "unsupported contract version");
         }
+    }
+    if !matches!(versions.sensor, 3 | 4) {
+        return invalid("versions.sensor", "unsupported sensor version");
+    }
+    if !matches!(
+        versions.rng_bundle,
+        RNG_BUNDLE_VERSION | RNG_BUNDLE_WITH_EVOLVED_VERSION | RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+    ) {
+        return invalid("versions.rng_bundle", "unsupported RNG-bundle version");
     }
     if graph.layout_version == 0 || graph.architecture_key.is_empty() {
         return invalid("graph", "compiled graph identity is incomplete");
@@ -3617,7 +4114,10 @@ fn validate_identity(
     let incompatible = identity.target_triple != policy.expected_target_triple
         || identity.build_profile != policy.expected_build_profile
         || identity.build_class != policy.expected_build_class
-        || identity.math_backend != policy.expected_math_backend;
+        || (identity.math_backend != policy.expected_math_backend
+            && !policy
+                .allowed_math_backends
+                .contains(&identity.math_backend));
     let not_exact = identity.source_revision != policy.expected_source_revision
         || identity.engine_build_id != policy.expected_engine_build_id
         || identity.source_sha256 != policy.expected_source_sha256
@@ -3703,7 +4203,10 @@ fn validate_config(
     )?;
     let actual_schema = normalized_settings_schema_hash(&config.settings)?;
     if actual_schema != config.settings_schema_sha256
-        || actual_schema != policy.expected_settings_schema_sha256
+        || (actual_schema != policy.expected_settings_schema_sha256
+            && !policy
+                .allowed_settings_schema_sha256
+                .contains(&actual_schema))
     {
         return invalid(
             "config.settings_schema_sha256",
@@ -3783,6 +4286,47 @@ fn validate_generation(generation: &GenerationState) -> Result<(), StateError> {
 
 fn validate_fixed_step_continuation(candidate: &StateCandidate) -> Result<(), StateError> {
     let continuation = &candidate.fixed_step;
+    if continuation.evolved_generation.version != super::evolved_lives::EVOLVED_LIVES_VERSION {
+        return invalid(
+            "fixed_step.evolved_generation",
+            "unsupported life accounting version",
+        );
+    }
+    continuation
+        .evolved_generation
+        .validate_events()
+        .map_err(|error| StateError::InvalidField {
+            field: "fixed_step.evolved_generation.life_ends",
+            reason: error.to_string(),
+        })?;
+    let placement = continuation.evolved_generation.placement_work;
+    placement
+        .validate()
+        .map_err(|error| StateError::InvalidField {
+            field: "fixed_step.evolved_generation.placement_work",
+            reason: error.to_string(),
+        })?;
+    if (continuation.evolved_generation.slots.is_empty()
+        && placement != super::evolved_lives::EvolvedPlacementWork::default())
+        || (placement.step != 0 && placement.step != candidate.generation.completed_step)
+    {
+        return invalid("fixed_step.evolved_generation.placement_work", "placement report must belong to the committed step and be empty before life initialization");
+    }
+    if !continuation.evolved_generation.slots.is_empty() {
+        if matches!(candidate.phase, AuthorityPhase::GenerationBoundary(_)) {
+            return invalid(
+                "fixed_step.evolved_generation",
+                "pre-spawn boundary cannot contain physical lives",
+            );
+        }
+        continuation
+            .evolved_generation
+            .validate(&candidate.world, candidate.config.population_count)
+            .map_err(|error| StateError::InvalidField {
+                field: "fixed_step.evolved_generation",
+                reason: error.to_string(),
+            })?;
+    }
     validate_nonnegative_f64(
         "fixed_step.ambient_pellet_accumulator",
         continuation.ambient_pellet_accumulator,
@@ -3806,6 +4350,24 @@ fn validate_fixed_step_continuation(candidate: &StateCandidate) -> Result<(), St
             "generation best points cannot trail a live evolved snake",
         );
     }
+    let v2 = super::baseline_v2::BaselineV2Settings::from_settings(&candidate.config.settings)
+        .map_err(|_| StateError::InvalidField {
+            field: "baselineBots.controlVersion",
+            reason: "invalid baseline-v2 settings".into(),
+        })?
+        .is_some();
+    for slot in &continuation.baseline_lifecycle.slots {
+        if slot.v2_policy.is_some() != v2
+            || slot
+                .v2_last_control_step
+                .is_some_and(|step| step == 0 || step > candidate.generation.completed_step)
+        {
+            return invalid(
+                "fixed_step.baseline_lifecycle",
+                "policy/cadence continuation differs from baseline contract",
+            );
+        }
+    }
     continuation
         .baseline_lifecycle
         .validate_authoritative(
@@ -3824,8 +4386,63 @@ fn validate_rng_bundle(
     bundle: &RngStateBundle,
     config: &NormalizedEngineConfig,
 ) -> Result<(), StateError> {
-    if bundle.version != RNG_BUNDLE_VERSION {
+    if !matches!(
+        bundle.version,
+        RNG_BUNDLE_VERSION | RNG_BUNDLE_WITH_EVOLVED_VERSION | RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+    ) {
         return invalid("rng.version", "unsupported RNG-bundle version");
+    }
+    if bundle.version == RNG_BUNDLE_VERSION && !bundle.evolved_respawns.is_empty() {
+        return invalid(
+            "rng.evolved_respawns",
+            "frozen RNG bundle cannot carry evolved streams",
+        );
+    }
+    if bundle.version >= RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        if bundle.evolved_respawns.len() != config.population_count {
+            return invalid("rng.evolved_respawns", "count must match the population");
+        }
+        for (slot, stream) in bundle.evolved_respawns.iter().enumerate() {
+            if stream.slot as usize != slot || stream.runtime().is_err() {
+                return invalid(
+                    "rng.evolved_respawns",
+                    "evolved streams must be dense and nonzero",
+                );
+            }
+        }
+    }
+    let v2 =
+        super::baseline_v2::BaselineV2Settings::from_settings(&config.settings).map_err(|_| {
+            StateError::InvalidField {
+                field: "baselineBots.controlVersion",
+                reason: "incomplete or incompatible baseline-v2 settings".into(),
+            }
+        })?;
+    if v2.is_some() != (bundle.version == RNG_BUNDLE_WITH_BASELINE_V2_VERSION) {
+        return invalid(
+            "rng.version",
+            "baseline-v2 settings require exactly RNG bundle v3",
+        );
+    }
+    if bundle.version < RNG_BUNDLE_WITH_BASELINE_V2_VERSION && !bundle.baseline_behaviors.is_empty()
+    {
+        return invalid(
+            "rng.baseline_behaviors",
+            "frozen RNG bundles cannot carry behavior streams",
+        );
+    }
+    if v2.is_some() {
+        if bundle.baseline_behaviors.len() != config.baseline_count {
+            return invalid("rng.baseline_behaviors", "count must match baseline slots");
+        }
+        for (slot, stream) in bundle.baseline_behaviors.iter().enumerate() {
+            if stream.slot as usize != slot || stream.runtime().is_err() {
+                return invalid(
+                    "rng.baseline_behaviors",
+                    "behavior slots must be dense and nonzero",
+                );
+            }
+        }
     }
     if bundle.baselines.len() != config.baseline_count {
         return invalid(
@@ -4018,7 +4635,7 @@ fn validate_population(
         validate_f32_slice("brains.recurrent", index, &brain.recurrent)?;
         match brain.owner {
             BrainOwner::PopulationSlot(slot) => {
-                if brain.non_population_weights.is_some() {
+                if brain.non_population_weights.is_some() || brain.retained_origin.is_some() {
                     return Err(StateError::InvalidBrainOwner(brain.handle));
                 }
                 let genome = candidate.population.get(slot as usize);
@@ -4041,6 +4658,14 @@ fn validate_population(
                     });
                 }
                 validate_f32_slice("brains.non_population_weights", index, weights)?;
+                if let Some(origin) = &brain.retained_origin {
+                    origin.validate_weights(weights).map_err(|reason| {
+                        StateError::InvalidField {
+                            field: "brains.retained_origin",
+                            reason,
+                        }
+                    })?;
+                }
             }
         }
     }
@@ -4255,6 +4880,7 @@ fn validate_world_with_scratch(
                 snake.id == entity_id
                     && snake.brain == Some(brain.handle)
                     && snake.population_slot.is_none()
+                    && (brain.retained_origin.is_some() == (snake.kind == SnakeKind::Resurrected))
             });
             if !matched {
                 return Err(StateError::InvalidBrainOwner(brain.handle));
@@ -4441,6 +5067,14 @@ fn validate_snake(
         ("world.snakes.direction", snake.direction),
         ("world.snakes.radius", snake.radius),
         ("world.snakes.speed", snake.speed),
+        (
+            "world.snakes.completed_step_heading_delta",
+            snake.completed_step_heading_delta,
+        ),
+        (
+            "world.snakes.completed_step_speed_delta",
+            snake.completed_step_speed_delta,
+        ),
         ("world.snakes.age_seconds", snake.age_seconds),
         ("world.snakes.food", snake.food),
         ("world.snakes.points", snake.points),
@@ -4466,6 +5100,9 @@ fn validate_snake(
         || snake.control_accumulator_seconds < 0.0
         || !snake.turn.is_finite()
         || !snake.previous_turn.is_finite()
+        || !snake.completed_step_applied_turn.is_finite()
+        || !(-1.0..=1.0).contains(&snake.completed_step_applied_turn)
+        || snake.completed_step_heading_delta.abs() > std::f64::consts::PI
         || !(-1.0..=1.0).contains(&snake.turn)
         || !(-1.0..=1.0).contains(&snake.previous_turn)
     {
@@ -4515,11 +5152,18 @@ fn validate_snake(
         }
         _ => {}
     }
+    if snake.kind == SnakeKind::Resurrected && snake.brain.is_none() {
+        return invalid(
+            "world.snakes.brain",
+            "retained neural snake requires an owned brain and origin",
+        );
+    }
     if let Some(handle) = snake.brain {
-        let found = candidate
-            .brains
-            .iter()
-            .any(|brain| brain.handle == handle && brain.owner == BrainOwner::Entity(snake.id));
+        let found = candidate.brains.iter().any(|brain| {
+            brain.handle == handle
+                && brain.owner == BrainOwner::Entity(snake.id)
+                && (brain.retained_origin.is_some() == (snake.kind == SnakeKind::Resurrected))
+        });
         let evolved_mapping = snake.kind == SnakeKind::Evolved
             && candidate.brains.iter().any(|brain| {
                 brain.handle == handle && matches!(brain.owner, BrainOwner::PopulationSlot(_))
@@ -4761,7 +5405,8 @@ fn validate_generation_boundary(
             reason: "fixed-step continuation must be reset before spawn or sensing",
         });
     }
-    if !candidate.world.snakes.is_empty()
+    if candidate.world.ray_cursor != super::ray_work::RayQuotaCursor::default()
+        || !candidate.world.snakes.is_empty()
         || !candidate.world.body_points.is_empty()
         || !candidate.world.pellets.is_empty()
         || !candidate.world.controller_leases.is_empty()
@@ -4788,7 +5433,7 @@ fn validate_generation_boundary(
     Ok(())
 }
 
-fn validate_f32_slice(
+pub(crate) fn validate_f32_slice(
     field: &'static str,
     outer_index: usize,
     values: &[f32],
@@ -5049,7 +5694,7 @@ fn add_candidate_text(
     Ok(())
 }
 
-fn estimate_graph_memory(bundle: &GraphBundle) -> Result<usize, StateError> {
+pub(crate) fn estimate_graph_memory(bundle: &GraphBundle) -> Result<usize, StateError> {
     let spec = bundle.spec();
     let graph = bundle.compiled();
     // The bundle stores both structs inline. Charge each source-spec dynamic
@@ -5220,6 +5865,7 @@ mod tests {
     use crate::engine::rng::{derive_seed, StatefulRng};
     use crate::engine::runtime::EngineRuntime;
     use crate::engine::step_config::RunningStepWorkLimits;
+    use crate::engine::world_step::WorldStepDiagnostics;
     use crate::engine::{
         ExternalDeliveryEventKind, ExternalDeliveryResult, ExternalDeliveryState,
         ExternalDeliveryStatus, FixedStepScheduler, FixedStepSchedulerPolicy,
@@ -5434,6 +6080,8 @@ mod tests {
             expected_build_contract_sha256:
                 "sha256:3333333333333333333333333333333333333333333333333333333333333333".into(),
             expected_math_backend: "rust-scalar-v1".into(),
+            allowed_settings_schema_sha256: Vec::new(),
+            allowed_math_backends: Vec::new(),
             expected_settings_schema_sha256: normalized_settings_schema_hash(&test_settings(1))
                 .expect("test settings schema must hash"),
         }
@@ -5471,6 +6119,7 @@ mod tests {
             .map(|genome| BrainRuntimeState {
                 handle: genome.brain,
                 owner: BrainOwner::PopulationSlot(genome.slot),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
             })
@@ -5541,6 +6190,8 @@ mod tests {
             },
             fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
+                baseline_behaviors: Vec::new(),
+                evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: rng(42, "world"),
                 evolution: rng(42, "evolution"),
@@ -5589,6 +6240,8 @@ mod tests {
         candidate.fixed_step.baseline_lifecycle = BaselineLifecycleState {
             version: crate::engine::baseline::BASELINE_LIFECYCLE_VERSION,
             slots: vec![BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id,
                 strategy_timer_seconds: 0.0,
@@ -5638,6 +6291,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -5723,7 +6380,71 @@ mod tests {
             .expect("complete running fixture must admit")
     }
 
+    #[test]
+    fn retired_budget_reclamation_preserves_state_and_rejects_invalid_context() {
+        let graph = default_graph();
+        let candidate = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(candidate, graph);
+        let before = authority.state().clone();
+        let original = authority.memory_ceiling_bytes();
+        assert!(authority
+            .reclaim_retired_memory_budget(original - 1)
+            .is_err());
+        assert_eq!(authority.memory_ceiling_bytes(), original);
+        authority
+            .reclaim_retired_memory_budget(original + 1)
+            .unwrap();
+        assert_eq!(authority.memory_ceiling_bytes(), original + 1);
+        assert_eq!(authority.state(), &before);
+        authority.candidate.phase =
+            AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart);
+        assert!(authority
+            .reclaim_retired_memory_budget(original + 2)
+            .is_err());
+        assert_eq!(authority.memory_ceiling_bytes(), original + 1);
+    }
+
+    #[test]
+    fn terminal_memory_rejection_precedes_evolution_and_preserves_authority() {
+        use super::super::running_step::{
+            RunningStepCoordinator, RunningStepError, RunningStepInputs,
+        };
+        use super::super::step_config::RunningStepWorkLimits;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let before = authority.state().clone();
+        let peak = generation_numeric_peak_bytes(
+            authority.memory.total_bytes,
+            before.population.len(),
+            &graph,
+        )
+        .unwrap();
+        authority.memory_ceiling_bytes = peak - 1;
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        coordinator.request_manual_finish();
+        let result = coordinator.advance_nonterminal(
+            &mut authority,
+            RunningStepInputs {
+                wall_now_ms: 100,
+                wall_accumulator_seconds: 0.0,
+            },
+        );
+        assert!(matches!(result, Err(RunningStepError::State(error))
+            if matches!(*error, StateError::MemoryCeilingExceeded {estimated_bytes,ceiling_bytes}
+                if estimated_bytes==peak && ceiling_bytes==peak-1)));
+        assert_eq!(coordinator.last_step_cost().generation_evolution, 0);
+        assert!(coordinator.pending_generation_transition().is_none());
+        assert_eq!(authority.state(), &before);
+        assert!(generation_numeric_peak_bytes(usize::MAX, 1, &graph).is_err());
+    }
+
     struct RunningStepBuffers {
+        evolved_generation: super::super::evolved_lives::EvolvedGenerationState,
         world: WorldState,
         rng: RngStateBundle,
         allocators: AllocatorState,
@@ -5742,6 +6463,7 @@ mod tests {
                 rng: state.rng.clone(),
                 allocators: state.allocators.clone(),
                 brains: state.brains.clone(),
+                evolved_generation: state.fixed_step.evolved_generation.clone(),
                 baseline_lifecycle: state.fixed_step.baseline_lifecycle.clone(),
                 ambient_pellet_accumulator: state.fixed_step.ambient_pellet_accumulator,
                 sensor_generation: state.fixed_step.sensor_generation,
@@ -5757,6 +6479,7 @@ mod tests {
                 rng: &mut self.rng,
                 allocators: &mut self.allocators,
                 brains: &mut self.brains,
+                evolved_generation: &mut self.evolved_generation,
                 baseline_lifecycle: &mut self.baseline_lifecycle,
                 ambient_pellet_accumulator: self.ambient_pellet_accumulator,
                 sensor_generation: self.sensor_generation,
@@ -5782,6 +6505,7 @@ mod tests {
         candidate.brains.push(BrainRuntimeState {
             handle,
             owner: BrainOwner::Entity(id),
+            retained_origin: None,
             non_population_weights: Some(vec![0.0; graph.total_parameters].into_boxed_slice()),
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         });
@@ -5814,6 +6538,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -5980,6 +6708,7 @@ mod tests {
         let weights = vec![0.375; graph.compiled().total_parameters].into_boxed_slice();
         let publication = authority
             .resurrect_hall_of_fame(
+                7,
                 weights.clone(),
                 RunningStepWorkLimits::provisional_defaults(),
             )
@@ -6002,6 +6731,7 @@ mod tests {
         let committed = after.clone();
         assert!(authority
             .resurrect_hall_of_fame(
+                7,
                 vec![0.0; graph.compiled().total_parameters - 1].into_boxed_slice(),
                 RunningStepWorkLimits::provisional_defaults(),
             )
@@ -6009,9 +6739,713 @@ mod tests {
         assert_eq!(authority.state(), &committed);
         authority.memory_ceiling_bytes = 0;
         assert!(authority
-            .resurrect_hall_of_fame(weights, RunningStepWorkLimits::provisional_defaults())
+            .resurrect_hall_of_fame(7, weights, RunningStepWorkLimits::provisional_defaults())
             .is_err());
         assert_eq!(authority.state(), &committed);
+    }
+
+    #[test]
+    fn retained_origin_survives_catalog_release_and_reused_brain_copies() {
+        use super::super::brain_artifact::BrainSourceKind;
+        use super::super::control_phase::copy_brains_reusing;
+        use super::super::retained_origin::packed_weight_digest;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let weights = vec![0.25; graph.compiled().total_parameters].into_boxed_slice();
+        let origin = Arc::new(RetainedNeuralOrigin::SavedBrain {
+            brain_id: [13; 32],
+            weight_digest: packed_weight_digest(&weights),
+            source_kind: BrainSourceKind::Distilled,
+        });
+        let weak = Arc::downgrade(&origin);
+        authority
+            .spawn_retained_brain(
+                weights,
+                Arc::clone(&origin),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let retained = authority.state().brains.last().unwrap();
+        assert!(Arc::ptr_eq(
+            retained.retained_origin.as_ref().unwrap(),
+            &origin
+        ));
+        assert_eq!(
+            authority
+                .state()
+                .world
+                .snakes
+                .last()
+                .unwrap()
+                .control_accumulator_seconds,
+            super::super::control_phase::ControlPhaseConfig::typescript_defaults()
+                .initial_neural_accumulator_seconds()
+        );
+        drop(origin); // Deleting a catalog record cannot revoke the native Arc.
+        let mut copies = Vec::new();
+        copy_brains_reusing(&mut copies, &authority.state().brains, false).unwrap();
+        for _ in 0..10 {
+            let (weights_copied, _) =
+                copy_brains_reusing(&mut copies, &authority.state().brains, true).unwrap();
+            assert_eq!(weights_copied, 0);
+            assert!(Arc::ptr_eq(
+                copies.last().unwrap().retained_origin.as_ref().unwrap(),
+                authority
+                    .state()
+                    .brains
+                    .last()
+                    .unwrap()
+                    .retained_origin
+                    .as_ref()
+                    .unwrap()
+            ));
+        }
+        copies.truncate(0);
+        assert!(weak.upgrade().is_some());
+        drop(authority);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn inspector_shadow_join_rejects_other_lives_generations_steps_and_activations() {
+        use super::super::inspector::*;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut snake = source.world.snakes[0].clone();
+        snake.kind = SnakeKind::Baseline;
+        snake.population_slot = None;
+        let target = InspectorTarget {
+            world_epoch: 1,
+            generation: 1,
+            physical_id: snake.id,
+            frame_v1_id: snake.frame_v1_id,
+        };
+        let key = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 1);
+        let mut capture = InspectorCapture::new(target, MAX_INSPECTOR_BYTES).unwrap();
+        let layout = InspectorLayout::from(
+            &super::super::sensor_layout::SensorLayout::for_profile(
+                super::super::sensor_contract::SensorProfile::Basic,
+                8,
+            )
+            .unwrap(),
+        );
+        capture.stage(
+            key,
+            &snake,
+            InspectorObservationSource::BaselineV2,
+            layout,
+            &vec![0.0; layout.input_size],
+            None,
+            None,
+            Default::default(),
+        );
+        capture.publish(key, |_, _, _| false);
+        let good = super::super::shadows::ShadowSnapshot {
+            artifact_sha256: [2; 32],
+            capture_epoch: [1; 16],
+            baseline_slot: 7,
+            activation_sequence: 9,
+            activation_step: 0,
+            completed_step: 6,
+            last_sample_step: 6,
+            generation: 1,
+            physical_snake_id: snake.id,
+            enabled: true,
+            error: None,
+            raw_outputs: [0.25, 0.75],
+            totals: Default::default(),
+            strategies: [Default::default(); 4],
+            life_stages: [Default::default(); 3],
+            strata: [Default::default(); 6],
+            cruising: Default::default(),
+            pre_death: Default::default(),
+            deaths: 0,
+        };
+        let mut mismatches = [good; 7];
+        mismatches[0].physical_snake_id += 1;
+        mismatches[1].generation += 1;
+        mismatches[2].last_sample_step += 1;
+        mismatches[3].enabled = false;
+        mismatches[4].activation_sequence = 0;
+        mismatches[5].capture_epoch = [0; 16];
+        mismatches[6].raw_outputs[0] = f32::NAN;
+        for invalid in mismatches {
+            capture.join_shadows(key, [Some(invalid), None, None, None]);
+            assert!(capture
+                .latest(1, 1, 6)
+                .unwrap()
+                .shadow_outputs
+                .iter()
+                .all(Option::is_none));
+        }
+        let wrong_key = super::super::physics::PhysicsStepKey::new(2, 1, 5, 1, 1, [0; 32], 1);
+        capture.join_shadows(wrong_key, [Some(good), None, None, None]);
+        assert!(capture.latest(1, 1, 6).unwrap().shadow_outputs[0].is_none());
+        capture.join_shadows(key, [Some(good), None, None, None]);
+        assert_eq!(
+            capture.latest(1, 1, 6).unwrap().shadow_outputs[0]
+                .unwrap()
+                .raw_outputs,
+            [0.25, 0.75]
+        );
+    }
+
+    #[test]
+    fn inspector_cache_is_publication_gated_bounded_and_keeps_last_delivered_age() {
+        use super::super::inspector::*;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let unchanged = source.clone();
+        let snake = source
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.alive)
+            .unwrap();
+        let target = InspectorTarget {
+            world_epoch: 1,
+            generation: 1,
+            physical_id: snake.id,
+            frame_v1_id: snake.frame_v1_id,
+        };
+        assert!(InspectorCapture::new(target, 0).is_err());
+        assert!(InspectorCapture::new(target, MAX_INSPECTOR_BYTES + 1).is_err());
+        let mut capture = InspectorCapture::new(target, MAX_INSPECTOR_BYTES).unwrap();
+        let key = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 1);
+        let layout =
+            InspectorLayout::from(&super::super::sensor_layout::SensorLayout::new(16).unwrap());
+        let row = vec![0.25; layout.input_size];
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &row,
+            Some([0.5, -0.5]),
+            None,
+            Default::default()
+        ));
+        assert!(capture.latest(1, 1, 6).is_none());
+        let wrong = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 2);
+        capture.publish(wrong, |_, _, _| true);
+        assert!(capture.latest(1, 1, 6).is_none());
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &row,
+            Some([0.5, -0.5]),
+            None,
+            Default::default()
+        ));
+        capture.publish(key, |_, _, _| {
+            panic!("internal consumption never requires an external receipt")
+        });
+        let delivered = capture.latest(1, 1, 6).unwrap();
+        assert_eq!(delivered.normalized_inputs(), row);
+        assert_eq!(delivered.age_steps(6), Some(0));
+        assert_eq!(delivered.age_steps(9), Some(3));
+        assert!(capture.latest(2, 1, 9).is_none());
+        assert!(capture.latest(1, 2, 9).is_none());
+        assert!(capture.latest(1, 1, 5).is_none());
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::External {
+                lease_id: 3,
+                connection_id: 4
+            },
+            layout,
+            &row,
+            None,
+            None,
+            Default::default()
+        ));
+        capture.publish(key, |id, lease, connection| {
+            assert_eq!((id, lease, connection), (snake.id, 3, 4));
+            false
+        });
+        assert_eq!(
+            capture.latest(1, 1, 9).unwrap().source,
+            InspectorObservationSource::Neural
+        );
+        let mut invalid = row.clone();
+        invalid[0] = f32::NAN;
+        assert!(!capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &invalid,
+            None,
+            None,
+            Default::default()
+        ));
+        assert!(capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::External {
+                lease_id: 3,
+                connection_id: 4
+            },
+            layout,
+            &row,
+            None,
+            None,
+            Default::default()
+        ));
+        capture.discard_pending();
+        capture.publish(key, |_, _, _| true);
+        assert_eq!(
+            capture.latest(1, 1, 9).unwrap().source,
+            InspectorObservationSource::Neural
+        );
+        assert_eq!(
+            source, unchanged,
+            "debug caching cannot consume delivery, RNG, first flag or quota cursor"
+        );
+    }
+
+    #[test]
+    fn inspector_probe_waits_for_publication_and_never_consumes_external_delivery() {
+        use super::super::inspector::*;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let snake = &source.world.snakes[0];
+        let unchanged = source.clone();
+        let target = InspectorTarget {
+            world_epoch: 1,
+            generation: 1,
+            physical_id: snake.id,
+            frame_v1_id: snake.frame_v1_id,
+        };
+        let key = super::super::physics::PhysicsStepKey::new(1, 1, 5, 1, 1, [0; 32], 1);
+        let layout =
+            InspectorLayout::from(&super::super::sensor_layout::SensorLayout::new(8).unwrap());
+        let values = vec![0.0; layout.input_size];
+        let mut capture = InspectorCapture::new(target, MAX_INSPECTOR_BYTES).unwrap();
+        capture.set_pure_probe(true);
+        assert!(capture.needs_probe());
+        assert!(capture.trace_for(snake.id).is_none());
+        assert!(!capture.stage(
+            key,
+            snake,
+            InspectorObservationSource::Neural,
+            layout,
+            &values,
+            Some([0.0; 2]),
+            None,
+            Default::default()
+        ));
+        let external = InspectorObservationSource::External {
+            lease_id: 3,
+            connection_id: 4,
+        };
+        assert!(capture.stage_probe(key, snake, external, layout, &values, Default::default()));
+        assert!(capture.latest(1, 1, 6).is_none());
+        capture.discard_pending();
+        capture.publish(key, |_, _, _| {
+            panic!("probe must not consult an external receipt")
+        });
+        assert!(capture.latest(1, 1, 6).is_none());
+        assert!(
+            capture.needs_probe(),
+            "failed whole step keeps the request pending"
+        );
+        assert!(capture.stage_probe(key, snake, external, layout, &values, Default::default()));
+        capture.publish(key, |_, _, _| {
+            panic!("probe must not consult an external receipt")
+        });
+        let row = capture.latest(1, 1, 6).unwrap();
+        assert!(row.pure_probe && row.raw.first_delivery);
+        assert!(row.neural_outputs.is_none());
+        assert!(!capture.needs_probe());
+        assert!(!capture.stage_probe(key, snake, external, layout, &values, Default::default()));
+        assert_eq!(
+            source, unchanged,
+            "probing never consumes a first/delivery flag, RNG or quota cursor"
+        );
+    }
+
+    #[test]
+    fn inspector_does_not_raise_the_existing_worker_scratch_admission() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let limits = RunningStepWorkLimits::provisional_defaults();
+        let plan = crate::engine::inference::GraphExecutionPlan::build(&graph).unwrap();
+        candidate.config.worker_scratch_bytes =
+            crate::engine::control::NeuralControlPipeline::required_staging_bytes(
+                candidate.config.max_world_snakes,
+                &plan,
+                limits.calculation_workers,
+            )
+            .unwrap();
+        refresh_config_hash(&mut candidate);
+        let authority = own_complete_running(candidate, graph);
+        let before = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(&authority, limits).unwrap();
+        let snake = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.alive)
+            .unwrap();
+        let error = coordinator
+            .configure_inspector(
+                &authority,
+                Some(crate::engine::inspector::InspectorTarget {
+                    world_epoch: authority.world_epoch(),
+                    generation: authority.state().generation.generation,
+                    physical_id: snake.id,
+                    frame_v1_id: snake.frame_v1_id,
+                }),
+                crate::engine::inspector::MAX_INSPECTOR_BYTES,
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("worker scratch admission"));
+        assert!(coordinator.inspector_observation(&authority).is_none());
+        assert_eq!(authority.state(), &before);
+    }
+
+    fn enable_inspector_fixture(
+        coordinator: &mut RunningStepCoordinator,
+        authority: &AuthoritativeState,
+        physical_id: u64,
+    ) {
+        let snake = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == physical_id)
+            .unwrap();
+        coordinator
+            .configure_inspector(
+                authority,
+                Some(super::super::inspector::InspectorTarget {
+                    world_epoch: authority.world_epoch(),
+                    generation: authority.state().generation.generation,
+                    physical_id,
+                    frame_v1_id: snake.frame_v1_id,
+                }),
+                super::super::inspector::MAX_INSPECTOR_BYTES,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn selected_retained_origins_are_native_owned_fixed_width_and_do_not_advance_rng() {
+        use super::super::brain_artifact::BrainSourceKind;
+        use super::super::retained_origin::packed_weight_digest;
+        let graph = default_graph();
+        let mut authority =
+            own_complete_running(complete_running_candidate(&graph), Arc::clone(&graph));
+        let population = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.alive && snake.kind == SnakeKind::Evolved)
+            .unwrap();
+        assert!(authority
+            .select_entity(EntitySelectionTarget::Frame(population.frame_v1_id))
+            .unwrap()
+            .retained_origin
+            .is_none());
+        let weights = vec![0.25; graph.compiled().total_parameters].into_boxed_slice();
+        let digest = packed_weight_digest(&weights);
+        let saved = RetainedNeuralOrigin::SavedBrain {
+            brain_id: [13; 32],
+            weight_digest: digest,
+            source_kind: BrainSourceKind::Distilled,
+        };
+        let origin = Arc::new(saved);
+        authority
+            .spawn_retained_brain(
+                weights.clone(),
+                Arc::clone(&origin),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let frame = authority.state().world.snakes.last().unwrap().frame_v1_id;
+        let before = authority.state().clone();
+        let references = Arc::strong_count(&origin);
+        let selected = authority
+            .select_entity(EntitySelectionTarget::Frame(frame))
+            .unwrap();
+        assert_eq!(selected.retained_origin, Some(saved));
+        assert_eq!(Arc::strong_count(&origin), references);
+        assert_eq!(authority.state(), &before);
+        drop(before);
+        drop(origin);
+        assert_eq!(
+            authority
+                .select_entity(EntitySelectionTarget::Frame(frame))
+                .unwrap()
+                .retained_origin,
+            Some(saved)
+        );
+        authority
+            .resurrect_hall_of_fame(
+                u64::MAX,
+                weights,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let frame = authority.state().world.snakes.last().unwrap().frame_v1_id;
+        assert_eq!(
+            authority
+                .select_entity(EntitySelectionTarget::Frame(frame))
+                .unwrap()
+                .retained_origin,
+            Some(RetainedNeuralOrigin::HallOfFame {
+                entry_id: u64::MAX,
+                weight_digest: digest
+            })
+        );
+    }
+
+    #[test]
+    fn retained_origin_admission_and_failed_publication_preserve_native_ownership() {
+        use super::super::retained_origin::packed_weight_digest;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let weights = vec![0.375; graph.compiled().total_parameters].into_boxed_slice();
+        authority
+            .resurrect_hall_of_fame(
+                7,
+                weights.clone(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        let committed = authority.state().clone();
+        let origin = Arc::clone(
+            committed
+                .brains
+                .last()
+                .unwrap()
+                .retained_origin
+                .as_ref()
+                .unwrap(),
+        );
+        let mut missing = committed.clone();
+        missing.brains.last_mut().unwrap().retained_origin = None;
+        assert!(own(missing, Arc::clone(&graph), usize::MAX).is_err());
+        let mut wrong_weights = committed.clone();
+        wrong_weights
+            .brains
+            .last_mut()
+            .unwrap()
+            .non_population_weights
+            .as_mut()
+            .unwrap()[0] = 0.5;
+        assert!(own(wrong_weights, Arc::clone(&graph), usize::MAX).is_err());
+        let mut wrong_population = committed.clone();
+        wrong_population.brains[0].retained_origin = Some(Arc::clone(&origin));
+        assert!(own(wrong_population, Arc::clone(&graph), usize::MAX).is_err());
+        let before_count = Arc::strong_count(&origin);
+        authority.memory_ceiling_bytes = 0;
+        assert!(authority
+            .spawn_retained_brain(
+                weights.clone(),
+                Arc::clone(&origin),
+                RunningStepWorkLimits::provisional_defaults()
+            )
+            .is_err());
+        assert_eq!(authority.state(), &committed);
+        assert_eq!(Arc::strong_count(&origin), before_count);
+        authority.memory_ceiling_bytes = usize::MAX;
+        let key = authority.begin_running_step().unwrap();
+        let mut changed = RunningStepBuffers::from_state(authority.state());
+        changed.brains.last_mut().unwrap().retained_origin =
+            Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+                entry_id: 8,
+                weight_digest: packed_weight_digest(&weights),
+            }));
+        assert!(matches!(
+            authority.publish_running_step(changed.replacement(key)),
+            Err(StateError::InvalidField {
+                field: "fixed_step.brains",
+                ..
+            })
+        ));
+        assert_eq!(authority.state().brains, committed.brains);
+    }
+
+    /// A full retained pool with a dead middle body and a pellet referencing it.
+    fn retained_reuse_fixture() -> (AuthoritativeState, Arc<GraphBundle>) {
+        let graph = default_graph();
+        let mut source = complete_running_candidate(&graph);
+        source.config.max_world_snakes = 3;
+        source.config.max_non_population_brains = 2;
+        source.identity.config_hash = normalized_config_hash(&source.config).unwrap();
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let weights = vec![0.25; graph.compiled().total_parameters].into_boxed_slice();
+        let first = authority
+            .resurrect_hall_of_fame(
+                1,
+                weights.clone(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        authority
+            .resurrect_hall_of_fame(2, weights, RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        let dead = authority
+            .candidate
+            .world
+            .snakes
+            .iter_mut()
+            .find(|snake| snake.id == first.snake_id)
+            .unwrap();
+        dead.alive = false;
+        let position = dead.position;
+        let id = authority.candidate.allocators.next_entity_id;
+        authority.candidate.allocators.next_entity_id += 1;
+        authority.candidate.world.pellets.push(PelletState {
+            id,
+            position,
+            value: 1.0,
+            kind: 1,
+            color: 0,
+            owner: Some(first.snake_id),
+        });
+        (authority, graph)
+    }
+
+    #[test]
+    fn retained_reuse_releases_old_origin_compacts_body_and_clears_owner_at_full_capacity() {
+        let (mut authority, graph) = retained_reuse_fixture();
+        let before = authority.state().clone();
+        let old = &before.world.snakes[1];
+        let weak = Arc::downgrade(
+            before
+                .brains
+                .iter()
+                .find(|brain| Some(brain.handle) == old.brain)
+                .unwrap()
+                .retained_origin
+                .as_ref()
+                .unwrap(),
+        );
+        let survivor = &before.world.snakes[2];
+        let survivor_body = before.world.body_points
+            [survivor.body.start..survivor.body.start + survivor.body.len]
+            .to_vec();
+        let weights = vec![0.5; graph.compiled().total_parameters].into_boxed_slice();
+        let publication = authority
+            .resurrect_hall_of_fame(3, weights, RunningStepWorkLimits::provisional_defaults())
+            .unwrap();
+        let after = authority.state();
+        assert_eq!(after.population, before.population);
+        assert_eq!(after.brains.len(), before.brains.len());
+        assert_eq!(after.world.snakes.len(), before.world.snakes.len());
+        assert_eq!(
+            after.world.body_points.len(),
+            before.world.body_points.len()
+        );
+        assert_ne!(publication.snake_id, old.id);
+        assert_ne!(publication.frame_v1_id, old.frame_v1_id);
+        assert_eq!(after.world.snakes[1].id, publication.snake_id);
+        assert!(after.world.snakes[1].alive);
+        assert_eq!(after.world.snakes[1].control_accumulator_seconds, 0.06);
+        let next = &after.world.snakes[2];
+        assert_eq!(next.id, survivor.id);
+        assert_eq!(next.body.start, survivor.body.start - old.body.len);
+        assert_eq!(
+            &after.world.body_points[next.body.start..next.body.start + next.body.len],
+            survivor_body.as_slice()
+        );
+        assert_eq!(after.world.pellets.last().unwrap().owner, None);
+        assert!(!after
+            .brains
+            .iter()
+            .any(|brain| brain.owner == BrainOwner::Entity(old.id)));
+        let brain = after
+            .brains
+            .iter()
+            .find(|brain| Some(brain.handle) == after.world.snakes[1].brain)
+            .unwrap();
+        assert!(brain.recurrent.iter().all(|value| *value == 0.0));
+        assert!(matches!(
+            brain.retained_origin.as_deref(),
+            Some(RetainedNeuralOrigin::HallOfFame { entry_id: 3, .. })
+        ));
+        drop(before);
+        assert!(weak.upgrade().is_none());
+        let full = authority.state().clone();
+        assert!(authority
+            .resurrect_hall_of_fame(
+                4,
+                vec![0.0; graph.compiled().total_parameters].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults()
+            )
+            .is_err());
+        assert_eq!(authority.state(), &full);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        let newborn = authority
+            .state()
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == publication.snake_id)
+            .unwrap();
+        assert!(newborn.observation_delivered);
+    }
+
+    #[test]
+    fn retained_reuse_failure_restores_body_owners_brain_origin_rng_and_allocators() {
+        let (mut authority, graph) = retained_reuse_fixture();
+        let before = authority.state().clone();
+        let ceiling = authority.memory_ceiling_bytes;
+        authority.memory_ceiling_bytes = 0;
+        assert!(authority
+            .resurrect_hall_of_fame(
+                3,
+                vec![0.5; graph.compiled().total_parameters].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults()
+            )
+            .is_err());
+        assert_eq!(authority.state(), &before);
+        for (current, previous) in authority.state().brains.iter().zip(&before.brains) {
+            if let (Some(current), Some(previous)) =
+                (&current.retained_origin, &previous.retained_origin)
+            {
+                assert!(Arc::ptr_eq(current, previous));
+            }
+        }
+        authority.memory_ceiling_bytes = ceiling;
+        authority.candidate.config.checkpoint_scratch_bytes = 1;
+        let scratch_limited = authority.state().clone();
+        let error = authority
+            .resurrect_hall_of_fame(
+                3,
+                vec![0.5; graph.compiled().total_parameters].into_boxed_slice(),
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap_err();
+        assert!(error.contains("cold scratch"), "{error}");
+        assert_eq!(authority.state(), &scratch_limited);
     }
 
     #[test]
@@ -6533,6 +7967,7 @@ mod tests {
         allocators.next_entity_id += 1;
         let mut brains = authority.state().brains.clone();
         brains[0].recurrent[0] = 0.25;
+        let mut evolved_generation = authority.state().fixed_step.evolved_generation.clone();
         let mut baseline_lifecycle = authority.state().fixed_step.baseline_lifecycle.clone();
         let sensor_generation = SensorGenerationState::new();
 
@@ -6543,6 +7978,7 @@ mod tests {
                 rng: &mut rng,
                 allocators: &mut allocators,
                 brains: &mut brains,
+                evolved_generation: &mut evolved_generation,
                 baseline_lifecycle: &mut baseline_lifecycle,
                 ambient_pellet_accumulator: 0.75,
                 sensor_generation,
@@ -6892,6 +8328,40 @@ mod tests {
     }
 
     #[test]
+    fn invalid_life_ledger_rolls_back_world_and_continuation_in_publication_and_preflight() {
+        let graph = default_graph();
+        let mut source = running_candidate(&graph);
+        source.fixed_step.evolved_generation =
+            super::super::evolved_lives::EvolvedGenerationState::initialize(
+                &source.world,
+                source.population.len(),
+                5,
+            )
+            .unwrap();
+        let mut authority = own(source.clone(), graph, usize::MAX).unwrap();
+        for preflight in [false, true] {
+            let key = authority.begin_running_step().unwrap();
+            let mut buffers = RunningStepBuffers::from_state(authority.state());
+            buffers.evolved_generation.slots[0]
+                .ledger
+                .generation_gross_earned += 1.0;
+            let invalid_ledger = buffers.evolved_generation.clone();
+            let result = if preflight {
+                authority
+                    .preflight_running_step(&mut buffers.replacement(key))
+                    .map(|_| ())
+            } else {
+                authority
+                    .publish_running_step(buffers.replacement(key))
+                    .map(|_| ())
+            };
+            assert!(result.is_err());
+            assert_eq!(authority.state(), &source);
+            assert_eq!(buffers.evolved_generation, invalid_ledger);
+        }
+    }
+
+    #[test]
     fn running_step_cannot_begin_from_a_generation_boundary() {
         let graph = default_graph();
         let mut boundary =
@@ -7083,6 +8553,8 @@ mod tests {
             .baseline_lifecycle
             .slots
             .push(BaselineSlotRuntime {
+                v2_policy: None,
+                v2_last_control_step: None,
                 slot: 0,
                 snake_id: BASELINE_ENTITY_ID_START,
                 strategy_timer_seconds: 0.0,
@@ -7154,6 +8626,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange {
                 start: body_start,
                 len: 1,
@@ -7417,6 +8893,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange { start: 0, len: 1 },
             skin: 0,
         });
@@ -7567,6 +9047,25 @@ mod tests {
                     enable_one_live_baseline(&mut live, id, None);
                 } else {
                     live.allocators.next_resurrected_id = id + 1;
+                    let handle = BrainHandle {
+                        id: live.allocators.next_brain_id,
+                        epoch: live.generation.population_epoch,
+                    };
+                    live.allocators.next_brain_id += 1;
+                    snake.brain = Some(handle);
+                    let weights = vec![0.0; graph.compiled().total_parameters].into_boxed_slice();
+                    live.brains.push(BrainRuntimeState {
+                        handle,
+                        owner: BrainOwner::Entity(id),
+                        retained_origin: Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+                            entry_id: 1,
+                            weight_digest: super::super::retained_origin::packed_weight_digest(
+                                &weights,
+                            ),
+                        })),
+                        non_population_weights: Some(weights),
+                        recurrent: vec![0.0; graph.compiled().total_state_size].into_boxed_slice(),
+                    });
                 }
                 live.allocators.next_entity_id = 1;
             }
@@ -7627,6 +9126,1062 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    fn respawn_candidate(graph: &CompiledGraph, preserve: bool, recurrence: f32) -> StateCandidate {
+        let mut source = complete_running_candidate(graph);
+        source.config.settings = super::super::step_config::production_default_settings(1, 0);
+        source.config.settings_schema_sha256 =
+            normalized_settings_schema_hash(&source.config.settings).unwrap();
+        set_complete_setting(
+            &mut source,
+            "evolvedRespawn.enabled",
+            NormalizedSettingValue::Bool(true),
+        );
+        set_complete_setting(
+            &mut source,
+            "evolvedRespawn.recurrentState",
+            NormalizedSettingValue::Integer(i64::from(preserve)),
+        );
+        source.versions.rng_bundle = RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        source.rng.version = RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        source.rng.evolved_respawns =
+            EvolvedRespawnRngState::derive_generation(source.identity.seed, 1, 1).unwrap();
+        source.world.snakes[0].alive = false;
+        source.world.snakes[0].turn = 0.7;
+        source.world.snakes[0].previous_turn = -0.4;
+        source.world.snakes[0].input_boost = true;
+        source.world.snakes[0].previous_input_boost = true;
+        source.population[0].weights.fill(0.0);
+        source.brains[0].recurrent.fill(recurrence);
+        source.fixed_step.evolved_generation =
+            super::super::evolved_lives::EvolvedGenerationState::initialize(&source.world, 1, 5)
+                .unwrap();
+        refresh_config_hash(&mut source);
+        source
+    }
+
+    fn one_respawn_step(
+        source: StateCandidate,
+        graph: Arc<GraphBundle>,
+    ) -> (AuthoritativeState, WorldStepDiagnostics) {
+        let mut authority = own_complete_running(source, graph);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        let diagnostics = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .unwrap()
+        {
+            RunningStepProgress::Published(outcome) => *outcome.diagnostics,
+            other => panic!("expected a published newborn step, got {other:?}"),
+        };
+        (authority, diagnostics)
+    }
+
+    #[test]
+    fn whole_step_motion_proprioception_uses_all_substeps_and_held_actions_across_wrap() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        set_complete_setting(
+            &mut candidate,
+            "brain.controlDt",
+            NormalizedSettingValue::Float(0.06),
+        );
+        candidate.world.snakes[0].control_accumulator_seconds = 0.0;
+        candidate.world.snakes[0].direction = std::f64::consts::PI - 0.01;
+        candidate.world.snakes[0].turn = 0.75;
+        candidate.world.snakes[0].speed = 150.0;
+        candidate.world.snakes[0].observation_delivered = true;
+        refresh_config_hash(&mut candidate);
+        let projection = crate::engine::step_config::project_running_step_config(
+            &candidate.config,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(projection.world_step.physics_substeps > 1);
+        let mut authority = own_complete_running(candidate, graph);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        for step in 1..=2 {
+            let before = authority.state().world.snakes[0].clone();
+            assert!(matches!(
+                coordinator
+                    .advance_nonterminal(
+                        &mut authority,
+                        RunningStepInputs {
+                            wall_now_ms: step * 100,
+                            wall_accumulator_seconds: 0.0
+                        }
+                    )
+                    .unwrap(),
+                RunningStepProgress::Published(_)
+            ));
+            let after = &authority.state().world.snakes[0];
+            assert!(after.alive);
+            assert_eq!(after.completed_step_applied_turn, 0.75);
+            assert!((after.completed_step_heading_delta - 0.75 * 3.2 / 60.0).abs() < 1e-12);
+            assert_eq!(after.completed_step_speed_delta, after.speed - before.speed);
+            assert!(after.completed_step_speed_delta > 0.0);
+            if step == 1 {
+                assert!(before.direction > 0.0 && after.direction < 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn evolved_replacement_reopens_first_delivery_under_both_recurrent_life_modes() {
+        use crate::engine::fixed_step::{FixedStepPrefixInputs, FixedStepPrefixWorkspace};
+        for preserve in [false, true] {
+            let graph = default_graph();
+            let mut candidate = respawn_candidate(&graph, preserve, 0.8);
+            candidate.world.snakes[0].observation_delivered = true;
+            let authority = own_complete_running(candidate, graph);
+            let state = authority.state();
+            let before = state.clone();
+            let projection = crate::engine::step_config::project_running_step_config(
+                &state.config,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+            let mut lives = state.fixed_step.evolved_generation.clone();
+            let mut workspace = FixedStepPrefixWorkspace::new();
+            let prefix = workspace
+                .prepare_with_evolved(
+                    FixedStepPrefixInputs {
+                        key: authority.running_step_key(1).unwrap(),
+                        world: &state.world,
+                        rng: &state.rng,
+                        allocators: &state.allocators,
+                        generation_elapsed_seconds: state.generation.elapsed_seconds,
+                        ambient_accumulator: state.fixed_step.ambient_pellet_accumulator,
+                        baseline_lifecycle: &state.fixed_step.baseline_lifecycle,
+                        config: projection.world_step.prefix,
+                    },
+                    &mut lives,
+                    projection.evolved,
+                    projection
+                        .world_step
+                        .control
+                        .initial_neural_accumulator_seconds(),
+                )
+                .unwrap();
+            let newborn = &prefix.world().snakes[0];
+            assert!(newborn.alive);
+            assert_ne!(newborn.id, state.world.snakes[0].id);
+            assert_eq!(newborn.brain, state.world.snakes[0].brain);
+            assert!(
+                !newborn.observation_delivered,
+                "new physical life must start unsampled even when recurrence is preserved"
+            );
+            assert_eq!(authority.state(), &before);
+        }
+    }
+
+    #[test]
+    fn evolved_newborn_replaces_in_place_preserves_brain_owner_and_receives_one_award() {
+        let graph = default_graph();
+        let mut source = respawn_candidate(&graph, false, 0.8);
+        let original_id = source.world.snakes[0].id;
+        let original_frame = source.world.snakes[0].frame_v1_id;
+        let original_brain = source.population[0].brain;
+        let pellet_id = source.allocators.next_entity_id;
+        source.allocators.next_entity_id += 1;
+        source.world.pellets.push(PelletState {
+            id: pellet_id,
+            position: WorldPoint { x: 3300.0, y: 0.0 },
+            value: 1.0,
+            kind: 0,
+            color: 123,
+            owner: Some(original_id),
+        });
+        let genomes = source.population.clone();
+        let (authority, diagnostics) = one_respawn_step(source, graph);
+        let state = authority.state();
+        let placement = state.fixed_step.evolved_generation.placement_work;
+        assert_eq!(
+            (
+                placement.step,
+                placement.eligible_slots,
+                placement.attempted_slots,
+                placement.placed_slots
+            ),
+            (state.generation.completed_step, 1, 1, 1)
+        );
+        assert!(placement.candidates <= 256 && placement.geometry_checks <= 250_000);
+        assert!(
+            placement.geometry_checks >= 5,
+            "newborn wall checks must be reported"
+        );
+        assert_eq!(state.world.snakes.len(), 1);
+        let newborn = &state.world.snakes[0];
+        assert!(newborn.alive);
+        assert_ne!(newborn.id, original_id);
+        assert_ne!(newborn.frame_v1_id, original_frame);
+        assert_eq!(newborn.brain, Some(original_brain));
+        assert_eq!(state.brains[0].owner, BrainOwner::PopulationSlot(0));
+        assert_eq!(state.population, genomes);
+        let life = &state.fixed_step.evolved_generation.slots[0];
+        assert_eq!(life.life_ordinal, 2);
+        assert_eq!(life.successful_respawns, 1);
+        assert_eq!(life.deaths, 1);
+        assert_eq!(life.current.alive_seconds, 1.0 / 60.0);
+        assert_eq!(life.pending_seconds, 0.0);
+        assert_eq!(life.ledger.life_gross_earned, 0.01);
+        assert!(!life.pending_recurrent_reset);
+        assert_eq!(newborn.delivered_observation_points, 0.01);
+        assert_eq!(newborn.previous_turn, 0.0);
+        assert!(!newborn.previous_input_boost);
+        assert_eq!(diagnostics.control.selection.neural_evaluations, 1);
+        let pellet = state
+            .world
+            .pellets
+            .iter()
+            .find(|pellet| pellet.id == pellet_id)
+            .unwrap();
+        assert_eq!(pellet.owner, None);
+        assert_eq!(pellet.color, 123);
+        assert_eq!(pellet.value, 1.0);
+    }
+
+    #[test]
+    fn evolved_newborn_manual_terminal_step_admits_new_identity_and_negative_life_fitness() {
+        let graph = default_graph();
+        let mut source = respawn_candidate(&graph, false, 0.8);
+        set_complete_setting(
+            &mut source,
+            "reward.lifePenalty",
+            NormalizedSettingValue::Float(10000.0),
+        );
+        refresh_config_hash(&mut source);
+        let old_id = source.world.snakes[0].id;
+        let weights = source.population[0].weights.clone();
+        let mut authority = own_complete_running(source, graph);
+        let original = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        coordinator.request_manual_finish();
+        let transition = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .unwrap()
+        {
+            RunningStepProgress::GenerationTransitionPending(transition) => transition,
+            other => panic!("expected newborn terminal boundary, got {other:?}"),
+        };
+        assert_eq!(transition.reason(), GenerationTransitionReason::Manual);
+        let hof = transition.metadata().hall_of_fame;
+        assert_ne!(hof.snake_id, old_id);
+        assert_eq!(hof.source_slot, 0);
+        assert!((hof.fitness - (642.0 + 0.70 / 60.0 - 10000.0)).abs() < 1e-10);
+        assert_eq!(
+            transition.commit_record().hall_of_fame.source_snake_id,
+            hof.snake_id
+        );
+        let experiment = transition.commit_record().experiment.unwrap();
+        assert_eq!(experiment.history[8], 2);
+        assert_eq!(experiment.history[9], 1);
+        assert_eq!(experiment.history[10], 1);
+        assert_eq!(experiment.history[4], 0);
+        assert_eq!(f64::from_bits(experiment.history[55]), 10000.0);
+        assert_eq!(experiment.hall_of_fame[3], hof.snake_id);
+        assert_eq!(experiment.hall_of_fame[7], 2);
+        assert_eq!(
+            super::super::experiment_records::GenerationExperimentRecords::decode(
+                &experiment.encode()
+            )
+            .unwrap(),
+            experiment
+        );
+        assert_eq!(transition.candidate().population[0].weights, weights);
+        assert!(transition
+            .candidate()
+            .fixed_step
+            .evolved_generation
+            .slots
+            .is_empty());
+        assert!(transition.candidate().brains[0]
+            .recurrent
+            .iter()
+            .all(|value| *value == 0.0));
+        assert_eq!(authority.state(), &original);
+    }
+
+    #[test]
+    fn evolved_waiting_unlimited_is_not_extinction_and_finite_exhaustion_can_end() {
+        let graph = default_graph();
+        for (maximum, early_mode, terminal) in [
+            (0, 0, false),
+            (2, 0, false),
+            (1, 0, true),
+            (0, 1, true),
+            (1, 2, false),
+        ] {
+            let mut source = respawn_candidate(&graph, false, 0.0);
+            source.generation.elapsed_seconds = 8.0;
+            set_complete_setting(
+                &mut source,
+                "evolvedRespawn.delaySeconds",
+                NormalizedSettingValue::Float(10.0),
+            );
+            set_complete_setting(
+                &mut source,
+                "evolvedRespawn.maxLives",
+                NormalizedSettingValue::Integer(maximum),
+            );
+            set_complete_setting(
+                &mut source,
+                "observer.earlyEndMode",
+                NormalizedSettingValue::Integer(early_mode),
+            );
+            refresh_config_hash(&mut source);
+            let mut authority = own_complete_running(source, Arc::clone(&graph));
+            let original = authority.state().clone();
+            let mut coordinator = RunningStepCoordinator::try_new(
+                &authority,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+            let progress = coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .unwrap();
+            if terminal {
+                let RunningStepProgress::GenerationTransitionPending(transition) = progress else {
+                    panic!("expected early terminal");
+                };
+                assert_eq!(
+                    transition.reason(),
+                    GenerationTransitionReason::EarlyAliveCount
+                );
+                assert_eq!(transition.alive_evolved(), 0);
+                assert_eq!(authority.state(), &original);
+            } else {
+                assert!(matches!(progress, RunningStepProgress::Published(_)));
+                let life = &authority.state().fixed_step.evolved_generation.slots[0];
+                assert_eq!(life.lives_started, 1);
+                assert_eq!(life.total_alive_seconds, 0.0);
+                assert_eq!(
+                    life.pending_seconds,
+                    if maximum == 1 { 0.0 } else { 1.0 / 60.0 }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn evolved_collision_death_respawns_only_at_the_next_newborn_boundary() {
+        let graph = default_graph();
+        let mut source = respawn_candidate(&graph, false, 0.8);
+        let snake = &mut source.world.snakes[0];
+        snake.alive = true;
+        snake.position = WorldPoint { x: 3490.5, y: 0.0 };
+        snake.previous_position = snake.position;
+        snake.direction = 0.0;
+        snake.turn = 0.0;
+        snake.input_boost = false;
+        snake.previous_input_boost = false;
+        for point in &mut source.world.body_points {
+            point.x += 3480.5;
+            point.y -= 20.0;
+        }
+        source.fixed_step.evolved_generation =
+            super::super::evolved_lives::EvolvedGenerationState::initialize(&source.world, 1, 5)
+                .unwrap();
+        let old_id = source.world.snakes[0].id;
+        let mut authority = own_complete_running(source, graph);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        let dead = authority.state();
+        assert!(!dead.world.snakes[0].alive);
+        assert_eq!(dead.world.snakes[0].id, old_id);
+        let life = &dead.fixed_step.evolved_generation.slots[0];
+        assert_eq!(life.lives_started, 1);
+        assert_eq!(life.deaths, 1);
+        assert_eq!(life.successful_respawns, 0);
+        assert_eq!(
+            life.status,
+            super::super::evolved_lives::EvolvedLifeStatus::Waiting
+        );
+        assert_eq!(
+            life.respawn_deadline_step,
+            Some(dead.generation.completed_step + 1)
+        );
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 117,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        let newborn = authority.state();
+        assert!(newborn.world.snakes[0].alive);
+        assert_ne!(newborn.world.snakes[0].id, old_id);
+        assert_eq!(
+            newborn.fixed_step.evolved_generation.slots[0].lives_started,
+            2
+        );
+        assert_eq!(newborn.fixed_step.evolved_generation.slots[0].deaths, 1);
+    }
+
+    #[test]
+    fn entity_selection_rejects_restarted_worlds_and_reused_frame_ids_without_rng_draws() {
+        let graph = default_graph();
+        let mut source = respawn_candidate(&graph, false, 0.0);
+        source.world.snakes[0].alive = true;
+        source.fixed_step.evolved_generation =
+            super::super::evolved_lives::EvolvedGenerationState::default();
+        source.allocators.next_frame_v1_id = FRAME_V1_MAX_EXACT_ID;
+        set_complete_setting(
+            &mut source,
+            "evolvedRespawn.corpseMode",
+            NormalizedSettingValue::Integer(1),
+        );
+        refresh_config_hash(&mut source);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let original = authority.state().clone();
+        let frame = original.world.snakes[0].frame_v1_id;
+        let selected = authority
+            .select_entity(EntitySelectionTarget::Frame(frame))
+            .unwrap();
+        assert_eq!(selected.life_ordinal, Some(1));
+        assert_eq!(
+            authority.select_entity(EntitySelectionTarget::PopulationSlot(0)),
+            Some(selected)
+        );
+        authority
+            .validate_entity_selection(selected.token, frame)
+            .unwrap();
+        assert!(authority
+            .validate_entity_selection(selected.token, frame + 1)
+            .is_err());
+        assert_eq!(authority.state(), &original);
+        let restarted = own_complete_running(original.clone(), Arc::clone(&graph));
+        assert_eq!(restarted.state(), &original);
+        assert!(restarted
+            .validate_entity_selection(selected.token, frame)
+            .is_err());
+        assert_ne!(
+            restarted
+                .select_entity(EntitySelectionTarget::Frame(frame))
+                .unwrap()
+                .token,
+            selected.token
+        );
+        let physics = authority
+            .running_step_config(RunningStepWorkLimits::provisional_defaults())
+            .unwrap()
+            .world_step
+            .physics;
+        authority.apply_god_mode_kill(frame, physics).unwrap();
+        assert!(authority
+            .select_entity(EntitySelectionTarget::PopulationSlot(0))
+            .is_none());
+        assert!(authority
+            .validate_entity_selection(selected.token, frame)
+            .is_err());
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        assert_eq!(
+            authority.state().world.snakes[0].frame_v1_id,
+            FRAME_V1_MAX_EXACT_ID
+        );
+        authority
+            .apply_god_mode_kill(FRAME_V1_MAX_EXACT_ID, physics)
+            .unwrap();
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 200,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        assert_eq!(authority.state().world.snakes[0].frame_v1_id, frame);
+        assert_ne!(
+            authority.state().world.snakes[0].id,
+            original.world.snakes[0].id
+        );
+        let after = authority.state().clone();
+        assert!(authority
+            .validate_entity_selection(selected.token, frame)
+            .is_err());
+        let replacement = authority
+            .select_entity(EntitySelectionTarget::PopulationSlot(0))
+            .unwrap();
+        assert_eq!(replacement.life_ordinal, Some(3));
+        assert_ne!(replacement.token, selected.token);
+        authority
+            .validate_entity_selection(replacement.token, frame)
+            .unwrap();
+        assert_eq!(authority.state(), &after);
+    }
+
+    #[test]
+    fn evolved_cold_god_death_samples_once_before_prefix_and_final_exhaustion_uses_normal_corpse() {
+        use super::super::evolved_lives::{
+            EvolvedDeathCause, EvolvedGenerationState, EvolvedLifeStatus,
+        };
+        let graph = default_graph();
+        let mut source = respawn_candidate(&graph, false, 0.0);
+        source.world.snakes[0].alive = true;
+        source.fixed_step.evolved_generation = EvolvedGenerationState::default();
+        for (path, value) in [
+            ("evolvedRespawn.maxLives", 2),
+            ("evolvedRespawn.corpseMode", 1),
+            ("evolvedRespawn.delayMode", 1),
+            ("evolvedRespawn.rngMode", 1),
+        ] {
+            set_complete_setting(&mut source, path, NormalizedSettingValue::Integer(value));
+        }
+        refresh_config_hash(&mut source);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let physics = authority
+            .running_step_config(RunningStepWorkLimits::provisional_defaults())
+            .unwrap()
+            .world_step
+            .physics;
+        let old_rng = authority.state().rng.clone();
+        let mut expected = StatefulRng::from_state(&old_rng.world).unwrap();
+        expected.next_f64();
+        let frame_id = authority.state().world.snakes[0].frame_v1_id;
+        let killed = authority.apply_god_mode_kill(frame_id, physics).unwrap();
+        assert_eq!(killed.pellets_dropped, 0);
+        let life = &authority.state().fixed_step.evolved_generation.slots[0];
+        assert_eq!(life.status, EvolvedLifeStatus::Waiting);
+        assert_eq!(life.deaths, 1);
+        assert_eq!(life.last_cause, Some(EvolvedDeathCause::GodMode));
+        let event = authority
+            .state()
+            .fixed_step
+            .evolved_generation
+            .transaction_life_ends[0];
+        assert_eq!(event.contact_flags, 8);
+        assert_eq!(event.physical_id, authority.state().world.snakes[0].id);
+        assert_eq!(event.corpse_emitted_count, 0);
+        assert_eq!(event.life_ordinal, 1);
+        assert_eq!(
+            authority
+                .state()
+                .fixed_step
+                .evolved_generation
+                .life_end_count,
+            1
+        );
+
+        assert_eq!(
+            life.respawn_deadline_step,
+            Some(authority.state().generation.completed_step + 1)
+        );
+        assert_eq!(authority.state().rng.world, expected.export_state());
+        assert_eq!(authority.state().rng.evolution, old_rng.evolution);
+        assert_eq!(
+            authority.state().rng.evolved_respawns,
+            old_rng.evolved_respawns
+        );
+        let dead = authority.state().clone();
+        assert!(authority.apply_god_mode_kill(frame_id, physics).is_err());
+        assert_eq!(authority.state(), &dead);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        assert!(matches!(
+            coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0
+                    }
+                )
+                .unwrap(),
+            RunningStepProgress::Published(_)
+        ));
+        assert_eq!(
+            authority.state().fixed_step.evolved_generation.slots[0].lives_started,
+            2
+        );
+        let frame_id = authority.state().world.snakes[0].frame_v1_id;
+        let before = authority.state().rng.world.clone();
+        let last = authority.apply_god_mode_kill(frame_id, physics).unwrap();
+        assert_eq!(last.pellets_dropped, 2);
+        let life = &authority.state().fixed_step.evolved_generation.slots[0];
+        assert_eq!(life.status, EvolvedLifeStatus::Exhausted);
+        assert_eq!(life.deaths, 2);
+        assert_eq!(life.successful_respawns, 1);
+        assert_eq!(life.respawn_deadline_step, None);
+        let mut expected = StatefulRng::from_state(&before).unwrap();
+        for _ in 0..6 {
+            expected.next_f64();
+        }
+        assert_eq!(authority.state().rng.world, expected.export_state());
+    }
+
+    #[test]
+    fn evolved_cold_god_overflow_fail_is_atomic_and_discard_counts_actual_values() {
+        for discard in [false, true] {
+            let graph = default_graph();
+            let mut source = respawn_candidate(&graph, false, 0.0);
+            source.world.snakes[0].alive = true;
+            source.fixed_step.evolved_generation =
+                super::super::evolved_lives::EvolvedGenerationState::default();
+            source.config.max_pellets = 100;
+            set_complete_setting(
+                &mut source,
+                "death.maxPellets",
+                NormalizedSettingValue::Integer(100),
+            );
+            set_complete_setting(
+                &mut source,
+                "pelletCountTarget",
+                NormalizedSettingValue::Integer(100),
+            );
+            for _ in 0..100 {
+                source.world.pellets.push(PelletState {
+                    id: source.allocators.next_entity_id,
+                    position: WorldPoint { x: 3000.0, y: 0.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 123,
+                    owner: None,
+                });
+                source.allocators.next_entity_id += 1;
+            }
+            set_complete_setting(
+                &mut source,
+                "world.pelletOverflow",
+                NormalizedSettingValue::Integer(i64::from(discard)),
+            );
+            refresh_config_hash(&mut source);
+            let mut authority = own_complete_running(source, graph);
+            let original = authority.state().clone();
+            let physics = authority
+                .running_step_config(RunningStepWorkLimits::provisional_defaults())
+                .unwrap()
+                .world_step
+                .physics;
+            let result =
+                authority.apply_god_mode_kill(original.world.snakes[0].frame_v1_id, physics);
+            if !discard {
+                assert!(result.is_err());
+                assert_eq!(authority.state(), &original);
+            } else {
+                assert_eq!(result.unwrap().pellets_dropped, 0);
+                assert_eq!(authority.state().world.pellets, original.world.pellets);
+                assert_eq!(authority.state().allocators, original.allocators);
+                let life = &authority.state().fixed_step.evolved_generation.slots[0];
+                assert_eq!(life.corpse_emitted_count, 0);
+                assert_eq!(life.corpse_discarded_count, 2);
+                assert!(life.corpse_discarded_value > 0.0);
+                assert_eq!(life.deaths, 1);
+                assert_ne!(authority.state().rng.world, original.rng.world);
+                assert_eq!(authority.state().rng.evolution, original.rng.evolution);
+            }
+        }
+    }
+
+    #[test]
+    fn evolved_running_overflow_publishes_whole_death_or_rolls_back_the_whole_step() {
+        for discard in [false, true] {
+            let graph = default_graph();
+            let mut source = respawn_candidate(&graph, false, 0.0);
+            source.world.snakes[0].alive = true;
+            source.world.snakes[0].turn = 0.0;
+            source.world.snakes[0].previous_turn = 0.0;
+            source.world.snakes[0].input_boost = false;
+            source.world.snakes[0].previous_input_boost = false;
+            source.config.population_count = 2;
+            source.config.max_world_snakes = 33;
+            source.config.max_pellets = 100;
+            set_complete_setting(
+                &mut source,
+                "snakeCount",
+                NormalizedSettingValue::Integer(2),
+            );
+            set_complete_setting(
+                &mut source,
+                "death.maxPellets",
+                NormalizedSettingValue::Integer(100),
+            );
+            set_complete_setting(
+                &mut source,
+                "pelletCountTarget",
+                NormalizedSettingValue::Integer(100),
+            );
+            set_complete_setting(
+                &mut source,
+                "world.pelletOverflow",
+                NormalizedSettingValue::Integer(i64::from(discard)),
+            );
+            let mut owner_genome = source.population[0].clone();
+            owner_genome.slot = 1;
+            owner_genome.brain.id = source.allocators.next_brain_id;
+            owner_genome.lineage.genome_id = source.allocators.next_genome_id;
+            source.brains.push(BrainRuntimeState {
+                handle: owner_genome.brain,
+                owner: BrainOwner::PopulationSlot(1),
+                retained_origin: None,
+                non_population_weights: None,
+                recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
+            });
+            source.population.push(owner_genome);
+            source.allocators.next_brain_id += 1;
+            source.allocators.next_genome_id += 1;
+            let id = source.allocators.next_entity_id;
+            push_evolved_snake(&mut source, 1, id, 2, WorldPoint { x: 100.0, y: 20.0 });
+            source
+                .world
+                .body_points
+                .extend((1..15).map(|index| WorldPoint {
+                    x: 100.0 - index as f64 * 7.5,
+                    y: 20.0,
+                }));
+            source.world.snakes[1].body.len = 15;
+            source.world.snakes[1].target_length = 15.0;
+            source.world.snakes[1].radius = 9.0;
+            for _ in 0..100 {
+                source.world.pellets.push(PelletState {
+                    id: source.allocators.next_entity_id,
+                    position: WorldPoint { x: 3000.0, y: 0.0 },
+                    value: 1.0,
+                    kind: 0,
+                    color: 123,
+                    owner: None,
+                });
+                source.allocators.next_entity_id += 1;
+            }
+            source.rng.evolved_respawns =
+                EvolvedRespawnRngState::derive_generation(source.identity.seed, 1, 2).unwrap();
+            source.fixed_step.evolved_generation =
+                super::super::evolved_lives::EvolvedGenerationState::initialize(
+                    &source.world,
+                    2,
+                    5,
+                )
+                .unwrap();
+            refresh_config_hash(&mut source);
+            let mut authority = own_complete_running(source, graph);
+            let original = authority.state().clone();
+            let mut coordinator = RunningStepCoordinator::try_new(
+                &authority,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+            let result = coordinator.advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            );
+            if !discard {
+                assert!(result.is_err());
+                assert_eq!(authority.state(), &original);
+            } else {
+                let RunningStepProgress::Published(outcome) = result.unwrap() else {
+                    panic!("expected complete saturated death");
+                };
+                assert_eq!(outcome.diagnostics.emissions.attempted_count, 2);
+                assert_eq!(outcome.diagnostics.emissions.discarded_count, 2);
+                assert_eq!(outcome.diagnostics.emissions.emitted_count, 0);
+                assert!(outcome.diagnostics.emissions.discarded_value > 0.0);
+                let state = authority.state();
+                assert!(!state.world.snakes[0].alive);
+                assert_eq!(state.world.snakes[1].kills, 1);
+                assert_eq!(state.world.pellets, original.world.pellets);
+                assert_eq!(state.allocators, original.allocators);
+                assert_eq!(state.population, original.population);
+                let life = &state.fixed_step.evolved_generation.slots[0];
+                assert_eq!(life.deaths, 1);
+                assert_eq!(life.corpse_emitted_count, 0);
+                assert_eq!(life.corpse_discarded_count, 2);
+                assert_eq!(state.rng.evolution, original.rng.evolution);
+                assert_eq!(state.rng.evolved_respawns, original.rng.evolved_respawns);
+            }
+        }
+    }
+
+    #[test]
+    fn evolved_identity_exhaustion_rolls_back_life_rng_ledger_and_recurrence() {
+        let graph = default_graph();
+        let mut source = respawn_candidate(&graph, false, 0.8);
+        source.allocators.next_entity_id = EXTERNAL_ENTITY_ID_START;
+        set_complete_setting(
+            &mut source,
+            "pelletSpawnPerSecond",
+            NormalizedSettingValue::Float(5.0),
+        );
+        refresh_config_hash(&mut source);
+        let mut authority = own_complete_running(source, graph);
+        let original = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            let error = coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .unwrap_err();
+            assert!(
+                matches!(&error, RunningStepError::Prefix(error)
+                if matches!(error.as_ref(), super::super::fixed_step::FixedStepPrefixError::Allocator(_))),
+                "{error}"
+            );
+            assert_eq!(authority.state(), &original);
+        }
+    }
+
+    #[test]
+    fn evolved_wallet_choice_is_independent_of_terminal_point_assessment() {
+        let graph = default_graph();
+        for (mode, basis, carried, wallet, points) in [
+            (0, 0, 0, 0.01, 0.02),
+            (1, 0, 0, 0.01, 10.02),
+            (1, 0, 1, 10.01, 10.02),
+            (1, 1, 1, 10.01, 10.02),
+            (2, 0, 1, 0.01, 10.0),
+        ] {
+            let mut source = respawn_candidate(&graph, false, 0.0);
+            source.world.snakes[0].points = 10.0;
+            source.fixed_step.evolved_generation =
+                super::super::evolved_lives::EvolvedGenerationState::initialize(
+                    &source.world,
+                    1,
+                    5,
+                )
+                .unwrap();
+            set_complete_setting(
+                &mut source,
+                "lifeScoring.mode",
+                NormalizedSettingValue::Integer(mode),
+            );
+            set_complete_setting(
+                &mut source,
+                "lifeScoring.cumulativeBasis",
+                NormalizedSettingValue::Integer(basis),
+            );
+            set_complete_setting(
+                &mut source,
+                "lifeScoring.cumulativeWallet",
+                NormalizedSettingValue::Integer(carried),
+            );
+            refresh_config_hash(&mut source);
+            let (mut authority, _) = one_respawn_step(source, Arc::clone(&graph));
+            // Inspect the immutable newborn ledger directly; no extra physical step or sensor delivery.
+            let state = authority.state();
+            let life_policy =
+                super::super::step_config::project_evolved_experiment_config(&state.config)
+                    .unwrap();
+            let target = super::super::inspector::InspectorTarget {
+                world_epoch: authority.world_epoch(),
+                generation: state.generation.generation,
+                physical_id: state.world.snakes[0].id,
+                frame_v1_id: state.world.snakes[0].frame_v1_id,
+            };
+            let mut capture = super::super::inspector::InspectorCapture::new(
+                target,
+                super::super::inspector::MAX_INSPECTOR_BYTES,
+            )
+            .unwrap();
+            capture.configure_evolution(authority.evolution_config().unwrap());
+            let key = super::super::physics::PhysicsStepKey::new(
+                target.world_epoch,
+                target.generation,
+                state.generation.completed_step,
+                1,
+                state.identity.config_revision,
+                [0; 32],
+                1,
+            );
+            let layout = super::super::inspector::InspectorLayout::from(
+                &super::super::sensor_layout::SensorLayout::new(8).unwrap(),
+            );
+            capture.stage(
+                key,
+                &state.world.snakes[0],
+                super::super::inspector::InspectorObservationSource::Neural,
+                layout,
+                &vec![0.0; layout.input_size],
+                Some([0.0; 2]),
+                None,
+                Default::default(),
+            );
+            capture.stage_lifecycle(
+                key,
+                &state.world,
+                super::super::inspector::InspectorLifecycleContext {
+                    lives: &state.fixed_step.evolved_generation,
+                    policy: life_policy,
+                },
+            );
+            capture.publish(key, |_, _, _| false);
+            let observed = capture
+                .latest(
+                    target.world_epoch,
+                    target.generation,
+                    state.generation.completed_step + 1,
+                )
+                .unwrap();
+            let life = observed.lifecycle.unwrap();
+            let expected = if mode == 2 { points } else { points - 0.01 };
+            assert!(
+                (life.assessment.points - expected).abs() < 1e-12,
+                "assessment {mode}/{basis}/{carried}"
+            );
+            assert!(
+                (life.ledger.life_local_wallet + life.ledger.prior_bank_remaining - wallet).abs()
+                    < 1e-12
+            );
+            assert_eq!(life.life_ordinal, 2);
+            assert_eq!(life.deaths, 1);
+            assert_eq!(life.successful_respawns, 1);
+            assert_eq!(
+                life.ledger,
+                state.fixed_step.evolved_generation.slots[0].ledger
+            );
+            let newborn = &authority.state().world.snakes[0];
+            assert!((newborn.points - wallet).abs() < 1e-12);
+            assert_eq!(newborn.delivered_observation_points, newborn.points);
+            let mut coordinator = RunningStepCoordinator::try_new(
+                &authority,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+            coordinator.request_manual_finish();
+            let RunningStepProgress::GenerationTransitionPending(transition) = coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 117,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .unwrap()
+            else {
+                panic!("expected terminal assessment");
+            };
+            assert!(
+                (transition.metadata().hall_of_fame.points - points).abs() < 1e-12,
+                "mode={mode}, basis={basis}, carried={carried}"
+            );
+            let record = transition.commit_record();
+            let experiment = record.experiment.unwrap();
+            assert!((f64::from_bits(experiment.hall_of_fame[8]) - points).abs() < 1e-12);
+            assert_eq!(
+                record.hall_of_fame.points_f64_bits,
+                experiment.hall_of_fame[20]
+            );
+            assert_eq!(record.hall_of_fame.length, experiment.hall_of_fame[24]);
+            assert_eq!(
+                experiment.hall_of_fame[29],
+                if mode == 0 {
+                    0
+                } else if mode == 1 {
+                    1
+                } else {
+                    2
+                }
+            );
+            assert_eq!(
+                super::super::experiment_records::GenerationExperimentRecords::decode(
+                    &experiment.encode()
+                )
+                .unwrap(),
+                experiment
+            );
+        }
+    }
+
+    #[test]
+    fn evolved_newborn_reset_uses_zero_source_while_preserve_retains_cross_life_memory() {
+        let graph = default_graph();
+        let (reset_a, _) =
+            one_respawn_step(respawn_candidate(&graph, false, 0.2), Arc::clone(&graph));
+        let (reset_b, _) =
+            one_respawn_step(respawn_candidate(&graph, false, 0.8), Arc::clone(&graph));
+        assert_eq!(
+            reset_a.state().brains[0].recurrent,
+            reset_b.state().brains[0].recurrent
+        );
+        let (preserve_a, _) =
+            one_respawn_step(respawn_candidate(&graph, true, 0.2), Arc::clone(&graph));
+        let (preserve_b, _) = one_respawn_step(respawn_candidate(&graph, true, 0.8), graph);
+        assert_ne!(
+            preserve_a.state().brains[0].recurrent,
+            preserve_b.state().brains[0].recurrent
+        );
     }
 
     #[test]
@@ -8176,6 +10731,7 @@ mod tests {
             .expect("terminal settings must project");
         let mut coordinator = RunningStepCoordinator::try_new(&authority, limits)
             .expect("terminal fixture must construct the coordinator");
+
         let transition = match coordinator
             .advance_nonterminal(
                 &mut authority,
@@ -8673,11 +11229,23 @@ mod tests {
         resurrected.radius = 9.0;
         resurrected.speed = 165.0;
 
+        first.brains[1].retained_origin = Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+            entry_id: 1,
+            weight_digest: super::super::retained_origin::packed_weight_digest(
+                first.brains[1].non_population_weights.as_ref().unwrap(),
+            ),
+        }));
         let mut second = first.clone();
         second.brains[1]
             .non_population_weights
             .as_mut()
             .expect("resurrected brain must own weights")[0] = 0.875;
+        second.brains[1].retained_origin = Some(Arc::new(RetainedNeuralOrigin::HallOfFame {
+            entry_id: 1,
+            weight_digest: super::super::retained_origin::packed_weight_digest(
+                second.brains[1].non_population_weights.as_ref().unwrap(),
+            ),
+        }));
         assert_eq!(first.identity, second.identity);
         assert_eq!(first.config, second.config);
         assert_ne!(first.brains[1], second.brains[1]);
@@ -8830,6 +11398,7 @@ mod tests {
             .find(|snake| snake.id == external_id)
             .unwrap();
         assert_eq!(published_external.delivered_observation_points, 10.01);
+        assert!(published_external.observation_delivered);
 
         let published = authority.state().clone();
         let duplicate = coordinator
@@ -8989,6 +11558,8 @@ mod tests {
             RunningStepWorkLimits::provisional_defaults(),
         )
         .expect("two-controller fixture must construct the coordinator");
+        enable_inspector_fixture(&mut coordinator, &authority, first_id);
+        let mut observed_row = Vec::new();
 
         let events = match coordinator
             .advance_nonterminal(
@@ -9003,6 +11574,7 @@ mod tests {
             RunningStepProgress::ExternalDeliveryPending(batch) => {
                 assert_eq!(batch.events().len(), 2);
                 assert_eq!(batch.remaining(), 2);
+                observed_row.extend_from_slice(batch.observation(0).unwrap());
                 [batch.events()[0], batch.events()[1]]
             }
             RunningStepProgress::Published(_) => panic!("both events must require acceptance"),
@@ -9034,6 +11606,7 @@ mod tests {
                 if batch.remaining() == 1 && batch.is_accepted(0) == Some(true)
         ));
         assert_eq!(authority.state(), &source);
+        assert!(coordinator.inspector_observation(&authority).is_none());
 
         let duplicate = coordinator
             .submit_external_delivery_results(&mut authority, &[first_result])
@@ -9045,6 +11618,7 @@ mod tests {
             ExternalDeliveryState::Pending(batch) if batch.remaining() == 1
         ));
         assert_eq!(authority.state(), &source);
+        assert!(coordinator.inspector_observation(&authority).is_none());
 
         let duplicate_failure = ExternalDeliveryResult {
             accepted: false,
@@ -9063,6 +11637,7 @@ mod tests {
                     && batch.status(0) == Some(ExternalDeliveryStatus::Accepted)
         ));
         assert_eq!(authority.state(), &source);
+        assert!(coordinator.inspector_observation(&authority).is_none());
 
         let second_result = ExternalDeliveryResult {
             step_key: events[1].step_key,
@@ -9091,6 +11666,17 @@ mod tests {
             assert_eq!(snake.delivered_observation_points, 10.01);
         }
         assert_eq!(authority.state().generation.completed_step, 1);
+        let observed = coordinator.inspector_observation(&authority).unwrap();
+        assert_eq!(observed.normalized_inputs(), observed_row);
+        assert_eq!(observed.age_steps(1), Some(0));
+        assert_eq!(observed.target.physical_id, first_id);
+        assert!(matches!(
+            observed.source,
+            super::super::inspector::InspectorObservationSource::External {
+                lease_id: 1,
+                connection_id: 7
+            }
+        ));
     }
 
     #[test]
@@ -9131,6 +11717,7 @@ mod tests {
             RunningStepWorkLimits::provisional_defaults(),
         )
         .expect("mixed-result fixture must construct the coordinator");
+        enable_inspector_fixture(&mut coordinator, &authority, failed_id);
         let events = match coordinator
             .advance_nonterminal(
                 &mut authority,
@@ -9190,6 +11777,8 @@ mod tests {
             .find(|snake| snake.id == failed_id)
             .unwrap();
         assert_eq!(accepted_snake.delivered_observation_points, 10.01);
+        assert!(accepted_snake.observation_delivered);
+        assert!(!failed_snake.observation_delivered);
         assert_eq!(failed_snake.delivered_observation_points, 2.0);
         let accepted_lease = authority
             .state()
@@ -9210,6 +11799,10 @@ mod tests {
         assert_eq!(failed_lease.status, ControllerLeaseStatus::HoldingLastInput);
         assert_eq!(failed_lease.connection_id, None);
         assert_eq!(authority.state().generation.completed_step, 1);
+        assert!(
+            coordinator.inspector_observation(&authority).is_none(),
+            "failed local send must never become an inspector delivery"
+        );
     }
 
     #[test]
@@ -9906,9 +12499,124 @@ mod tests {
     }
 
     #[test]
+    fn manual_finish_scope_is_idempotent_and_rejects_stale_or_competing_requests() {
+        use crate::engine::running_loop::{RunningAuthorityLoop, RunningAuthorityLoopProgress};
+        let graph = default_graph();
+        let candidate = complete_running_candidate(&graph);
+        let authority = own_complete_running(candidate, Arc::clone(&graph));
+        let run_id = authority.state().identity.run_id.clone();
+        let generation = authority.state().generation.generation;
+        let prepared = RunningAuthorityLoop::prepare(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+            FixedStepSchedulerPolicy::provisional_defaults(),
+            0,
+            &generation_handoff_checkpoint_limits(),
+            &default_graph_limits(),
+        )
+        .unwrap();
+        let mut running = RunningAuthorityLoop::from_prepared(authority, prepared);
+        assert!(running
+            .request_finish_generation("finish".into(), "another-run".into(), generation)
+            .is_err());
+        assert!(running
+            .request_finish_generation("finish".into(), run_id.clone(), generation + 1)
+            .is_err());
+        let step = running
+            .request_finish_generation("finish".into(), run_id.clone(), generation)
+            .unwrap();
+        assert_eq!(
+            running
+                .request_finish_generation("finish".into(), run_id.clone(), generation)
+                .unwrap(),
+            step
+        );
+        assert!(running
+            .request_finish_generation("different".into(), run_id, generation)
+            .is_err());
+        assert!(matches!(
+            running
+                .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+                .unwrap(),
+            RunningAuthorityLoopProgress::GenerationTransitionPending {
+                reason: GenerationTransitionReason::Manual,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn seven_day_accumulated_clock_and_actual_native_terminal_step_are_qualified() {
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let dt = candidate.config.fixed_step_seconds;
+        let steps = 36_288_000u64;
+        let mut clock = 0.0f64;
+        let mut maximum_error = 0.0f64;
+        for step in 1..steps {
+            clock += dt;
+            maximum_error = maximum_error.max((clock - step as f64 * dt).abs());
+        }
+        assert!(
+            maximum_error < 0.0002,
+            "seven-day clock error {maximum_error}"
+        );
+        assert!(clock < 604_800.0);
+        set_complete_setting(
+            &mut candidate,
+            "generationSeconds",
+            NormalizedSettingValue::Float(604_800.0),
+        );
+        candidate.generation.elapsed_seconds = clock;
+        candidate.generation.completed_step = steps - 1;
+        refresh_config_hash(&mut candidate);
+        let mut authority = own_complete_running(candidate, graph);
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        let result = coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 200,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .unwrap();
+        let RunningStepProgress::GenerationTransitionPending(transition) = result else {
+            panic!("seven-day terminal step");
+        };
+        assert_eq!(transition.reason(), GenerationTransitionReason::Duration);
+        assert_eq!(transition.candidate().generation.completed_step, steps);
+        let elapsed = f64::from_bits(
+            transition
+                .commit_record()
+                .completion
+                .unwrap()
+                .actual_elapsed_f64_bits,
+        );
+        assert!(elapsed >= 604_800.0 && elapsed - 604_800.0 < 0.0002);
+    }
+
+    #[test]
     fn generation_guards_refuse_nonterminal_publication_without_mutation() {
         let graph = default_graph();
         let cases = [
+            (
+                GenerationTransitionReason::Duration,
+                604_800.0,
+                50.0,
+                604_800.0 - (1.0 / 120.0),
+            ),
+            (
+                GenerationTransitionReason::Manual,
+                8.0,
+                8.0,
+                8.0 - (1.0 / 120.0),
+            ),
+            (GenerationTransitionReason::Manual, 240.0, 8.0, 0.0),
             (
                 GenerationTransitionReason::EarlyAliveCount,
                 240.0,
@@ -9944,6 +12652,9 @@ mod tests {
                 RunningStepWorkLimits::provisional_defaults(),
             )
             .expect("terminal fixture must construct the coordinator");
+            if expected_reason == GenerationTransitionReason::Manual {
+                coordinator.request_manual_finish();
+            }
 
             let transition = match coordinator
                 .advance_nonterminal(
@@ -9959,6 +12670,19 @@ mod tests {
                 other => panic!("expected pending generation transition, got {other:?}"),
             };
             assert_eq!(transition.reason(), expected_reason);
+            let completion = transition
+                .commit_record()
+                .completion
+                .expect("terminal chronology");
+            assert_eq!(completion.reason, expected_reason);
+            assert_eq!(
+                f64::from_bits(completion.actual_elapsed_f64_bits),
+                elapsed_seconds + 1.0 / 60.0
+            );
+            assert_eq!(
+                f64::from_bits(completion.configured_duration_f64_bits),
+                generation_seconds
+            );
             assert_eq!(transition.alive_evolved(), 1);
             assert_eq!(authority.state(), &source);
         }

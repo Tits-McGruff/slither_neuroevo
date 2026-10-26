@@ -6,17 +6,17 @@
 //! binary contracts. Only the small private manifest uses Serde.
 
 use super::graph::{
-    GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec, GraphOutputRef, GraphSpec,
-    CANONICAL_GRAPH_LAYOUT_VERSION,
+    CompiledGraph, GraphBundle, GraphEdge, GraphLimits, GraphNodeKind, GraphNodeSpec,
+    GraphOutputRef, GraphSpec, CANONICAL_GRAPH_LAYOUT_VERSION,
 };
 use super::rng::SerializedRngState;
 use super::state::{
     preflight_generation_boundary_allocation, AllocatorState, AuthoritativeState, AuthorityPhase,
     BaselineRngState, BrainHandle, BrainOwner, BrainRuntimeState, ContractVersions,
-    FixedStepContinuationState, GenerationBoundaryKind, GenerationBoundaryView, GenerationState,
-    GenomeLineage, NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue,
-    PopulationGenome, RngStateBundle, RunIdentity, StateAdmissionPolicy, StateCandidate,
-    StateError, WorldState, CHECKPOINT_VERSION,
+    EvolvedRespawnRngState, FixedStepContinuationState, GenerationBoundaryKind,
+    GenerationBoundaryView, GenerationState, GenomeLineage, NormalizedEngineConfig,
+    NormalizedSetting, NormalizedSettingValue, PopulationGenome, RngStateBundle, RunIdentity,
+    StateAdmissionPolicy, StateCandidate, StateError, WorldState, CHECKPOINT_VERSION,
 };
 use super::work_progress::{advance as advance_work_progress, ArchivePhase, ArchivePhaseScope};
 use serde::{Deserialize, Serialize};
@@ -93,6 +93,8 @@ const USTAR_ENTRY_COUNT: usize = LOGICAL_ROLE_COUNT + 1;
 
 /// Caller-reviewed pre-allocation and file-size bounds for checkpoint I/O.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "engine-test-hooks", derive(serde::Serialize))]
+#[cfg_attr(feature = "engine-test-hooks", serde(rename_all = "camelCase"))]
 pub struct CheckpointLimits {
     /// Maximum complete managed checkpoint bytes.
     pub max_archive_bytes: u64,
@@ -161,11 +163,13 @@ impl CheckpointOperationId {
 }
 
 /// Versioned numeric-role encoding selected from measured stored bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum NumericEncoding {
     /// Packed four-byte little-endian Float32 values.
+    #[serde(rename = "raw-f32le-v1")]
     RawF32LeV1,
     /// One-MiB byte-shuffled Float32 blocks in independent Zstandard frames.
+    #[serde(rename = "f32le-shuffle4-zstd-v1")]
     F32LeShuffle4ZstdV1,
 }
 
@@ -310,9 +314,10 @@ pub struct CheckpointDescriptor {
     pub write_validation_policy: CheckpointWriteValidationPolicy,
 }
 
-/// Small content-addressed descriptor for one independently retained elite genome.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HallOfFameWeightsDescriptor {
+/// Content-addressed weight object shared by winners and saved neural brains.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedNeuralWeightsDescriptor {
     /// Version of this scalar descriptor and file contract.
     pub version: u32,
     /// Encoding-independent SHA-256 of packed little-endian Float32 bits.
@@ -322,14 +327,20 @@ pub struct HallOfFameWeightsDescriptor {
     /// Selected adaptive numeric encoding.
     pub encoding: NumericEncoding,
     /// Complete stored file bytes as canonical `u64` hexadecimal.
+    #[serde(rename = "storedByteCount")]
     pub stored_byte_count_hex: String,
     /// Packed logical bytes as canonical `u64` hexadecimal.
+    #[serde(rename = "decodedByteCount")]
     pub decoded_byte_count_hex: String,
     /// Exact Float32 parameter count as canonical `u64` hexadecimal.
+    #[serde(rename = "weightCount")]
     pub weight_count_hex: String,
 }
 
-impl HallOfFameWeightsDescriptor {
+/// Compatibility name for existing HoF callers and immutable file metadata.
+pub type HallOfFameWeightsDescriptor = ManagedNeuralWeightsDescriptor;
+
+impl ManagedNeuralWeightsDescriptor {
     /// Exact string-storage bytes retained after publication compacts spare capacity.
     pub(crate) const PUBLICATION_OWNED_BYTES: usize =
         64 + 64 + HALL_OF_FAME_WEIGHTS_SUFFIX.len() + 3 * 16;
@@ -839,6 +850,18 @@ pub(crate) fn boundary_decoded_byte_count(
     graph: &super::graph::CompiledGraph,
     limits: &CheckpointLimits,
 ) -> Result<u64, CheckpointError> {
+    decoded_role_byte_count(boundary_decoded_role_byte_counts(
+        state, spec, graph, limits,
+    )?)
+}
+
+/// Exact state/graph/index/weight/recurrent role sizes, including metadata-only boundaries.
+pub(crate) fn boundary_decoded_role_byte_counts(
+    state: &StateCandidate,
+    spec: &GraphSpec,
+    graph: &super::graph::CompiledGraph,
+    limits: &CheckpointLimits,
+) -> Result<[u64; LOGICAL_ROLE_COUNT], CheckpointError> {
     validate_limits(limits)?;
     let weight_bytes = usize_to_u64(state.population.len(), "population count")?
         .checked_mul(usize_to_u64(graph.total_parameters, "parameter count")?)
@@ -850,7 +873,7 @@ pub(crate) fn boundary_decoded_byte_count(
         .checked_mul(usize_to_u64(graph.total_state_size, "recurrent count")?)
         .and_then(|count| count.checked_mul(size_of::<f32>() as u64))
         .ok_or_else(|| CheckpointError::format("COUNT_OVERFLOW", "recurrent bytes overflow"))?;
-    decoded_role_byte_count([
+    Ok([
         encode_state(state, limits)?.len() as u64,
         encode_graph(spec, graph, limits)?.len() as u64,
         encode_population_index(
@@ -878,15 +901,15 @@ fn decoded_role_byte_count(lengths: [u64; LOGICAL_ROLE_COUNT]) -> Result<u64, Ch
 /// Publish one exact generation-boundary checkpoint as an immutable managed file.
 ///
 /// Ordinary publication deliberately performs no mandatory second full decode.
-/// A pre-existing content-addressed destination is the exception: it is decoded
-/// and admitted before being accepted as an idempotent publication.
+/// A pre-existing destination is fully stream-decoded and hashed against the
+/// admitted logical root without allocating a second population.
 pub fn publish_checkpoint(
     managed_directory: &Path,
     operation_id: CheckpointOperationId,
     transition_epoch: u64,
     boundary: GenerationBoundaryView<'_>,
     limits: &CheckpointLimits,
-    graph_limits: &GraphLimits,
+    _graph_limits: &GraphLimits,
     admission_policy: &StateAdmissionPolicy,
 ) -> Result<CheckpointDescriptor, CheckpointError> {
     validate_limits(limits)?;
@@ -1149,11 +1172,9 @@ pub fn publish_checkpoint(
             &operation_id,
             transition_epoch,
             state,
-            boundary.graph_spec(),
+            boundary.graph(),
             &logical_root_hex,
             limits,
-            graph_limits,
-            admission_policy,
         );
     }
 
@@ -1222,11 +1243,9 @@ pub fn publish_checkpoint(
                 &operation_id,
                 transition_epoch,
                 state,
-                boundary.graph_spec(),
+                boundary.graph(),
                 &logical_root_hex,
                 limits,
-                graph_limits,
-                admission_policy,
             );
         }
         Err(error) => return Err(error.into()),
@@ -1250,6 +1269,19 @@ pub fn publish_hall_of_fame_weights(
     weights: &[f32],
     limits: &CheckpointLimits,
 ) -> Result<HallOfFameWeightsDescriptor, CheckpointError> {
+    publish_managed_neural_weights(managed_directory, operation_id, weights, limits, u64::MAX)
+}
+
+/// Shared immutable weight publication for retained winners and library brains.
+/// The legacy suffix is a storage compatibility contract, independent of origin.
+/// Reject encoded quota overflow before publishing the final content-addressed file.
+pub fn publish_managed_neural_weights(
+    managed_directory: &Path,
+    operation_id: &CheckpointOperationId,
+    weights: &[f32],
+    limits: &CheckpointLimits,
+    stored_byte_limit: u64,
+) -> Result<ManagedNeuralWeightsDescriptor, CheckpointError> {
     validate_limits(limits)?;
     fs::create_dir_all(managed_directory)?;
     let managed_directory = managed_directory.canonicalize()?;
@@ -1284,8 +1316,17 @@ pub fn publish_hall_of_fame_weights(
     }
     .compact_storage();
     if final_path.exists() {
-        validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
-        return Ok(descriptor);
+        return read_existing_neural_weight_descriptor(
+            &final_path,
+            &descriptor,
+            stored_byte_limit.min(limits.max_numeric_stored_bytes),
+        );
+    }
+    if candidate.stored_bytes > stored_byte_limit {
+        return Err(CheckpointError::format(
+            "NEURAL_WEIGHTS_QUOTA",
+            "managed neural weights exceed the available stored-byte allowance",
+        ));
     }
 
     let partial_path = match candidate.encoding {
@@ -1328,14 +1369,58 @@ pub fn publish_hall_of_fame_weights(
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists || final_path.exists() => {
             sync_parent_directory(&managed_directory)?;
-            validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
-            return Ok(descriptor);
+            return read_existing_neural_weight_descriptor(
+                &final_path,
+                &descriptor,
+                stored_byte_limit,
+            );
         }
         Err(error) => return Err(error.into()),
     }
     sync_parent_directory(&managed_directory)?;
     validate_existing_hall_of_fame_weights(&final_path, &descriptor)?;
     Ok(descriptor)
+}
+
+/// Preserve a valid older object's actual encoding and bytes even if today's
+/// adaptive codec would choose differently. Exact decoded digest/finite checks
+/// disambiguate the two admitted encodings without trusting file suffix/content hints.
+fn read_existing_neural_weight_descriptor(
+    path: &Path,
+    expected: &ManagedNeuralWeightsDescriptor,
+    stored_byte_limit: u64,
+) -> Result<ManagedNeuralWeightsDescriptor, CheckpointError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(CheckpointError::format(
+            "NEURAL_WEIGHTS_FILE",
+            "shared weight object must be a regular file",
+        ));
+    }
+    if metadata.len() > stored_byte_limit {
+        return Err(CheckpointError::format(
+            "NEURAL_WEIGHTS_QUOTA",
+            "existing shared weights exceed stored-byte allowance",
+        ));
+    }
+    let mut actual = expected.clone();
+    actual.stored_byte_count_hex = encode_u64_hex(metadata.len());
+    for encoding in [
+        expected.encoding,
+        match expected.encoding {
+            NumericEncoding::RawF32LeV1 => NumericEncoding::F32LeShuffle4ZstdV1,
+            NumericEncoding::F32LeShuffle4ZstdV1 => NumericEncoding::RawF32LeV1,
+        },
+    ] {
+        actual.encoding = encoding;
+        if validate_existing_hall_of_fame_weights(path, &actual).is_ok() {
+            return Ok(actual);
+        }
+    }
+    Err(CheckpointError::format(
+        "NEURAL_WEIGHTS_IDENTITY",
+        "existing shared object has invalid packed weight identity",
+    ))
 }
 
 /// Fully verify an existing content-addressed elite object before reusing it.
@@ -1643,7 +1728,7 @@ pub fn restore_checkpoint(
     let candidate = assemble_candidate(state_parts, &index, weights, recurrent)?;
     let state =
         AuthoritativeState::validate_and_own(candidate, Arc::clone(&graph), admission_policy)?;
-    crosscheck_manifest_state(&manifest, &validated, &state)?;
+    crosscheck_manifest_state(&manifest, &validated, state.state(), state.graph())?;
     let content = content_descriptor_from_manifest(
         &manifest,
         archive_length,
@@ -1723,7 +1808,7 @@ fn checked_zstd_estimate(value: usize, label: &'static str) -> Result<usize, Che
 /// The authoritative state estimate already includes the configured checkpoint
 /// scratch reservation. Callers replace that declaration with this codec-derived
 /// bound before comparing against the hard process admission ceiling.
-fn checkpoint_workspace_bound(
+pub(crate) fn checkpoint_workspace_bound(
     limits: &CheckpointLimits,
     population_count: usize,
 ) -> Result<usize, CheckpointError> {
@@ -2245,6 +2330,31 @@ fn encode_rng_bundle(
     value: &RngStateBundle,
     limits: &CheckpointLimits,
 ) -> Result<(), CheckpointError> {
+    if !matches!(
+        value.version,
+        super::state::RNG_BUNDLE_VERSION
+            | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+            | super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+    ) {
+        return Err(CheckpointError::format(
+            "RNG_VERSION",
+            "unsupported RNG bundle encoding",
+        ));
+    }
+    if value.version == super::state::RNG_BUNDLE_VERSION && !value.evolved_respawns.is_empty() {
+        return Err(CheckpointError::format(
+            "RNG_STATE",
+            "frozen RNG bundle has evolved streams",
+        ));
+    }
+    if value.version < super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+        && !value.baseline_behaviors.is_empty()
+    {
+        return Err(CheckpointError::format(
+            "RNG_STATE",
+            "frozen RNG bundles cannot carry baseline behavior",
+        ));
+    }
     if value.baselines.len() > limits.max_baseline_rng_count {
         return Err(CheckpointError::format(
             "RNG_LIMIT",
@@ -2259,6 +2369,56 @@ fn encode_rng_bundle(
     for baseline in &value.baselines {
         output.u32(baseline.slot)?;
         encode_rng(output, &baseline.state)?;
+    }
+    if value.version >= super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        if value.evolved_respawns.len() > limits.max_population_count
+            || value.evolved_respawns.len() > 300
+        {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "evolved RNG count exceeds checkpoint limit",
+            ));
+        }
+        output.u32(usize_to_u32(
+            value.evolved_respawns.len(),
+            "evolved RNG count",
+        )?)?;
+        for (slot, stream) in value.evolved_respawns.iter().enumerate() {
+            if stream.slot as usize != slot || stream.uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "evolved RNG slots must be dense and nonzero",
+                ));
+            }
+            output.u32(stream.slot)?;
+            output.u32(stream.uniform_state)?;
+        }
+    }
+    if value.version == super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+        let streams = &value.baseline_behaviors;
+        if streams.len() > limits.max_baseline_rng_count || streams.len() > 120 {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "baseline behavior count exceeds checkpoint limit",
+            ));
+        }
+        if streams.len() != value.baselines.len() {
+            return Err(CheckpointError::format(
+                "RNG_STATE",
+                "behavior count must match baseline slots",
+            ));
+        }
+        output.u32(usize_to_u32(streams.len(), "baseline behavior count")?)?;
+        for (slot, stream) in streams.iter().enumerate() {
+            if stream.slot as usize != slot || stream.uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "behavior slots must be dense and nonzero",
+                ));
+            }
+            output.u32(stream.slot)?;
+            output.u32(stream.uniform_state)?;
+        }
     }
     Ok(())
 }
@@ -2485,6 +2645,17 @@ fn decode_rng_bundle(
     limits: &CheckpointLimits,
 ) -> Result<RngStateBundle, CheckpointError> {
     let version = input.u32()?;
+    if !matches!(
+        version,
+        super::state::RNG_BUNDLE_VERSION
+            | super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION
+            | super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION
+    ) {
+        return Err(CheckpointError::format(
+            "RNG_VERSION",
+            "unsupported RNG bundle encoding",
+        ));
+    }
     let world = decode_rng(input)?;
     let evolution = decode_rng(input)?;
     let external_controller = decode_rng(input)?;
@@ -2505,7 +2676,78 @@ fn decode_rng_bundle(
             state: decode_rng(input)?,
         });
     }
+    let mut evolved_respawns = Vec::new();
+    if version >= super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION {
+        let count = u32_to_usize(input.u32()?, "evolved RNG count")?;
+        if count > limits.max_population_count || count > 300 {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "declared evolved RNG count exceeds limit",
+            ));
+        }
+        let packed_length = count
+            .checked_mul(8)
+            .ok_or_else(|| CheckpointError::format("ARITHMETIC", "evolved RNG bytes overflow"))?;
+        // Prove the complete packed record range exists before reserving storage.
+        let packed = input.raw(packed_length)?;
+        evolved_respawns.try_reserve_exact(count).map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve evolved RNG states")
+        })?;
+        for (slot, record) in packed.as_chunks::<8>().0.iter().enumerate() {
+            let actual_slot = u32::from_le_bytes([record[0], record[1], record[2], record[3]]);
+            let uniform_state = u32::from_le_bytes([record[4], record[5], record[6], record[7]]);
+            if actual_slot as usize != slot || uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "evolved RNG slots must be dense and nonzero",
+                ));
+            }
+            evolved_respawns.push(EvolvedRespawnRngState {
+                slot: actual_slot,
+                uniform_state,
+            });
+        }
+    }
+    let mut baseline_behaviors = Vec::new();
+    if version == super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION {
+        let count = u32_to_usize(input.u32()?, "baseline behavior count")?;
+        if count > limits.max_baseline_rng_count || count > 120 {
+            return Err(CheckpointError::format(
+                "RNG_LIMIT",
+                "declared behavior count exceeds limit",
+            ));
+        }
+        if count != baselines.len() {
+            return Err(CheckpointError::format(
+                "RNG_STATE",
+                "behavior count must match baseline slots",
+            ));
+        }
+        let length = count.checked_mul(8).ok_or_else(|| {
+            CheckpointError::format("ARITHMETIC", "baseline behavior bytes overflow")
+        })?;
+        let packed = input.raw(length)?; // Prove the whole record range before reserving.
+        baseline_behaviors.try_reserve_exact(count).map_err(|_| {
+            CheckpointError::format("ALLOCATION", "unable to reserve behavior streams")
+        })?;
+        for (slot, record) in packed.as_chunks::<8>().0.iter().enumerate() {
+            let actual_slot = u32::from_le_bytes([record[0], record[1], record[2], record[3]]);
+            let uniform_state = u32::from_le_bytes([record[4], record[5], record[6], record[7]]);
+            if actual_slot as usize != slot || uniform_state == 0 {
+                return Err(CheckpointError::format(
+                    "RNG_STATE",
+                    "behavior slots must be dense and nonzero",
+                ));
+            }
+            baseline_behaviors.push(super::rng::BaselineBehaviorRngState {
+                slot: actual_slot,
+                uniform_state,
+            });
+        }
+    }
     Ok(RngStateBundle {
+        baseline_behaviors,
+        evolved_respawns,
         version,
         world,
         evolution,
@@ -4130,6 +4372,7 @@ fn assemble_candidate(
         brains[brain_index] = Some(BrainRuntimeState {
             handle: record.brain,
             owner: BrainOwner::PopulationSlot(record.slot),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: brain_recurrent,
         });
@@ -4183,6 +4426,7 @@ fn assemble_allocation_shell(
         brains[brain_index] = Some(BrainRuntimeState {
             handle: record.brain,
             owner: BrainOwner::PopulationSlot(record.slot),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: Box::new([]),
         });
@@ -4422,6 +4666,23 @@ pub(super) fn scan_strict_ustar_roles(
     file: &mut File,
     archive_length: u64,
     entry_count: usize,
+    validate_role: impl FnMut(&str, u64) -> Result<(), CheckpointError>,
+) -> Result<Vec<ScannedEntry>, CheckpointError> {
+    scan_strict_ustar_role_range(
+        file,
+        archive_length,
+        entry_count,
+        entry_count,
+        validate_role,
+    )
+}
+
+/// Scan a bounded version-dispatched role count; each caller validates its exact manifest set.
+pub(super) fn scan_strict_ustar_role_range(
+    file: &mut File,
+    archive_length: u64,
+    minimum_entry_count: usize,
+    entry_count: usize,
     mut validate_role: impl FnMut(&str, u64) -> Result<(), CheckpointError>,
 ) -> Result<Vec<ScannedEntry>, CheckpointError> {
     file.seek(SeekFrom::Start(0))?;
@@ -4514,7 +4775,8 @@ pub(super) fn scan_strict_ustar_roles(
         offset = next;
         file.seek(SeekFrom::Start(offset))?;
     }
-    if entries.len() != entry_count
+    if entries.len() < minimum_entry_count
+        || entries.len() > entry_count
         || entries
             .last()
             .is_none_or(|entry| entry.name != MANIFEST_PATH)
@@ -4903,9 +5165,9 @@ fn validate_manifest(
 fn crosscheck_manifest_state(
     manifest: &CheckpointManifest,
     validated: &ValidatedManifest,
-    state: &AuthoritativeState,
+    candidate: &StateCandidate,
+    graph: &CompiledGraph,
 ) -> Result<(), CheckpointError> {
-    let candidate = state.state();
     let boundary = match candidate.phase {
         AuthorityPhase::GenerationBoundary(kind) => CheckpointBoundaryKind::from_state(kind),
         AuthorityPhase::Running => {
@@ -4946,8 +5208,8 @@ fn crosscheck_manifest_state(
         || validated.weight_float_count != actual_weight_count
         || validated.recurrent_float_count != actual_recurrent_count
         || manifest.graph_architecture_key != candidate.config.graph_architecture_key
-        || manifest.graph_architecture_key != state.graph().architecture_key
-        || manifest.graph_layout_sha256 != state.graph().layout_digest_hex()
+        || manifest.graph_architecture_key != graph.architecture_key
+        || manifest.graph_layout_sha256 != graph.layout_digest_hex()
     {
         return Err(CheckpointError::format(
             "MANIFEST_STATE_MISMATCH",
@@ -5081,36 +5343,109 @@ pub(crate) fn publication_descriptor_for_restored(
 
 /// Accept an existing digest-derived file only after a complete strict restore and state comparison.
 #[allow(clippy::too_many_arguments)]
+/// Verify every logical byte without allocating another population. The expected
+/// root comes from an independently admitted boundary or fully restored import.
+pub(super) fn verify_existing_checkpoint_content(
+    path: &Path,
+    expected_state: &StateCandidate,
+    expected_graph: &CompiledGraph,
+    expected_root: &str,
+    limits: &CheckpointLimits,
+) -> Result<CheckpointContentDescriptor, CheckpointError> {
+    validate_limits(limits)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.len() == 0
+        || metadata.len() > limits.max_archive_bytes
+    {
+        return Err(CheckpointError::format(
+            "MANAGED_FILE_TYPE",
+            "existing checkpoint must be one bounded regular file",
+        ));
+    }
+    let mut file = File::open(path)?;
+    let archive_length = file.metadata()?.len();
+    let entries = scan_strict_ustar(&mut file, archive_length, limits)?;
+    let manifest_entry = entries
+        .last()
+        .ok_or_else(|| CheckpointError::format("USTAR_EMPTY", "archive has no entries"))?;
+    let manifest_bytes = read_entry_bytes(&mut file, manifest_entry, limits.max_manifest_bytes)?;
+    let manifest: CheckpointManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|error| CheckpointError::format("MANIFEST_JSON", error.to_string()))?;
+    let validated = validate_manifest(&manifest, &entries, limits)?;
+    if manifest.logical_root_sha256 != expected_root {
+        return Err(CheckpointError::format(
+            "DIGEST_COLLISION",
+            "existing checkpoint has a different logical root",
+        ));
+    }
+    crosscheck_manifest_state(&manifest, &validated, expected_state, expected_graph)?;
+    for (index, maximum) in [
+        limits.max_state_bytes,
+        limits.max_graph_bytes,
+        limits.max_population_index_bytes,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        read_and_verify_small_role(&mut file, &entries[index], &validated.roles[index], maximum)?;
+    }
+    for (index, encoding, count) in [
+        (3, validated.weights_encoding, validated.weight_float_count),
+        (
+            4,
+            validated.recurrent_encoding,
+            validated.recurrent_float_count,
+        ),
+    ] {
+        file.seek(SeekFrom::Start(entries[index].data_offset))?;
+        decode_adaptive_numeric_reader(
+            &mut file,
+            encoding,
+            entries[index].size,
+            usize_to_u64(count, "numeric float count")?,
+            validated.roles[index].logical_sha256,
+            &mut io::sink(),
+        )?;
+    }
+    content_descriptor_from_manifest(
+        &manifest,
+        archive_length,
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                CheckpointError::format("MANAGED_FILENAME", "checkpoint filename is not UTF-8")
+            })?
+            .to_owned(),
+    )
+}
+
+/// Preserve descriptor operation identity while verifying the existing content.
 fn validate_existing_idempotent(
     final_path: &Path,
     operation_id: &CheckpointOperationId,
     transition_epoch: u64,
     expected_state: &StateCandidate,
-    expected_graph: &GraphSpec,
+    expected_graph: &CompiledGraph,
     expected_root: &str,
     limits: &CheckpointLimits,
-    graph_limits: &GraphLimits,
-    admission_policy: &StateAdmissionPolicy,
 ) -> Result<CheckpointDescriptor, CheckpointError> {
-    let restored = restore_checkpoint(final_path, limits, graph_limits, admission_policy).map_err(
-        |error| {
-            CheckpointError::format(
-                "DIGEST_COLLISION",
-                format!("existing digest-derived file failed strict validation: {error}"),
-            )
-        },
-    )?;
-    if restored.content.logical_root_sha256 != expected_root
-        || restored.state.state() != expected_state
-        || restored.state.graph_spec() != expected_graph
-    {
-        return Err(CheckpointError::format(
+    let content = verify_existing_checkpoint_content(
+        final_path,
+        expected_state,
+        expected_graph,
+        expected_root,
+        limits,
+    )
+    .map_err(|error| {
+        CheckpointError::format(
             "DIGEST_COLLISION",
-            "existing digest-derived file is not the same admitted logical checkpoint",
-        ));
-    }
+            format!("existing digest-derived file failed strict validation: {error}"),
+        )
+    })?;
     Ok(publication_descriptor(
-        restored.content,
+        content,
         operation_id.clone(),
         transition_epoch,
     ))
@@ -5420,6 +5755,8 @@ mod tests {
             expected_rustc_version: "rustc-test".into(),
             expected_build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
             expected_math_backend: "scalar-test".into(),
+            allowed_settings_schema_sha256: Vec::new(),
+            allowed_math_backends: Vec::new(),
             expected_settings_schema_sha256: settings_schema_sha256,
         }
     }
@@ -5526,6 +5863,7 @@ mod tests {
             brains.push(BrainRuntimeState {
                 handle: brain,
                 owner: BrainOwner::PopulationSlot(slot as u32),
+                retained_origin: None,
                 non_population_weights: None,
                 recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
             });
@@ -5556,6 +5894,8 @@ mod tests {
             },
             fixed_step: FixedStepContinuationState::generation_boundary(),
             rng: RngStateBundle {
+                baseline_behaviors: Vec::new(),
+                evolved_respawns: Vec::new(),
                 version: RNG_BUNDLE_VERSION,
                 world: rng(),
                 evolution: rng(),
@@ -5602,6 +5942,184 @@ mod tests {
         .expect("checkpoint publication must succeed");
         let path = directory.path.join(&descriptor.relative_filename);
         (path, descriptor)
+    }
+
+    #[test]
+    fn rng_bundle_v3_roundtrips_behavior_words_and_preserves_v1_v2_bytes() {
+        let (authority, _, _) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut rng = authority.state().rng.clone();
+        let mut legacy = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut legacy, &rng, &limits).unwrap();
+        let v1 = legacy.bytes;
+        rng.version = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(42, 1, 2).unwrap();
+        rng.baselines = (0..3)
+            .map(|slot| BaselineRngState {
+                slot,
+                state: StatefulRng::new(slot as f64 + 1.0).export_state(),
+            })
+            .collect();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let v2 = writer.bytes;
+        rng.version = super::super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        rng.baseline_behaviors =
+            super::super::rng::derive_baseline_v2_behaviors(42, 1, 1, 3, true).unwrap();
+        let mut behavior = rng.baseline_behaviors[1].runtime().unwrap();
+        for _ in 0..19 {
+            behavior.next_f64();
+        }
+        rng.baseline_behaviors[1].uniform_state = behavior.uniform_state();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let bytes = writer.bytes;
+        let restored = decode_rng_bundle(&mut BinaryReader::new(&bytes, &limits), &limits).unwrap();
+        assert_eq!(restored, rng);
+        let mut next = restored.baseline_behaviors[1].runtime().unwrap();
+        for _ in 0..128 {
+            assert_eq!(behavior.next_f64().to_bits(), next.next_f64().to_bits());
+        }
+        rng.baseline_behaviors.clear();
+        rng.version = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        assert_eq!(writer.bytes, v2);
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &authority.state().rng, &limits).unwrap();
+        assert_eq!(writer.bytes, v1);
+    }
+    #[test]
+    fn rng_bundle_v3_rejects_count_slot_zero_truncation_and_frozen_stream_elision() {
+        let (authority, _, _) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut rng = authority.state().rng.clone();
+        rng.version = super::super::state::RNG_BUNDLE_WITH_BASELINE_V2_VERSION;
+        rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(7, 1, 2).unwrap();
+        rng.baselines = (0..2)
+            .map(|slot| BaselineRngState {
+                slot,
+                state: StatefulRng::new(slot as f64 + 1.0).export_state(),
+            })
+            .collect();
+        rng.baseline_behaviors =
+            super::super::rng::derive_baseline_v2_behaviors(7, 1, 1, 2, true).unwrap();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let bytes = writer.bytes;
+        let records = bytes.len() - 16;
+        for (offset, value, code) in [
+            (records - 4, 121u32, "RNG_LIMIT"),
+            (records - 4, 1, "RNG_STATE"),
+            (records, 1, "RNG_STATE"),
+            (records + 4, 0, "RNG_STATE"),
+        ] {
+            let mut bad = bytes.clone();
+            bad[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+            assert!(
+                matches!(decode_rng_bundle(&mut BinaryReader::new(&bad,&limits),&limits),
+                Err(CheckpointError::Format{code:actual,..})if actual==code)
+            );
+        }
+        for cut in 1..=16 {
+            assert!(decode_rng_bundle(
+                &mut BinaryReader::new(&bytes[..bytes.len() - cut], &limits),
+                &limits
+            )
+            .is_err());
+        }
+        for version in [
+            super::super::state::RNG_BUNDLE_VERSION,
+            super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION,
+        ] {
+            rng.version = version;
+            assert!(encode_rng_bundle(
+                &mut BinaryWriter::new(limits.max_state_bytes, &limits),
+                &rng,
+                &limits
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn rng_bundle_v2_roundtrips_dense_evolved_continuation_without_changing_v1_encoding() {
+        let (authority, graph, policy) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let legacy_bytes = encode_state(authority.state(), &limits).unwrap();
+        let legacy = decode_state(&legacy_bytes, &limits).unwrap();
+        assert!(legacy.rng.evolved_respawns.is_empty());
+        assert_eq!(legacy.rng.version, super::super::state::RNG_BUNDLE_VERSION);
+        let mut candidate = authority.state().clone();
+        candidate.versions.rng_bundle = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        candidate.rng.version = candidate.versions.rng_bundle;
+        candidate.rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(
+            candidate.identity.seed,
+            candidate.generation.generation,
+            candidate.population.len(),
+        )
+        .unwrap();
+        let mut runtime = candidate.rng.evolved_respawns[0].runtime().unwrap();
+        for _ in 0..17 {
+            runtime.next_f64();
+        }
+        candidate.rng.evolved_respawns[0].uniform_state = runtime.uniform_state();
+        let encoded = encode_state(&candidate, &limits).unwrap();
+        assert_eq!(decode_state(&encoded, &limits).unwrap().rng, candidate.rng);
+        assert_eq!(
+            encode_state(authority.state(), &limits).unwrap(),
+            legacy_bytes
+        );
+        let owned = AuthoritativeState::validate_and_own(candidate, graph, &policy).unwrap();
+        let directory = TestDirectory::new("evolved-rng-v2");
+        let (file, descriptor) = publish_fixture(
+            &directory,
+            &owned,
+            &policy,
+            "abababababababababababababababab",
+        );
+        let restored = restore_checkpoint(&file, &limits, &graph_limits(), &policy).unwrap();
+        assert_eq!(restored.state.state().rng, owned.state().rng);
+        assert_eq!(
+            restored.content.logical_root_sha256,
+            descriptor.logical_root_sha256
+        );
+    }
+
+    #[test]
+    fn rng_bundle_v2_rejects_oversized_truncated_and_invalid_packed_records() {
+        let (authority, _, _) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut rng = authority.state().rng.clone();
+        rng.version = super::super::state::RNG_BUNDLE_WITH_EVOLVED_VERSION;
+        rng.evolved_respawns = EvolvedRespawnRngState::derive_generation(7, 1, 2).unwrap();
+        let mut writer = BinaryWriter::new(limits.max_state_bytes, &limits);
+        encode_rng_bundle(&mut writer, &rng, &limits).unwrap();
+        let original = writer.bytes;
+        let records_start = original.len() - 16;
+        for (offset, replacement, expected_code) in [
+            (records_start - 4, 301_u32, "RNG_LIMIT"),
+            (records_start, 1, "RNG_STATE"),
+            (records_start + 4, 0, "RNG_STATE"),
+        ] {
+            let mut bytes = original.clone();
+            bytes[offset..offset + 4].copy_from_slice(&replacement.to_le_bytes());
+            let error =
+                decode_rng_bundle(&mut BinaryReader::new(&bytes, &limits), &limits).unwrap_err();
+            assert!(matches!(error, CheckpointError::Format { code, .. } if code == expected_code));
+        }
+        assert!(decode_rng_bundle(
+            &mut BinaryReader::new(&original[..original.len() - 1], &limits),
+            &limits
+        )
+        .is_err());
+        rng.version = super::super::state::RNG_BUNDLE_VERSION;
+        assert!(encode_rng_bundle(
+            &mut BinaryWriter::new(limits.max_state_bytes, &limits),
+            &rng,
+            &limits
+        )
+        .is_err());
     }
 
     /// Origin records survive binary state saves while old states remain readable.
@@ -5770,6 +6288,65 @@ mod tests {
             "00000000000000000000000000000002"
         );
         assert_eq!(second.transition_epoch_hex, "000000000000000a");
+    }
+
+    /// Existing-file verification reads all five roles and checks mirrored facts
+    /// while retaining only codec blocks instead of a second decoded population.
+    #[test]
+    fn streamed_existing_verification_rejects_each_corrupt_role_and_manifest_mirror() {
+        for compressed in [false, true] {
+            let directory = TestDirectory::new("stream-verify");
+            let (state, _graph, policy) = admitted_state(3, compressed);
+            let (path, descriptor) = publish_fixture(
+                &directory,
+                &state,
+                &policy,
+                "00000000000000000000000000000091",
+            );
+            let limits = checkpoint_limits();
+            let original = fs::read(&path).unwrap();
+            let mut file = File::open(&path).unwrap();
+            let entries = scan_strict_ustar(&mut file, original.len() as u64, &limits).unwrap();
+            let verify = || {
+                verify_existing_checkpoint_content(
+                    &path,
+                    state.state(),
+                    state.graph(),
+                    &descriptor.logical_root_sha256,
+                    &limits,
+                )
+            };
+            let expected = restore_checkpoint(&path, &limits, &graph_limits(), &policy)
+                .unwrap()
+                .content;
+            assert_eq!(verify().unwrap(), expected);
+            for entry in &entries[..5] {
+                let mut corrupt = original.clone();
+                corrupt[entry.data_offset as usize] ^= 1;
+                fs::write(&path, corrupt).unwrap();
+                assert!(verify().is_err(), "unverified role {}", entry.name);
+                fs::write(&path, &original).unwrap();
+            }
+            let entry = &entries[5];
+            let start = entry.data_offset as usize;
+            let end = start + entry.size as usize;
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(&original[start..end]).unwrap();
+            let generation = manifest["generationHex"].as_str().unwrap().to_owned();
+            let replacement = if generation.ends_with('0') { '1' } else { '0' };
+            let mut changed = generation;
+            changed.pop();
+            changed.push(replacement);
+            manifest["generationHex"] = serde_json::Value::String(changed);
+            let bytes = serde_json::to_vec(&manifest).unwrap();
+            assert_eq!(bytes.len(), entry.size as usize);
+            let mut corrupt = original.clone();
+            corrupt[start..end].copy_from_slice(&bytes);
+            fs::write(&path, corrupt).unwrap();
+            assert!(verify().is_err());
+            fs::write(&path, original).unwrap();
+            assert_eq!(verify().unwrap(), expected);
+        }
     }
 
     /// One independently published evolved save with real winner weights.
@@ -5988,6 +6565,37 @@ mod tests {
             );
             assert_eq!(fs::read_dir(&target.path).unwrap().count(), 1);
         }
+    }
+
+    /// Legacy conversion must honor the same reduced overlap budget as native archives.
+    #[test]
+    fn legacy_json_import_uses_remaining_admission_before_decode_or_publication() {
+        let target = TestDirectory::new("legacy-overlap-admission");
+        let upload = target.path.join("population.json");
+        let bytes = br#"{"genomes":[{"archKey":"legacy-default-graph","weights":[0]}]}"#;
+        fs::write(&upload, bytes).unwrap();
+        let mut policy = admission_policy(String::new());
+        policy.memory_ceiling_bytes = 64 * 1024;
+        let error = crate::engine::export_archive::prepare_import_archive(
+            &upload,
+            &target.path,
+            &target.path,
+            &"d".repeat(32),
+            "legacy-overlap",
+            42,
+            &checkpoint_limits(),
+            &graph_limits(),
+            &policy,
+            4 * 1024 * 1024 * 1024,
+        )
+        .err()
+        .unwrap();
+        assert!(
+            error.to_string().contains("LEGACY_IMPORT_RESOURCE"),
+            "{error}"
+        );
+        assert_eq!(fs::read_dir(&target.path).unwrap().count(), 1);
+        assert_eq!(fs::read(&upload).unwrap(), bytes);
     }
 
     /// A valid evolved save reaches HOF extraction before build rejection or panic.

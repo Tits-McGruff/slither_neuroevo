@@ -33,10 +33,28 @@ name = "stage5-step-benchmark"
 path = "src/bin/stage5_step_benchmark.rs"
 required-features = ["engine-test-hooks"]
 
+[[bin]]
+name = "sensor-v4-qualification"
+path = "src/bin/sensor_v4_qualification.rs"
+required-features = ["engine-test-hooks"]
+
 [features]
 engine-test-hooks = []
+contract-schema = ["dep:schemars"]
+
+[[bin]]
+name = "canonical-training-graph"
+path = "src/bin/canonical_training_graph.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "export-contracts"
+path = "src/bin/export_contracts.rs"
+required-features = ["contract-schema"]
 
 [dependencies]
+schemars = { version = "1", optional = true }
+
 getrandom = "0.4"
 flate2 = "1"
 napi = { version = "3.0.0", features = ["napi6", "compat-mode"] }
@@ -64,3 +82,18 @@ codegen-units = 1     # Slower compile, but better optimization
 panic = "unwind"      # Required so caught Rust panics fault the engine instead of aborting Node
 debug = true          # KEPT: Needed for samply/flamegraph reports
 strip = false         # KEPT: Ensures symbols aren't deleted so you can read function names
+
+[[bin]]
+name = "baseline-v2-qualification"
+path = "src/bin/baseline_v2_qualification.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "checkpoint-capacity-qualification"
+path = "src/bin/checkpoint_capacity_qualification.rs"
+required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "crowded-sensor-qualification"
+path = "src/bin/crowded_sensor_qualification.rs"
+required-features = ["engine-test-hooks"]

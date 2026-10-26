@@ -83,17 +83,32 @@ describe('authoritative control client', () => {
       }
     });
 
-    controls.moveSnake(9, 1, 2);
+    controls.moveSnake(9, 1, 2, '1'.repeat(64));
     vi.advanceTimersByTime(10);
-    controls.moveSnake(9, 3, 4);
+    controls.moveSnake(9, 3, 4, '1'.repeat(64));
     vi.advanceTimersByTime(10);
-    controls.finishMove(9, 8, 10);
+    controls.finishMove(9, 8, 10, '1'.repeat(64));
     vi.advanceTimersByTime(100);
 
     expect(moves).toEqual([
       { requestId: 'client-b-1', snakeId: 9, x: 1, y: 2 },
       { requestId: 'client-b-2', snakeId: 9, x: 8, y: 10 }
     ]);
+  });
+
+  it('retires stale queued drag tokens while preserving unrelated setting drafts', () => {
+    vi.useFakeTimers();
+    const move = vi.fn(); const settings = vi.fn();
+    const controls = createAuthoritativeControls({ sendSettings: settings, sendGodModeMove: move,
+      sendGodModeKill: () => {}, sendNewRun: () => {} }, { requestIdPrefix: 'tokens',
+      clock: { now: () => Date.now(), schedule: (callback, delay) => setTimeout(callback, delay), cancel: clearTimeout } });
+    controls.queueSetting('simSpeed', 2);
+    controls.moveSnake(7, 1, 2, '1'.repeat(64));
+    controls.moveSnake(7, 3, 4, '2'.repeat(64));
+    controls.cancelMoves();
+    vi.advanceTimersByTime(100);
+    expect(move).toHaveBeenCalledExactlyOnceWith('tokens-1', 7, 1, 2, '1'.repeat(64));
+    expect(settings).toHaveBeenCalledExactlyOnceWith('tokens-2', [{ path: 'simSpeed', value: 2 }]);
   });
 
   it('exposes immediate kill and New Run transport methods', () => {
@@ -105,7 +120,7 @@ describe('authoritative control client', () => {
       sendNewRun: () => types.push('newRun')
     }, { requestIdPrefix: 'client-c' });
 
-    expect(controls.killSnake(4)).toBe('client-c-1');
+    expect(controls.killSnake(4, '1'.repeat(64))).toBe('client-c-1');
     expect(controls.requestNewRun()).toBe('client-c-2');
     expect(types).toEqual(['kill', 'newRun']);
   });

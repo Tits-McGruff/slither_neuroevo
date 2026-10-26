@@ -24,13 +24,13 @@ use std::fmt;
 use std::ops::Deref;
 
 /// Canonical graph-layout version implemented by this compiler.
-pub const CANONICAL_GRAPH_LAYOUT_VERSION: u32 = 1;
+pub use crate::contracts::CANONICAL_GRAPH_LAYOUT_VERSION;
 
 /// Domain separator included in bytes covered by the layout SHA-256 digest.
-pub const CANONICAL_GRAPH_LAYOUT_DOMAIN: &[u8] = b"slither-neuroevo/graph-layout/v1\0";
+pub use crate::contracts::CANONICAL_GRAPH_LAYOUT_DOMAIN;
 
 /// The authoritative graph output contract: turn and boost.
-pub const AUTHORITATIVE_OUTPUT_SIZE: usize = 2;
+pub use crate::contracts::AUTHORITATIVE_OUTPUT_SIZE;
 
 /// Caller-selected limits for one authoritative graph compilation request.
 ///
@@ -173,6 +173,11 @@ pub struct GraphSpec {
 /// profile. It is an explicit compatibility profile, not a fallback for an
 /// omitted or rejected custom graph.
 pub(crate) fn typescript_default_graph_spec() -> GraphSpec {
+    default_stack_graph_spec(83)
+}
+
+/// Current stack shape at an explicitly selected structural sensor width.
+pub(crate) fn default_stack_graph_spec(input_size: usize) -> GraphSpec {
     let edge = |from: &str, to: &str| GraphEdge {
         from: from.to_owned(),
         to: to.to_owned(),
@@ -183,12 +188,14 @@ pub(crate) fn typescript_default_graph_spec() -> GraphSpec {
         nodes: vec![
             GraphNodeSpec {
                 id: "input".to_owned(),
-                kind: GraphNodeKind::Input { output_size: 83 },
+                kind: GraphNodeKind::Input {
+                    output_size: input_size,
+                },
             },
             GraphNodeSpec {
                 id: "mlp".to_owned(),
                 kind: GraphNodeKind::Mlp {
-                    input_size: 83,
+                    input_size,
                     hidden_sizes: vec![64],
                     output_size: 64,
                 },

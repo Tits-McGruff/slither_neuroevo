@@ -15,6 +15,7 @@ const FIXED_SOURCE_FILES = [
   'fixtures/frame-v1-reference.json',
   'fixtures/fresh-run-reference.json',
   'fixtures/genome-init-reference.json',
+  'fixtures/sensor-contract-shapes.json',
   'fixtures/sensor-v3-reference.json',
   'package-lock.json',
   'package.json'
@@ -120,7 +121,10 @@ class PathByteBudget {
    * Create one aggregate path budget.
    * @param ceiling - Maximum admitted charged path bytes.
    */
-  public constructor(private readonly ceiling: number) {}
+  public constructor(ceiling: number) { this.ceiling = ceiling; }
+
+  /** Maximum admitted aggregate path bytes. */
+  private readonly ceiling: number;
 
   /**
    * Charge one already measured path or entry name.

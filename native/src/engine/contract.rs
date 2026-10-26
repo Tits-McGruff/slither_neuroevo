@@ -8,13 +8,11 @@ use super::external_replacement::UnavailableControllerReservation;
 use super::generation::GenerationCommitRecord;
 use super::live_settings::LiveSettingUpdate;
 use super::physics::PhysicsStepKey;
-use super::run_start::PendingRunStartTransition;
 use super::running_loop::RunningGenerationStartResolution;
 use super::running_step::ExternalObservationEvent;
 use super::running_step::GenerationTransitionReason;
 use super::state::ControllerKind;
 use std::mem::size_of;
-use std::sync::{Arc, Mutex};
 
 /// First supported engine-spine contract version.
 pub const ENGINE_CONTRACT_VERSION: u32 = 1;
@@ -205,8 +203,15 @@ impl EngineCommand {
                     | RunningAuthorityCommand::ReclaimController(_)
                     | RunningAuthorityCommand::JoinController(_)
                     | RunningAuthorityCommand::ApplyLiveSettings { .. }
+                    | RunningAuthorityCommand::StartTeacherCapture(_)
+                    | RunningAuthorityCommand::ActivateShadow(_)
+                    | RunningAuthorityCommand::StopShadow { .. }
+                    | RunningAuthorityCommand::StopTeacherCapture { .. }
+                    | RunningAuthorityCommand::SelectEntity { .. }
+                    | RunningAuthorityCommand::ConfigureInspector { .. }
                     | RunningAuthorityCommand::GodModeMove { .. }
                     | RunningAuthorityCommand::GodModeKill { .. }
+                    | RunningAuthorityCommand::FinishGeneration { .. }
                     | RunningAuthorityCommand::StagePreparedImport { .. }
             )
         )
@@ -288,65 +293,8 @@ pub struct ControllerReclaimReceipt {
     pub accepted: bool,
 }
 
-/// Process-local private import storage shared only by the native preparation
-/// task and the running authority command that consumes it.
-#[derive(Clone, Debug)]
-pub struct PreparedImportSlot(Arc<Mutex<Option<PendingRunStartTransition>>>);
-
-impl PreparedImportSlot {
-    /// Create one empty single-candidate slot.
-    #[must_use]
-    pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(None)))
-    }
-
-    /// Whether a complete private candidate is awaiting its durable decision.
-    #[must_use]
-    pub fn is_some(&self) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_some()
-    }
-
-    /// Store one candidate only after validation and managed publication finish.
-    pub fn put(
-        &self,
-        candidate: PendingRunStartTransition,
-    ) -> Result<(), Box<PendingRunStartTransition>> {
-        let mut retained = self
-            .0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if retained.is_some() {
-            return Err(Box::new(candidate));
-        }
-        *retained = Some(candidate);
-        Ok(())
-    }
-
-    /// Remove and return the retained candidate.
-    pub fn take(&self) -> Option<PendingRunStartTransition> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take()
-    }
-}
-
-impl Default for PreparedImportSlot {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl PartialEq for PreparedImportSlot {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for PreparedImportSlot {}
+/// Process-local population admission shared by preparation and authority commands.
+pub use super::population_work::PreparedImportSlot;
 
 /// Typed controls and retained generation-transition commands.
 #[derive(Clone, Debug, PartialEq)]
@@ -363,22 +311,60 @@ pub enum RunningAuthorityCommand {
     ApplyLiveSettings {
         updates: Box<[LiveSettingUpdate]>,
     },
+    /// Finish exactly the requested generation after its next complete physical step.
+    FinishGeneration {
+        request_id: String,
+        expected_run_id: String,
+        expected_generation: u64,
+    },
+    /// Resolve one current physical identity without consuming gameplay RNG.
+    SelectEntity {
+        target: super::state::EntitySelectionTarget,
+        expected_run_id: String,
+        expected_generation: u64,
+    },
+    /// Enable one selected diagnostic cache or close it at a clean boundary.
+    ConfigureInspector {
+        pure_probe: bool,
+        expected_run_id: String,
+        selection: Option<Box<(super::state::EntitySelectionToken, u32)>>,
+    },
     /// Translate one browser-addressed live snake before the next step.
     GodModeMove {
+        token: Box<super::state::EntitySelectionToken>,
         frame_v1_id: u32,
         x: f64,
         y: f64,
     },
     /// Kill one browser-addressed live snake through ordinary death effects.
     GodModeKill {
+        token: Box<super::state::EntitySelectionToken>,
         frame_v1_id: u32,
     },
     /// Enable or disable replaceable focused activation capture.
     SetVisualization {
         enabled: bool,
     },
+    /// Arm exact teacher capture without changing world/controller authority.
+    StartTeacherCapture(Box<super::teacher_runtime::TeacherCaptureRequest>),
+    /// Activate an immutable diagnostic candidate at a complete-step boundary.
+    ActivateShadow(Box<super::shadows::ShadowActivationRequest>),
+    /// Disable one diagnostic slot without changing world/controller state.
+    StopShadow {
+        shadow_slot: u32,
+        capture_epoch: [u8; 16],
+        activation_sequence: u64,
+    },
+    /// Seal a specific diagnostic epoch at a clean source boundary.
+    StopTeacherCapture {
+        capture_epoch: [u8; 16],
+    },
+    /// Deploy one exact saved record, independently of Hall-of-Fame winning status.
+    SpawnSavedBrain(Box<super::brain_library::SavedBrainSpawnRequest>),
     /// Restore one verified retained winner directly from its managed object.
     ResurrectHallOfFame {
+        /// Exact retained winner identity from the leased SQLite record.
+        entry_id: u64,
         managed_directory: String,
         weights: Box<HallOfFameWeightsDescriptor>,
     },
@@ -426,6 +412,12 @@ pub enum RunningAuthorityCommand {
 impl RunningAuthorityCommand {
     fn validate(&self) -> Result<(), EngineError> {
         match self {
+            Self::ActivateShadow(request) => request.validate().map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+            Self::StopShadow { shadow_slot, capture_epoch, activation_sequence } if *shadow_slot >= 4 || *capture_epoch == [0;16] || *activation_sequence == 0 => Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid shadow slot")),
+            Self::StartTeacherCapture(request) => request.validate()
+                .map_err(|detail| EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+            Self::StopTeacherCapture { capture_epoch } if *capture_epoch == [0; 16] =>
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid teacher capture epoch")),
             Self::JoinController(request) if request.connection_id == 0
                 || request.identity_key.is_empty() || request.identity_key.len() > 128
                 || request.identity_key.contains('\0') => {
@@ -458,7 +450,25 @@ impl RunningAuthorityCommand {
                     "live settings require 1 to 64 updates",
                 ))
             }
-            Self::GodModeMove { frame_v1_id, x, y }
+            Self::FinishGeneration { request_id, expected_run_id, expected_generation }
+                if request_id.is_empty() || request_id.len() > 128 || request_id.contains('\0')
+                    || expected_run_id.is_empty() || expected_run_id.len() > 256
+                    || expected_run_id.contains('\0') || *expected_generation == 0 =>
+            {
+                Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid finish-generation identity"))
+            }
+            Self::SelectEntity { expected_run_id, expected_generation, target }
+                if expected_run_id.is_empty() || expected_run_id.len() > 256 || expected_run_id.contains('\0')
+                    || *expected_generation == 0 || matches!(target, super::state::EntitySelectionTarget::Frame(0))
+                    || matches!(target, super::state::EntitySelectionTarget::PopulationSlot(slot) if *slot >= 300) =>
+            { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid entity selection scope")) }
+            Self::ConfigureInspector { expected_run_id, selection, pure_probe }
+                if expected_run_id.is_empty() || expected_run_id.len() > 256
+                    || expected_run_id.contains('\0')
+                    || (*pure_probe && selection.is_none())
+                    || selection.as_ref().is_some_and(|value| value.1 == 0 || value.1 > super::state::FRAME_V1_MAX_EXACT_ID) =>
+            { Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid inspector scope")) }
+            Self::GodModeMove { frame_v1_id, x, y, .. }
                 if *frame_v1_id == 0 || !x.is_finite() || !y.is_finite() =>
             {
                 Err(EngineError::new(
@@ -466,9 +476,14 @@ impl RunningAuthorityCommand {
                     "God Mode move requires an exact snake ID and finite coordinates",
                 ))
             }
-            Self::GodModeKill { frame_v1_id } if *frame_v1_id == 0 => Err(EngineError::new(
+            Self::GodModeKill { frame_v1_id, .. } if *frame_v1_id == 0 => Err(EngineError::new(
                 EngineErrorCode::InvalidCommand,
                 "God Mode kill requires an exact snake ID",
+            )),
+            Self::SpawnSavedBrain(request) => request.validate().map_err(|detail|
+                EngineError::new(EngineErrorCode::InvalidCommand, detail)),
+            Self::ResurrectHallOfFame { entry_id: 0, .. } => Err(EngineError::new(
+                EngineErrorCode::InvalidCommand, "Hall-of-Fame entry ID must be nonzero",
             )),
             Self::ResurrectHallOfFame {
                 managed_directory, ..
@@ -499,11 +514,7 @@ impl RunningAuthorityCommand {
                     "controller delivery receipt batch must not be empty",
                 ))
             }
-            Self::StagePreparedImport { slot }
-            | Self::PublishPreparedImport { slot, .. }
-            | Self::CancelPreparedImport { slot }
-                if !slot.is_some() =>
-            {
+            Self::PublishPreparedImport { slot, .. } if !slot.is_some() => {
                 Err(EngineError::new(
                     EngineErrorCode::InvalidCommand,
                     "prepared import slot is empty",
@@ -524,6 +535,16 @@ impl RunningAuthorityCommand {
 
     fn owned_bytes(&self) -> Result<usize, EngineError> {
         match self {
+            // The bounded registry retains every pinned candidate; this queue owns only the Arc/envelope.
+            Self::ActivateShadow(request) => Ok(std::mem::size_of::<
+                super::shadows::ShadowActivationRequest,
+            >() + request.expected_run_id.capacity()),
+            Self::StopShadow { .. } => Ok(0),
+            Self::StartTeacherCapture(request) => Ok(size_of::<
+                super::teacher_runtime::TeacherCaptureRequest,
+            >() + request.expected_run_id.capacity()
+                + request.baseline_slots.len() * size_of::<u32>()),
+            Self::StopTeacherCapture { .. } => Ok(0),
             Self::JoinController(request) => request
                 .identity_key
                 .capacity()
@@ -559,12 +580,39 @@ impl RunningAuthorityCommand {
                         "live settings byte accounting overflowed",
                     )
                 }),
-            Self::GodModeMove { .. } => Ok(0),
-            Self::GodModeKill { .. } => Ok(0),
+            Self::FinishGeneration {
+                request_id,
+                expected_run_id,
+                ..
+            } => request_id
+                .capacity()
+                .checked_add(expected_run_id.capacity())
+                .ok_or_else(|| {
+                    EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "finish-generation identity overflow",
+                    )
+                }),
+            Self::SelectEntity {
+                expected_run_id, ..
+            } => Ok(expected_run_id.capacity()),
+            Self::ConfigureInspector {
+                expected_run_id,
+                selection,
+                ..
+            } => Ok(expected_run_id.capacity().saturating_add(
+                usize::from(selection.is_some())
+                    * size_of::<(super::state::EntitySelectionToken, u32)>(),
+            )),
+            Self::GodModeMove { .. } | Self::GodModeKill { .. } => {
+                Ok(size_of::<super::state::EntitySelectionToken>())
+            }
             Self::SetVisualization { .. } => Ok(0),
+            Self::SpawnSavedBrain(request) => Ok(request.owned_bytes()),
             Self::ResurrectHallOfFame {
                 managed_directory,
                 weights,
+                ..
             } => Ok(managed_directory
                 .capacity()
                 .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
@@ -727,6 +775,16 @@ pub enum RunningAuthorityEvent {
         config_hash: String,
         effective_step: u64,
     },
+    /// A generation-scoped finish is retained until ordinary durable completion.
+    FinishGenerationAccepted {
+        command_sequence: u64,
+        effective_step: u64,
+    },
+    /// Scalar identity for one live entity, or an honest dead/pending result.
+    EntitySelected {
+        command_sequence: u64,
+        selection: Option<super::state::EntitySelection>,
+    },
     /// One live snake and its complete body were translated in bounds.
     GodModeMoved {
         command_sequence: u64,
@@ -742,15 +800,39 @@ pub enum RunningAuthorityEvent {
         pellets_dropped: usize,
         effective_step: u64,
     },
+    /// A library brain became an ordinary retained neural owner.
+    SavedBrainSpawned {
+        command_sequence: u64,
+        frame_v1_id: u32,
+        effective_step: u64,
+    },
     /// One retained winner became a live independently owned Rust snake.
     HallOfFameResurrected {
         command_sequence: u64,
         frame_v1_id: u32,
         effective_step: u64,
     },
+    /// Selected diagnostic subscription changed; rows use a separate replaceable mailbox.
+    InspectorChanged {
+        command_sequence: u64,
+        enabled: bool,
+    },
     /// Focused capture work changed without mutating authoritative game state.
     VisualizationChanged {
         command_sequence: u64,
+        enabled: bool,
+    },
+    /// Ordered diagnostic arm/stop acknowledgement, distinct from gameplay delivery.
+    ShadowChanged {
+        command_sequence: u64,
+        shadow_slot: u32,
+        artifact_sha256: [u8; 32],
+        enabled: bool,
+        effective_step: u64,
+    },
+    TeacherCaptureChanged {
+        command_sequence: u64,
+        capture_epoch: [u8; 16],
         enabled: bool,
     },
     /// The entire ordinary-step delivery batch, admitted before step preparation.
@@ -789,7 +871,7 @@ pub enum RunningAuthorityEvent {
         /// Deduplicated elite object needed after population checkpoint pruning.
         hall_of_fame_weights: Box<HallOfFameWeightsDescriptor>,
         /// Exact compact history and Hall-of-Fame reference.
-        commit_record: GenerationCommitRecord,
+        commit_record: Box<GenerationCommitRecord>,
     },
     /// Rust retained the worker's complete matching descriptor.
     GenerationPersistenceAcknowledged {
@@ -868,10 +950,13 @@ impl RunningAuthorityEvent {
             | Self::ControllerActionApplied { .. }
             | Self::ControllerDisconnected { .. } => 0,
             Self::LiveSettingsApplied { config_hash, .. } => config_hash.capacity(),
+            Self::FinishGenerationAccepted { .. } => 0,
+            Self::EntitySelected { .. } => 0,
             Self::GodModeMoved { .. } => 0,
             Self::GodModeKilled { .. } => 0,
-            Self::HallOfFameResurrected { .. } => 0,
-            Self::VisualizationChanged { .. } => 0,
+            Self::HallOfFameResurrected { .. } | Self::SavedBrainSpawned { .. } => 0,
+            Self::VisualizationChanged { .. } | Self::InspectorChanged { .. } => 0,
+            Self::TeacherCaptureChanged { .. } | Self::ShadowChanged { .. } => 0,
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {
@@ -881,7 +966,8 @@ impl RunningAuthorityEvent {
             } => size_of::<CheckpointDescriptor>()
                 .saturating_add(descriptor.owned_bytes())
                 .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
-                .saturating_add(hall_of_fame_weights.owned_bytes()),
+                .saturating_add(hall_of_fame_weights.owned_bytes())
+                .saturating_add(size_of::<GenerationCommitRecord>()),
             Self::GenerationPersistenceAcknowledged { operation_id, .. } => {
                 operation_id.owned_bytes()
             }
@@ -1167,6 +1253,19 @@ impl CompletedEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_population_slot_admits_reservation_and_cancellation_before_allocation() {
+        let slot = PreparedImportSlot::new();
+        assert!(
+            RunningAuthorityCommand::StagePreparedImport { slot: slot.clone() }
+                .validate()
+                .is_ok()
+        );
+        assert!(RunningAuthorityCommand::CancelPreparedImport { slot }
+            .validate()
+            .is_ok());
+    }
 
     #[test]
     fn unsupported_command_is_rejected_not_ignored() {

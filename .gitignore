@@ -11,6 +11,7 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/*.db.checkpoints/
+data/*.db.distillation/
 data/codex-browser-fixture-*/
 
 server/config.toml
@@ -32,3 +33,17 @@ test_output.txt
 zip_of_shame.tar.gz
 
 .clinic/
+
+# Verified external qualification evidence; never promote cache payloads.
+.cache/qualification-evidence/
+.evidence-pyrl/
+
+# Python benchmark tooling bytecode
+__pycache__/
+
+# Editable contracts package metadata
+*.egg-info/
+contracts/build/
+
+# Local benchmark outputs; publish selected results through CI artifacts.
+data/benchmarks/

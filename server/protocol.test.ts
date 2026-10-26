@@ -5,7 +5,41 @@ import type { StatsMsg } from './protocol.ts';
 /** Test suite label for server protocol validation. */
 const SUITE = 'server protocol';
 
+/** Entity-selection requests keep scalar selectors and opaque tokens exact. */
+const SELECTION_TOKEN = '1'.repeat(64);
+
+describe('entity selection admission', () => {
+  it('requires exactly one bounded selector and an explicit observed scope', () => {
+    const base = { type: 'selectEntity', requestId: 'select-1', expectedSessionId: 'process', expectedRunId: 'run', expectedGeneration: 1 };
+    expect(parseClientMessage({ ...base, snakeId: 7 })).toEqual({ ...base, snakeId: 7 });
+    expect(parseClientMessage({ ...base, populationSlot: 0 })).toEqual({ ...base, populationSlot: 0 });
+    for (const target of [{}, { snakeId: 7, populationSlot: 0 }, { snakeId: 0 }, { snakeId: 1.5 }, { snakeId: 16_777_217 }, { populationSlot: -1 }, { populationSlot: 300 }]) {
+      expect(parseClientMessage({ ...base, ...target })).toBeNull();
+    }
+    expect(parseClientMessage({ ...base, snakeId: 7, expectedGeneration: 0 })).toBeNull();
+  });
+  it('admits only canonical positive native mutation tokens', () => {
+    const base = { type: 'godMode', action: 'kill', requestId: 'kill-1', snakeId: 7 };
+    expect(parseClientMessage({ ...base, selectionToken: SELECTION_TOKEN })).not.toBeNull();
+    for (const token of ['0'.repeat(64), 'A'.repeat(64), 'f'.repeat(63), null]) {
+      expect(parseClientMessage({ ...base, selectionToken: token })).toBeNull();
+    }
+  });
+});
+
 describe(SUITE, () => {
+  it('validates exact generation-scoped manual completion', () => {
+    const request = { type: 'finishGeneration', requestId: 'finish-1', expectedRunId: 'run-1', expectedGeneration: 1 };
+    expect(parseClientMessage(request)).toEqual(request);
+    for (const expectedGeneration of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '1']) {
+      expect(parseClientMessage({ ...request, expectedGeneration })).toBeNull();
+    }
+    for (const expectedRunId of ['', 'x'.repeat(257), 'run\0bad', 1]) {
+      expect(parseClientMessage({ ...request, expectedRunId })).toBeNull();
+    }
+    expect(parseClientMessage({ ...request, extra: true })).toBeNull();
+    expect(parseClientMessage({ ...request, requestId: '' })).toBeNull();
+  });
   it('accepts a valid hello message', () => {
     const msg = parseClientMessage({ type: 'hello', clientType: 'ui', version: 2 });
     expect(msg?.type).toBe('hello');
@@ -218,4 +252,19 @@ describe(SUITE, () => {
     };
     expect(stats.type).toBe('stats');
   });
+});
+
+/** Exact inspector commands remain current-scope metadata only. */
+it('validates inspector token/frame pairs and target-free closes', () => {
+  const close = {type: 'inspectEntity', requestId: 'inspect', expectedSessionId: 'session', expectedRunId: 'run'};
+  const open = {...close, selectionToken: '1'.repeat(64), snakeId: 16_777_216};
+  expect(parseClientMessage(close)).toEqual(close);
+  expect(parseClientMessage(open)).toEqual(open);
+  expect(parseClientMessage({...open, pureProbe: true})).toMatchObject({pureProbe: true});
+  expect(parseClientMessage({...close, pureProbe: true})).toBeNull();
+  expect(parseClientMessage({...open, pureProbe: 'true'})).toBeNull();
+  for (const invalid of [{...close, snakeId: 1}, {...close, selectionToken: '1'.repeat(64)},
+    {...open, snakeId: 16_777_217}, {...open, selectionToken: '0'.repeat(64)}, {...open, unknown: 1}]) {
+    expect(parseClientMessage(invalid)).toBeNull();
+  }
 });

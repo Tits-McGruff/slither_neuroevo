@@ -1,95 +1,22 @@
-/** Supported node types for graph-based brains. */
-export type GraphNodeType = 'Input' | 'Dense' | 'MLP' | 'GRU' | 'LSTM' | 'RRU' | 'Concat' | 'Split';
+import type { FreshRunGraphWire, FreshRunGraphNodeWire, FreshRunGraphEdgeWire, FreshRunGraphOutputWire } from '../../../contracts/types.ts';
 
-/** Base node shape shared by all graph nodes. */
-export interface GraphNodeBase {
-  id: string;
-  type: GraphNodeType;
-}
-
-/** Input node definition. */
-export interface InputNodeSpec extends GraphNodeBase {
-  type: 'Input';
-  outputSize: number;
-}
-
-/** Dense node definition. */
-export interface DenseNodeSpec extends GraphNodeBase {
-  type: 'Dense';
-  inputSize: number;
-  outputSize: number;
-}
-
-/** MLP node definition. */
-export interface MlpNodeSpec extends GraphNodeBase {
-  type: 'MLP';
-  inputSize: number;
-  outputSize: number;
-  hiddenSizes?: number[];
-}
-
-/** GRU node definition. */
-export interface GruNodeSpec extends GraphNodeBase {
-  type: 'GRU';
-  inputSize: number;
-  hiddenSize: number;
-}
-
-/** LSTM node definition. */
-export interface LstmNodeSpec extends GraphNodeBase {
-  type: 'LSTM';
-  inputSize: number;
-  hiddenSize: number;
-}
-
-/** RRU node definition. */
-export interface RruNodeSpec extends GraphNodeBase {
-  type: 'RRU';
-  inputSize: number;
-  hiddenSize: number;
-}
-
-/** Concat node definition for merging inputs. */
-export interface ConcatNodeSpec extends GraphNodeBase {
-  type: 'Concat';
-}
-
-/** Split node definition for splitting outputs. */
-export interface SplitNodeSpec extends GraphNodeBase {
-  type: 'Split';
-  outputSizes: number[];
-}
-
-/** Union of all supported graph node specs. */
-export type GraphNodeSpec =
-  | InputNodeSpec
-  | DenseNodeSpec
-  | MlpNodeSpec
-  | GruNodeSpec
-  | LstmNodeSpec
-  | RruNodeSpec
-  | ConcatNodeSpec
-  | SplitNodeSpec;
-
-/** Directed edge between two node ports. */
-export interface GraphEdge {
-  from: string;
-  to: string;
-  fromPort?: number;
-  toPort?: number;
-}
-
-/** Output reference to a node and optional port. */
-export interface GraphOutputRef {
-  nodeId: string;
-  port?: number;
-}
-
-/** Full graph specification used to build brains. */
-export interface GraphSpec {
+/** Shared raw graph shapes; compiler validation stays in each consumer. */
+export type GraphNodeSpec = FreshRunGraphNodeWire;
+export type GraphNodeType = GraphNodeSpec['type'];
+export interface GraphNodeBase { id: string; type: GraphNodeType }
+export type InputNodeSpec = Extract<GraphNodeSpec, {type: 'Input'}>;
+export type DenseNodeSpec = Extract<GraphNodeSpec, {type: 'Dense'}>;
+export type MlpNodeSpec = Extract<GraphNodeSpec, {type: 'MLP'}>;
+export type GruNodeSpec = Extract<GraphNodeSpec, {type: 'GRU'}>;
+export type LstmNodeSpec = Extract<GraphNodeSpec, {type: 'LSTM'}>;
+export type RruNodeSpec = Extract<GraphNodeSpec, {type: 'RRU'}>;
+export type ConcatNodeSpec = Extract<GraphNodeSpec, {type: 'Concat'}>;
+export type SplitNodeSpec = Extract<GraphNodeSpec, {type: 'Split'}>;
+/** UI graphs omit absent ports; native wire admission also accepts null. */
+export type GraphEdge = Omit<FreshRunGraphEdgeWire, 'fromPort' | 'toPort'> & {fromPort?: number; toPort?: number};
+export type GraphOutputRef = Omit<FreshRunGraphOutputWire, 'port'> & {port?: number};
+export type GraphSpec = Omit<FreshRunGraphWire, 'graph_type' | 'type' | 'edges' | 'outputs'> & {
   type: 'graph';
-  nodes: GraphNodeSpec[];
   edges: GraphEdge[];
   outputs: GraphOutputRef[];
-  outputSize: number;
-}
+};

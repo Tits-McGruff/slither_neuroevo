@@ -1086,6 +1086,10 @@ mod tests {
                 previous_input_boost: false,
                 control_accumulator_seconds: 0.0,
                 delivered_observation_points: 0.0,
+                observation_delivered: false,
+                completed_step_heading_delta: 0.0,
+                completed_step_speed_delta: 0.0,
+                completed_step_applied_turn: 0.0,
                 body: BodyRange {
                     start: 0,
                     len: length,
@@ -1121,6 +1125,8 @@ mod tests {
 
     fn runtime(id: u64) -> BaselineSlotRuntime {
         BaselineSlotRuntime {
+            v2_policy: None,
+            v2_last_control_step: None,
             slot: 0,
             snake_id: id,
             strategy_timer_seconds: 0.0,

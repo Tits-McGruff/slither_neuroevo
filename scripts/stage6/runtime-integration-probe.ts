@@ -265,8 +265,8 @@ function parseOptions(arguments_: readonly string[]): ProbeOptions {
     } else if (option === '--reset-generation-seconds') {
       resetGenerationSeconds = positiveNumber(arguments_[++index], option);
       if (!Number.isSafeInteger(resetGenerationSeconds) || resetGenerationSeconds < 8 ||
-          resetGenerationSeconds > 480) {
-        throw new RangeError(`${option} must be an integer from 8 to 480`);
+          resetGenerationSeconds > 604800) {
+        throw new RangeError(`${option} must be an integer from 8 to 604800`);
       }
     } else throw new Error(`unknown option: ${option}`);
   }

@@ -22,8 +22,8 @@ const native = createRequire(import.meta.url)(resolve('native/index.js')) as {
 
 /** Real, small inference graph keeps this storage contract independent of runner CPU throughput. */
 const BINDING_GRAPH: GraphSpec = {
-  type: 'graph', nodes: [{ id: 'input', type: 'Input', outputSize: 83 },
-    { id: 'head', type: 'Dense', inputSize: 83, outputSize: 2 }],
+  type: 'graph', nodes: [{ id: 'input', type: 'Input', outputSize: 264 },
+    { id: 'head', type: 'Dense', inputSize: 264, outputSize: 2 }],
   edges: [{ from: 'input', to: 'head' }], outputs: [{ nodeId: 'head' }], outputSize: 2
 };
 
@@ -43,7 +43,7 @@ async function observed<T>(read: () => T | undefined): Promise<T> {
 
 /** Inspect only the bounded manifest in the small genuine archive fixture. */
 function manifest(bytes: Buffer): Record<string, unknown> {
-  expect(bytes.byteLength).toBeLessThan(4 * 1024 * 1024);
+  expect(bytes.byteLength).toBeLessThan(8 * 1024 * 1024);
   for (let offset = 0; offset + 512 <= bytes.length;) {
     const name = bytes.toString('ascii', offset, offset + 100).replace(/\0.*$/u, '');
     const size = Number.parseInt(bytes.toString('ascii', offset + 124, offset + 136), 8);
@@ -118,6 +118,9 @@ describeNetworkSuite('Rust exact download binding', () => {
       if (holdingLease) {
         selectedLease = lease; leaseClients.add(this);
         await preparation.promise;
+      } else {
+        // Reservation waits for the committed generation to retire its predecessor.
+        generationTwo.resolve();
       }
       return lease;
     });
@@ -159,7 +162,6 @@ describeNetworkSuite('Rust exact download binding', () => {
       const second = await fetch(`http://127.0.0.1:${source.port}/api/export/latest`);
       expect(second.status).toBe(409);
       expect(await second.json()).toMatchObject({ ok: false, message: expect.stringContaining('in progress') });
-      generationTwo.resolve();
       for (let generation = 3; generation <= 11; generation++) await observed(() => boundaries.get(generation));
       expect(headersDelivered).toBe(false);
       expect(await readFile(join(directory, selected.relativeFilename))).toEqual(originalBytes);
@@ -167,6 +169,7 @@ describeNetworkSuite('Rust exact download binding', () => {
       expect(inventory.plannedPrune.checkpointCount).toBeGreaterThan(0);
       const current = await sourceClient.selectCurrent();
       expect(current).toEqual(boundaries.get(11));
+      generationEleven.resolve();
       preparation.resolve();
       const response = await pendingDownload;
       expect(response.status).toBe(200);

@@ -142,11 +142,33 @@ struct BodyCellEntry {
     segment: usize,
 }
 
+/// Reversible IEEE total-order key, computed once rather than per comparison.
+///
+/// This is the sign fold used by `f64::total_cmp`, including signed zero,
+/// infinities and every NaN payload. Applying the fold twice restores the
+/// original bits. The key occupies exactly the original distance's eight bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct DistanceOrderKey(i64);
+
+impl DistanceOrderKey {
+    /// Cache the exact legacy comparison transform for one computed distance.
+    fn new(value: f64) -> Self {
+        let bits = value.to_bits() as i64;
+        Self(bits ^ (((bits >> 63) as u64) >> 1) as i64)
+    }
+
+    /// Restore the original distance bits for numeric ring-stop comparisons.
+    fn value(self) -> f64 {
+        let bits = self.0 ^ (((self.0 >> 63) as u64) >> 1) as i64;
+        f64::from_bits(bits as u64)
+    }
+}
+
 /// A body candidate ordered by spatial lower bound and stable identity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct BodyCandidate {
     segment: usize,
-    lower_bound_squared: f64,
+    lower_bound_squared: DistanceOrderKey,
     owner_id: u64,
     segment_end: usize,
 }
@@ -494,7 +516,7 @@ impl BodySpatialIndex {
             }
             scratch.candidates.push(BodyCandidate {
                 segment: entry.segment,
-                lower_bound_squared,
+                lower_bound_squared: DistanceOrderKey::new(lower_bound_squared),
                 owner_id: record.owner_id,
                 segment_end: record.segment_end,
             });
@@ -553,7 +575,7 @@ impl BodySpatialIndex {
                         &mut scratch.candidates,
                         BodyCandidate {
                             segment: entry.segment,
-                            lower_bound_squared,
+                            lower_bound_squared: DistanceOrderKey::new(lower_bound_squared),
                             owner_id: record.owner_id,
                             segment_end: record.segment_end,
                         },
@@ -671,7 +693,7 @@ struct PelletCellEntry {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct PelletCandidate {
     pellet: usize,
-    distance_squared: f64,
+    distance_squared: DistanceOrderKey,
 }
 
 /// Reusable per-worker pellet-query storage.
@@ -811,20 +833,22 @@ impl PelletSpatialIndex {
                 pellet: pellet_index,
             });
         }
-        self.entries.sort_unstable_by(|left, right| {
-            left.key
-                .cmp(&right.key)
-                .then_with(|| {
-                    self.pellets[left.pellet]
-                        .id
-                        .cmp(&self.pellets[right.pellet].id)
-                })
-                .then_with(|| {
-                    self.pellets[left.pellet]
-                        .source_index
-                        .cmp(&self.pellets[right.pellet].source_index)
-                })
-        });
+        if !self.group_entries_with_warmed_lookup(cell_size)? {
+            self.entries.sort_unstable_by(|left, right| {
+                left.key
+                    .cmp(&right.key)
+                    .then_with(|| {
+                        self.pellets[left.pellet]
+                            .id
+                            .cmp(&self.pellets[right.pellet].id)
+                    })
+                    .then_with(|| {
+                        self.pellets[left.pellet]
+                            .source_index
+                            .cmp(&self.pellets[right.pellet].source_index)
+                    })
+            });
+        }
         rebuild_cell_spans(&self.entries, |entry| entry.key, &mut self.cells)?;
         self.lookup.rebuild(&self.cells)?;
         let estimated_bytes = checked_owned_bytes(&[
@@ -871,7 +895,7 @@ impl PelletSpatialIndex {
             if distance_squared <= radius * radius {
                 scratch.candidates.push(PelletCandidate {
                     pellet: entry.pellet,
-                    distance_squared,
+                    distance_squared: DistanceOrderKey::new(distance_squared),
                 });
             }
         })?;
@@ -880,6 +904,77 @@ impl PelletSpatialIndex {
             .sort_unstable_by(compare_pellet_candidates);
         diagnostics.candidates = scratch.candidates.len();
         Ok(diagnostics)
+    }
+
+    /// Reuse already admitted dense-lookup storage as counting-sort cursors.
+    /// No additional capacity is reserved: an unwarmed or expanded grid keeps
+    /// the ordinary comparison sort. Canonical record iteration preserves
+    /// (id, source_index) ties within lexicographically ordered cell keys.
+    fn group_entries_with_warmed_lookup(
+        &mut self,
+        cell_size: f64,
+    ) -> Result<bool, SpatialIndexError> {
+        let Some(first) = self.entries.first() else {
+            return Ok(true);
+        };
+        let mut minimum = first.key;
+        let mut maximum = first.key;
+        for entry in &self.entries[1..] {
+            minimum.x = minimum.x.min(entry.key.x);
+            minimum.y = minimum.y.min(entry.key.y);
+            maximum.x = maximum.x.max(entry.key.x);
+            maximum.y = maximum.y.max(entry.key.y);
+        }
+        let width = coordinate_span(minimum.x, maximum.x, "pellet grouping width")?;
+        let height = coordinate_span(minimum.y, maximum.y, "pellet grouping height")?;
+        let Some(area) = width.checked_mul(height) else {
+            return Ok(false);
+        };
+        let allowance = self
+            .entries
+            .len()
+            .saturating_mul(MAXIMUM_DENSE_LOOKUP_RATIO)
+            .clamp(MINIMUM_DENSE_LOOKUP_ALLOWANCE, MAXIMUM_DENSE_LOOKUP_CELLS);
+        if area > allowance || area > self.lookup.span_indices.capacity() {
+            return Ok(false);
+        }
+        // Rebuild begins with an empty lookup, so resize initializes all counts.
+        debug_assert!(self.lookup.span_indices.is_empty());
+        self.lookup.span_indices.resize(area, 0);
+        for entry in &self.entries {
+            let offset = cell_lookup_offset(minimum, width, entry.key).ok_or(
+                SpatialIndexError::ArithmeticOverflow {
+                    context: "pellet grouping count",
+                },
+            )?;
+            self.lookup.span_indices[offset] += 1;
+        }
+        let mut next = 0;
+        // CellKey compares x before y; the lookup itself uses y-major offsets.
+        for x in 0..width {
+            for y in 0..height {
+                let offset = y * width + x;
+                let count = self.lookup.span_indices[offset];
+                self.lookup.span_indices[offset] = next;
+                next += count;
+            }
+        }
+        debug_assert_eq!(next, self.entries.len());
+        for (pellet, record) in self.pellets.iter().enumerate() {
+            let key = CellKey {
+                x: cell_coordinate(record.position.x, cell_size)?,
+                y: cell_coordinate(record.position.y, cell_size)?,
+            };
+            let offset = cell_lookup_offset(minimum, width, key).ok_or(
+                SpatialIndexError::ArithmeticOverflow {
+                    context: "pellet grouping placement",
+                },
+            )?;
+            let cursor = &mut self.lookup.span_indices[offset];
+            self.entries[*cursor] = PelletCellEntry { key, pellet };
+            *cursor += 1;
+        }
+        Ok(true)
     }
 
     /// Retain at most `maximum_candidates` exact nearest pellets.
@@ -922,13 +1017,14 @@ impl PelletSpatialIndex {
                         &mut scratch.candidates,
                         PelletCandidate {
                             pellet: entry.pellet,
-                            distance_squared,
+                            distance_squared: DistanceOrderKey::new(distance_squared),
                         },
                         maximum_candidates,
                         compare_pellet_candidates,
                     );
                     if scratch.candidates.len() == maximum_candidates && maximum_candidates != 0 {
-                        worst_retained_distance_squared.set(scratch.candidates[0].distance_squared);
+                        worst_retained_distance_squared
+                            .set(scratch.candidates[0].distance_squared.value());
                     }
                 }
                 true
@@ -1196,14 +1292,14 @@ impl Error for SpatialIndexError {}
 
 fn compare_body_candidates(left: &BodyCandidate, right: &BodyCandidate) -> Ordering {
     left.lower_bound_squared
-        .total_cmp(&right.lower_bound_squared)
+        .cmp(&right.lower_bound_squared)
         .then_with(|| left.owner_id.cmp(&right.owner_id))
         .then_with(|| left.segment_end.cmp(&right.segment_end))
 }
 
 fn compare_pellet_candidates(left: &PelletCandidate, right: &PelletCandidate) -> Ordering {
     left.distance_squared
-        .total_cmp(&right.distance_squared)
+        .cmp(&right.distance_squared)
         .then_with(|| left.pellet.cmp(&right.pellet))
 }
 
@@ -1540,6 +1636,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cached_distance_order_preserves_ieee_bits_and_legacy_sort_without_growing_candidates() {
+        assert_eq!(size_of::<DistanceOrderKey>(), size_of::<f64>());
+        assert_eq!(size_of::<PelletCandidate>(), 2 * size_of::<u64>());
+        assert_eq!(size_of::<BodyCandidate>(), 4 * size_of::<u64>());
+        let mut bits = vec![
+            0,
+            1,
+            2,
+            0x000f_ffff_ffff_ffff,
+            0x0010_0000_0000_0000,
+            0x3ff0_0000_0000_0000,
+            0x7fef_ffff_ffff_ffff,
+            0x7ff0_0000_0000_0000,
+            0x7ff0_0000_0000_0001,
+            0x7ff8_0000_0000_0000,
+            0x7fff_ffff_ffff_ffff,
+        ];
+        bits.extend(bits.clone().into_iter().map(|bits| bits | (1 << 63)));
+        let mut state = 0x6f3b_2a19_85c4_07e1_u64;
+        for _ in 0..16_384 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            bits.push(state);
+        }
+        for &bits in &bits {
+            let value = f64::from_bits(bits);
+            assert_eq!(DistanceOrderKey::new(value).value().to_bits(), bits);
+        }
+        let mut expected = bits.iter().copied().map(f64::from_bits).collect::<Vec<_>>();
+        expected.sort_unstable_by(f64::total_cmp);
+        let mut actual = bits
+            .into_iter()
+            .map(f64::from_bits)
+            .map(DistanceOrderKey::new)
+            .collect::<Vec<_>>();
+        actual.sort_unstable();
+        assert_eq!(
+            actual
+                .into_iter()
+                .map(|key| key.value().to_bits())
+                .collect::<Vec<_>>(),
+            expected.into_iter().map(f64::to_bits).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn bounded_dense_cell_lookup_matches_sorted_fallback() {
         let cells = vec![
             CellSpan {
@@ -1636,6 +1779,10 @@ mod tests {
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 0.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body,
             skin: 0,
         }
@@ -1943,6 +2090,110 @@ mod tests {
         let index = BodySpatialIndex::build(&world, 50.0, 100).expect("index should build");
         assert_eq!(index.diagnostics().segments, 1);
         assert_eq!(index.maximum_owner_radius(), 9.0);
+    }
+
+    #[test]
+    fn pellet_cell_order_retains_full_width_ids_source_ties_and_rebuild_capacity() {
+        let ids = [u64::MAX, 0, 1_u64 << 63, 7, u64::MAX, 7, 0];
+        let mut index = PelletSpatialIndex::empty();
+        let mut warmed = None;
+        for rotation in 0..ids.len() * 2 {
+            let mut world = WorldState::default();
+            for offset in 0..ids.len() {
+                let item = (rotation + offset) % ids.len();
+                world.pellets.push(PelletState {
+                    id: ids[item],
+                    position: WorldPoint {
+                        x: if item.is_multiple_of(2) { -0.5 } else { 0.5 },
+                        y: if item.is_multiple_of(3) { -10.5 } else { 10.5 },
+                    },
+                    value: 1.0,
+                    kind: 0,
+                    color: 0,
+                    owner: None,
+                });
+            }
+            if rotation >= ids.len() {
+                world.pellets.reverse();
+            }
+            index.rebuild(&world, 10.0, ids.len()).unwrap();
+            // Build the expected public identities directly from the source world,
+            // independent of canonical record ordinals and the entry comparator.
+            let mut expected: Vec<_> = world
+                .pellets
+                .iter()
+                .enumerate()
+                .map(|(source, pellet)| {
+                    (
+                        if pellet.position.x < 0.0 { -1 } else { 0 },
+                        if pellet.position.y < 0.0 { -2 } else { 1 },
+                        pellet.id,
+                        source,
+                    )
+                })
+                .collect();
+            expected.sort_unstable();
+            let actual: Vec<_> = index
+                .entries
+                .iter()
+                .map(|entry| {
+                    let pellet = &index.pellets[entry.pellet];
+                    (entry.key.x, entry.key.y, pellet.id, pellet.source_index)
+                })
+                .collect();
+            assert_eq!(actual, expected);
+            let capacity = (
+                index.pellets.capacity(),
+                index.entries.capacity(),
+                index.cells.capacity(),
+                index.lookup.span_indices.capacity(),
+            );
+            if let Some(previous) = warmed {
+                assert_eq!(capacity, previous);
+            }
+            warmed = Some(capacity);
+        }
+    }
+
+    #[test]
+    fn warmed_pellet_grouping_matches_cold_sort_through_grid_changes() {
+        let mut retained = PelletSpatialIndex::empty();
+        for spacing in [1.0, 1.0, 10.0, 10.0, 100_000.0, 2.0, 0.0] {
+            let world = WorldState {
+                pellets: (0..20)
+                    .rev()
+                    .map(|item| PelletState {
+                        id: u64::MAX - item % 7,
+                        position: WorldPoint {
+                            x: ((item % 5) as f64 - 2.0) * spacing,
+                            y: ((item / 5) as f64 - 2.0) * spacing,
+                        },
+                        value: 1.0,
+                        kind: 0,
+                        color: 0,
+                        owner: None,
+                    })
+                    .collect(),
+                ..WorldState::default()
+            };
+            let cold = PelletSpatialIndex::build(&world, 10.0, 20).unwrap();
+            retained.rebuild(&world, 10.0, 20).unwrap();
+            assert_eq!(retained.pellets, cold.pellets);
+            assert_eq!(retained.entries, cold.entries);
+            assert_eq!(retained.cells, cold.cells);
+            assert_eq!(retained.lookup.minimum, cold.lookup.minimum);
+            assert_eq!(retained.lookup.width, cold.lookup.width);
+            assert_eq!(retained.lookup.span_indices, cold.lookup.span_indices);
+            assert_eq!(
+                retained.diagnostics.occupied_cells,
+                cold.diagnostics.occupied_cells
+            );
+        }
+        let warmed_capacity = retained.lookup.span_indices.capacity();
+        retained.rebuild(&WorldState::default(), 10.0, 20).unwrap();
+        assert!(retained.entries.is_empty() && retained.cells.is_empty());
+        assert!(retained.lookup.span_indices.is_empty());
+        assert_eq!(retained.lookup.span_indices.capacity(), warmed_capacity);
     }
 
     #[test]

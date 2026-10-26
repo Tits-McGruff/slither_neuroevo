@@ -21,6 +21,8 @@ import type {
 } from './checkpointPersistenceProtocol.ts';
 import type { RustRunStartCheckpointPublishOptions } from './runStartPersistenceHandoff.ts';
 import type { LiveSettingsUpdate } from '../../src/protocol/settings.ts';
+import type { TeacherCaptureDrain, TeacherCaptureRequest } from '../../src/protocol/distillation.ts';
+import type { ShadowActivationRequest, ShadowStopRequest } from '../../src/protocol/shadows.ts';
 
 /** One complete numeric setting supplied only to private fresh-run construction. */
 export interface RustFreshRunSetting {
@@ -66,16 +68,50 @@ export interface ExperimentalRunningAuthorityNativeHandle {
   submitControllerAction(sequence: U64Hex, action: RustBackgroundControllerAction): void;
   /** Queue one complete live-settings batch for atomic Rust application. */
   submitLiveSettings(sequence: U64Hex, updates: readonly LiveSettingsUpdate[]): void;
+  /** Queue one bounded run/generation-scoped finish request. */
+  submitFinishGeneration(sequence: U64Hex, requestId: string, expectedRunId: string, expectedGeneration: U64Hex): void;
+  /** Resolve one live frame/slot identity in an expected run and generation. */
+  submitEntitySelection(sequence: U64Hex, targetKind: 'frame' | 'slot', targetIndex: number, expectedRunId: string, expectedGeneration: U64Hex): void;
   /** Queue one exact browser-addressed God Mode translation. */
-  submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number): void;
+  submitGodModeMove(sequence: U64Hex, snakeId: number, x: number, y: number, token: string): void;
   /** Queue one exact browser-addressed normal God Mode death. */
-  submitGodModeKill(sequence: U64Hex, snakeId: number): void;
+  submitGodModeKill(sequence: U64Hex, snakeId: number, token: string): void;
+  /** Admit one exact selected diagnostic target, or close it by omitting both target arguments. */
+  submitInspector(sequence: U64Hex, expectedRunId: string, selectionToken?: string, frameV1Id?: number, pureProbe?: boolean): void;
+  /** Read bounded Rust-authored JSON from the replaceable mailbox; never sample a world. */
+  latestInspector(afterSequence: U64Hex): string | null;
   /** Toggle aggregate opt-in focused activation capture. */
   submitVisualization(sequence: U64Hex, enabled: boolean): void;
+  /** Activate one immutable candidate on an ordered clean boundary. */
+  submitActivateShadow(sequence: U64Hex, request: ShadowActivationRequest): void;
+  /** Stop only the matching capture and activation segment. */
+  submitStopShadow(sequence: U64Hex, request: ShadowStopRequest): void;
+  /** Read Rust-built fixed summaries independently of teacher chunks and gameplay receipts. */
+  getShadowMetrics(): string;
+  /** Admit automatic committed teacher capture on an ordered clean boundary. */
+  submitStartTeacherCapture(sequence: U64Hex, request: TeacherCaptureRequest): void;
+  /** Seal only the matching diagnostic epoch, preserving its queued objects. */
+  submitStopTeacherCapture(sequence: U64Hex, captureEpoch: string): void;
+  /** Transfer opaque complete objects through the separate bounded diagnostic queue. */
+  drainTeacherChunks(maxChunks: number, maxOwnedBytes: number): TeacherCaptureDrain;
+  /** Deploy only a leased record matching the exact observed run/configuration. */
+  submitSavedBrainSpawn(sequence: U64Hex, managedDirectory: string, request: {
+    /** Full immutable portable source identity. */
+    brainId: string;
+    /** Run observed before lease preparation. */
+    expectedRunId: string;
+    /** Exact observed settings revision. */
+    expectedConfigRevision: U64Hex;
+    /** Process-local authority incarnation observed before lease preparation. */
+    expectedWorldEpoch: U64Hex;
+    /** Shared native-validated packed object. */
+    weights: ManagedHallOfFameWeightsDescriptor;
+  }): void;
   /** Decode and resurrect one worker-leased retained winner. */
   submitHallOfFameResurrection(
     sequence: U64Hex,
     managedDirectory: string,
+    entryId: U64Hex,
     weights: ManagedHallOfFameWeightsDescriptor
   ): void;
   /** Queue a close without invalidating an already prepared step. */
@@ -87,7 +123,8 @@ export interface ExperimentalRunningAuthorityNativeHandle {
     managedDirectory: string,
     operationId: string,
     checkpoint: ManagedCheckpointDescriptor,
-    inventory: ManagedExportInventoryDescriptor
+    inventory: ManagedExportInventoryDescriptor,
+    savedBrainsJson?: string
   ): Promise<RustPreparedExportArchive>;
   /** Validate one untrusted save completely without changing the live game or metadata. */
   validateImportArchive(
@@ -268,8 +305,11 @@ export interface RustPreparedFreshRun {
 /** Required coarse operations on the source-identified native runtime. */
 const REQUIRED_METHODS: readonly (keyof ExperimentalRunningAuthorityNativeHandle)[] = [
   'archiveWorkProgress',
+  'submitInspector', 'latestInspector',
+  'submitActivateShadow', 'submitStopShadow', 'getShadowMetrics',
+  'submitStartTeacherCapture', 'submitStopTeacherCapture', 'drainTeacherChunks',
   'submitControllerReclaim', 'submitControllerReclaimReceipt', 'submitControllerJoin', 'submitControllerJoinReceipt',
-  'start', 'submitControllerAction', 'submitLiveSettings', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
+  'start', 'submitControllerAction', 'submitLiveSettings', 'submitFinishGeneration', 'submitEntitySelection', 'submitGodModeMove', 'submitGodModeKill', 'submitVisualization', 'submitHallOfFameResurrection', 'submitSavedBrainSpawn', 'submitControllerDisconnect', 'submitGenerationCheckpoint', 'submitGenerationPersistenceAcknowledgement',
   'prepareExportArchive',
   'validateImportArchive',
   'estimateImportDisk',

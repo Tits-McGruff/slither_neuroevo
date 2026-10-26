@@ -12,6 +12,7 @@ use crate::engine::export_archive::{
     compose_export_archive, prepare_import_archive, ExportInventoryDescriptor,
 };
 use crate::engine::fresh_run::{
+    prepare_configured_fresh_run_with_settings_and_graph,
     prepare_stage6a_p0_fresh_run_with_settings_and_graph, stage6a_p0_archive_validation_contract,
     FreshRunSettingUpdate, Stage6aP0FreshRunRequest,
 };
@@ -341,8 +342,17 @@ fn inventory(
     directory: &Path,
     publication: &RunningGenerationCheckpointPublication,
 ) -> ExportInventoryDescriptor {
-    let mut bytes = vec![0u8; 208];
-    bytes[..13].copy_from_slice(b"SLITHER-EXPV1");
+    let version = if publication.commit_record.experiment.is_some() {
+        3
+    } else {
+        1
+    };
+    let mut bytes = vec![0u8; if version == 3 { 1024 } else { 208 }];
+    bytes[..13].copy_from_slice(if version == 3 {
+        b"SLITHER-EXPV3"
+    } else {
+        b"SLITHER-EXPV1"
+    });
     bytes[16..24].copy_from_slice(&1u64.to_le_bytes());
     bytes[24..32].copy_from_slice(&1u64.to_le_bytes());
     let summary = publication.commit_record.summary;
@@ -364,7 +374,7 @@ fn inventory(
             .to_le_bytes(),
     );
     let hall = publication.commit_record.hall_of_fame;
-    let record = &mut bytes[88..];
+    let record = &mut bytes[88..208];
     for (offset, value) in [
         (0, hall.completed_generation),
         (16, hall.source_snake_id),
@@ -401,9 +411,25 @@ fn inventory(
         record[offset..offset + 8]
             .copy_from_slice(&u64::from_str_radix(value, 16).unwrap().to_le_bytes());
     }
+    if let Some(experiment) = publication.commit_record.experiment {
+        let completion = publication.commit_record.completion.unwrap();
+        bytes[208..216].copy_from_slice(&summary.completed_generation.to_le_bytes());
+        bytes[216..220].copy_from_slice(&1u32.to_le_bytes());
+        let reason = match completion.reason {
+            crate::engine::running_step::GenerationTransitionReason::Manual => 0u32,
+            crate::engine::running_step::GenerationTransitionReason::Duration => 1,
+            crate::engine::running_step::GenerationTransitionReason::EarlyAliveCount => 2,
+        };
+        bytes[220..224].copy_from_slice(&reason.to_le_bytes());
+        bytes[224..232].copy_from_slice(&completion.actual_elapsed_f64_bits.to_le_bytes());
+        bytes[232..240].copy_from_slice(&completion.configured_duration_f64_bits.to_le_bytes());
+        bytes[240..248].copy_from_slice(&completion.completed_step.to_le_bytes());
+        bytes[248..256].copy_from_slice(&summary.completed_generation.to_le_bytes());
+        bytes[256..].copy_from_slice(&experiment.encode());
+    }
     let descriptor = ExportInventoryDescriptor {
-        version: 1,
-        relative_filename: format!(".{}.export-inventory-v1", operation(3).as_str()),
+        version,
+        relative_filename: format!(".{}.export-inventory-v{version}", operation(3).as_str()),
         sha256: format!("{:x}", Sha256::digest(&bytes)),
         stored_byte_count_hex: format!("{:016x}", bytes.len()),
         history_count_hex: format!("{:016x}", 1),
@@ -415,9 +441,18 @@ fn inventory(
 
 #[test]
 fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts() {
+    ordered_input_continuation(false);
+}
+
+#[test]
+fn archive_v3_retains_experiment_records_and_replays_real_multiworker_continuation() {
+    ordered_input_continuation(true);
+}
+
+fn ordered_input_continuation(modern: bool) {
     let fixture = Fixture::new();
     let source = fixture.directory("source");
-    let updates = [
+    let mut updates = [
         ("snakeCount", 12.0),
         ("generationSeconds", 8.0),
         ("pelletCountTarget", 100.0),
@@ -430,7 +465,33 @@ fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts(
         value,
     })
     .collect::<Vec<_>>();
-    let mut pending = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+    if modern {
+        let legacy = crate::engine::step_config::typescript_default_settings(12, 2);
+        updates.extend(
+            crate::engine::step_config::production_default_settings(12, 2)
+                .into_iter()
+                .filter(|setting| !legacy.iter().any(|old| old.path == setting.path))
+                .map(|setting| FreshRunSettingUpdate {
+                    path: setting.path,
+                    value: match setting.value {
+                        crate::engine::state::NormalizedSettingValue::Float(value) => value,
+                        crate::engine::state::NormalizedSettingValue::Integer(value) => {
+                            value as f64
+                        }
+                        crate::engine::state::NormalizedSettingValue::Bool(value) => {
+                            f64::from(value)
+                        }
+                        _ => panic!("unexpected nonnumeric life default"),
+                    },
+                }),
+        );
+    }
+    let prepare = if modern {
+        prepare_configured_fresh_run_with_settings_and_graph
+    } else {
+        prepare_stage6a_p0_fresh_run_with_settings_and_graph
+    };
+    let mut pending = prepare(
         Stage6aP0FreshRunRequest {
             run_id: "ordered-input-round-trip".to_owned(),
             seed: 42,
@@ -471,6 +532,7 @@ fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts(
         &policy,
     )
     .unwrap();
+    assert_eq!(inventory.version, if modern { 3 } else { 1 });
     let archive_path = source.join(archive.relative_filename);
     let archive_bytes = fs::read(&archive_path).unwrap();
     direct
@@ -528,6 +590,12 @@ fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts(
             MEMORY_CEILING,
         )
         .unwrap();
+        let imported_inventory = &restored.inventory;
+        assert_eq!(imported_inventory.version, inventory.version);
+        assert_eq!(
+            fs::read(imported.join(&imported_inventory.relative_filename)).unwrap(),
+            fs::read(source.join(&inventory.relative_filename)).unwrap()
+        );
         restored
             .transition
             .configure_calculation_workers(workers)
@@ -584,5 +652,128 @@ fn archive_import_replays_ordered_player_and_trainer_input_across_worker_counts(
             );
         }
         assert_eq!(fs::read(&archive_path).unwrap(), archive_bytes);
+    }
+}
+
+#[test]
+fn archive_v4_roundtrips_selected_heterogeneous_originals_with_all_record_versions() {
+    use crate::engine::export_archive::{
+        compose_export_archive_with_saved_brains, estimate_import_disk_bytes,
+        validate_import_archive,
+    };
+    use crate::engine::saved_brain_archive::SavedBrainArchiveEntryV1;
+    let fixture = Fixture::new();
+    let source = fixture.directory("portable-source");
+    let mut pending = prepare_stage6a_p0_fresh_run_with_settings_and_graph(
+        Stage6aP0FreshRunRequest {
+            run_id: "portable-archive".into(),
+            seed: 42,
+            memory_ceiling_bytes: MEMORY_CEILING,
+        },
+        &[FreshRunSettingUpdate {
+            path: "snakeCount".into(),
+            value: 12.0,
+        }],
+        graph(),
+    )
+    .unwrap();
+    let checkpoint = pending.publish_checkpoint(&source, operation(900)).unwrap();
+    let (limits, graphs, policy) =
+        stage6a_p0_archive_validation_contract(MEMORY_CEILING, true).unwrap();
+    let mut selected = Vec::new();
+    for (index, name) in [
+        "portable-brain-v1.slither-brain",
+        "portable-dense-basic8-v1.slither-brain",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let bytes = fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .join(name),
+        )
+        .unwrap();
+        let id = format!("{:x}", Sha256::digest(&bytes));
+        fs::write(source.join(format!("{id}.slither-brain")), &bytes).unwrap();
+        selected.push(SavedBrainArchiveEntryV1 {
+            brain_id: id,
+            name: format!("Retained {index}"),
+            created_at_ms: 1234 + index as u64,
+            artifact_byte_count: format!("{:016x}", bytes.len()),
+        });
+    }
+    selected.sort_by(|a, b| a.brain_id.cmp(&b.brain_id));
+    for version in 1..=3 {
+        let op = operation(910 + u128::from(version));
+        let mut bytes = [0u8; 32];
+        bytes[..13].copy_from_slice(format!("SLITHER-EXPV{version}").as_bytes());
+        let inventory = ExportInventoryDescriptor {
+            version,
+            relative_filename: format!(".{}.export-inventory-v{version}", op.as_str()),
+            sha256: format!("{:x}", Sha256::digest(bytes)),
+            stored_byte_count_hex: format!("{:016x}", bytes.len()),
+            history_count_hex: "0000000000000000".into(),
+            hall_of_fame_count_hex: "0000000000000000".into(),
+        };
+        fs::write(source.join(&inventory.relative_filename), bytes).unwrap();
+        let archive = compose_export_archive_with_saved_brains(
+            &source,
+            op.as_str(),
+            &checkpoint,
+            &inventory,
+            &limits,
+            &graphs,
+            &policy,
+            &selected,
+        )
+        .unwrap();
+        let path = source.join(&archive.relative_filename);
+        let estimate = estimate_import_disk_bytes(&path).unwrap();
+        assert!(estimate.final_managed_bytes >= fs::metadata(&path).unwrap().len() + 8_000_000);
+        let destination = fixture.directory(&format!("portable-import-{version}"));
+        let imported = prepare_import_archive(
+            &path,
+            &destination,
+            &destination,
+            operation(920 + u128::from(version)).as_str(),
+            "unused",
+            1,
+            &limits,
+            &graphs,
+            &policy,
+            MEMORY_CEILING,
+        )
+        .unwrap();
+        assert_eq!(imported.inventory.version, version);
+        assert_eq!(imported.inventory.saved_brains, selected);
+        for brain in &selected {
+            let filename = format!("{}.slither-brain", brain.brain_id);
+            assert_eq!(
+                fs::read(destination.join(&filename)).unwrap(),
+                fs::read(source.join(filename)).unwrap()
+            );
+        }
+        let mut changed = fs::read(&path).unwrap();
+        let label = b"Retained ";
+        let position = changed
+            .windows(label.len())
+            .rposition(|part| part == label)
+            .unwrap();
+        changed[position] = b'D';
+        let corrupt = source.join(format!("corrupt-{version}.slither-save"));
+        fs::write(&corrupt, changed).unwrap();
+        assert!(
+            validate_import_archive(
+                &corrupt,
+                &destination,
+                operation(930 + u128::from(version)).as_str(),
+                &limits,
+                &graphs,
+                &policy
+            )
+            .is_err(),
+            "catalog label must be bound by the archive root"
+        );
     }
 }

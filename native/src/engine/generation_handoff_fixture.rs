@@ -572,6 +572,8 @@ pub(super) fn fixture_run_start(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: labelled_stream(42.0, "world").export_state(),
             evolution: labelled_stream(42.0, "evolution").export_state(),
@@ -604,6 +606,7 @@ pub(super) fn fixture_run_start(
         brains: vec![BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(0),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         }],
@@ -627,6 +630,8 @@ pub(super) fn fixture_run_start(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     Ok((candidate, policy))
@@ -670,6 +675,10 @@ fn make_terminal_running_candidate(
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 4.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange { start: 0, len: 0 },
             skin: 0,
         },
@@ -687,6 +696,7 @@ fn make_terminal_running_candidate(
     candidate.brains.push(BrainRuntimeState {
         handle: external_brain,
         owner: BrainOwner::Entity(external_id),
+        retained_origin: None,
         non_population_weights: Some(vec![0.0; graph.total_parameters].into_boxed_slice()),
         recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
     });
@@ -723,6 +733,10 @@ fn make_terminal_running_candidate(
             previous_input_boost: false,
             control_accumulator_seconds: 0.0,
             delivered_observation_points: 2.0,
+            observation_delivered: false,
+            completed_step_heading_delta: 0.0,
+            completed_step_speed_delta: 0.0,
+            completed_step_applied_turn: 0.0,
             body: BodyRange { start: 0, len: 0 },
             skin: 1,
         },

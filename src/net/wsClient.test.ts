@@ -235,6 +235,7 @@ describe('wsClient', () => {
     let sawSettings = false;
     let sawGodMode = false;
     let sawNewRun = false;
+    let sawFinish = false;
     let sawStateReplaced = false;
     const client = createWsClient({
       onConnected: () => {
@@ -251,6 +252,7 @@ describe('wsClient', () => {
       onGodModeResult: () => {
         sawGodMode = true;
       },
+      onFinishGenerationResult: () => { sawFinish = true; },
       onNewRunResult: () => {
         sawNewRun = true;
       },
@@ -268,10 +270,13 @@ describe('wsClient', () => {
     }
     instance.open();
     instance.emit(JSON.stringify({ type: 'welcome', protocolVersion: 2, tickRate: 60 }));
+    client.sendSelectEntity({ type: 'selectEntity', requestId: 'select-1', expectedSessionId: 'process', expectedRunId: 'run', expectedGeneration: 1, snakeId: 8 });
     client.sendSettings('settings-1', [{ path: 'simSpeed', value: 2 }]);
-    client.sendGodModeKill('god-1', 8);
-    client.sendGodModeMove('god-2', 8, 10, 20);
+    client.sendGodModeKill('god-1', 8, '1'.repeat(64));
+    client.sendGodModeMove('god-2', 8, 10, 20, '1'.repeat(64));
     client.sendNewRun('run-1');
+    client.sendFinishGeneration('finish-1', 'run-1', 1);
+    instance.emit(JSON.stringify({ type: 'finishGenerationResult', requestId: 'finish-1', runId: 'run-1', generation: 1, status: 'pending' }));
     instance.emit(JSON.stringify({
       type: 'settingsApplied',
       requestId: 'settings-1',
@@ -303,9 +308,11 @@ describe('wsClient', () => {
     expect(sawSettings).toBe(true);
     expect(sawGodMode).toBe(true);
     expect(sawNewRun).toBe(true);
+    expect(sawFinish).toBe(true);
     expect(sawStateReplaced).toBe(true);
     expect(instance.sent.map(payload => JSON.parse(payload) as { type: string }).map(msg => msg.type))
-      .toEqual(['hello', 'settings', 'godMode', 'godMode', 'newRun', 'join']);
+      .toEqual(['hello', 'selectEntity', 'settings', 'godMode', 'godMode', 'newRun', 'finishGeneration', 'join']);
+    expect(JSON.parse(instance.sent.find(payload => JSON.parse(payload).requestId === 'god-1')!)).toMatchObject({ selectionToken: '1'.repeat(64) });
     expect(JSON.parse(instance.sent.at(-1)!)).toEqual({ type: 'join', mode: 'spectator', rejoinToken: 'a'.repeat(32) });
     instance.emit(JSON.stringify({ type: 'welcome', protocolVersion: 2 }));
     client.sendJoin('spectator');

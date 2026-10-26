@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
+import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './settingDefinitions.ts';
 import {
-  coerceSettingsUpdateValue,
+  coerceSettingsUpdateValue, encodeSettingsUpdateValue,
   normalizeLiveSettingsUpdates
 } from './settings.ts';
 
 describe('authoritative settings contract', () => {
+  it('roundtrips explicit sensor selections without treating Basic/zero as absent', () => {
+    for (const [path, code] of [['sense.layoutVersion', 3], ['sense.layoutVersion', 4],
+      ['sense.profile', 0], ['sense.profile', 1]] as const) {
+      expect(encodeSettingsUpdateValue(path, coerceSettingsUpdateValue(path, code))).toBe(code);
+      expect(normalizeLiveSettingsUpdates([{path, value: code}]).ok).toBe(false);
+    }
+    expect(() => coerceSettingsUpdateValue('sense.profile', 2)).toThrow();
+    expect(() => encodeSettingsUpdateValue('sense.profile', 'unknown')).toThrow();
+  });
+  it('rejects malformed life codes and numeric bounds without rounding, clamping or live application', () => {
+    for (const [path, value] of [['evolvedRespawn.delayMode', 0.5], ['world.pelletOverflow', 2],
+      ['evolvedRespawn.maxLives', 1.5], ['evolvedRespawn.enabled', 2], ['evolvedRespawn.contractVersion', 0],
+      ['reward.lifePenalty', 10001]] as const) {
+      expect(() => normalizeSettingValue(SETTING_DEFINITION_BY_PATH.get(path)!, value)).toThrow();
+      expect(normalizeLiveSettingsUpdates([{ path, value: 0 }]).ok).toBe(false);
+    }
+  });
   it('rejects reset-required paths without partially accepting a batch', () => {
     const result = normalizeLiveSettingsUpdates([
       { path: 'simSpeed', value: 2 },
@@ -37,5 +55,8 @@ describe('authoritative settings contract', () => {
   it('normalizes every legacy sensor-layout snapshot marker to v3', () => {
     expect(coerceSettingsUpdateValue('sense.layoutVersion', 0)).toBe('v3');
     expect(coerceSettingsUpdateValue('sense.layoutVersion', 1)).toBe('v3');
+    expect(coerceSettingsUpdateValue('sense.layoutVersion', 3)).toBe('v3');
+    expect(coerceSettingsUpdateValue('sense.layoutVersion', 4)).toBe('v4');
+    expect(()=>coerceSettingsUpdateValue('sense.layoutVersion',99)).toThrow('unsupported');
   });
 });

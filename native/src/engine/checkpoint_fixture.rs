@@ -292,6 +292,8 @@ pub(crate) fn publish_stage3_fixture(
         },
         fixed_step: FixedStepContinuationState::generation_boundary(),
         rng: RngStateBundle {
+            baseline_behaviors: Vec::new(),
+            evolved_respawns: Vec::new(),
             version: RNG_BUNDLE_VERSION,
             world: rng(),
             evolution: rng(),
@@ -325,6 +327,8 @@ pub(crate) fn publish_stage3_fixture(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: "rust-scalar-v1".to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     let state = AuthoritativeState::validate_and_own(candidate, graph, &policy)
@@ -450,6 +454,7 @@ fn fixture_population(graph: &GraphBundle) -> (Vec<PopulationGenome>, Vec<BrainR
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot as u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent,
         });
@@ -844,6 +849,8 @@ fn build_round_trip_state(
         expected_rustc_version: rustc_version,
         expected_build_contract_sha256: build_contract_sha256,
         expected_math_backend: "rust-scalar-v1".to_owned(),
+        allowed_settings_schema_sha256: Vec::new(),
+        allowed_math_backends: Vec::new(),
         expected_settings_schema_sha256: settings_schema_sha256,
     };
     let state = AuthoritativeState::validate_and_own(candidate, graph, &policy)
@@ -1029,6 +1036,7 @@ fn round_trip_population(
         brains.push(BrainRuntimeState {
             handle: brain,
             owner: BrainOwner::PopulationSlot(slot as u32),
+            retained_origin: None,
             non_population_weights: None,
             recurrent: vec![0.0; graph.total_state_size].into_boxed_slice(),
         });
@@ -1067,6 +1075,8 @@ fn round_trip_rng_bundle(baseline_count: usize) -> RngStateBundle {
         });
     }
     RngStateBundle {
+        baseline_behaviors: Vec::new(),
+        evolved_respawns: Vec::new(),
         version: RNG_BUNDLE_VERSION,
         world: advanced_rng_state("world", 31, true),
         evolution: advanced_rng_state("evolution", 47, true),

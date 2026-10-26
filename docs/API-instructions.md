@@ -106,7 +106,7 @@ printed LAN address when the bot runs on another trusted home device:
    `snakeId`.
 
 A UI client may join as a `spectator` or `player`. The authoritative control
-messages `settings`, `godMode`, `reset`, and `newRun` require a joined UI
+messages `settings`, `selectEntity`, `godMode`, `reset`, and `newRun` require a joined UI
 client. Bots cannot invoke them.
 
 The server does not implement an application-level idle timeout. `ping` is
@@ -259,6 +259,49 @@ normalized and applied atomically, or rejected without incrementing
 `configRevision`. Successful results are broadcast to all joined UIs as
 `settingsApplied`; rejection is returned to the requester.
 
+### `selectEntity` (joined UI only)
+
+Resolve a displayed snake before a physical mutation:
+
+```json
+{
+  "type": "selectEntity",
+  "requestId": "select-42",
+  "expectedSessionId": "<welcome.sessionId>",
+  "expectedRunId": "<welcome.runId>",
+  "expectedGeneration": 1,
+  "snakeId": 42
+}
+```
+
+Use the exact generation from scalar `stats`, which does not lose precision
+in the binary frame header. Supply exactly one selector: a positive frame ID
+`snakeId` (at most 16777216), or `populationSlot` (0..299) to reacquire the
+current life of a persistent evolved owner. Slots are distinct from frame IDs.
+
+The reliable `entitySelected` reply contains `requestId`, `found`, and, when
+found, an `entity` with `token`, `snakeId`, optional `populationSlot` and
+`lifeOrdinal`, and scalar `x`, `y`, `radius`, `skin`. `lifeOrdinal` is an exact
+16-character lowercase hexadecimal counter. A dead/pending owner returns
+`found: false`. Stale scope or busy admission also returns `found: false` with
+a reason. At most one request per connection and 128 globally remain pending.
+A retained selection may also include `retainedOrigin`, copied from the live Rust
+brain rather than resolved through SQLite:
+
+- Hall-of-Fame winner: `{ "kind": "hall-of-fame", "entryId": "<16 hex>", "weightsSha256": "<64 hex>" }`.
+- Saved model: `{ "kind": "saved-brain", "brainId": "<64 hex>", "weightsSha256": "<64 hex>", "sourceKind": "distilled|imported|manual" }`.
+
+Entry IDs remain exact positive hexadecimal strings. Digests identify the original
+portable artifact and logical packed Float32 weights. Catalog deletion does not
+remove live provenance. Population/external brains have no retained origin;
+older servers may omit this additive field. It contains no graph, weights or
+sensor samples and does not change frame-v1 or the four physical snake kinds.
+
+Copy the returned opaque 64-character lowercase hexadecimal token unchanged.
+Rust binds it to an ephemeral world incarnation and the full physical ID.
+Resolve again after death, replacement, generation change or reconnect; frame
+IDs can wrap. Token allocation consumes no gameplay RNG and is not checkpointed.
+
 ### `godMode` (joined UI only)
 
 Kill one snake through the normal death path:
@@ -268,7 +311,8 @@ Kill one snake through the normal death path:
   "type": "godMode",
   "requestId": "god-8",
   "action": "kill",
-  "snakeId": 42
+  "snakeId": 42,
+  "selectionToken": "<entity.token from selectEntity>"
 }
 ```
 
@@ -280,13 +324,16 @@ Or translate its complete body:
   "requestId": "god-9",
   "action": "move",
   "snakeId": 42,
+  "selectionToken": "<entity.token from selectEntity>",
   "x": 125.5,
   "y": -80
 }
 ```
 
 The command is queued for a fixed-step boundary. Movement is clamped so the
-body remains within the world. The requester receives `godModeResult`.
+body remains within the world. Rust revalidates the token before any mutation.
+Missing/stale tokens reject without changing the game. The requester receives
+`godModeResult`; successful results echo `selectionToken`.
 
 ### `reset` (joined UI only)
 
@@ -310,10 +357,44 @@ All fields after `type` are optional. `settings` accepts only the core settings
 defined in `server/protocol.ts`; `updates` accepts the reset/import paths in
 `src/protocol/settings.ts`; `graphSpec` is an object or `null`.
 
+Life experiments are reset-only numeric updates. A legacy configuration has no
+`evolvedRespawn.contractVersion` update in welcome. To opt in, send all 17 paths
+in `EVOLVED_SETTING_PATHS` from `src/protocol/settingDefinitions.ts`, including
+`evolvedRespawn.contractVersion: 1`. Partial legacy upgrades reject atomically.
+An already selected life contract can update a subset; omitted values remain
+recorded. Enum codes are the explicit option values in the shared definitions;
+unknown/fractional codes, duplicate life paths and out-of-range life values reject.
+Reset/New Run and archive restore preserve the selected contract. Enabling
+respawn does not implicitly change `world.pelletOverflow`.
+
 Reset is a deterministic experiment restart: the same seed and authoritative
 configuration reconstruct the same initial state. Before the new run is made
 current, the server writes a durable run-start checkpoint. A failed transition
 produces `error`; there is no separate successful reset acknowledgement.
+
+### `finishGeneration` (joined UI only)
+
+When welcome advertises `capabilities.finishGeneration`, the UI may request
+completion of the observed run and generation:
+
+```json
+{
+  "type": "finishGeneration",
+  "requestId": "finish-7",
+  "expectedRunId": "active-run-id",
+  "expectedGeneration": 7
+}
+```
+
+Rust retains one idempotent generation-scoped request. It completes the next
+eligible full fixed step, evaluates Manual before Duration and early completion,
+and uses ordinary evolution, checkpoint, metadata and successor publication.
+Stale or competing requests are rejected. `finishGenerationResult` reports
+`pending`, `completed` or `rejected`, with the request ID, run ID and generation;
+completion is reported only after the durability and delivery barriers pass.
+Duration remains numeric seconds on the wire (8..604800); text parsing belongs
+to the browser. New save archives containing completion chronology use archive
+version 2 with a bounded generation-completion role; version 1 remains readable.
 
 ### `newRun` (joined UI only)
 
@@ -449,11 +530,28 @@ pose.
 
 ### `stats`
 
-Broadcast about once per wall-clock second to every joined client. It contains
-the last committed `tick`, generation number and timing, population and
-baseline-bot alive counts, pump rate, and optional fitness, bounded history,
-visualization, and Hall-of-Fame data. Optional payloads are omitted when there
-is no new value to send.
+Replaceable stats follow the committed display cadence, bounded by the configured
+UI rate (at most 60 Hz). They contain the last committed `tick`, generation
+number and timing, population and baseline-bot alive counts, pump rate, and
+optional fitness, bounded history, visualization and Hall-of-Fame data.
+
+Optional `evolved.version: 1` supplies a constant-sized population-life summary:
+`population`, `alive`, `waiting`, `pendingPlacement`, `exhausted`,
+`deadNoRespawn`, `lives`, `deaths`, `respawns`, `failedPlacements`,
+`pendingSeconds`, `recentEventCount`, `lifeEndCursor` and `placement`.
+Lifetime counters and `placement.step` are exact lowercase 16-character hex
+u64 words. `placement` also reports `eligible`, `attempted`, `placed`,
+`pendingNoPlacement`, `pendingWorkLimit`, `deferred`, `candidates`
+(at most 2048) and `geometryChecks` (at most 250000). Its step is the same
+committed step as the display, or zero before the first replacement boundary.
+Cold commands retain the last placement boundary. Individual waiting time is
+a sum across owners, in simulated seconds.
+
+The recent-event count is bounded to 256; events and placement diagnostics
+are ephemeral and do not constitute a durable mid-round journal. No life-event
+array is sent with frame-cadence stats. Diagnostics may be absent before the
+first physical-life ledger initializes; clients should clear an older projection
+when they are absent or use an unsupported schema.
 
 ### `settingsApplied`
 
@@ -513,7 +611,14 @@ the socket.
 
 ## Sensor contract
 
-The only supported sensor layout is `v3`. Its size is:
+The ordinary production default is the frozen `v3` layout, described below.
+Explicitly admitted candidate v4 profiles use `24 + 6 * bubbleBins` inputs for
+Basic and `24 + 15 * bubbleBins` for Motion, with 8..32 bins. They require the
+exact Rust canonical sensor contract carried in welcome metadata; equal widths
+do not imply equal meanings. Their workload/ablation and production-default
+qualification remains open.
+
+The frozen `v3` size is:
 
 ```text
 19 + 4 * max(8, floor(bubbleBins))
@@ -632,6 +737,15 @@ including its compact history and run-scoped Hall of Fame. Selection is leased
 for the whole download: later generations do not change the selected bytes.
 The checkpoint is a durable generation boundary, not a mid-tick world save.
 
+Saved-brain association is explicit and defaults off. When welcome advertises
+`savedBrainArchive`, append `?brainIds=<ID>,<ID>` with 1..100 unique lowercase
+SHA-256 IDs in increasing order. All selected originals remain leased through
+transfer/cancellation; missing or invalid sources fail the entire export.
+The native version-4 archive includes exact `.slither-brain` originals and bounded
+catalog labels/timestamps, all bound by its logical root. Its independent
+`recordsVersion` preserves existing history/experiment inventory versions 1..3.
+An ordinary request keeps the existing archive format and excludes saved brains.
+
 Successful response headers are:
 
 - `Content-Type: application/vnd.slither-neuroevo.save`.
@@ -658,6 +772,12 @@ publishing the new game. Exact archives restore the complete experiment at its
 checkpoint boundary. Legacy JSON creates a new generation-one population run
 without claiming exact RNG continuation or missing history. Existing game
 sockets receive `stateReplaced` and must join again with its `rejoinToken`.
+Associated version-4 imports restore selected library membership in the same SQLite
+transaction as the checkpoint pointer. They enforce the ordinary 100-record/2-GiB
+library quota; any membership failure rejects the replacement. Existing exact
+artifact IDs preserve their current labels/timestamps. Portable graph differences
+are allowed in storage and remain checked independently at live spawn. Trainer
+datasets and optimizer state are never embedded in this archive.
 
 HTTP 200 returns `ok: true`, `runId`, `generation`, `completedStep`,
 `checkpointId`, `saveLogicalRootSha256` and `branched`, plus applicable
@@ -699,7 +819,25 @@ in the JSON request.
 - `POST /api/graph-presets` accepts `{ "name": string, "spec": object }` and
   returns `presetId`.
 
+#### `GET /api/history`
+
+Returns `{ version: 1, runId, history }` with at most 120 completed-generation
+rows from the active run and its retained ancestry. Legacy rows retain their
+existing fitness fields. Modern rows add the native fixed experiment summary:
+completion cause/times, life counts, economic score reductions, exclusive death
+causes, pending/exhausted state, actual corpse output, fitness components and
+the winner assessment. Exact u64 counters use 16-character lowercase hex.
+These are generation-boundary summaries, not a durable mid-round journal.
+Experiment summaries are served on demand; frame-cadence stats retain compact
+fitness history.
+
 #### `GET /api/hof`
+
+Modern entries include `assessment.version: 2`, the actual point/bundle methods,
+economic values, exact life counts and labelled length semantics. Their displayed
+`points` is the selected assessment; `length` is latest-life length for Reset,
+generation peak for Cumulative, or selected-life peak for Best Life. Entries
+without the extension retain legacy physical score/length meanings.
 
 Returns `{ "hof": [...] }` with compact retained Hall-of-Fame metadata.
 Production does not accept `POST /api/hof`, `POST /api/save` or the retired
@@ -782,6 +920,120 @@ socket.on('close', (code, reason) => {
 });
 ```
 
+## Distillation dataset transport v1
+
+Teacher capture uses `/api/distillation/v1/` HTTP routes independently of
+Protocol 2 actor/player control. A distillation consumer does not open
+`ActorClient`, join a snake, submit actions, or obtain a gameplay controller
+lease. Capture requires an explicitly admitted baseline-v2/v4 run; ordinary v3
+production defaults reject arm requests. This API does not change those defaults.
+
+Welcome advertises `capabilities.distillation` for on-demand dataset/shadow
+controls and `capabilities.teacherCapture` only when the applied v4/v2 contract
+has at least one teacher. These flags describe the current run, not browser
+draft settings. The browser's Distillation tab uses this API without actor
+traffic, automatic capture, or animation-frame polling. Capture start assigns
+its epoch on the server, so an uncertain start is discovered through dataset
+listing rather than replayed automatically. Shadow retries retain their original
+idempotency key, destination and complete command body.
+
+The server lazily opens a separate `<db-path>.distillation/` diagnostic store.
+Its worker stores opaque Rust-encoded objects and SQLite metadata. It does not
+parse/reconstruct observation rows or populations. The initial configurable
+storage envelope defaults to 4 GiB/65,536 complete objects, with bounded storage
+leases, four download buffers and a one-MiB native-to-worker handoff. Configure
+the global encoded-byte quota with `distillationSpoolGiB` in TOML,
+`DISTILLATION_SPOOL_GIB`, or `--distillation-spool-gib N` (integer 1..64 GiB).
+The operating disk reserve remains one GiB. Restarting with a smaller quota
+rotates oldest unpinned objects; active leases are counted once and protected.
+An impossible pinned quota refuses diagnostic initialization before evicting
+valid objects. Quota validation precedes owner-database startup and existing
+configuration files are never rewritten for this setting. Spool limits are
+supplied to `DistillationSpoolClient`; native pending/queue budgets remain
+independent per-arm admission. The selected ceiling is global to the producer's
+diagnostic store. Capacity qualification remains open.
+
+| Method and path | Request/result |
+|---|---|
+| `GET /storage` | Worker-admitted global storage policy; schema 1, `scope: "producer-global"`, byte ceilings as exact u64 hex words, bounded object/lease counts |
+| `POST /capture/start` | Exact six-field request below; server generates a new capture epoch and returns its dataset manifest after native admission |
+| `POST /capture/<epoch>/stop` | Ordered stop for that epoch; no trainer-consumption acknowledgement |
+| `GET /datasets?after=<epoch>&limit=N` | Bounded dataset summaries and discovery cursor; default limit 100, maximum 256 |
+| `GET /datasets/<epoch>/manifest` | Exact native contract/sensor JSON, closure status, durable watermarks and drop counters |
+| `GET /datasets/<epoch>/chunks?after=<sequence>&limit=N` | Coherent manifest snapshot and available immutable descriptors, `nextCursor`, `hasMore` |
+| `POST /datasets/<epoch>/leases` | `{ "sequences": ["<u64 hex>", ...], "durationMs": N }`; at most 256 unique available objects, interval at most 300,000 ms |
+| `POST /leases/<id>/renew` | `{ "durationMs": N }`; renews a still-live storage pin |
+| `DELETE /leases/<id>` | Idempotent storage-pin release |
+| `GET /datasets/<epoch>/chunks/<sequence>?lease=<id>` | Complete immutable binary object protected by that live storage lease |
+
+`GET /storage` completes only after the diagnostic worker has admitted its store.
+The response contains `schemaVersion`, `scope`, `maxBytes`, `maxChunks`,
+`maxDatasets`, `maxLeases`, `maxPinnedChunks`, `maxPinnedBytes`, `maxLeaseMs` and
+`diskReserveBytes`. The three byte fields are sixteen-digit lowercase hexadecimal
+u64 words; the remaining limits are bounded integers. These are configured
+ceilings, not reserved disk allocations. The endpoint is read-only and grants no
+capture or controller ownership.
+
+The canonical trainer binds this policy before fetching rows and saves it with
+its version-2 source cursor checkpoint. `--spool-gib N` requires the producer's
+admitted quota to match the selected 1..64 GiB; configure the producer quota using
+Slither's startup control first. A changed policy requires a new job. A legacy
+provider returning 404 for this endpoint is explicitly recorded as unreported;
+an explicit quota cannot be inferred for it. Other transport or metadata errors
+remain failures. Offline exact resume uses the saved policy without HTTP.
+
+Paths in the table are relative to `/api/distillation/v1/`. Epoch/lease IDs are
+32 lowercase hex digits; long sequences/revisions are exact 16-digit unsigned
+hex words. Unknown fields, malformed cursors, invalid limits and unavailable or
+expired pins reject. Storage leases protect retention; they are not controller
+ownership or authentication.
+
+```json
+{
+  "expectedRunId": "current run ID",
+  "expectedConfigRevision": "0000000000000001",
+  "baselineSlots": [0, 1],
+  "pendingBytes": 16777216,
+  "queueChunks": 1024,
+  "queueBytes": 16777216
+}
+```
+
+Slot selection must strictly increase and refer to existing baseline-v2 owners.
+The budgets include cold row/sealing storage and native queue/handoff/metadata
+headroom respectively. Native admission can reject a budget too small for that
+selection. Start/stop use the existing ordered command sequence; sample delivery
+uses the independent diagnostic queue and never reserves controller output.
+
+`runSeed` records the authoritative unsigned 32-bit run seed for reproducible
+trainer partitioning. Diagnostic databases from before seed recording migrate
+with `runSeed: null`; consumers must not guess it for an exact restart.
+
+`productionWatermark` includes durably observed native assignments that dropped;
+`storageWatermark` is the highest historically published object, not a contiguous
+guarantee. `retentionFloor` is below all currently available objects.
+`resolvedThrough` means every sequence at/below it has a settled stored or
+unavailable disposition. Finish listing pagination before treating a missing
+sequence at/below that watermark as a gap. Missing above it may still be pending.
+Download responses include exact `Content-Length`, `X-Slither-Chunk-Sha256` and a
+digest ETag; consumers must validate digest/length before using bytes. The binary
+format is specified in [teacher-chunk-v1.md](teacher-chunk-v1.md).
+
+Slow consumers can cause complete native drops or spool eviction; pinned
+saturation drops new objects. Repeated exact handoffs/downloads are idempotent.
+After interruption the store retains only its last durably observed production
+tail, labels the epoch interrupted and never resumes it. Retained complete
+objects remain available for offline jobs. This is diagnostic/training
+durability, not a mid-round world checkpoint. Portable candidate uploads now use
+`POST /candidates/<sha256>` with an exact binary Content-Length; Rust independently
+validates the graph, numeric layout, sensors, cadence and finite weights in the
+spool worker. `GET /candidates/<sha256>` returns descriptor-only metadata. These
+records do not activate a brain or populate the saved library. See
+[brain-artifact-v1.md](brain-artifact-v1.md) for the portable format and quotas.
+PyRL now provides the independent HTTP
+`DistillationClient` and strict binary decoder, including local cursor proposals,
+checkpoint identity checks, explicit gaps and storage-pin cleanup.
+
 ## Common integration mistakes
 
 - Sending Protocol 1 or omitting `hello`.
@@ -799,3 +1051,166 @@ socket.on('close', (code, reason) => {
 - Assuming an imported `worldSeed` changes the active run.
 - Assuming JavaScript is a transparent fallback when native loading fails.
 - Exposing the unauthenticated server on an untrusted network.
+
+## Native shadow controls v1
+
+Shadow routes use the same origin admission and `/api/distillation/v1/` namespace
+as teacher capture. Four diagnostic slots are empty by default. A shadow evaluates
+exact committed vectors from one selected baseline-v2 teacher, using private Rust
+recurrence; it never submits an action or changes fitness, delivery markers or RNG.
+The candidate's structural sensor identity, width and cadence must match the active
+capture. Its graph may differ from the controlling population graph.
+
+| Method and relative path | Request/result |
+|---|---|
+| `GET /shadows` | `schemaVersion: 1`, diagnostic `processEpoch`, and exactly four fixed native summaries, with null unused slots |
+| `POST /shadows/<0..3>/activate` | Exact request below; returns a durably recorded native activation receipt |
+| `POST /shadows/<0..3>/stop` | `requestId`, `captureEpoch`, `activationSequence`; returns a durably recorded matching stop |
+| `GET /shadows/events?after=<u64hex>&limit=<1..256>` | Bounded durable receipt chronology and exact hexadecimal pagination cursor |
+
+Activation requires these eight fields:
+
+```json
+{
+  "requestId": "<32 lowercase nonzero hex digits>",
+  "expectedProcessEpoch": "<processEpoch from GET /shadows>",
+  "expectedActivationSequence": "<current slot activationSequence, or 0000000000000000 for an unused slot>",
+  "expectedRunId": "<active run ID>",
+  "expectedConfigRevision": "<16 lowercase nonzero hex digits>",
+  "captureEpoch": "<active capture epoch>",
+  "baselineSlot": 0,
+  "artifactSha256": "<64 lowercase hex digits>"
+}
+```
+
+Use a new request ID for an explicit new activation. Exact lost-reply retries
+return the retained immutable receipt. Altering its body rejects; stale observed
+slot versions and changed processes reject before a replacement is admitted.
+Cold file validation/registration runs on the diagnostic worker, then the shared
+native command queue applies activation at a clean complete-step boundary.
+Receipts record process/request/command/activation identities, run/config/capture,
+candidate/teacher/slot, applied boundary and server receipt time. Their independent
+SQLite chronology retains the latest 1,024 confirmations, with version-one
+candidate metadata migrated in place. A delayed stop binds its activation and
+cannot disable a replacement. Receipt storage never resolves a gameplay barrier.
+
+A control timeout leaves its admitted identity pending until the actual native
+outcome arrives. A storage failure after native application reports that distinction;
+query metrics and retry the same request rather than inventing a replacement.
+Chronology rotation does not evict active native weights or reset recurrence.
+
+Metrics include unweighted turn MAE/MSE, requested-boost disagreement, four
+strategies, three life stages, six overlapping rare strata, cruising and the last
+at-most-32 deliveries before each sealed physical death. Counters and identities
+are exact hexadecimal words. `completedStep` includes held-control publications;
+`lastSampleStep` identifies the actual delivery behind `rawOutputs`. Inference
+errors disable only the affected slot. Capture closure or a changed contract
+ends its diagnostic segment. These summaries contain no observation or weight bytes.
+
+
+## Saved-brain library v1
+
+Library routes use the ordinary production HTTP origin admission and the same
+`/api/distillation/v1/` namespace. Candidates remain transient until an explicit
+save. The library admits 100 retained records and 2 GiB of unique portable/shared
+weight objects, with the existing operating disk reserve. Catalog pages omit full
+graphs; individual records include native-built graph, sensor, cadence and source
+provenance metadata. Numeric weights remain opaque portable/native objects.
+
+| Route | Contract |
+|---|---|
+| `GET /library?after=<sha256>&limit=<1..25>` | `schemaVersion`, `processEpoch`, `deploymentSequence`, current `scope`, and paginated `page`; omit `after` for the first page |
+| `GET /library/<sha256>` | One complete saved metadata record |
+| `POST /library/<candidate-sha256>/save` | Exact JSON `{ "name": "display name" }`; snapshot the selected candidate and retain its original portable bytes |
+| `POST /library/import?name=<display-name>` | Original `.slither-brain` bytes with `application/octet-stream` and exact Content-Length; return the explicitly saved record |
+| `DELETE /library/<sha256>` | Delete catalog membership and return `{brainId, deleted}`; live native brains and leased exports remain valid |
+| `GET /library/<sha256>/export` | Direct self-contained `.slither-brain` attachment, original bytes, complete-file ETag; no model reconstruction by the client |
+| `POST /library/<sha256>/spawn` | Exact scoped request below; return a confirmed native publication receipt |
+
+Imports preserve the original file and its embedded provenance. Display names
+are nonempty trimmed UTF-8 text of at most 256 bytes. Binary ingress is bounded to
+one concurrent upload, 64 MiB and 30 seconds; candidate upload and library import
+share that ingress owner. Library save/export/deployment preparation is separately
+bounded to one operation. Native admission rejects malformed graph/layout/digests,
+nonfinite weights and corrupted managed originals before deployment or export.
+No HTTP request accepts a filesystem path. Raw candidate artifact downloads remain
+unavailable; export requires explicitly saved library membership.
+
+Refresh `GET /library` before a new deployment. Use its `scope`, process identity
+and deployment cursor in this exact request:
+
+```json
+{
+  "requestId": "<32 lowercase nonzero hex digits>",
+  "expectedProcessEpoch": "<processEpoch from GET /library>",
+  "expectedDeploymentSequence": "<deploymentSequence from GET /library>",
+  "expectedRunId": "<scope.expectedRunId>",
+  "expectedConfigRevision": "<scope.expectedConfigRevision: 16 lowercase nonzero hex digits>",
+  "expectedWorldEpoch": "<scope.expectedWorldEpoch: 16 lowercase nonzero hex digits>"
+}
+```
+
+A new explicit deployment uses a new request ID. Exact lost-reply retries return
+the same confirmed receipt; changed fields reject. The coordinator retains at most
+64 outcomes. The deployment cursor prevents an older evicted request from spawning
+again. A process restart changes `processEpoch`; refresh and make an explicit new
+request instead of treating a previous ambiguous outcome as a new deployment.
+
+The receipt carries the request fields, `schemaVersion: 1`, `brainId`, global
+`commandSequence`, frame-v1 `snakeId` and hexadecimal `effectiveStep`. Rust requires
+the exact active graph, structural sensor contract and neural cadence. Same-width
+different sensor meanings reject. Other numeric environment differences remain
+provenance for gameplay evaluation. Deployment uses ordinary retained spawn:
+zero recurrent state, first-action due, safe placement and atomic capacity/RNG/
+identity publication. Saved brains have retained provenance and do not become
+Hall-of-Fame winners.
+
+The HTTP wait ends after 30 seconds. A timeout keeps the exact admitted command and
+file lease pending until the actual native result arrives; retry the same body to
+retrieve that result. It does not cancel or duplicate a spawn. World replacement,
+archive work and physical cleanup exclude active library file consumers. Shutdown
+joins Rust before releasing files for an unknown native outcome. Deleting catalog
+membership cannot revoke weights/origin already owned by a live Rust brain.
+
+### Selected decision inspector
+
+A joined UI peer may send `inspectEntity` with `requestId`, `expectedSessionId`,
+`expectedRunId` and the exact `selectionToken`/`snakeId` pair returned by
+`selectEntity`. Omitting both target fields closes capture. One UI connection
+owns the selected inspector globally; competing requests and overlapping pending
+changes reject with a reliable `inspectorResult`. The command's exact
+`subscriptionSequence` identifies its capture.
+
+`inspector` messages contain Rust-authored schema-v1 snapshots with full-width
+hexadecimal identities, publication/sample steps, exact sample age, actual sampler
+profile/digest, delivered inputs, raw measurements, outputs and work diagnostics.
+A null sample is an explicit retirement. Unknown body rays remain `incomplete`;
+v3 body rays are `not-sampled`. Consumers must match `subscriptionSequence` to the
+acknowledged command. Updates are at most 10 Hz and replace the socket's prior
+unsent diagnostic row, with gameplay replies and frames retaining priority.
+Disconnect disables capture; reconnect, replacement and applied settings require
+fresh admission. The inspector grants no controller ownership and performs no
+extra observation query or model execution in delivered mode.
+
+Optional schema-v1 details extend that exact delivered boundary: `lifecycle`
+contains the evolved life counters, current/best tuples, economic ledger, selected
+assessment and provisional native fitness components. `baselineV1Action` is the
+actual frozen-v1 action and effective strategy. `shadowOutputs` contains at most
+four raw candidate outputs joined by exact physical life, generation and sample
+step, with candidate digest, capture epoch and activation sequence. Held rows
+retain their historical values and age; these fields do not describe newer world
+state. Missing details are absent or null, and an empty shadow array means no
+matching candidate output was attached. Consumers must not calculate fitness or
+infer a missing observation from these projections.
+
+Set `pureProbe: true` on an exact-token `inspectEntity` enable request to capture
+one sensor-only observation at the next stable pre-movement boundary. The usual
+subscription result and 10 Hz mailbox carry it, with `sample.pureProbe: true`.
+The probe retains its own step and increasing age until replaced or closed. It
+runs no policy/inference and consumes no delivery marker, first flag, RNG or
+normal fair-quota cursor. V4 probe rays use a private meter bounded by the admitted
+per-observation cap. Graph, baseline and shadow outputs are absent for probes.
+Omit `pureProbe` (or send false) to resume delivered decisions. A true probe flag
+requires an exact token/frame pair; it is invalid on a close command. The UI
+closes a probe subscription when physical selection changes and requires another
+explicit probe request for the new life.

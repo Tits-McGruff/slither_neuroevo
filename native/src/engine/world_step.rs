@@ -199,8 +199,10 @@ impl WorldStepConfig {
 }
 
 /// Retained work and phase diagnostics for one complete staged world step.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WorldStepDiagnostics {
+    /// Actual attempted/emitted/discarded effects across every accepted substep.
+    pub emissions: super::effects::EffectEmissionTotals,
     /// Shared controller-selection and internal-publication work.
     pub control: ControlCommitDiagnostics,
     /// Complete accepted physics transaction.
@@ -232,6 +234,7 @@ pub struct PreparedWorldStep<'workspace, 'control> {
     lifecycle: &'workspace BaselineLifecycleState,
     sensor_generation: SensorGenerationState,
     diagnostics: WorldStepDiagnostics,
+    teacher_outcomes: &'workspace super::teacher_capture::TeacherPhysicalOutcomes,
 }
 
 /// Mutable complete-step buffers admitted for the one authoritative swap.
@@ -265,6 +268,10 @@ struct ExternalObservationResolution {
 }
 
 impl<'workspace, 'control> PreparedWorldStep<'workspace, 'control> {
+    /// Non-authoritative physical outcomes retained until complete publication.
+    pub(crate) fn teacher_outcomes(self) -> super::teacher_capture::TeacherPhysicalOutcomes {
+        *self.teacher_outcomes
+    }
     /// Exact authority/config/operation identity staged.
     #[must_use]
     pub const fn key(self) -> PhysicsStepKey {
@@ -376,10 +383,36 @@ pub struct WorldStepWorkspace {
     ready: bool,
     diagnostics: WorldStepDiagnostics,
     #[cfg(feature = "engine-test-hooks")]
+    qualification_subject: Option<u64>,
+    #[cfg(feature = "engine-test-hooks")]
+    qualification_outcome: super::evolved_lives::EvolvedPhysicsDelta,
+    teacher_capture_enabled: bool,
+    teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes,
+    #[cfg(feature = "engine-test-hooks")]
     allocation_snapshot: Option<fn() -> u64>,
 }
 
 impl WorldStepWorkspace {
+    /// Opt-in single-subject evidence; production builds have no fields or extra work.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn track_qualification_subject(&mut self, physical_id: u64) {
+        self.qualification_subject = Some(physical_id);
+    }
+
+    /// Expose only the joined successful step, never a partially prepared substep.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_outcome(
+        &self,
+    ) -> Option<super::evolved_lives::EvolvedPhysicsDelta> {
+        (self.ready && self.qualification_subject == Some(self.qualification_outcome.snake_id))
+            .then_some(self.qualification_outcome)
+    }
+
+    /// Enable bounded outcome diagnostics only for an admitted capture selection.
+    pub(crate) fn set_teacher_capture_enabled(&mut self, enabled: bool) {
+        self.teacher_capture_enabled = enabled;
+        self.teacher_outcomes = super::teacher_capture::TeacherPhysicalOutcomes::default();
+    }
     /// Construct empty reusable complete-step scratch.
     #[must_use]
     pub fn new() -> Self {
@@ -395,7 +428,7 @@ impl WorldStepWorkspace {
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
-        self.prepare_internal(control, config, false)
+        self.prepare_internal(control, config, false, None)
     }
 
     /// Advance physics while deliberately deferring controlled-death replacement.
@@ -407,8 +440,10 @@ impl WorldStepWorkspace {
         &'workspace mut self,
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
+        evolved_generation: &mut super::evolved_lives::EvolvedGenerationState,
+        policy: super::evolved_lives::EvolvedExperimentConfig,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
-        self.prepare_internal(control, config, true)
+        self.prepare_internal(control, config, true, Some((evolved_generation, policy)))
     }
 
     fn prepare_internal<'workspace, 'control>(
@@ -416,10 +451,18 @@ impl WorldStepWorkspace {
         control: PreparedControlCommit<'control>,
         config: WorldStepConfig,
         defer_external_replacement: bool,
+        mut evolved_generation: Option<(
+            &mut super::evolved_lives::EvolvedGenerationState,
+            super::evolved_lives::EvolvedExperimentConfig,
+        )>,
     ) -> Result<PreparedWorldStep<'workspace, 'control>, WorldStepError> {
         self.key = None;
         self.prepared_config = None;
         self.ready = false;
+        #[cfg(feature = "engine-test-hooks")]
+        {
+            self.qualification_outcome = super::evolved_lives::EvolvedPhysicsDelta::default();
+        }
         self.pending_external_deliveries = 0;
         self.pending_replacement_deliveries = 0;
         self.replacement_active = false;
@@ -428,6 +471,7 @@ impl WorldStepWorkspace {
         self.external_replacement.discard();
         self.external_disconnects.clear();
         self.diagnostics = WorldStepDiagnostics::default();
+        self.teacher_outcomes = super::teacher_capture::TeacherPhysicalOutcomes::default();
         #[cfg(feature = "engine-test-hooks")]
         self.phases
             .reset_allocation_tracking(self.allocation_snapshot);
@@ -443,10 +487,102 @@ impl WorldStepWorkspace {
         )?;
         #[cfg(feature = "engine-test-hooks")]
         self.phases.record_begin_allocations();
+        let mut emissions = super::effects::EffectEmissionTotals::default();
         for _ in 0..config.physics_substeps {
-            self.physics.advance_substep(&mut self.phases, key)?;
+            let lifecycle = evolved_generation.as_ref().map(|(lives, policy)| {
+                super::effects::EffectLifecyclePolicy {
+                    experiment: *policy,
+                    lives,
+                }
+            });
+            self.physics
+                .advance_substep_with_lifecycle(&mut self.phases, key, lifecycle)?;
+            #[cfg(feature = "engine-test-hooks")]
+            if let Some(subject) = self.qualification_subject {
+                if let Some(delta) = self
+                    .physics
+                    .evolved_deltas()
+                    .iter()
+                    .find(|delta| delta.snake_id == subject)
+                {
+                    let outcome = &mut self.qualification_outcome;
+                    outcome.snake_id = subject;
+                    outcome.food += delta.food;
+                    outcome.boost_points_spent += delta.boost_points_spent;
+                    outcome.kills += delta.kills;
+                    outcome.death = outcome.death.or(delta.death);
+                    outcome.death_flags |= delta.death_flags;
+                    outcome.alive_after = delta.alive_after;
+                }
+            }
+            if self.teacher_capture_enabled {
+                super::teacher_capture::record_teacher_physics(
+                    &mut self.teacher_outcomes,
+                    control.world(),
+                    self.physics.evolved_deltas(),
+                );
+            }
+            emissions
+                .accumulate(self.phases.effect_diagnostics())
+                .map_err(|error| {
+                    WorldStepError::Physics(Box::new(super::physics::PhysicsError::Effects(
+                        Box::new(error),
+                    )))
+                })?;
+            if let Some((evolved_generation, _)) = evolved_generation.as_mut() {
+                evolved_generation
+                    .apply_physics(self.physics.evolved_deltas())
+                    .map_err(WorldStepError::EvolvedAccounting)?;
+            }
         }
 
+        // Cache only complete-step motion, before any external physical replacement.
+        // The control world includes newborn placement and is the true motion origin.
+        {
+            let buffers = self.physics.publication_buffers(key)?;
+            let before = control.world();
+            if buffers.world.snakes.len() != before.snakes.len() {
+                return Err(WorldStepError::InvalidConfig {
+                    field: "motion continuation shape",
+                });
+            }
+            for (snake, source) in buffers.world.snakes.iter_mut().zip(&before.snakes) {
+                if snake.id != source.id {
+                    return Err(WorldStepError::InvalidConfig {
+                        field: "motion continuation physical identity",
+                    });
+                }
+                let change = snake.direction - source.direction;
+                snake.completed_step_heading_delta = if source.alive {
+                    change.sin().atan2(change.cos())
+                } else {
+                    0.0
+                };
+                snake.completed_step_speed_delta = if source.alive {
+                    snake.speed - source.speed
+                } else {
+                    0.0
+                };
+                snake.completed_step_applied_turn = if source.alive { source.turn } else { 0.0 };
+            }
+        }
+
+        if let Some((lives, policy)) = evolved_generation.as_mut() {
+            let buffers = self.physics.publication_buffers(key)?;
+            lives
+                .schedule_deaths(
+                    *policy,
+                    buffers.rng,
+                    key.source_completed_step().checked_add(1).ok_or(
+                        WorldStepError::InvalidConfig {
+                            field: "completed step",
+                        },
+                    )?,
+                    control.generation_elapsed_seconds(),
+                    config.prefix.fixed_dt,
+                )
+                .map_err(WorldStepError::EvolvedAccounting)?;
+        }
         copy_lifecycle_reusing(&mut self.lifecycle, control.baseline_lifecycle())?;
         {
             let physics = self.physics.finish(key)?;
@@ -466,6 +602,18 @@ impl WorldStepWorkspace {
             )?;
             self.sensor_generation = control.sensor_generation();
             self.sensor_generation.update_after_step(physics.world())?;
+            if let Some((lives, policy)) = evolved_generation.as_ref() {
+                if policy.version != 0
+                    && (policy.enabled
+                        || policy.points != super::evolved_lives::PointAssessmentMode::Reset)
+                {
+                    for life in &lives.slots {
+                        self.sensor_generation.observe_assessments(&[life
+                            .assessment(policy.points, policy.nonpoints)
+                            .points])?;
+                    }
+                }
+            }
 
             if has_dead_controller(physics.world()) && !defer_external_replacement {
                 return Err(WorldStepError::ExternalReplacementContextRequired);
@@ -491,6 +639,7 @@ impl WorldStepWorkspace {
             .count();
         self.ready = true;
         self.diagnostics = WorldStepDiagnostics {
+            emissions,
             control: control.diagnostics(),
             physics: self.physics.diagnostics(),
             last_substep: self.phases.substep_diagnostics(),
@@ -1129,6 +1278,7 @@ impl WorldStepWorkspace {
                 .ok_or(WorldStepError::ResultNotReady)?,
             sensor_generation: self.sensor_generation,
             diagnostics: self.diagnostics,
+            teacher_outcomes: &self.teacher_outcomes,
         })
     }
 }
@@ -1158,6 +1308,8 @@ pub enum WorldStepError {
     Control(Box<ControlPhaseError>),
     /// One physics phase or transaction failed.
     Physics(Box<PhysicsError>),
+    /// One accepted substep produced inconsistent population accounting.
+    EvolvedAccounting(super::evolved_lives::EvolvedLifeError),
     /// Baseline death-delay staging failed.
     Baseline(Box<BaselineLifecycleError>),
     /// Generation sensor continuation rejected the post-physics world.
@@ -1235,6 +1387,7 @@ impl Display for WorldStepError {
             Self::Prefix(error) => write!(formatter, "{error}"),
             Self::Control(error) => write!(formatter, "{error}"),
             Self::Physics(error) => write!(formatter, "{error}"),
+            Self::EvolvedAccounting(error) => write!(formatter, "{error}"),
             Self::Baseline(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),
             Self::Controller(error) => write!(formatter, "{error}"),
@@ -1278,6 +1431,7 @@ impl Error for WorldStepError {
             Self::Prefix(error) => Some(error.as_ref()),
             Self::Control(error) => Some(error.as_ref()),
             Self::Physics(error) => Some(error.as_ref()),
+            Self::EvolvedAccounting(error) => Some(error),
             Self::Baseline(error) => Some(error.as_ref()),
             Self::Sensor(error) => Some(error.as_ref()),
             Self::Controller(error) => Some(error.as_ref()),

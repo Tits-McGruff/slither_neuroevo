@@ -21,9 +21,7 @@ use super::movement::MovementConfig;
 use super::physics::PhysicsConfig;
 use super::sensors::{SensorConfig, SensorError};
 use super::spatial::SensorIndexConfig;
-use super::state::{
-    NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue, SENSOR_VERSION,
-};
+use super::state::{NormalizedEngineConfig, NormalizedSetting, NormalizedSettingValue};
 use super::world_step::{WorldStepConfig, WorldStepError, MAXIMUM_PHYSICS_SUBSTEPS};
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -47,6 +45,8 @@ const TYPESCRIPT_MINIMUM_FIXED_STEP_SECONDS: f64 = 1.0 / 240.0;
 /// or smaller values without changing experiment configuration identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunningStepWorkLimits {
+    /// Explicit admitted v4 qualification limits; no production default before the workload gate.
+    pub ray_work: Option<super::ray_work::RayWorkLimits>,
     /// Persistent calculation threads, independent of gameplay identity.
     pub calculation_workers: usize,
     /// Complete body-cell entries admitted for shared sensing.
@@ -74,6 +74,7 @@ impl RunningStepWorkLimits {
     #[must_use]
     pub const fn provisional_defaults() -> Self {
         Self {
+            ray_work: None,
             calculation_workers: 1,
             sensor_body_entries: 1_000_000,
             collision_index_entries: 2_000_000,
@@ -223,12 +224,141 @@ pub(crate) fn fixture_default_settings(
 pub struct RunningStepConfigProjection {
     /// Prefix, control, physics, lifecycle, and substep settings.
     pub world_step: WorldStepConfig,
-    /// Exact corrected sensor-v3 formula configuration owned by the control pipeline.
+    /// Recorded legacy or complete evolved-life experiment contract.
+    pub evolved: super::evolved_lives::EvolvedExperimentConfig,
+    /// Exact numeric sensor environment owned by the configured control pipeline.
     pub sensor: SensorConfig,
+    /// Structural profile reconstructed from the persisted digest contract.
+    pub sensor_profile: super::sensor_contract::SensorProfile,
     /// Values that prove whether a completed step is safely nonterminal.
     pub generation_guard: GenerationGuardConfig,
     /// Reset-only random genome initialization formulas needed by replacement/evolution.
     pub genome_initialization: GenomeInitializationConfig,
+}
+
+/// Current settings defaults with a complete, explicitly versioned life extension.
+/// Frozen fixture and compatibility constructors retain their previous bytes.
+pub fn production_default_settings(
+    population_count: usize,
+    baseline_count: usize,
+) -> Vec<NormalizedSetting> {
+    let mut settings = typescript_default_settings(population_count, baseline_count);
+    let integer = |path: &str, value: i64| NormalizedSetting {
+        path: path.into(),
+        value: NormalizedSettingValue::Integer(value),
+    };
+    settings.extend([
+        integer("evolvedRespawn.contractVersion", 1),
+        NormalizedSetting {
+            path: "evolvedRespawn.enabled".into(),
+            value: NormalizedSettingValue::Bool(false),
+        },
+        NormalizedSetting {
+            path: "evolvedRespawn.delaySeconds".into(),
+            value: NormalizedSettingValue::Float(0.0),
+        },
+        integer("evolvedRespawn.delayMode", 0),
+        integer("evolvedRespawn.maxLives", 0),
+        integer("evolvedRespawn.recurrentState", 0),
+        integer("evolvedRespawn.rngMode", 0),
+        integer("evolvedRespawn.corpseMode", 0),
+        integer("lifeScoring.mode", 0),
+        integer("lifeScoring.cumulativeBasis", 0),
+        integer("lifeScoring.cumulativeWallet", 0),
+        integer("reward.lifeAccounting", 0),
+        integer("reward.durationScaling", 0),
+        NormalizedSetting {
+            path: "reward.lifePenalty".into(),
+            value: NormalizedSettingValue::Float(0.0),
+        },
+        integer("reward.lifePenaltyBasis", 0),
+        integer("observer.earlyEndMode", 0),
+        integer("world.pelletOverflow", 0),
+    ]);
+    settings.sort_unstable_by(|left, right| left.path.cmp(&right.path));
+    settings
+}
+
+/// Dispatch by the recorded extension version, never fill partial modern settings.
+pub(crate) fn project_evolved_experiment_config(
+    config: &NormalizedEngineConfig,
+) -> Result<super::evolved_lives::EvolvedExperimentConfig, StepConfigError> {
+    use super::evolved_lives::*;
+    let settings = SettingReader::new(config)?;
+    let duration = settings.float("generationSeconds", 8.0, 604800.0)?;
+    let extension = config.settings.iter().any(|setting| {
+        setting.path.starts_with("evolvedRespawn.")
+            || setting.path.starts_with("lifeScoring.")
+            || matches!(
+                setting.path.as_str(),
+                "reward.lifeAccounting"
+                    | "reward.durationScaling"
+                    | "reward.lifePenalty"
+                    | "reward.lifePenaltyBasis"
+                    | "observer.earlyEndMode"
+                    | "world.pelletOverflow"
+            )
+    });
+    if !extension {
+        return Ok(EvolvedExperimentConfig::legacy(duration));
+    }
+    settings.integer("evolvedRespawn.contractVersion", 1, 1)?;
+    let mode = settings.integer("lifeScoring.mode", 0, 2)?;
+    let gross = settings.integer("lifeScoring.cumulativeBasis", 0, 1)? == 1;
+    let carried = settings.integer("lifeScoring.cumulativeWallet", 0, 1)? == 1;
+    let projected = EvolvedExperimentConfig {
+        version: 1,
+        enabled: settings.boolean("evolvedRespawn.enabled")?,
+        delay_seconds: settings.float("evolvedRespawn.delaySeconds", 0.0, 3600.0)?,
+        delay_mode: [RespawnDelayMode::Fixed, RespawnDelayMode::Uniform]
+            [settings.usize("evolvedRespawn.delayMode", 0, 1)?],
+        max_lives: settings.integer("evolvedRespawn.maxLives", 0, 10000)? as u64,
+        recurrent_state: [RecurrentLifeMode::Reset, RecurrentLifeMode::Preserve]
+            [settings.usize("evolvedRespawn.recurrentState", 0, 1)?],
+        rng_mode: [RespawnRngMode::PerSlot, RespawnRngMode::World]
+            [settings.usize("evolvedRespawn.rngMode", 0, 1)?],
+        points: if mode == 0 {
+            PointAssessmentMode::Reset
+        } else if mode == 2 {
+            PointAssessmentMode::BestLife
+        } else if gross {
+            PointAssessmentMode::CumulativeGross
+        } else {
+            PointAssessmentMode::CumulativeNet
+        },
+        carried_wallet: mode == 1 && carried,
+        nonpoints: [
+            NonPointAggregation::GenerationTotals,
+            NonPointAggregation::FollowScore,
+            NonPointAggregation::LegacyTerminal,
+        ][settings.usize("reward.lifeAccounting", 0, 2)?],
+        objective: super::evolution::EvolvedFitnessObjective {
+            configured_duration_seconds: duration,
+            normalize_to_240_seconds: settings.integer("reward.durationScaling", 0, 1)? == 1,
+            penalty_amount: settings.float("reward.lifePenalty", 0.0, 10000.0)?,
+            penalize_successful_respawns: settings.integer("reward.lifePenaltyBasis", 0, 1)? == 1,
+        },
+        corpse_mode: [
+            EvolvedCorpseMode::Normal,
+            EvolvedCorpseMode::None,
+            EvolvedCorpseMode::SubtractReplacementMass,
+        ][settings.usize("evolvedRespawn.corpseMode", 0, 2)?],
+        pellet_overflow: [
+            PelletOverflowMode::Fail,
+            PelletOverflowMode::DiscardNewExcess,
+        ][settings.usize("world.pelletOverflow", 0, 1)?],
+        early_completion: [
+            EarlyCompletionMode::Automatic,
+            EarlyCompletionMode::PhysicalAlive,
+            EarlyCompletionMode::DurationOnly,
+        ][settings.usize("observer.earlyEndMode", 0, 2)?],
+    };
+    projected
+        .validate()
+        .map_err(|_| StepConfigError::UnsupportedSetting {
+            path: "evolvedRespawn.contractVersion",
+        })?;
+    Ok(projected)
 }
 
 /// Current TypeScript generation-ending conditions used as a fail-closed guard.
@@ -363,13 +493,9 @@ pub(crate) fn project_running_step_config(
             path: "baselineBots.count",
         });
     }
-    if settings.integer("brain.sensorVersion", 3, 3)? != i64::from(SENSOR_VERSION)
-        || settings.integer("sense.layoutVersion", 3, 3)? != i64::from(SENSOR_VERSION)
-    {
-        return Err(StepConfigError::ProjectionMismatch {
-            path: "sense.layoutVersion",
-        });
-    }
+    let sensor_contract =
+        super::sensor_contract::SensorContractIdentity::from_settings(&config.settings)
+            .map_err(StepConfigError::SensorContract)?;
 
     let food_value = settings.float("foodValue", 0.1, 8.0)?;
     let growth_per_food = settings.float("growPerFood", 0.1, 10.0)?;
@@ -446,7 +572,12 @@ pub(crate) fn project_running_step_config(
         })?;
     let controller_timing = ControllerTiming::from_config(config)
         .map_err(|_| StepConfigError::InvalidControllerTiming)?;
+    let baseline_v2 = super::baseline_v2::BaselineV2Settings::from_settings(&config.settings)
+        .map_err(|_| StepConfigError::UnsupportedSetting {
+            path: "baselineBots.controlVersion",
+        })?;
     let control = ControlPhaseConfig {
+        baseline_v2,
         neural_control_interval_seconds: settings.float("brain.controlDt", 0.008, 0.06)?,
         controller_timing,
         baseline: BaselineControlConfig {
@@ -575,7 +706,7 @@ pub(crate) fn project_running_step_config(
     };
     world_step.validate_shape()?;
 
-    let generation_seconds = settings.float("generationSeconds", 8.0, 480.0)?;
+    let generation_seconds = settings.float("generationSeconds", 8.0, 604_800.0)?;
     let sensor = SensorConfig {
         bins: settings.usize("sense.bubbleBins", 8, 32)?,
         world_radius: config.world_radius,
@@ -609,7 +740,9 @@ pub(crate) fn project_running_step_config(
     };
     Ok(RunningStepConfigProjection {
         world_step,
+        evolved: project_evolved_experiment_config(config)?,
         sensor,
+        sensor_profile: sensor_contract.profile(),
         generation_guard,
         genome_initialization,
     })
@@ -745,6 +878,10 @@ impl<'config> SettingReader<'config> {
 /// Rejection while deriving the complete running-step formula contract.
 #[derive(Debug)]
 pub enum StepConfigError {
+    /// Unsupported or mismatched structural sensor identity.
+    SensorContract(super::sensor_contract::SensorContractError),
+    /// V4 cannot run before explicit measured/admitted limits are supplied.
+    MissingRayWorkLimits,
     /// The normalized settings vector is not strictly path-sorted and unique.
     NonCanonicalSettings,
     /// One correctness-relevant running-step setting is absent.
@@ -789,6 +926,11 @@ impl From<SensorError> for StepConfigError {
 impl Display for StepConfigError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SensorContract(error) => write!(formatter, "{error}"),
+            Self::MissingRayWorkLimits => write!(
+                formatter,
+                "sensor-v4 requires explicit admitted ray-work limits for qualification"
+            ),
             Self::NonCanonicalSettings => {
                 write!(
                     formatter,
@@ -897,6 +1039,109 @@ pub(crate) mod tests {
             .find(|setting| setting.path == path)
             .expect("test setting must exist")
             .value
+    }
+
+    #[test]
+    fn evolved_policy_dispatch_preserves_legacy_and_requires_every_modern_field() {
+        let mut configuration = config();
+        let legacy = project_evolved_experiment_config(&configuration).unwrap();
+        assert_eq!(legacy.version, 0);
+        assert!(!legacy.enabled);
+        let old_settings = configuration.settings.clone();
+        configuration.settings = production_default_settings(
+            configuration.population_count,
+            configuration.baseline_count,
+        );
+        let modern = project_evolved_experiment_config(&configuration).unwrap();
+        assert_eq!(modern.version, 1);
+        assert!(!modern.enabled);
+        assert_eq!(
+            modern.pellet_overflow,
+            super::super::evolved_lives::PelletOverflowMode::Fail
+        );
+        for index in 0..configuration.settings.len() {
+            let field = &configuration.settings[index].path;
+            if old_settings.iter().any(|old| old.path == *field) {
+                continue;
+            }
+            let mut incomplete = configuration.clone();
+            incomplete.settings.remove(index);
+            assert!(
+                project_evolved_experiment_config(&incomplete).is_err(),
+                "missing {field}"
+            );
+        }
+        configuration
+            .settings
+            .iter_mut()
+            .find(|setting| setting.path == "evolvedRespawn.enabled")
+            .unwrap()
+            .value = NormalizedSettingValue::Bool(true);
+        let enabled = project_evolved_experiment_config(&configuration).unwrap();
+        assert!(enabled.enabled);
+        assert_eq!(
+            enabled.pellet_overflow,
+            super::super::evolved_lives::PelletOverflowMode::Fail
+        );
+        assert_eq!(
+            enabled.corpse_mode,
+            super::super::evolved_lives::EvolvedCorpseMode::Normal
+        );
+    }
+
+    #[test]
+    fn evolved_policy_projects_independent_score_wallet_objective_and_ecology_codes() {
+        let mut configuration = config();
+        configuration.settings = production_default_settings(
+            configuration.population_count,
+            configuration.baseline_count,
+        );
+        for (field, value) in [
+            ("lifeScoring.mode", 1),
+            ("lifeScoring.cumulativeBasis", 1),
+            ("lifeScoring.cumulativeWallet", 1),
+            ("reward.lifeAccounting", 1),
+            ("reward.durationScaling", 1),
+            ("reward.lifePenaltyBasis", 1),
+            ("evolvedRespawn.corpseMode", 2),
+            ("world.pelletOverflow", 1),
+            ("observer.earlyEndMode", 2),
+            ("evolvedRespawn.recurrentState", 1),
+            ("evolvedRespawn.rngMode", 1),
+        ] {
+            configuration
+                .settings
+                .iter_mut()
+                .find(|setting| setting.path == field)
+                .unwrap()
+                .value = NormalizedSettingValue::Integer(value);
+        }
+        use super::super::evolved_lives::*;
+        let policy = project_evolved_experiment_config(&configuration).unwrap();
+        assert_eq!(policy.points, PointAssessmentMode::CumulativeGross);
+        assert!(policy.carried_wallet);
+        assert_eq!(policy.nonpoints, NonPointAggregation::FollowScore);
+        assert!(
+            policy.objective.normalize_to_240_seconds
+                && policy.objective.penalize_successful_respawns
+        );
+        assert_eq!(
+            policy.corpse_mode,
+            EvolvedCorpseMode::SubtractReplacementMass
+        );
+        assert_eq!(policy.pellet_overflow, PelletOverflowMode::DiscardNewExcess);
+        assert_eq!(policy.early_completion, EarlyCompletionMode::DurationOnly);
+        assert_eq!(policy.recurrent_state, RecurrentLifeMode::Preserve);
+        assert_eq!(policy.rng_mode, RespawnRngMode::World);
+        configuration
+            .settings
+            .iter_mut()
+            .find(|setting| setting.path == "lifeScoring.mode")
+            .unwrap()
+            .value = NormalizedSettingValue::Integer(2);
+        let policy = project_evolved_experiment_config(&configuration).unwrap();
+        assert_eq!(policy.points, PointAssessmentMode::BestLife);
+        assert!(!policy.carried_wallet);
     }
 
     #[test]
