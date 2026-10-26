@@ -115,15 +115,27 @@ it.each(['activate', 'stop'] as const)('keeps the original %s retry through HTTP
   } finally { await fixture.service.close(); }
 });
 
-it('keeps an applied shadow request retryable when receipt persistence hits a disk quota', async () => {
+it.each(['activate', 'stop'] as const)('keeps an applied shadow %s retryable through repeated receipt disk failures', async action => {
   const fixture = coordinator(); const { client, requests } = browser(fixture);
-  fixture.spool.recordShadow.mockRejectedValueOnce(new Error('disk reserve exhausted'));
+  const stop = vi.spyOn(fixture.native, 'submitStopShadow');
   try {
-    await expect(client.activate(0, 7, fixture.body.artifactSha256, fixture.body.captureEpoch,
-      fixture.service.metrics())).rejects.toMatchObject({ httpStatus: 503 });
+    const metrics = fixture.service.metrics();
+    if (action === 'stop') {
+      const active = await client.activate(0, 7, fixture.body.artifactSha256, fixture.body.captureEpoch, metrics);
+      metrics.slots[0] = { ...active, enabled: true } as unknown as NonNullable<typeof metrics.slots[0]>;
+    }
+    fixture.spool.recordShadow.mockRejectedValueOnce(new Error('disk reserve exhausted'))
+      .mockRejectedValueOnce(new Error('disk reserve exhausted'));
+    const initial = action === 'stop' ? client.stopShadow(0, metrics)
+      : client.activate(0, 7, fixture.body.artifactSha256, fixture.body.captureEpoch, metrics);
+    await expect(initial).rejects.toMatchObject({ httpStatus: 503 });
+    const original = requests.at(-1);
     expect(client.hasPendingShadow()).toBe(true);
-    expect((await client.retryShadow()).enabled).toBe(true);
-    expect(requests[1]).toBe(requests[0]); expect(fixture.calls).toHaveLength(1);
+    await expect(client.retryShadow()).rejects.toMatchObject({ httpStatus: 503 });
+    expect(client.hasPendingShadow()).toBe(true); expect(requests.at(-1)).toBe(original);
+    expect((await client.retryShadow()).enabled).toBe(action === 'activate');
+    expect(client.hasPendingShadow()).toBe(false); expect(requests.at(-1)).toBe(original);
+    expect(fixture.calls).toHaveLength(1); expect(stop).toHaveBeenCalledTimes(action === 'stop' ? 1 : 0);
   } finally { await fixture.service.close(); }
 });
 

@@ -70,7 +70,7 @@ export class DistillationShadows {
       const previous = this.activations[slot];
       if (previous?.requestId === requestId) {
         this.retry(previous, request, previousActivationSequence);
-        return this.spool.recordShadow(previous);
+        return this.persist(previous);
       }
       if ((previous?.activationSequence ?? '0'.repeat(16)) !== previousActivationSequence) throw new Error('shadow previous activation mismatch; refresh metrics');
       await this.spool.prepareShadow(request.artifactSha256);
@@ -98,7 +98,7 @@ export class DistillationShadows {
       const retry = durable ?? (activation?.requestId === requestId ? activation : undefined);
       if (retry) {
         if (retry.enabled || retry.shadowSlot !== slot || retry.captureEpoch !== request.captureEpoch || retry.activationSequence !== request.activationSequence) throw new Error('shadow request immutable retry mismatch');
-        return durable ?? this.spool.recordShadow(retry);
+        return durable ?? this.persist(retry);
       }
       if (!activation || activation.captureEpoch !== request.captureEpoch || activation.activationSequence !== request.activationSequence || activation.runId !== this.runId()) throw new Error('shadow stop activation mismatch');
       this.requireIncarnation(incarnation);
@@ -127,9 +127,8 @@ export class DistillationShadows {
     try { receipt = parseShadowReceipt({ ...pending.expected, effectiveStep: change.effectiveStep, acknowledgedAt: Date.now() }); }
     catch (error) { this.pending = undefined; pending.reject(error as Error); return; }
     this.activations[receipt.shadowSlot] = receipt;
-    this.persistence = this.spool.recordShadow(receipt).then(saved => pending.resolve(saved), error => {
-      pending.reject(new Error('native shadow applied; receipt persistence failed: ' + (error instanceof Error ? error.message : String(error))));
-    }).finally(() => { if (this.pending === pending) this.pending = undefined; this.persistence = undefined; });
+    this.persistence = this.persist(receipt).then(saved => pending.resolve(saved), error => pending.reject(error))
+      .finally(() => { if (this.pending === pending) this.pending = undefined; this.persistence = undefined; });
   }
 
   /** Replaced authority invalidates preparation/context without revising already observed receipts. */
@@ -168,6 +167,11 @@ export class DistillationShadows {
   private retry(receipt: ShadowReceipt, request: ShadowActivationRequest, previousActivationSequence: string): ShadowReceipt {
     if (!receipt.enabled || receipt.previousActivationSequence !== previousActivationSequence || receipt.runId !== request.expectedRunId || receipt.configRevision !== request.expectedConfigRevision || receipt.captureEpoch !== request.captureEpoch || receipt.artifactSha256 !== request.artifactSha256 || receipt.shadowSlot !== request.shadowSlot || receipt.baselineSlot !== request.baselineSlot) throw new Error('shadow request immutable retry mismatch');
     return receipt;
+  }
+  /** Every failed write of an applied receipt retains the client's immutable recovery request. */
+  private async persist(receipt: ShadowReceipt): Promise<ShadowReceipt> {
+    try { return await this.spool.recordShadow(receipt); }
+    catch (error) { throw new Error('native shadow applied; receipt persistence failed: ' + (error instanceof Error ? error.message : String(error))); }
   }
   /** Native admission consumes only the shared successful sequence; queue pressure does not pin a control. */
   private command(expected: (sequence: string) => Pending['expected'], submit: (sequence: string) => void): Promise<ShadowReceipt> {

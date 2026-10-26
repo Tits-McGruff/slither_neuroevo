@@ -3,7 +3,7 @@ import { DistillationCapture } from './distillationCapture.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import type { DistillationSpoolClient } from './distillationSpoolClient.ts';
 import type { ExperimentalRunningAuthorityNativeHandle } from './backgroundRuntime.ts';
-import type { TeacherCaptureRequest, DistillationDataset } from '../../src/protocol/distillation.ts';
+import type { TeacherCaptureRequest, TeacherCaptureDrain, DistillationDataset } from '../../src/protocol/distillation.ts';
 
 afterEach(() => vi.useRealTimers());
 
@@ -17,21 +17,26 @@ function gate() {
 /** Control only worker/native receipt timing; no simulation or codec behavior is substituted. */
 function coordinator(ready: Promise<void> = Promise.resolve(), acknowledge = true) {
   let capture!: DistillationCapture;
+  let stopped = false;
   const calls: { sequence: string; request: TeacherCaptureRequest }[] = [];
   const native = {
     submitStartTeacherCapture(sequence: string, request: TeacherCaptureRequest) {
       calls.push({ sequence, request });
+      stopped = false;
       if (acknowledge) capture.event({ kind: 'teacherCaptureChanged', commandSequence: sequence,
         teacherCaptureEpoch: request.captureEpoch, teacherCaptureEnabled: true });
     },
     submitStopTeacherCapture: vi.fn((sequence: string, epoch: string) => {
+      stopped = true;
       capture.event({ kind: 'teacherCaptureChanged', commandSequence: sequence,
         teacherCaptureEpoch: epoch, teacherCaptureEnabled: false });
     }),
-    drainTeacherChunks: vi.fn(() => ({ contract: null }))
+    drainTeacherChunks: vi.fn(() => ({ contract: calls.length ? { captureEpoch: calls.at(-1)!.request.captureEpoch, runId: 'run' } : null,
+      stopped, moreWork: false, releasedThrough: '0000000000000001', productionWatermark: '0000000000000001', chunks: [] } as unknown as TeacherCaptureDrain))
   } as unknown as ExperimentalRunningAuthorityNativeHandle;
   const spool = { ready, datasets: vi.fn(async (): Promise<void> => undefined),
-    dataset: vi.fn(async (epoch: string) => ({ contract: { captureEpoch: epoch }, state: 'active' } as DistillationDataset)),
+    dataset: vi.fn(async (epoch: string) => ({ contract: { captureEpoch: epoch }, state: stopped ? 'stopped' : 'active' } as DistillationDataset)),
+    ingest: vi.fn(async (drain: TeacherCaptureDrain) => ({ contract: drain.contract, state: drain.stopped ? 'stopped' : 'active' } as DistillationDataset)),
     interrupt: vi.fn(async () => undefined), close: vi.fn(async () => undefined) };
   const admission = new BackgroundCommandAdmission(native);
   capture = new DistillationCapture(() => native, admission, spool as unknown as DistillationSpoolClient,
@@ -86,6 +91,34 @@ it('does not admit an old-epoch stop while a new start owns preparation', async 
     expect(fixture.calls).toHaveLength(2);
     expect(fixture.admission.nextSequence()).toBe('0000000000000004');
   } finally { held.release(); await next?.catch(() => undefined); await fixture.capture.close(); }
+});
+
+it.each(['mailbox tail', 'unreleased watermark'] as const)('retains capture ownership through the stopped %s until final storage completes', async reason => {
+  vi.useFakeTimers();
+  const fixture = coordinator(); const held = gate();
+  let stopping: Promise<DistillationDataset> | undefined;
+  let settled = false;
+  try {
+    const first = await fixture.capture.start(fixture.body);
+    const base = fixture.native.drainTeacherChunks(64, 1024 * 1024);
+    vi.spyOn(fixture.native, 'drainTeacherChunks')
+      .mockReturnValueOnce({ ...base, stopped: true, moreWork: reason === 'mailbox tail',
+        productionWatermark: '0000000000000002', releasedThrough: '0000000000000001' })
+      .mockReturnValueOnce({ ...base, stopped: true, moreWork: false,
+        productionWatermark: '0000000000000002', releasedThrough: '0000000000000002' });
+    fixture.spool.ingest.mockImplementationOnce(async drain => ({ contract: drain.contract, state: 'stopped' } as DistillationDataset))
+      .mockImplementationOnce(async drain => { await held.promise; return { contract: drain.contract, state: 'stopped' } as DistillationDataset; });
+    stopping = fixture.capture.stop(first.contract.captureEpoch).then(dataset => { settled = true; return dataset; });
+    await vi.waitFor(() => expect(fixture.spool.ingest).toHaveBeenCalledTimes(3));
+    expect(settled).toBe(false);
+    await expect(fixture.capture.start(fixture.body)).rejects.toThrow(/draining/u);
+    expect(fixture.calls).toHaveLength(1);
+    expect(fixture.spool.ingest.mock.calls.slice(1).map(([drain]) => drain.contract!.captureEpoch))
+      .toEqual([first.contract.captureEpoch, first.contract.captureEpoch]);
+    held.release(); expect((await stopping).state).toBe('stopped');
+    await fixture.capture.start(fixture.body);
+    expect(fixture.calls).toHaveLength(2);
+  } finally { held.release(); await stopping?.catch(() => undefined); await fixture.capture.close(); }
 });
 
 it('polls a confirmed late capture even after its original API wait timed out', async () => {

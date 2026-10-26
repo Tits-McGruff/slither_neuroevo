@@ -58,7 +58,7 @@ export class DistillationCapture {
 
   /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
   async start(value: unknown): Promise<DistillationDataset> {
-    if (this.closed || this.starting || this.pending || !this.stopped) throw new Error('capture already active or closing');
+    if (this.closed || this.starting || this.pending || !this.complete) throw new Error('capture already active, draining or closing');
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid capture request');
     const raw = value as Record<string, unknown>;
     const keys = ['expectedRunId', 'expectedConfigRevision', 'baselineSlots', 'pendingBytes', 'queueChunks', 'queueBytes'];
@@ -104,11 +104,11 @@ export class DistillationCapture {
     await this.command(epoch, false, sequence => this.native().submitStopTeacherCapture(sequence, epoch));
     await this.poll();
     const deadline = performance.now() + 10_000;
-    while (!this.stopped && performance.now() < deadline) {
+    while (!this.complete && performance.now() < deadline) {
       await this.poll();
-      if (!this.stopped) await new Promise(resolve => setTimeout(resolve, 10));
+      if (!this.complete) await new Promise(resolve => setTimeout(resolve, 10));
     }
-    if (!this.stopped) throw new Error('capture stop diagnostic timed out');
+    if (!this.complete) throw new Error('capture stop drain timed out');
     return this.spool.dataset(epoch);
   }
 
