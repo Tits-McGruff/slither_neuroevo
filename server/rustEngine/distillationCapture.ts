@@ -41,6 +41,10 @@ export class DistillationCapture {
   private pending: PendingControl | undefined;
   /** Own asynchronous storage preparation before a native command is pending. */
   private starting = false;
+  /** Invalidate asynchronous preparation when authority is replaced, including same-run imports. */
+  private incarnation = 0;
+  /** Keep new work excluded until the old poll and interrupted manifest are settled. */
+  private replacement: Promise<void> | undefined;
   /** Bounded diagnostic failure; it never faults the native game. */
   private failure: Error | undefined;
   /** Prevent future polling after server shutdown. */
@@ -58,7 +62,7 @@ export class DistillationCapture {
 
   /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
   async start(value: unknown): Promise<DistillationDataset> {
-    if (this.closed || this.starting || this.pending || !this.complete) throw new Error('capture already active, draining or closing');
+    if (this.closed || this.replacement || this.starting || this.pending || !this.complete) throw new Error('capture already active, draining or closing');
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid capture request');
     const raw = value as Record<string, unknown>;
     const keys = ['expectedRunId', 'expectedConfigRevision', 'baselineSlots', 'pendingBytes', 'queueChunks', 'queueBytes'];
@@ -79,14 +83,17 @@ export class DistillationCapture {
       queueChunks: distillationInteger(raw['queueChunks'], 1, 65_536, 'queue chunks'),
       queueBytes: distillationInteger(raw['queueBytes'], 1, 16 * 1024 ** 2, 'queue bytes') };
     this.starting = true;
+    const incarnation = this.incarnation;
     try {
       await this.spool.ready;
       await this.spool.datasets('0'.repeat(32), 1); // Validate worker health before arming native capture.
       if (this.closed) throw new Error('capture coordinator closing');
+      if (incarnation !== this.incarnation) throw new Error('capture run replaced');
       this.failure = undefined;
       await this.command(request.captureEpoch, true, sequence => this.native().submitStartTeacherCapture(sequence, request));
       const deadline = performance.now() + 10_000;
       for (;;) {
+        if (incarnation !== this.incarnation) throw new Error('capture run replaced');
         await this.poll();
         try { return await this.spool.dataset(request.captureEpoch); }
         catch (error) {
@@ -100,14 +107,17 @@ export class DistillationCapture {
   /** Stop an exact epoch; trainer consumption never gates this ordered command. */
   async stop(epoch: string): Promise<DistillationDataset> {
     distillationHex(epoch, 32, 'capture epoch', true);
-    if (epoch !== this.epoch || this.starting || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
+    if (epoch !== this.epoch || this.replacement || this.starting || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
+    const incarnation = this.incarnation;
     await this.command(epoch, false, sequence => this.native().submitStopTeacherCapture(sequence, epoch));
     await this.poll();
     const deadline = performance.now() + 10_000;
     while (!this.complete && performance.now() < deadline) {
+      if (incarnation !== this.incarnation) throw new Error('capture run replaced');
       await this.poll();
       if (!this.complete) await new Promise(resolve => setTimeout(resolve, 10));
     }
+    if (incarnation !== this.incarnation) throw new Error('capture run replaced');
     if (!this.complete) throw new Error('capture stop drain timed out');
     return this.spool.dataset(epoch);
   }
@@ -135,23 +145,31 @@ export class DistillationCapture {
 
   /** Coalesce drain requests while a worker write is in progress; native overflow remains independent. */
   poll(): Promise<void> {
-    if (this.closed || this.failure) return this.failure ? Promise.reject(this.failure) : Promise.resolve();
+    if (this.closed || this.replacement || this.failure) return this.failure ? Promise.reject(this.failure) : Promise.resolve();
     if (this.complete) return Promise.resolve();
     this.activePoll ??= this.pollOnce().finally(() => { this.activePoll = undefined; });
     return this.activePoll;
   }
 
   /** Mark replaced runs interrupted without claiming an unobserved diagnostic tail. */
-  async runReplaced(): Promise<void> {
+  runReplaced(): Promise<void> {
     this.shadows.runReplaced();
-    if (this.epoch && !this.stopped) {
-      const epoch = this.epoch;
-      this.stopped = true;
-      this.complete = true;
-      clearInterval(this.timer); this.timer = undefined;
-      await this.activePoll;
-      await this.spool.interrupt(epoch);
+    this.incarnation += 1;
+    if (this.replacement) return this.replacement;
+    const epoch = this.epoch;
+    clearInterval(this.timer); this.timer = undefined;
+    if (this.pending) {
+      clearTimeout(this.pending.timer); this.pending.reject(new Error('capture run replaced')); this.pending = undefined;
     }
+    this.replacement = (async () => {
+      try {
+        await this.activePoll;
+        if (epoch && !this.complete) await this.spool.interrupt(epoch);
+      } finally {
+        this.epoch = undefined; this.stopped = true; this.complete = true;
+      }
+    })().finally(() => { this.replacement = undefined; });
+    return this.replacement;
   }
 
   /** Drain final stopped-runtime ownership before closing only the diagnostic worker. */
@@ -167,6 +185,7 @@ export class DistillationCapture {
     await this.shadows.close();
     clearInterval(this.timer);
     try {
+      await this.replacement;
       await this.activePoll;
       if (!this.failure) {
         // At most 65,536 queued objects plus the 128-object mailbox; 2,048

@@ -37,7 +37,7 @@ function coordinator(ready: Promise<void> = Promise.resolve(), acknowledge = tru
   const spool = { ready, datasets: vi.fn(async (): Promise<void> => undefined),
     dataset: vi.fn(async (epoch: string) => ({ contract: { captureEpoch: epoch }, state: stopped ? 'stopped' : 'active' } as DistillationDataset)),
     ingest: vi.fn(async (drain: TeacherCaptureDrain) => ({ contract: drain.contract, state: drain.stopped ? 'stopped' : 'active' } as DistillationDataset)),
-    interrupt: vi.fn(async () => undefined), close: vi.fn(async () => undefined) };
+    interrupt: vi.fn(async (): Promise<void> => undefined), close: vi.fn(async () => undefined) };
   const admission = new BackgroundCommandAdmission(native);
   capture = new DistillationCapture(() => native, admission, spool as unknown as DistillationSpoolClient,
     () => ({ runId: 'run', seed: 42 }));
@@ -119,6 +119,63 @@ it.each(['mailbox tail', 'unreleased watermark'] as const)('retains capture owne
     await fixture.capture.start(fixture.body);
     expect(fixture.calls).toHaveLength(2);
   } finally { held.release(); await stopping?.catch(() => undefined); await fixture.capture.close(); }
+});
+
+it.each(['active', 'stopped tail'] as const)('joins an in-flight %s poll before finalizing replacement and admitting another capture', async state => {
+  const fixture = coordinator(); const held = gate(); const interrupted = gate();
+  let poll: Promise<void> | undefined; let replacement: Promise<void> | undefined;
+  try {
+    const first = await fixture.capture.start(fixture.body);
+    const drain = fixture.native.drainTeacherChunks(64, 1024 * 1024);
+    vi.spyOn(fixture.native, 'drainTeacherChunks').mockReturnValueOnce({ ...drain, stopped: state !== 'active', moreWork: true });
+    fixture.spool.ingest.mockImplementationOnce(async value => {
+      await held.promise; return { contract: value.contract, state: state === 'active' ? 'active' : 'stopped' } as DistillationDataset;
+    });
+    fixture.spool.interrupt.mockImplementationOnce(() => interrupted.promise);
+    poll = fixture.capture.poll();
+    await vi.waitFor(() => expect(fixture.spool.ingest).toHaveBeenCalledTimes(2));
+    replacement = fixture.capture.runReplaced();
+    expect(fixture.capture.runReplaced()).toBe(replacement);
+    await expect(fixture.capture.start(fixture.body)).rejects.toThrow(/already active/u);
+    held.release(); await poll;
+    await vi.waitFor(() => expect(fixture.spool.interrupt).toHaveBeenCalledWith(first.contract.captureEpoch));
+    await expect(fixture.capture.start(fixture.body)).rejects.toThrow(/already active/u);
+    interrupted.release(); await replacement;
+    const next = await fixture.capture.start(fixture.body);
+    expect(next.contract.captureEpoch).not.toBe(first.contract.captureEpoch);
+    expect(fixture.calls).toHaveLength(2);
+  } finally { held.release(); interrupted.release(); await poll; await replacement; await fixture.capture.close(); }
+});
+
+it('invalidates held capture preparation even when a replacement retains the same run ID', async () => {
+  const held = gate(); const fixture = coordinator(held.promise);
+  const started = fixture.capture.start(fixture.body);
+  try {
+    await fixture.capture.runReplaced(); held.release();
+    await expect(started).rejects.toThrow(/run replaced/u);
+    expect(fixture.calls).toHaveLength(0);
+    await fixture.capture.start(fixture.body);
+    expect(fixture.calls).toHaveLength(1);
+  } finally { held.release(); await fixture.capture.close(); }
+});
+
+it('retires a pending native control during replacement and ignores its late receipt', async () => {
+  const fixture = coordinator(Promise.resolve(), false);
+  const started = fixture.capture.start(fixture.body);
+  const rejected = expect(started).rejects.toThrow(/run replaced/u);
+  try {
+    await vi.waitFor(() => expect(fixture.calls).toHaveLength(1));
+    await fixture.capture.runReplaced(); await rejected;
+    const old = fixture.calls[0]!;
+    fixture.capture.event({ kind: 'teacherCaptureChanged', commandSequence: old.sequence,
+      teacherCaptureEpoch: old.request.captureEpoch, teacherCaptureEnabled: true });
+    const next = fixture.capture.start(fixture.body);
+    await vi.waitFor(() => expect(fixture.calls).toHaveLength(2));
+    const current = fixture.calls[1]!;
+    fixture.capture.event({ kind: 'teacherCaptureChanged', commandSequence: current.sequence,
+      teacherCaptureEpoch: current.request.captureEpoch, teacherCaptureEnabled: true });
+    expect((await next).contract.captureEpoch).toBe(current.request.captureEpoch);
+  } finally { await fixture.capture.close(); }
 });
 
 it('polls a confirmed late capture even after its original API wait timed out', async () => {
