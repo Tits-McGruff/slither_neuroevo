@@ -34,7 +34,8 @@ function coordinator(ready: Promise<void> = Promise.resolve(), acknowledge = tru
     drainTeacherChunks: vi.fn(() => ({ contract: calls.length ? { captureEpoch: calls.at(-1)!.request.captureEpoch, runId: 'run' } : null,
       stopped, moreWork: false, releasedThrough: '0000000000000001', productionWatermark: '0000000000000001', chunks: [] } as unknown as TeacherCaptureDrain))
   } as unknown as ExperimentalRunningAuthorityNativeHandle;
-  const spool = { ready, datasets: vi.fn(async (): Promise<void> => undefined),
+  const spool = { ready, storagePolicy: vi.fn(async () => ({ maxDatasets: 256 })),
+    datasets: vi.fn(async () => ({ datasets: [] as unknown[], hasMore: false, nextCursor: '0'.repeat(32) })),
     dataset: vi.fn(async (epoch: string) => ({ contract: { captureEpoch: epoch }, state: stopped ? 'stopped' : 'active' } as DistillationDataset)),
     ingest: vi.fn(async (drain: TeacherCaptureDrain) => ({ contract: drain.contract, state: drain.stopped ? 'stopped' : 'active' } as DistillationDataset)),
     interrupt: vi.fn(async (): Promise<void> => undefined), close: vi.fn(async () => undefined) };
@@ -49,7 +50,7 @@ function coordinator(ready: Promise<void> = Promise.resolve(), acknowledge = tru
 it.each(['ready', 'health'] as const)('owns capture start while awaiting spool %s', async phase => {
   const held = gate();
   const fixture = coordinator(phase === 'ready' ? held.promise : Promise.resolve());
-  if (phase === 'health') fixture.spool.datasets.mockImplementationOnce(() => held.promise);
+  if (phase === 'health') fixture.spool.datasets.mockImplementationOnce(async () => { await held.promise; return { datasets: [], hasMore: false, nextCursor: '0'.repeat(32) }; });
   const started = fixture.capture.start(fixture.body);
   try {
     if (phase === 'health') await vi.waitFor(() => expect(fixture.spool.datasets).toHaveBeenCalled());
@@ -76,13 +77,24 @@ it('releases failed preparation and does not submit a prepared start after shutd
   expect(closing.calls).toHaveLength(0);
 });
 
+it.each([1, 256])('rejects a full %i-manifest store before native admission', async count => {
+  const fixture = coordinator();
+  fixture.spool.storagePolicy.mockResolvedValue({ maxDatasets: count });
+  fixture.spool.datasets.mockResolvedValue({ datasets: Array(count).fill({}), hasMore: false, nextCursor: '1'.repeat(32) });
+  try {
+    await expect(fixture.capture.start(fixture.body)).rejects.toThrow(/manifest quota exhausted/u);
+    expect(fixture.calls).toHaveLength(0);
+    expect(fixture.admission.nextSequence()).toBe('0000000000000001');
+  } finally { await fixture.capture.close(); }
+});
+
 it('does not admit an old-epoch stop while a new start owns preparation', async () => {
   const fixture = coordinator(); const held = gate();
   let next: Promise<DistillationDataset> | undefined;
   try {
     const first = await fixture.capture.start(fixture.body);
     await fixture.capture.stop(first.contract.captureEpoch);
-    fixture.spool.datasets.mockImplementationOnce(() => held.promise);
+    fixture.spool.datasets.mockImplementationOnce(async () => { await held.promise; return { datasets: [], hasMore: false, nextCursor: '0'.repeat(32) }; });
     next = fixture.capture.start(fixture.body);
     await vi.waitFor(() => expect(fixture.spool.datasets).toHaveBeenCalledTimes(2));
     await expect(fixture.capture.stop(first.contract.captureEpoch)).rejects.toThrow();
@@ -145,6 +157,29 @@ it.each(['active', 'stopped tail'] as const)('joins an in-flight %s poll before 
     expect(next.contract.captureEpoch).not.toBe(first.contract.captureEpoch);
     expect(fixture.calls).toHaveLength(2);
   } finally { held.release(); interrupted.release(); await poll; await replacement; await fixture.capture.close(); }
+});
+
+it.each(['success', 'retry interruption', 'missing manifest'] as const)('settles a retired capture after failed ingestion: %s', async outcome => {
+  const fixture = coordinator(); const held = gate();
+  try {
+    const first = await fixture.capture.start(fixture.body);
+    fixture.spool.ingest.mockImplementationOnce(async () => { await held.promise; throw new Error('file publication failed'); });
+    if (outcome !== 'success') fixture.spool.interrupt.mockRejectedValueOnce(new Error(outcome === 'missing manifest' ? 'dataset not found' : 'metadata publication failed'));
+    const poll = fixture.capture.poll(); const rejectedPoll = expect(poll).rejects.toThrow(/file publication/u);
+    await vi.waitFor(() => expect(fixture.spool.ingest).toHaveBeenCalledTimes(2));
+    const replacement = fixture.capture.runReplaced();
+    const settled = outcome === 'retry interruption' ? expect(replacement).rejects.toThrow(/metadata publication/u) : replacement;
+    held.release(); await rejectedPoll; await settled;
+    expect(fixture.spool.interrupt).toHaveBeenCalledWith(first.contract.captureEpoch);
+    if (outcome === 'retry interruption') {
+      await expect(fixture.capture.stop(first.contract.captureEpoch)).rejects.toThrow();
+      expect(fixture.native.submitStopTeacherCapture).not.toHaveBeenCalled();
+    }
+    const next = await fixture.capture.start(fixture.body);
+    expect(next.contract.captureEpoch).not.toBe(first.contract.captureEpoch);
+    expect(fixture.spool.interrupt).toHaveBeenCalledTimes(outcome === 'retry interruption' ? 2 : 1);
+    expect(fixture.calls).toHaveLength(2);
+  } finally { held.release(); await fixture.capture.close(); }
 });
 
 it('invalidates held capture preparation even when a replacement retains the same run ID', async () => {

@@ -516,6 +516,24 @@ describe('durable distillation spool', () => {
     } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
   });
 
+  it('rejects capture before native admission when the real worker manifest quota is full', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
+    const client = new DistillationSpoolClient(root, { ...DISTILLATION_SPOOL_DEFAULTS, maxDatasets: 1 }); clients.push(client);
+    await client.ready;
+    const original = await client.ingest(drain([]), 42);
+    const submit = vi.fn();
+    const native = { submitStartTeacherCapture: submit, drainTeacherChunks: () => ({ contract: null }) } as unknown as ExperimentalRunningAuthorityNativeHandle;
+    const admission = new BackgroundCommandAdmission(native);
+    const capture = new DistillationCapture(() => native, admission, client, () => ({ runId: 'run', seed: 42 }));
+    try {
+      await expect(capture.start({ expectedRunId: 'run', expectedConfigRevision: word(1), baselineSlots: [7],
+        pendingBytes: 1024, queueChunks: 4, queueBytes: 4096 })).rejects.toThrow(/manifest quota exhausted/u);
+      expect(submit).not.toHaveBeenCalled(); expect(admission.nextSequence()).toBe(word(1));
+      expect((await client.datasets(DISTILLATION_ZERO.repeat(2), 256)).datasets.map(value => value.captureEpoch))
+        .toEqual([original.contract.captureEpoch]);
+    } finally { await capture.close(); }
+  });
+
   it('coalesces capture/spool work and uses only ordered diagnostic arm/stop commands', async () => {
     const root = mkdtempSync(join(tmpdir(), 'slither-distillation-spool-')); roots.push(root);
     const client = new DistillationSpoolClient(root); clients.push(client); await client.ready;

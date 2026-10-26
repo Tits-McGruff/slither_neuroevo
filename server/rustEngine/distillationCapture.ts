@@ -45,6 +45,8 @@ export class DistillationCapture {
   private incarnation = 0;
   /** Keep new work excluded until the old poll and interrupted manifest are settled. */
   private replacement: Promise<void> | undefined;
+  /** Retain failed interruption ownership so the next start can retry its metadata write. */
+  private retiredEpoch: string | undefined;
   /** Bounded diagnostic failure; it never faults the native game. */
   private failure: Error | undefined;
   /** Prevent future polling after server shutdown. */
@@ -62,6 +64,7 @@ export class DistillationCapture {
 
   /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
   async start(value: unknown): Promise<DistillationDataset> {
+    if (this.retiredEpoch && !this.replacement && !this.closed) await this.runReplaced();
     if (this.closed || this.replacement || this.starting || this.pending || !this.complete) throw new Error('capture already active, draining or closing');
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid capture request');
     const raw = value as Record<string, unknown>;
@@ -86,7 +89,11 @@ export class DistillationCapture {
     const incarnation = this.incarnation;
     try {
       await this.spool.ready;
-      await this.spool.datasets('0'.repeat(32), 1); // Validate worker health before arming native capture.
+      const policy = await this.spool.storagePolicy();
+      // The store admits at most 256 manifests. This coordinator is the sole
+      // producer, and complete drain ownership excludes any other new epoch.
+      const retained = await this.spool.datasets('0'.repeat(32), 256);
+      if (retained.datasets.length >= policy.maxDatasets) throw new Error('dataset manifest quota exhausted');
       if (this.closed) throw new Error('capture coordinator closing');
       if (incarnation !== this.incarnation) throw new Error('capture run replaced');
       this.failure = undefined;
@@ -107,7 +114,7 @@ export class DistillationCapture {
   /** Stop an exact epoch; trainer consumption never gates this ordered command. */
   async stop(epoch: string): Promise<DistillationDataset> {
     distillationHex(epoch, 32, 'capture epoch', true);
-    if (epoch !== this.epoch || this.replacement || this.starting || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
+    if (epoch !== this.epoch || this.retiredEpoch || this.replacement || this.starting || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
     const incarnation = this.incarnation;
     await this.command(epoch, false, sequence => this.native().submitStopTeacherCapture(sequence, epoch));
     await this.poll();
@@ -145,7 +152,7 @@ export class DistillationCapture {
 
   /** Coalesce drain requests while a worker write is in progress; native overflow remains independent. */
   poll(): Promise<void> {
-    if (this.closed || this.replacement || this.failure) return this.failure ? Promise.reject(this.failure) : Promise.resolve();
+    if (this.closed || this.retiredEpoch || this.replacement || this.failure) return this.failure ? Promise.reject(this.failure) : Promise.resolve();
     if (this.complete) return Promise.resolve();
     this.activePoll ??= this.pollOnce().finally(() => { this.activePoll = undefined; });
     return this.activePoll;
@@ -156,18 +163,25 @@ export class DistillationCapture {
     this.shadows.runReplaced();
     this.incarnation += 1;
     if (this.replacement) return this.replacement;
-    const epoch = this.epoch;
+    const epoch = this.retiredEpoch ?? this.epoch;
+    if (epoch && !this.complete) this.retiredEpoch = epoch;
     clearInterval(this.timer); this.timer = undefined;
     if (this.pending) {
       clearTimeout(this.pending.timer); this.pending.reject(new Error('capture run replaced')); this.pending = undefined;
     }
     this.replacement = (async () => {
-      try {
-        await this.activePoll;
-        if (epoch && !this.complete) await this.spool.interrupt(epoch);
-      } finally {
-        this.epoch = undefined; this.stopped = true; this.complete = true;
+      try { await this.activePoll; }
+      catch (error) { this.fail(error); } // An opaque object failure must not bypass metadata finalization.
+      this.stopped = true;
+      if (epoch && !this.complete) {
+        try { await this.spool.interrupt(epoch); }
+        catch (error) {
+          // Initial manifest publication may itself have failed. Verified
+          // absence leaves no durable active epoch to finalize.
+          if (!(error instanceof Error) || error.message !== 'dataset not found') throw error;
+        }
       }
+      this.retiredEpoch = undefined; this.epoch = undefined; this.complete = true;
     })().finally(() => { this.replacement = undefined; });
     return this.replacement;
   }
@@ -186,6 +200,7 @@ export class DistillationCapture {
     clearInterval(this.timer);
     try {
       await this.replacement;
+      if (this.retiredEpoch) await this.runReplaced();
       await this.activePoll;
       if (!this.failure) {
         // At most 65,536 queued objects plus the 128-object mailbox; 2,048
