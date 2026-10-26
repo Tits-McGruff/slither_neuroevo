@@ -24,6 +24,10 @@ function coordinator(ready: Promise<void> = Promise.resolve(), acknowledge = tru
       if (acknowledge) capture.event({ kind: 'teacherCaptureChanged', commandSequence: sequence,
         teacherCaptureEpoch: request.captureEpoch, teacherCaptureEnabled: true });
     },
+    submitStopTeacherCapture: vi.fn((sequence: string, epoch: string) => {
+      capture.event({ kind: 'teacherCaptureChanged', commandSequence: sequence,
+        teacherCaptureEpoch: epoch, teacherCaptureEnabled: false });
+    }),
     drainTeacherChunks: vi.fn(() => ({ contract: null }))
   } as unknown as ExperimentalRunningAuthorityNativeHandle;
   const spool = { ready, datasets: vi.fn(async (): Promise<void> => undefined),
@@ -65,6 +69,23 @@ it('releases failed preparation and does not submit a prepared start after shutd
   await closing.capture.close(); held.release();
   await expect(started).rejects.toThrow(/closing/u);
   expect(closing.calls).toHaveLength(0);
+});
+
+it('does not admit an old-epoch stop while a new start owns preparation', async () => {
+  const fixture = coordinator(); const held = gate();
+  let next: Promise<DistillationDataset> | undefined;
+  try {
+    const first = await fixture.capture.start(fixture.body);
+    await fixture.capture.stop(first.contract.captureEpoch);
+    fixture.spool.datasets.mockImplementationOnce(() => held.promise);
+    next = fixture.capture.start(fixture.body);
+    await vi.waitFor(() => expect(fixture.spool.datasets).toHaveBeenCalledTimes(2));
+    await expect(fixture.capture.stop(first.contract.captureEpoch)).rejects.toThrow();
+    expect(fixture.native.submitStopTeacherCapture).toHaveBeenCalledTimes(1);
+    held.release(); await next;
+    expect(fixture.calls).toHaveLength(2);
+    expect(fixture.admission.nextSequence()).toBe('0000000000000004');
+  } finally { held.release(); await next?.catch(() => undefined); await fixture.capture.close(); }
 });
 
 it('polls a confirmed late capture even after its original API wait timed out', async () => {

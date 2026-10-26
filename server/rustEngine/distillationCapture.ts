@@ -100,7 +100,7 @@ export class DistillationCapture {
   /** Stop an exact epoch; trainer consumption never gates this ordered command. */
   async stop(epoch: string): Promise<DistillationDataset> {
     distillationHex(epoch, 32, 'capture epoch', true);
-    if (epoch !== this.epoch || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
+    if (epoch !== this.epoch || this.starting || this.pending || this.closed) throw new Error('capture epoch mismatch or closing');
     await this.command(epoch, false, sequence => this.native().submitStopTeacherCapture(sequence, epoch));
     await this.poll();
     const deadline = performance.now() + 10_000;
@@ -207,6 +207,7 @@ export class DistillationCapture {
   /** Reserve only ordered arm/stop metadata, sharing the existing global command sequence. */
   private command(epoch: string, enabled: boolean, submit: (sequence: string) => void): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.pending) throw new Error('capture control already pending');
       const sequence = this.admission.nextSequence();
       const timer = setTimeout(() => {
         reject(new Error('native capture control timed out'));
