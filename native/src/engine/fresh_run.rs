@@ -1598,7 +1598,7 @@ pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
         max_tensor_width: 4096,
         max_mlp_hidden_layers: 8,
         max_split_output_ports: 16,
-        max_parameter_floats: 1_000_000,
+        max_parameter_floats: 2_000_000,
         max_recurrent_state_floats: 16_384,
         max_canonical_layout_bytes: 128 * 1024,
         max_architecture_key_bytes: 256 * 1024,
@@ -4337,7 +4337,7 @@ mod tests {
             .unwrap()
             .value = 1.0;
 
-        for hidden_size in [768, 1024, 2048] {
+        for hidden_size in [768, 1024, 2048, 3200, 4096] {
             let graph = GraphSpec {
                 nodes: vec![
                     GraphNodeSpec {
@@ -4370,15 +4370,15 @@ mod tests {
             let parameters = (input_size + 1) * hidden_size + (hidden_size + 1) * 2;
             let result =
                 prepare_configured_fresh_run_with_settings_and_graph(request(45), &settings, graph);
-            if hidden_size == 2048 {
-                assert!(parameters > 1_000_000);
+            if hidden_size == 4096 {
+                assert!(parameters > 2_000_000);
                 let error = match result {
                     Ok(_) => panic!("a graph exceeding the parameter limit must reject"),
                     Err(error) => error,
                 };
                 assert!(error.to_string().contains("max_parameter_floats"));
             } else {
-                assert!(parameters < 1_000_000);
+                assert!(parameters < 2_000_000);
                 let transition =
                     result.expect("a bounded wide v4 graph must pass production admission");
                 let metadata: serde_json::Value =
