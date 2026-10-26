@@ -39,6 +39,8 @@ export class DistillationCapture {
   private complete = true;
   /** One ordered capture control awaiting its native result. */
   private pending: PendingControl | undefined;
+  /** Own asynchronous storage preparation before a native command is pending. */
+  private starting = false;
   /** Bounded diagnostic failure; it never faults the native game. */
   private failure: Error | undefined;
   /** Prevent future polling after server shutdown. */
@@ -56,7 +58,7 @@ export class DistillationCapture {
 
   /** Admit one explicit capture with a new storage epoch; production defaults remain unchanged. */
   async start(value: unknown): Promise<DistillationDataset> {
-    if (this.closed || this.pending || !this.stopped) throw new Error('capture already active or closing');
+    if (this.closed || this.starting || this.pending || !this.stopped) throw new Error('capture already active or closing');
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid capture request');
     const raw = value as Record<string, unknown>;
     const keys = ['expectedRunId', 'expectedConfigRevision', 'baselineSlots', 'pendingBytes', 'queueChunks', 'queueBytes'];
@@ -76,23 +78,23 @@ export class DistillationCapture {
       pendingBytes: distillationInteger(raw['pendingBytes'], 1, 16 * 1024 ** 2, 'pending bytes'),
       queueChunks: distillationInteger(raw['queueChunks'], 1, 65_536, 'queue chunks'),
       queueBytes: distillationInteger(raw['queueBytes'], 1, 16 * 1024 ** 2, 'queue bytes') };
-    await this.spool.ready;
-    await this.spool.datasets('0'.repeat(32), 1); // Validate current worker health before arming native capture.
-    this.failure = undefined;
-    await this.command(request.captureEpoch, true, sequence => this.native().submitStartTeacherCapture(sequence, request));
-    this.epoch = request.captureEpoch;
-    this.stopped = false;
-    this.complete = false;
-    this.startPolling();
-    const deadline = performance.now() + 10_000;
-    for (;;) {
-      await this.poll();
-      try { return await this.spool.dataset(request.captureEpoch); }
-      catch (error) {
-        if (!(error instanceof Error) || !/not found/u.test(error.message) || performance.now() >= deadline) throw error;
+    this.starting = true;
+    try {
+      await this.spool.ready;
+      await this.spool.datasets('0'.repeat(32), 1); // Validate worker health before arming native capture.
+      if (this.closed) throw new Error('capture coordinator closing');
+      this.failure = undefined;
+      await this.command(request.captureEpoch, true, sequence => this.native().submitStartTeacherCapture(sequence, request));
+      const deadline = performance.now() + 10_000;
+      for (;;) {
+        await this.poll();
+        try { return await this.spool.dataset(request.captureEpoch); }
+        catch (error) {
+          if (!(error instanceof Error) || !/not found/u.test(error.message) || performance.now() >= deadline) throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 10));
       }
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
+    } finally { this.starting = false; }
   }
 
   /** Stop an exact epoch; trainer consumption never gates this ordered command. */
@@ -126,6 +128,8 @@ export class DistillationCapture {
     this.epoch = pending.epoch;
     this.stopped = !pending.enabled;
     this.complete = false;
+    // A late receipt still owns a live capture after its original API wait expired.
+    if (pending.enabled && !this.closed) this.startPolling();
     pending.resolve();
   }
 

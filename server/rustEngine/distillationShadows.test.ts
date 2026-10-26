@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import Database from 'better-sqlite3';
+import { Readable } from 'node:stream';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { DistillationShadows } from './distillationShadows.ts';
+import { DistillationHttpRouter } from './distillationHttp.ts';
+import { DistillationClient } from '../../src/net/distillation.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { BrainCandidateStore } from './brainCandidateStore.ts';
 import { parseShadowMetrics, parseShadowReceipt } from './shadowProtocol.ts';
@@ -27,7 +31,7 @@ const roots: string[] = [];
 /** Test-owned SQLite connections; never owner databases. */
 const stores: BrainCandidateStore[] = [];
 afterEach(() => {
-  vi.useRealTimers(); stores.splice(0).forEach(store => store.close());
+  vi.useRealTimers(); vi.unstubAllGlobals(); stores.splice(0).forEach(store => store.close());
   for (const root of roots.splice(0)) {
     if (dirname(resolve(root)) !== resolve(tmpdir()) || !root.includes('slither-shadow-control-')) throw new Error('unsafe shadow cleanup');
     rmSync(root, { recursive: true, force: true });
@@ -58,6 +62,71 @@ function coordinator(autoReceipt = true) {
   return { service, admission, calls, spool, body, native };
 }
 
+/** Route real JSON streams between the browser client and HTTP adapter without opening a socket. */
+function browser(fixture: ReturnType<typeof coordinator>) {
+  const router = new DistillationHttpRouter(fixture.spool as unknown as DistillationSpoolClient,
+    { shadows: fixture.service, start: async () => undefined, stop: async () => undefined });
+  const requests: string[] = [];
+  vi.stubGlobal('fetch', vi.fn((url: string, init: RequestInit) => new Promise<Response>(resolve => {
+    requests.push(String(init.body));
+    const request = Readable.from([Buffer.from(String(init.body))]) as IncomingMessage;
+    request.method = init.method;
+    let status = 200;
+    const response = { writeHead(value: number) { status = value; }, end(data: string) {
+      resolve(new Response(data, { status }));
+    } } as unknown as ServerResponse;
+    router.handle(request, response, new URL(url));
+  })));
+  return { client: new DistillationClient(() => ({ base: 'http://server', runId: 'run', configRevision: word(1) })), requests };
+}
+
+it.each(['activate', 'stop'] as const)('keeps the original %s retry through HTTP while native work is pending', async action => {
+  vi.useFakeTimers(); const fixture = coordinator(action === 'stop');
+  const { client, requests } = browser(fixture);
+  try {
+    if (action === 'stop') {
+      const active = await client.activate(0, 7, fixture.body.artifactSha256, fixture.body.captureEpoch, fixture.service.metrics());
+      fixture.native.submitStopShadow = vi.fn();
+      const metrics = fixture.service.metrics();
+      metrics.slots[0] = { ...active, enabled: true } as unknown as NonNullable<typeof metrics.slots[0]>;
+      // Stop consumes only the confirmed activation/capture/artifact/teacher fields.
+      const pending = client.stopShadow(0, metrics);
+      const timedOut = expect(pending).rejects.toThrow(/outcome remains pending/u);
+      await vi.waitFor(() => expect(fixture.native.submitStopShadow).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(30_001); await timedOut;
+    } else {
+      const pending = client.activate(0, 7, fixture.body.artifactSha256, fixture.body.captureEpoch, fixture.service.metrics());
+      const timedOut = expect(pending).rejects.toThrow(/outcome remains pending/u);
+      await vi.waitFor(() => expect(fixture.calls).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(30_001); await timedOut;
+    }
+    const original = requests.at(-1);
+    const sequence = action === 'stop' ? word(2) : word(1);
+    const retry = client.retryShadow();
+    await expect(retry).rejects.toMatchObject({ httpStatus: 503 });
+    expect(requests.at(-1)).toBe(original); expect(client.hasPendingShadow()).toBe(true);
+    expect(fixture.admission.nextSequence()).toBe(word(action === 'stop' ? 3 : 2));
+    fixture.service.event({ kind: 'shadowChanged', commandSequence: sequence, shadowChange: {
+      shadowSlot: 0, artifactSha256: fixture.body.artifactSha256, enabled: action === 'activate', effectiveStep: word(20) } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect((await client.retryShadow()).enabled).toBe(action === 'activate');
+    expect(requests.at(-1)).toBe(original); expect(client.hasPendingShadow()).toBe(false);
+    expect(fixture.calls).toHaveLength(1);
+  } finally { await fixture.service.close(); }
+});
+
+it('keeps an applied shadow request retryable when receipt persistence hits a disk quota', async () => {
+  const fixture = coordinator(); const { client, requests } = browser(fixture);
+  fixture.spool.recordShadow.mockRejectedValueOnce(new Error('disk reserve exhausted'));
+  try {
+    await expect(client.activate(0, 7, fixture.body.artifactSha256, fixture.body.captureEpoch,
+      fixture.service.metrics())).rejects.toMatchObject({ httpStatus: 503 });
+    expect(client.hasPendingShadow()).toBe(true);
+    expect((await client.retryShadow()).enabled).toBe(true);
+    expect(requests[1]).toBe(requests[0]); expect(fixture.calls).toHaveLength(1);
+  } finally { await fixture.service.close(); }
+});
+
 it('settles explicit controls only after matching native receipt and durable storage, with immutable lost-reply retries', async () => {
   const { service, admission, calls, spool, body } = coordinator();
   try {
@@ -78,7 +147,7 @@ it('a timed-out control retains its admitted identity and records its late outco
   const { service, calls, body, spool } = coordinator(false);
   const pending = service.activate(0, body); const rejected = expect(pending).rejects.toThrow(/outcome remains pending/u);
   await vi.advanceTimersByTimeAsync(30_001); await rejected;
-  await expect(service.activate(1, { ...body, requestId: '20'.repeat(16) })).rejects.toThrow(/already active/u);
+  await expect(service.activate(1, { ...body, requestId: '20'.repeat(16) })).rejects.toThrow(/outcome remains pending/u);
   service.event({ kind: 'shadowChanged', commandSequence: calls[0]!.sequence, shadowChange: {
     shadowSlot: 0, artifactSha256: body.artifactSha256, enabled: true, effectiveStep: word(20) } });
   await vi.advanceTimersByTimeAsync(0);

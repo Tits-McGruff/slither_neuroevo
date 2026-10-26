@@ -45,8 +45,9 @@ export class DistillationHttpRouter {
       if (response.destroyed || response.writableEnded) return;
       if (response.headersSent) { response.destroy(); return; }
       const reason = error instanceof Error ? error.message : String(error);
-      const status = /not found|does not exist/u.test(reason) ? 404 : /unavailable|expired/u.test(reason) ? 410 :
-        /quota|exhausted|already active|busy/u.test(reason) ? 429 : /worker|timed out|closing/u.test(reason) ? 503 : 400;
+      const status = /outcome remains pending|native shadow applied; receipt persistence failed/u.test(reason) ? 503 :
+        /not found|does not exist/u.test(reason) ? 404 : /unavailable|expired/u.test(reason) ? 410 :
+        /quota|exhausted|already active|busy/u.test(reason) ? 429 : /worker|timed out|closing|outcome remains pending/u.test(reason) ? 503 : 400;
       this.json(response, status, { error: reason.slice(0, 1024) });
     }).finally(() => { this.activeRequests -= 1; });
     return true;

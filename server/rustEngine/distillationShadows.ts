@@ -144,7 +144,8 @@ export class DistillationShadows {
 
   /** Cold preparation and receipt waits have one bounded owner, including ambiguous timed-out commands. */
   private async exclusive<T>(operation: (incarnation: number) => Promise<T>): Promise<T> {
-    if (this.closed || this.busy || this.pending) throw new Error('shadow control already active or closing');
+    if (this.closed) throw new Error('shadow coordinator closing');
+    if (this.busy || this.pending) throw new Error('shadow control outcome remains pending; retry original request');
     this.busy = true;
     try { return await operation(this.incarnation); } finally { this.busy = false; }
   }
