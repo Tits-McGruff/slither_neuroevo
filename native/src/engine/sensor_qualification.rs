@@ -1026,7 +1026,10 @@ fn run_with_sources(
             options.population, options.seed
         ),
         seed: options.seed,
-        memory_ceiling_bytes: 4 * 1024 * 1024 * 1024usize,
+        // Full-size evolved qualification must admit both current and successor
+        // populations at a generation handoff, plus the cold source reservation.
+        // This explicit offline budget does not alter production admission.
+        memory_ceiling_bytes: if has_evolved { 8 } else { 4 } * 1024 * 1024 * 1024usize,
     };
     let pending = if let Some(evolved) = &evolved {
         let (_, spec) = sensor_workload_spec(options, None).map_err(|e| e.to_string())?;
