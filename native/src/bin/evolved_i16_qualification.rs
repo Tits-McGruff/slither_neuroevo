@@ -128,7 +128,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut output = None;
     let mut workers = 7;
     let mut count = 85;
-    let mut deliveries = 1000;
+    let mut deliveries: usize = 1000;
     let mut warmup = 30;
     let mut passes = 300;
     let mut repetitions = 3;
@@ -261,6 +261,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut paired = reference.clone();
                 let mut paired_state = before.clone();
                 let mut errors: [Errors; 4] = std::array::from_fn(|_| Errors::default());
+                // Cold diagnostics only: retain percentile histograms for each
+                // consecutive 1,000-delivery window, outside timed inference.
+                let mut window_errors: Vec<[Errors; 4]> = (0..deliveries.div_ceil(1000))
+                    .map(|_| std::array::from_fn(|_| Errors::default()))
+                    .collect();
                 let mut trace = Vec::with_capacity(deliveries);
                 for step in 0..deliveries {
                     let row = step % (brain.rows.len() / width);
@@ -287,9 +292,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .unwrap();
                     errors[0].add(&paired, &reference);
                     errors[1].add(&paired_state, &after);
+                    window_errors[step / 1000][0].add(&paired, &reference);
+                    window_errors[step / 1000][1].add(&paired_state, &after);
                     brain.evaluate(&quantized, step);
                     errors[2].add(&brain.output, &reference);
                     errors[3].add(&brain.before, &after);
+                    window_errors[step / 1000][2].add(&brain.output, &reference);
+                    window_errors[step / 1000][3].add(&brain.before, &after);
                     let summarize = |a: &[f32], b: &[f32]| {
                         let values: Vec<_> = a
                             .iter()
@@ -312,15 +321,31 @@ fn main() -> Result<(), Box<dyn Error>> {
                     std::mem::swap(&mut before, &mut after);
                 }
                 eprintln!("numerical cohort slot {slot} complete");
-                (errors, trace)
+                (errors, window_errors, trace)
             })
             .collect()
     });
     let mut csv = BufWriter::new(File::create(output.join("delivery-errors.csv"))?);
     writeln!(csv,"cohort_slot,delivery,paired_controller_mae,paired_controller_rmse,paired_controller_max,paired_state_mae,paired_state_rmse,paired_state_max,feedback_controller_mae,feedback_controller_rmse,feedback_controller_max,feedback_state_mae,feedback_state_rmse,feedback_state_max")?;
     let mut aggregate: [Errors; 4] = std::array::from_fn(|_| Errors::default());
+    let mut aggregate_windows: Vec<[Errors; 4]> = (0..deliveries.div_ceil(1000))
+        .map(|_| std::array::from_fn(|_| Errors::default()))
+        .collect();
+    let window_report = |windows: &[[Errors; 4]]| {
+        windows
+            .iter()
+            .enumerate()
+            .map(|(index, errors)| {
+                json!({
+                    "firstDelivery": index * 1000 + 1,
+                    "lastDelivery": ((index + 1) * 1000).min(deliveries),
+                    "errors": errors.iter().map(Errors::report).collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>()
+    };
     let mut per_genome = Vec::new();
-    for (slot, (errors, trace)) in time_series.iter().enumerate() {
+    for (slot, (errors, windows, trace)) in time_series.iter().enumerate() {
         for (step, row) in trace.iter().enumerate() {
             write!(csv, "{slot},{}", step + 1)?;
             for value in row.iter().flatten() {
@@ -331,7 +356,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         for (a, b) in aggregate.iter_mut().zip(errors) {
             a.merge(b);
         }
-        per_genome.push(json!({"cohortSlot":slot,"errors":errors.iter().map(Errors::report).collect::<Vec<_>>()}));
+        for (aggregate, window) in aggregate_windows.iter_mut().zip(windows) {
+            for (a, b) in aggregate.iter_mut().zip(window) {
+                a.merge(b);
+            }
+        }
+        per_genome.push(
+            json!({"cohortSlot":slot,"errors":errors.iter().map(Errors::report).collect::<Vec<_>>(),
+            "deliveryWindows":window_report(windows)}),
+        );
     }
     csv.flush()?;
     let report = json!({"sourceSha256":slither_native::native_addon_source_sha256(),"buildContractSha256":slither_native::native_addon_build_contract_sha256(),
@@ -342,6 +375,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "deliveries":deliveries,"referenceBackend":sse.math_backend().label(),"candidateBackend":quantized.math_backend().label(),
         "errorOrder":["pairedController","pairedRecurrent","feedbackController","feedbackRecurrent"],
         "errors":aggregate.iter().map(Errors::report).collect::<Vec<_>>(),"perGenome":per_genome,
+        "deliveryWindows":window_report(&aggregate_windows),
+        "diagnosticHistogramAllocatedBytes":(count+1)*(1+aggregate_windows.len())*4*65536*std::mem::size_of::<u64>(),
         "observations":if observation_bank.is_some() {"Actual delivered Motion/B16/ray rows from the same mature cohort, up to 32 per genome, repeated identically for both backends"} else {"32 deterministic bounded synthetic rows per genome, repeated; same external input for both backends"},
         "observationRowsPerGenome":brains.iter().map(|b|b.rows.len()/width).collect::<Vec<_>>(),
         "initialState":"original checkpoint recurrent state keyed by brain handle",
@@ -356,6 +391,40 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delivery_window_histograms_preserve_counts_and_exact_error_totals() {
+        let mut whole = Errors::default();
+        let mut windows: Vec<Errors> = (0..3).map(|_| Errors::default()).collect();
+        for delivery in 0..2001 {
+            let actual = [delivery as f32, -(delivery as f32)];
+            whole.add(&actual, &[0.0, 0.0]);
+            windows[delivery / 1000].add(&actual, &[0.0, 0.0]);
+        }
+        assert_eq!(
+            windows.iter().map(|w| w.count).collect::<Vec<_>>(),
+            vec![2000, 2000, 2]
+        );
+        assert_eq!(
+            windows.iter().map(|w| w.max).collect::<Vec<_>>(),
+            vec![999.0, 1999.0, 2000.0]
+        );
+        let mut merged = Errors::default();
+        for window in &windows {
+            merged.merge(window);
+        }
+        assert_eq!(merged.count, 4002);
+        assert_eq!(merged.sum, 4_002_000.0);
+        assert_eq!(merged.sum, whole.sum);
+        assert_eq!(merged.squared, whole.squared);
+        assert_eq!(merged.bins, whole.bins);
+        assert!(windows[2].report()["p999"]["lower"].as_f64().unwrap() <= 2000.0);
+        assert!(
+            windows[2].report()["p999"]["upperExclusive"]
+                .as_f64()
+                .unwrap()
+                > 2000.0
+        );
+    }
     #[test]
     fn error_percentile_bounds_and_merge() {
         let mut a = Errors::default();

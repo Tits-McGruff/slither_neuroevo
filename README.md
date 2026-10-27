@@ -633,6 +633,12 @@ native checkpoint beside the report. Use a task-owned empty workspace and keep
 reports/checkpoints outside it. The `evolved-i16-qualification` binary accepts
 that checkpoint and `--observation-bank REPORT.json` for 10,000-delivery controlled
 comparisons, per-matrix bias/scale diagnostics and repeated population benchmarks.
+It reports MAE/RMSE/max and percentile intervals for the whole sequence, each
+genome, and successive 1,000-delivery windows, alongside per-delivery error traces.
+These cold histograms are allocated after timed inference and are reported
+separately from inference-cache memory. The bias diagnostic also measures a
+temporary weight-only quantization domain; it does not alter the production
+bias representation or its matrix scale.
 
 ## Controls
 

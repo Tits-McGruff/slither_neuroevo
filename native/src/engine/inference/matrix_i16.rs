@@ -129,6 +129,9 @@ impl GraphExecutionPlan {
                 let mut saturated = 0;
                 let mut bias_max = 0.0_f32;
                 let mut weight_max = 0.0_f32;
+                let mut non_bias_error = 0.0;
+                let mut non_bias_error_squared = 0.0;
+                let mut non_bias_count = 0usize;
                 for (offset, (&w, &q)) in source.iter().zip(quantized).enumerate() {
                     let value = f64::from(w);
                     let difference = (value - f64::from(f32::from(q) * scale)).abs();
@@ -143,16 +146,50 @@ impl GraphExecutionPlan {
                         bias_max = bias_max.max(w.abs());
                     } else {
                         weight_max = weight_max.max(w.abs());
+                        non_bias_error += difference;
+                        non_bias_error_squared += difference * difference;
+                        non_bias_count += 1;
                     }
                 }
+                // Measurement only. A temporary affine weight-only domain uses
+                // the unchanged production quantizer, to measure bias-induced
+                // loss of precision. Neither canonical weights nor cache change.
+                let weight_only_diagnostic = affine.then(|| {
+                    let source: Vec<f32> = source
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(offset, &w)| (offset % (input + 1) != input).then_some(w))
+                        .collect();
+                    let mut values = vec![0; source.len()];
+                    let scale = quantize_matrix(&source, &mut values);
+                    let (sum, squared) =
+                        source
+                            .iter()
+                            .zip(values)
+                            .fold((0.0, 0.0), |(sum, squared), (&w, q)| {
+                                let error = (f64::from(w) - f64::from(f32::from(q) * scale)).abs();
+                                (sum + error, squared + error * error)
+                            });
+                    (
+                        scale,
+                        sum / source.len() as f64,
+                        (squared / source.len() as f64).sqrt(),
+                    )
+                });
                 let n = source.len() as f64;
                 let p99 = abs[(source.len() * 99).div_ceil(100).saturating_sub(1)];
+                let p999 = abs[(source.len() * 999).div_ceil(1000).saturating_sub(1)];
                 rows.push(serde_json::json!({"node":node.id,"matrixIndex":index,
                     "matrixWithinNode":index-node.matrix_start,"length":source.len(),
                     "maxAbs":max,"meanAbs":sum/n,"rms":(squared/n).sqrt(),
                     "scale":scale,"mae":error/n,"maxError":error_max,"rmse":(error_squared/n).sqrt(),
                     "fractionZero":zeros as f64/n,"fractionAtSymmetricLimit":saturated as f64/n,
                     "p99Abs":p99,"maxToP99":if p99 > 0.0 {Some(max/f64::from(p99))} else {None},
+                    "p999Abs":p999,
+                    "nonBiasMae":non_bias_error/non_bias_count as f64,"nonBiasRmse":(non_bias_error_squared/non_bias_count as f64).sqrt(),
+                    "weightOnlyDiagnosticScale":weight_only_diagnostic.map(|v|v.0),
+                    "weightOnlyDiagnosticMae":weight_only_diagnostic.map(|v|v.1),
+                    "weightOnlyDiagnosticRmse":weight_only_diagnostic.map(|v|v.2),
                     "biasSharesScale":affine,"maxAbsBias":bias_max,"maxAbsNonBias":weight_max,
                     "biasStrictlyDominates":affine && bias_max > weight_max,
                     "biasScaleInflation":if affine && weight_max > 0.0 {Some(f64::from(bias_max.max(weight_max)/weight_max))} else {None}}));
@@ -408,6 +445,14 @@ mod tests {
         assert_eq!(report[0]["biasStrictlyDominates"], true);
         assert_eq!(report[0]["biasScaleInflation"], 5.0);
         assert_eq!(report[0]["maxAbsNonBias"], 1.0);
+        assert!(
+            report[0]["nonBiasMae"].as_f64().unwrap()
+                > report[0]["weightOnlyDiagnosticMae"].as_f64().unwrap()
+        );
+        assert!(
+            report[0]["nonBiasRmse"].as_f64().unwrap()
+                > report[0]["weightOnlyDiagnosticRmse"].as_f64().unwrap()
+        );
         assert_eq!(cache, before);
     }
     #[test]
