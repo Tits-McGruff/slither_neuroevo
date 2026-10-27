@@ -102,3 +102,8 @@ required-features = ["engine-test-hooks"]
 name = "matrix-i16-benchmark"
 path = "src/bin/matrix_i16_benchmark.rs"
 required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "evolved-i16-qualification"
+path = "src/bin/evolved_i16_qualification.rs"
+required-features = ["engine-test-hooks"]

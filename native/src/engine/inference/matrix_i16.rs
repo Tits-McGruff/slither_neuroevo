@@ -74,6 +74,102 @@ pub(super) fn matrix_layout(nodes: &mut [ExecutionNode]) -> Vec<TensorRange> {
 }
 
 impl GraphExecutionPlan {
+    /// Cold diagnostic of the exact production quantization domains and values.
+    /// Bias counterfactuals are measurements only; they do not change the cache.
+    #[cfg(feature = "engine-test-hooks")]
+    pub fn quantization_diagnostics(
+        &self,
+        weights: &[f32],
+        cache: &QuantizedInferenceWeights,
+    ) -> Result<serde_json::Value, InferenceError> {
+        require_length("diagnostic weights", weights.len(), self.total_parameters)?;
+        require_length(
+            "diagnostic cache",
+            cache.values.len(),
+            self.total_parameters,
+        )?;
+        require_length("diagnostic scales", cache.scales.len(), self.matrices.len())?;
+        if cache.layout != self.layout_digest_sha256 {
+            return Err(InferenceError::InvalidCompiledGraph {
+                detail: "diagnostic cache layout mismatch".into(),
+            });
+        }
+        let mut rows = Vec::new();
+        for node in &self.nodes {
+            let end = self
+                .nodes
+                .iter()
+                .find(|next| next.matrix_start > node.matrix_start)
+                .map_or(self.matrices.len(), |next| next.matrix_start);
+            let affine = matches!(
+                node.node_type,
+                CompiledNodeType::Dense | CompiledNodeType::Mlp
+            );
+            let mut input = node.inputs.first().map_or(0, |range| range.len);
+            for index in node.matrix_start..end {
+                let matrix = self.matrices[index];
+                // Nodes without matrices can share matrix_start with the following node.
+                if matrix.offset < node.parameter.offset
+                    || matrix.offset >= node.parameter.offset + node.parameter.len
+                {
+                    break;
+                }
+                let source = &weights[matrix.offset..matrix.offset + matrix.len];
+                let quantized = &cache.values[matrix.offset..matrix.offset + matrix.len];
+                let scale = cache.scales[index];
+                let mut abs: Vec<f32> = source.iter().map(|v| v.abs()).collect();
+                abs.sort_unstable_by(f32::total_cmp);
+                let max = f64::from(*abs.last().unwrap());
+                let mut sum = 0.0;
+                let mut squared = 0.0;
+                let mut error = 0.0;
+                let mut error_squared = 0.0;
+                let mut error_max = 0.0_f64;
+                let mut zeros = 0;
+                let mut saturated = 0;
+                let mut bias_max = 0.0_f32;
+                let mut weight_max = 0.0_f32;
+                for (offset, (&w, &q)) in source.iter().zip(quantized).enumerate() {
+                    let value = f64::from(w);
+                    let difference = (value - f64::from(f32::from(q) * scale)).abs();
+                    sum += value.abs();
+                    squared += value * value;
+                    error += difference;
+                    error_squared += difference * difference;
+                    error_max = error_max.max(difference);
+                    zeros += usize::from(q == 0);
+                    saturated += usize::from(q.unsigned_abs() == 32767);
+                    if affine && offset % (input + 1) == input {
+                        bias_max = bias_max.max(w.abs());
+                    } else {
+                        weight_max = weight_max.max(w.abs());
+                    }
+                }
+                let n = source.len() as f64;
+                let p99 = abs[(source.len() * 99).div_ceil(100).saturating_sub(1)];
+                rows.push(serde_json::json!({"node":node.id,"matrixIndex":index,
+                    "matrixWithinNode":index-node.matrix_start,"length":source.len(),
+                    "maxAbs":max,"meanAbs":sum/n,"rms":(squared/n).sqrt(),
+                    "scale":scale,"mae":error/n,"maxError":error_max,"rmse":(error_squared/n).sqrt(),
+                    "fractionZero":zeros as f64/n,"fractionAtSymmetricLimit":saturated as f64/n,
+                    "p99Abs":p99,"maxToP99":if p99 > 0.0 {Some(max/f64::from(p99))} else {None},
+                    "biasSharesScale":affine,"maxAbsBias":bias_max,"maxAbsNonBias":weight_max,
+                    "biasStrictlyDominates":affine && bias_max > weight_max,
+                    "biasScaleInflation":if affine && weight_max > 0.0 {Some(f64::from(bias_max.max(weight_max)/weight_max))} else {None}}));
+                if affine {
+                    input = node
+                        .hidden
+                        .iter()
+                        .chain(std::iter::once(&node.output))
+                        .nth(index - node.matrix_start)
+                        .unwrap()
+                        .len;
+                }
+            }
+        }
+        Ok(serde_json::Value::Array(rows))
+    }
+
     /// Quantize once at parameter publication, using deterministic nearest rounding
     /// (halfway values away from zero). Reject nonfinite canonical parameters.
     pub fn quantize(&self, weights: &[f32]) -> Result<QuantizedInferenceWeights, InferenceError> {
