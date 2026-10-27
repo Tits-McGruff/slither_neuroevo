@@ -64,6 +64,8 @@ struct ReadyBatch {
 pub struct NeuralControlCapacityDiagnostics {
     /// Persistent calculation threads allocated for this pipeline.
     pub calculation_workers: usize,
+    /// Derived i16 numeric storage; canonical Float32 parameters remain separate.
+    pub inference_cache_bytes: usize,
     /// One shared cold-admitted v4 head-velocity array; zero for frozen v3.
     pub v4_head_capacity: usize,
     /// Packed observation slots.
@@ -472,6 +474,7 @@ impl NeuralControlPipeline {
     pub fn capacity_diagnostics(&self) -> NeuralControlCapacityDiagnostics {
         NeuralControlCapacityDiagnostics {
             calculation_workers: self.workspace.worker_count(),
+            inference_cache_bytes: self.inference.inference_cache_bytes(),
             v4_head_capacity: self.v4_heads.capacity(),
             observations: self.observations.capacity(),
             outputs: self.staged_outputs.capacity(),
@@ -538,6 +541,8 @@ impl NeuralControlPipeline {
         }) {
             return Err(NeuralControlError::InvalidAssessmentScores);
         }
+        self.inference
+            .prepare_weight_caches(key.population_epoch(), population, brains)?;
         self.last_cost = NeuralBatchCostMicros::default();
         self.workspace.begin(key);
         for candidate in candidates {

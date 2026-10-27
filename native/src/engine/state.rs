@@ -3631,6 +3631,25 @@ pub fn estimate_state_memory(
         candidate.config.checkpoint_scratch_bytes,
         "declared engine scratch",
     )?;
+    if candidate.identity.math_backend
+        == super::inference::InferenceMathBackend::I16MatrixFma128.label()
+    {
+        let cache_owners = candidate
+            .config
+            .population_count
+            .checked_add(candidate.config.max_non_population_brains)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "i16 cache owners",
+            })?;
+        let cache_bytes =
+            super::inference::matrix_i16_cache_admission_bytes(compiled, cache_owners).ok_or(
+                StateError::ArithmeticOverflow {
+                    context: "i16 inference cache",
+                },
+            )?;
+        estimate.scratch_bytes =
+            checked_add(estimate.scratch_bytes, cache_bytes, "i16 inference cache")?;
+    }
     // The species norm cache extends the previous slot/count summary scratch.
     estimate.scratch_bytes = checked_add(
         estimate.scratch_bytes,
@@ -4013,15 +4032,20 @@ fn validate_policy(policy: &StateAdmissionPolicy) -> Result<(), StateError> {
         "admission.expected_math_backend",
         &policy.expected_math_backend,
     )?;
-    if policy.allowed_math_backends.len() > 1
-        || policy.allowed_math_backends.iter().any(|backend| {
-            backend == &policy.expected_math_backend
-                || super::inference::InferenceMathBackend::from_label(backend).is_none()
-        })
+    if policy.allowed_math_backends.len() > 2
+        || policy
+            .allowed_math_backends
+            .iter()
+            .enumerate()
+            .any(|(index, backend)| {
+                policy.allowed_math_backends[..index].contains(backend)
+                    || backend == &policy.expected_math_backend
+                    || super::inference::InferenceMathBackend::from_label(backend).is_none()
+            })
     {
         return invalid(
             "admission.allowed_math_backends",
-            "at most one distinct supported arithmetic alternative",
+            "at most two distinct supported arithmetic alternatives",
         );
     }
     validate_sha256(

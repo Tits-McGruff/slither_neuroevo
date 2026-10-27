@@ -15,6 +15,11 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+mod matrix_i16;
+pub(crate) use matrix_i16::matrix_i16_cache_admission_bytes;
+pub use matrix_i16::QuantizedInferenceWeights;
+use matrix_i16::{BoundCache, NodeWeights};
+
 /// One precomputed contiguous range in graph-activation storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TensorRange {
@@ -43,6 +48,7 @@ struct ExecutionNode {
     hidden: Vec<TensorRange>,
     parameter: TensorRange,
     state: Option<TensorRange>,
+    matrix_start: usize,
 }
 
 /// Numeric implementation selected once for one immutable execution plan.
@@ -52,6 +58,11 @@ pub enum InferenceMathBackend {
     Scalar,
     /// Four-lane SSE dot kernels; exact reduction order is source/build-bound.
     Sse2,
+    /// Matrix-scaled symmetric i16 storage, four-lane Float32 FMA accumulation.
+    I16MatrixFma128,
+    /// Benchmark comparator only; never admitted from persisted backend metadata.
+    #[cfg(feature = "engine-test-hooks")]
+    BenchmarkF32Fma128,
 }
 
 impl InferenceMathBackend {
@@ -69,6 +80,9 @@ impl InferenceMathBackend {
         match self {
             Self::Scalar => "rust-scalar-v1",
             Self::Sse2 => "rust-sse2-v1",
+            Self::I16MatrixFma128 => "rust-i16-matrix-fma128-v1",
+            #[cfg(feature = "engine-test-hooks")]
+            Self::BenchmarkF32Fma128 => "benchmark-f32-fma128-v1",
         }
     }
 
@@ -77,6 +91,7 @@ impl InferenceMathBackend {
         match label {
             "rust-scalar-v1" => Some(Self::Scalar),
             "rust-sse2-v1" => Some(Self::Sse2),
+            "rust-i16-matrix-fma128-v1" => Some(Self::I16MatrixFma128),
             _ => None,
         }
     }
@@ -86,12 +101,15 @@ impl InferenceMathBackend {
         match self {
             Self::Scalar => true,
             Self::Sse2 => simd_kernels::runtime_sse2_available(),
+            Self::I16MatrixFma128 => simd_kernels::runtime_i16_fma128_available(),
+            #[cfg(feature = "engine-test-hooks")]
+            Self::BenchmarkF32Fma128 => simd_kernels::runtime_i16_fma128_available(),
         }
     }
 }
 
 /// Immutable allocation and traversal plan derived once from a compiled graph.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct GraphExecutionPlan {
     layout_digest_sha256: [u8; 32],
     input_size: usize,
@@ -101,6 +119,8 @@ pub struct GraphExecutionPlan {
     math_backend: InferenceMathBackend,
     nodes: Vec<ExecutionNode>,
     outputs: Vec<TensorRange>,
+    matrices: Vec<TensorRange>,
+    caches: Vec<BoundCache>,
     scratch_layout: CalculationScratchLayout,
 }
 
@@ -371,6 +391,7 @@ impl GraphExecutionPlan {
                 hidden,
                 parameter,
                 state,
+                matrix_start: 0,
             });
         }
         if parameter_cursor != graph.total_parameters {
@@ -441,7 +462,10 @@ impl GraphExecutionPlan {
             });
         }
 
+        let matrices = matrix_i16::matrix_layout(&mut execution_nodes);
         Ok(Self {
+            matrices,
+            caches: Vec::new(),
             layout_digest_sha256: graph.layout_digest_sha256,
             input_size,
             output_size: graph.output_size,
@@ -705,6 +729,63 @@ impl GraphExecutionPlan {
         output: &mut [f32],
         scratch: &mut CalculationScratchView<'_>,
     ) -> Result<(), InferenceError> {
+        self.evaluate_inner(
+            weights,
+            None,
+            recurrent_before,
+            recurrent_after,
+            input,
+            output,
+            scratch,
+        )
+    }
+
+    /// Evaluate using a cache built once from these canonical parameters.
+    /// The cache is graph-bound; callers must rebuild it whenever weights change.
+    // The existing complete-graph staging API plus one explicit cache argument.
+    #[allow(clippy::too_many_arguments)]
+    pub fn evaluate_quantized(
+        &self,
+        weights: &[f32],
+        cache: &QuantizedInferenceWeights,
+        recurrent_before: &[f32],
+        recurrent_after: &mut [f32],
+        input: &[f32],
+        output: &mut [f32],
+        scratch: &mut CalculationScratchView<'_>,
+    ) -> Result<(), InferenceError> {
+        if cache.layout != self.layout_digest_sha256 {
+            return Err(InferenceError::InvalidCompiledGraph {
+                detail: "i16 cache graph mismatch".into(),
+            });
+        }
+        self.evaluate_inner(
+            weights,
+            Some(cache),
+            recurrent_before,
+            recurrent_after,
+            input,
+            output,
+            scratch,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn evaluate_inner(
+        &self,
+        weights: &[f32],
+        cache: Option<&QuantizedInferenceWeights>,
+        recurrent_before: &[f32],
+        recurrent_after: &mut [f32],
+        input: &[f32],
+        output: &mut [f32],
+        scratch: &mut CalculationScratchView<'_>,
+    ) -> Result<(), InferenceError> {
+        if (self.math_backend == InferenceMathBackend::I16MatrixFma128) != cache.is_some() {
+            return Err(InferenceError::InvalidCompiledGraph {
+                detail: "i16 execution requires a prepared cache and the i16 backend".into(),
+            });
+        }
         require_length("weights", weights.len(), self.total_parameters)?;
         require_length(
             "recurrent_before",
@@ -777,17 +858,19 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Dense => {
                     let source = only_input(node)?;
-                    let parameters = slice_range(weights, node.parameter)?;
+                    let parameters =
+                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
                     let (input_values, output_values) =
                         forward_slices(scratch.activation, source, node.output, &node.id)?;
                     affine_tanh(self.math_backend, parameters, input_values, output_values)?;
                 }
                 CompiledNodeType::Mlp => {
-                    self.evaluate_mlp(node, weights, scratch.activation)?;
+                    self.evaluate_mlp(node, weights, cache, scratch.activation)?;
                 }
                 CompiledNodeType::Gru => {
                     let source = only_input(node)?;
-                    let parameters = slice_range(weights, node.parameter)?;
+                    let parameters =
+                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
                     let state = required_state(node)?;
                     let before = slice_range(recurrent_before, state)?;
                     let after = slice_range_mut(recurrent_after, state)?;
@@ -805,7 +888,8 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Lstm => {
                     let source = only_input(node)?;
-                    let parameters = slice_range(weights, node.parameter)?;
+                    let parameters =
+                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
                     let state = required_state(node)?;
                     let before = slice_range(recurrent_before, state)?;
                     let after = slice_range_mut(recurrent_after, state)?;
@@ -822,7 +906,8 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Rru => {
                     let source = only_input(node)?;
-                    let parameters = slice_range(weights, node.parameter)?;
+                    let parameters =
+                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
                     let state = required_state(node)?;
                     let before = slice_range(recurrent_before, state)?;
                     let after = slice_range_mut(recurrent_after, state)?;
@@ -863,11 +948,17 @@ impl GraphExecutionPlan {
         &self,
         node: &ExecutionNode,
         weights: &[f32],
+        cache: Option<&QuantizedInferenceWeights>,
         activation: &mut [f32],
     ) -> Result<(), InferenceError> {
         let mut source = only_input(node)?;
         let mut parameter_cursor = node.parameter.offset;
-        for destination in node.hidden.iter().chain(std::iter::once(&node.output)) {
+        for (layer, destination) in node
+            .hidden
+            .iter()
+            .chain(std::iter::once(&node.output))
+            .enumerate()
+        {
             let layer_parameters = destination
                 .len
                 .checked_mul(source.len.checked_add(1).ok_or(
@@ -893,7 +984,15 @@ impl GraphExecutionPlan {
                 forward_slices(activation, source, *destination, &node.id)?;
             affine_tanh(
                 self.math_backend,
-                &weights[parameter_cursor..parameter_end],
+                NodeWeights::new(
+                    weights,
+                    cache,
+                    TensorRange {
+                        offset: parameter_cursor,
+                        len: layer_parameters,
+                    },
+                    node.matrix_start + layer,
+                ),
                 input_values,
                 output_values,
             )?;
@@ -1034,8 +1133,11 @@ fn evaluate_heterogeneous_population_inner(
         let input_offset = index * plan.input_size;
         let output_offset = index * plan.output_size;
         let recurrent_offset = index * plan.total_state_size;
-        plan.evaluate(
+        plan.evaluate_inner(
             weights,
+            plan.caches
+                .get(unit.brain_index())
+                .and_then(|entry| entry.weights.as_ref()),
             recurrent_before,
             &mut staged_recurrent[recurrent_offset..recurrent_offset + plan.total_state_size],
             &observations[input_offset..input_offset + plan.input_size],
@@ -1110,6 +1212,19 @@ fn preflight_work(
         let brain = &brains[unit.brain_index()];
         let weights = weights_for(unit, brain, population)?;
         require_length("brain weights", weights.len(), plan.total_parameters)?;
+        if plan.math_backend == InferenceMathBackend::I16MatrixFma128 {
+            let valid = plan.caches.get(unit.brain_index()).is_some_and(|c| {
+                c.handle == brain.handle
+                    && c.genome_id
+                        == unit
+                            .population_slot()
+                            .map(|slot| population[slot as usize].lineage.genome_id)
+                    && c.weights.is_some()
+            });
+            if !valid {
+                return Err(InferenceError::InvalidCompiledGraph { detail: "missing or stale i16 inference binding; prepare caches at the ownership boundary".into() });
+            }
+        }
     }
     Ok(())
 }
@@ -1475,6 +1590,11 @@ fn dot_product(backend: InferenceMathBackend, weights: &[f32], input: &[f32]) ->
             sum
         }
         InferenceMathBackend::Sse2 => simd_kernels::dot_product_sse2(weights, input),
+        InferenceMathBackend::I16MatrixFma128 => unreachable!("i16 dot requires cache"),
+        #[cfg(feature = "engine-test-hooks")]
+        InferenceMathBackend::BenchmarkF32Fma128 => {
+            simd_kernels::dot_product_f32_fma128(weights, input)
+        }
     }
 }
 
@@ -1502,13 +1622,18 @@ fn dot_product_mul(
             sum
         }
         InferenceMathBackend::Sse2 => simd_kernels::dot_product_mul_sse2(weights, left, right),
+        InferenceMathBackend::I16MatrixFma128 => unreachable!("i16 dot requires cache"),
+        #[cfg(feature = "engine-test-hooks")]
+        InferenceMathBackend::BenchmarkF32Fma128 => {
+            compensated_f32_sum((0..left.len()).map(|i| weights[i] * (left[i] * right[i])))
+        }
     }
 }
 
 /// Apply one row-major affine transform followed by tanh.
 fn affine_tanh(
     backend: InferenceMathBackend,
-    weights: &[f32],
+    weights: NodeWeights<'_>,
     input: &[f32],
     output: &mut [f32],
 ) -> Result<(), InferenceError> {
@@ -1526,7 +1651,7 @@ fn affine_tanh(
     let mut cursor = 0usize;
     for value in output {
         let row_end = cursor + input.len();
-        let sum = dot_product(backend, &weights[cursor..row_end], input) + weights[row_end];
+        let sum = weights.dot(backend, cursor..row_end, input, 0) + weights.bias(row_end, Some(0));
         cursor = row_end + 1;
         *value = sum.tanh();
     }
@@ -1542,7 +1667,7 @@ fn sigmoid(value: f32) -> f32 {
 /// Evaluate one GRU block using the established Wz/Wr/Wh/Uz/Ur/Uh/bz/br/bh order.
 fn evaluate_gru(
     backend: InferenceMathBackend,
-    weights: &[f32],
+    weights: NodeWeights<'_>,
     input: &[f32],
     before: &[f32],
     after: &mut [f32],
@@ -1580,19 +1705,19 @@ fn evaluate_gru(
         let wr_row = wr + j * input_size;
         let uz_row = uz + j * hidden;
         let ur_row = ur + j * hidden;
-        let sum_z = dot_product(backend, &weights[wz_row..wz_row + input_size], input)
-            + dot_product(backend, &weights[uz_row..uz_row + hidden], before);
-        let sum_r = dot_product(backend, &weights[wr_row..wr_row + input_size], input)
-            + dot_product(backend, &weights[ur_row..ur_row + hidden], before);
-        z[j] = sigmoid(sum_z + weights[bz + j]);
-        r[j] = sigmoid(sum_r + weights[br + j]);
+        let sum_z = weights.dot(backend, wz_row..wz_row + input_size, input, 0)
+            + weights.dot(backend, uz_row..uz_row + hidden, before, 3);
+        let sum_r = weights.dot(backend, wr_row..wr_row + input_size, input, 1)
+            + weights.dot(backend, ur_row..ur_row + hidden, before, 4);
+        z[j] = sigmoid(sum_z + weights.bias(bz + j, None));
+        r[j] = sigmoid(sum_r + weights.bias(br + j, None));
     }
     for j in 0..hidden {
         let wh_row = wh + j * input_size;
         let uh_row = uh + j * hidden;
-        let sum_h = dot_product(backend, &weights[wh_row..wh_row + input_size], input)
-            + dot_product_mul(backend, &weights[uh_row..uh_row + hidden], r, before);
-        let candidate = (sum_h + weights[bh + j]).tanh();
+        let sum_h = weights.dot(backend, wh_row..wh_row + input_size, input, 2)
+            + weights.dot_mul(backend, uh_row..uh_row + hidden, r, before, 5);
+        let candidate = (sum_h + weights.bias(bh + j, None)).tanh();
         let next = (1.0 - z[j]) * before[j] + z[j] * candidate;
         after[j] = next;
         output[j] = next;
@@ -1603,7 +1728,7 @@ fn evaluate_gru(
 /// Evaluate one LSTM block using the established Wi/Wf/Wo/Wg/Ui/Uf/Uo/Ug order.
 fn evaluate_lstm(
     backend: InferenceMathBackend,
-    weights: &[f32],
+    weights: NodeWeights<'_>,
     input: &[f32],
     before: &[f32],
     after: &mut [f32],
@@ -1648,18 +1773,18 @@ fn evaluate_lstm(
         let uf_row = uf + j * hidden;
         let uo_row = uo + j * hidden;
         let ug_row = ug + j * hidden;
-        let sum_i = dot_product(backend, &weights[wi_row..wi_row + input_size], input)
-            + dot_product(backend, &weights[ui_row..ui_row + hidden], previous_h);
-        let sum_f = dot_product(backend, &weights[wf_row..wf_row + input_size], input)
-            + dot_product(backend, &weights[uf_row..uf_row + hidden], previous_h);
-        let sum_o = dot_product(backend, &weights[wo_row..wo_row + input_size], input)
-            + dot_product(backend, &weights[uo_row..uo_row + hidden], previous_h);
-        let sum_g = dot_product(backend, &weights[wg_row..wg_row + input_size], input)
-            + dot_product(backend, &weights[ug_row..ug_row + hidden], previous_h);
-        let input_gate = sigmoid(sum_i + weights[bi + j]);
-        let forget_gate = sigmoid(sum_f + weights[bf + j]);
-        let output_gate = sigmoid(sum_o + weights[bo + j]);
-        let candidate = (sum_g + weights[bg + j]).tanh();
+        let sum_i = weights.dot(backend, wi_row..wi_row + input_size, input, 0)
+            + weights.dot(backend, ui_row..ui_row + hidden, previous_h, 4);
+        let sum_f = weights.dot(backend, wf_row..wf_row + input_size, input, 1)
+            + weights.dot(backend, uf_row..uf_row + hidden, previous_h, 5);
+        let sum_o = weights.dot(backend, wo_row..wo_row + input_size, input, 2)
+            + weights.dot(backend, uo_row..uo_row + hidden, previous_h, 6);
+        let sum_g = weights.dot(backend, wg_row..wg_row + input_size, input, 3)
+            + weights.dot(backend, ug_row..ug_row + hidden, previous_h, 7);
+        let input_gate = sigmoid(sum_i + weights.bias(bi + j, None));
+        let forget_gate = sigmoid(sum_f + weights.bias(bf + j, None));
+        let output_gate = sigmoid(sum_o + weights.bias(bo + j, None));
+        let candidate = (sum_g + weights.bias(bg + j, None)).tanh();
         let cell = forget_gate * previous_c[j] + input_gate * candidate;
         let hidden_value = output_gate * cell.tanh();
         next_c[j] = cell;
@@ -1672,7 +1797,7 @@ fn evaluate_lstm(
 /// Evaluate one RRU block using the established Wc/Wr/Uc/Ur/bc/br order.
 fn evaluate_rru(
     backend: InferenceMathBackend,
-    weights: &[f32],
+    weights: NodeWeights<'_>,
     input: &[f32],
     before: &[f32],
     after: &mut [f32],
@@ -1698,12 +1823,12 @@ fn evaluate_rru(
         let wr_row = wr + j * input_size;
         let uc_row = uc + j * hidden;
         let ur_row = ur + j * hidden;
-        let sum_c = dot_product(backend, &weights[wc_row..wc_row + input_size], input)
-            + dot_product(backend, &weights[uc_row..uc_row + hidden], before);
-        let sum_r = dot_product(backend, &weights[wr_row..wr_row + input_size], input)
-            + dot_product(backend, &weights[ur_row..ur_row + hidden], before);
-        let candidate = (sum_c + weights[bc + j]).tanh();
-        let gate = sigmoid(sum_r + weights[br + j]);
+        let sum_c = weights.dot(backend, wc_row..wc_row + input_size, input, 0)
+            + weights.dot(backend, uc_row..uc_row + hidden, before, 2);
+        let sum_r = weights.dot(backend, wr_row..wr_row + input_size, input, 1)
+            + weights.dot(backend, ur_row..ur_row + hidden, before, 3);
+        let candidate = (sum_c + weights.bias(bc + j, None)).tanh();
+        let gate = sigmoid(sum_r + weights.bias(br + j, None));
         let next = (1.0 - gate) * before[j] + gate * candidate;
         after[j] = next;
         output[j] = next;
@@ -3306,5 +3431,242 @@ mod tests {
             GraphExecutionPlan::build(&wrong_state_shape),
             Err(InferenceError::InvalidCompiledGraph { .. })
         ));
+    }
+    #[test]
+    fn matrix_i16_complete_dense_mlp_and_recurrent_sequences_match_f32() {
+        if !InferenceMathBackend::I16MatrixFma128.is_available() {
+            return;
+        }
+        assert_eq!(
+            InferenceMathBackend::from_label("rust-i16-matrix-fma128-v1"),
+            Some(InferenceMathBackend::I16MatrixFma128)
+        );
+        assert_eq!(InferenceMathBackend::detect(), InferenceMathBackend::Sse2);
+        for graph in [
+            complete_graph(),
+            wide_recurrent_graph(),
+            large_recurrent_graph(),
+        ] {
+            let reference =
+                GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                    .unwrap();
+            let plan = GraphExecutionPlan::build_with_math_backend(
+                &graph,
+                InferenceMathBackend::I16MatrixFma128,
+            )
+            .unwrap();
+            let weights = parity_weights(plan.total_parameters());
+            let original = weights.clone();
+            let cache = plan.quantize(&weights).unwrap();
+            assert_eq!(
+                cache.allocated_bytes(),
+                weights.len() * 2 + cache.matrix_count() * 4
+            );
+            assert_eq!(cache.matrix_count(), plan.matrices.len());
+            let mut reference_scratch = scratch(&reference);
+            let mut quantized_scratch = scratch(&plan);
+            let mut reference_state = vec![0.03; plan.total_state_size()];
+            let mut quantized_state = reference_state.clone();
+            let mut output_error = 0.0_f64;
+            let mut state_error = 0.0_f64;
+            let mut output_count = 0;
+            let mut state_count = 0;
+            for step in 0..128 {
+                if step == 64 {
+                    reference_state.fill(0.0);
+                    quantized_state.fill(0.0);
+                }
+                let input: Vec<f32> = (0..plan.input_size())
+                    .map(|i| ((step * 17 + i * 11) % 97) as f32 / 48.0 - 1.0)
+                    .collect();
+                let mut ref_next = vec![0.0; plan.total_state_size()];
+                let mut q_next = ref_next.clone();
+                let mut ref_output = vec![0.0; 2];
+                let mut q_output = ref_output.clone();
+                reference
+                    .evaluate(
+                        &weights,
+                        &reference_state,
+                        &mut ref_next,
+                        &input,
+                        &mut ref_output,
+                        &mut reference_scratch.view(),
+                    )
+                    .unwrap();
+                plan.evaluate_quantized(
+                    &weights,
+                    &cache,
+                    &quantized_state,
+                    &mut q_next,
+                    &input,
+                    &mut q_output,
+                    &mut quantized_scratch.view(),
+                )
+                .unwrap();
+                let mut repeated = vec![0.0; 2];
+                let mut repeated_state = q_next.clone();
+                plan.evaluate_quantized(
+                    &weights,
+                    &cache,
+                    &quantized_state,
+                    &mut repeated_state,
+                    &input,
+                    &mut repeated,
+                    &mut quantized_scratch.view(),
+                )
+                .unwrap();
+                assert_eq!(q_output, repeated);
+                assert_eq!(q_next, repeated_state);
+                for (&a, &b) in q_output.iter().zip(&ref_output) {
+                    let e = (a - b).abs();
+                    assert!(e <= 0.0006, "controller error {e}");
+                    output_error += f64::from(e);
+                    output_count += 1;
+                }
+                for (&a, &b) in q_next.iter().zip(&ref_next) {
+                    let e = (a - b).abs();
+                    assert!(e <= 0.0001, "recurrent error {e}");
+                    state_error += f64::from(e);
+                    state_count += 1;
+                }
+                reference_state = ref_next;
+                quantized_state = q_next;
+            }
+            assert!(output_error / output_count as f64 <= 0.00005);
+            assert!(state_error / state_count as f64 <= 0.00001);
+            assert_eq!(weights, original);
+            let mut invalid = weights.clone();
+            invalid[0] = f32::NAN;
+            assert!(plan.quantize(&invalid).is_err());
+            assert!(plan.quantize(&weights[..weights.len() - 1]).is_err());
+            assert!(plan
+                .evaluate(
+                    &weights,
+                    &reference_state,
+                    &mut quantized_state,
+                    &vec![0.0; plan.input_size()],
+                    &mut [0.0; 2],
+                    &mut quantized_scratch.view()
+                )
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn matrix_i16_binding_reuses_caches_and_refreshes_changed_ownership() {
+        if !InferenceMathBackend::I16MatrixFma128.is_available() {
+            return;
+        }
+        let graph = complete_graph();
+        let mut plan = GraphExecutionPlan::build_with_math_backend(
+            &graph,
+            InferenceMathBackend::I16MatrixFma128,
+        )
+        .unwrap();
+        let (_, mut brains, mut population) = population_fixture(&plan, 3);
+        plan.prepare_weight_caches(1, &population, &brains).unwrap();
+        let initial = plan.inference_cache_bytes();
+        assert!(initial > 0);
+        // Identical immutable ownership preserves the cache allocations.
+        let address = plan.caches[0].weights.as_ref().unwrap().storage_address();
+        plan.prepare_weight_caches(1, &population, &brains).unwrap();
+        assert_eq!(
+            address,
+            plan.caches[0].weights.as_ref().unwrap().storage_address()
+        );
+        let old = plan.caches[0].weights.clone();
+        population[0].weights[0] = 5.0;
+        population[0].lineage.genome_id += 1000;
+        plan.prepare_weight_caches(2, &population, &brains).unwrap();
+        assert_ne!(old, plan.caches[0].weights);
+        assert_eq!(initial, plan.inference_cache_bytes());
+        // A replaced non-population brain is also quantized, with no population alias.
+        brains[0].owner = BrainOwner::Entity(999);
+        brains[0].handle.id += 1000;
+        brains[0].non_population_weights =
+            Some(vec![0.0; plan.total_parameters()].into_boxed_slice());
+        plan.prepare_weight_caches(2, &population, &brains).unwrap();
+        assert_ne!(plan.caches[0].weights, old);
+        assert_eq!(initial, plan.inference_cache_bytes());
+        let storage = plan.caches[0].weights.as_ref().unwrap().storage_address();
+        let cloned_brains = brains.clone();
+        plan.prepare_weight_caches(2, &population, &cloned_brains)
+            .unwrap();
+        assert_eq!(
+            storage,
+            plan.caches[0].weights.as_ref().unwrap().storage_address()
+        );
+        let admitted = matrix_i16_cache_admission_bytes(&graph, brains.len()).unwrap();
+        assert!(admitted >= initial);
+    }
+    #[test]
+    fn matrix_i16_domains_preserve_zero_graph_and_distinct_matrix_scales() {
+        if !InferenceMathBackend::I16MatrixFma128.is_available() {
+            return;
+        }
+        let graph = complete_graph();
+        let plan = GraphExecutionPlan::build_with_math_backend(
+            &graph,
+            InferenceMathBackend::I16MatrixFma128,
+        )
+        .unwrap();
+        let mut weights = vec![0.0; plan.total_parameters()];
+        let zero = plan.quantize(&weights).unwrap();
+        let mut output = [1.0; 2];
+        let mut after = vec![1.0; plan.total_state_size()];
+        let mut work = scratch(&plan);
+        plan.evaluate_quantized(
+            &weights,
+            &zero,
+            &vec![0.0; plan.total_state_size()],
+            &mut after,
+            &vec![1.0; plan.input_size()],
+            &mut output,
+            &mut work.view(),
+        )
+        .unwrap();
+        assert_eq!(output, [0.0; 2]);
+        assert!(after.iter().all(|v| *v == 0.0));
+        // Different major matrices deliberately have very different ranges;
+        // every row of one matrix must share its matrix maximum.
+        for (ordinal, matrix) in plan.matrices.iter().enumerate() {
+            let magnitude = [0.0001_f32, 0.3, 5.0][ordinal % 3];
+            weights[matrix.offset..matrix.offset + matrix.len].fill(magnitude / 3.0);
+            weights[matrix.offset] = -magnitude;
+        }
+        let cache = plan.quantize(&weights).unwrap();
+        for (ordinal, matrix) in plan.matrices.iter().enumerate() {
+            let view = NodeWeights::new(&weights, Some(&cache), *matrix, ordinal);
+            let magnitude = [0.0001_f32, 0.3, 5.0][ordinal % 3];
+            assert!(
+                (view.dot(InferenceMathBackend::I16MatrixFma128, 0..1, &[1.0], 0) + magnitude)
+                    .abs()
+                    < 1e-6
+            );
+            if matrix.len > 1 {
+                assert!(
+                    (view.dot(InferenceMathBackend::I16MatrixFma128, 1..2, &[1.0], 0)
+                        - magnitude / 3.0)
+                        .abs()
+                        <= magnitude / 32767.0
+                );
+            }
+        }
+        let incompatible = GraphExecutionPlan::build_with_math_backend(
+            &wide_recurrent_graph(),
+            InferenceMathBackend::I16MatrixFma128,
+        )
+        .unwrap();
+        assert!(incompatible
+            .evaluate_quantized(
+                &weights,
+                &cache,
+                &[],
+                &mut [],
+                &[],
+                &mut [],
+                &mut work.view()
+            )
+            .is_err());
     }
 }

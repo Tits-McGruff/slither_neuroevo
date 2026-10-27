@@ -521,10 +521,14 @@ pub fn run_stage4_inference_evidence(
         ("owner-target-vm", InferenceMathBackend::Sse2) => {
             "new measured target-VM Rust SSE2 result"
         }
+        (_, InferenceMathBackend::BenchmarkF32Fma128) => "benchmark F32 FMA comparator",
         (_, InferenceMathBackend::Scalar) => "new measured development-machine Rust scalar result",
+        (_, InferenceMathBackend::I16MatrixFma128) => "new measured matrix i16 inference result",
         (_, InferenceMathBackend::Sse2) => "new measured development-machine Rust SSE2 result",
     };
     let (path_name, caveat) = match options.math_backend {
+        InferenceMathBackend::BenchmarkF32Fma128 => ("benchmark-f32-fma128", "Benchmark-only arithmetic comparator; no checkpoint identity."),
+        InferenceMathBackend::I16MatrixFma128 => ("rust-i16-matrix-fma128", "Synthetic inference microbenchmark; production-machine qualification remains required."),
         InferenceMathBackend::Scalar => (
             "rust-scalar-coarse-heterogeneous",
             "Source-shaped synthetic inference-only microbenchmark. It excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node, N-API, the live coordinator, SIMD, parallelism, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",
@@ -667,7 +671,7 @@ fn build_fixture(
 ) -> Result<Fixture, String> {
     let graph = compile_graph(&scenario_graph(scenario), &graph_limits())
         .map_err(|error| format!("{} graph compilation failed: {error}", scenario.label()))?;
-    let plan = GraphExecutionPlan::build_with_math_backend(&graph, math_backend)
+    let mut plan = GraphExecutionPlan::build_with_math_backend(&graph, math_backend)
         .map_err(|error| format!("{} execution planning failed: {error}", scenario.label()))?;
     let count = scenario.population_count();
     let mut snakes = Vec::new();
@@ -726,6 +730,8 @@ fn build_fixture(
         return Err("fixture genomes are not differently weighted".to_owned());
     }
 
+    plan.prepare_weight_caches(FIXTURE_EPOCH, &population, &brains)
+        .map_err(|e| e.to_string())?;
     let observation_count = count
         .checked_mul(plan.input_size())
         .ok_or_else(|| "observation count overflowed".to_owned())?;

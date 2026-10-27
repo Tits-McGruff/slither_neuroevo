@@ -64,6 +64,10 @@ impl QueryDetailLimits {
 /// Every resource/work choice is explicit; these are not production defaults.
 #[derive(Clone, Debug)]
 pub struct SensorQualificationOptions {
+    /// Optional bounded operator-supplied graph; defaults and trained cohorts stay unchanged.
+    pub source_graph: Option<GraphSpec>,
+    /// Drive the existing scheduler with elapsed monotonic wall time instead of simulated wall ticks.
+    pub real_clock: bool,
     /// None retains the existing normalized production settings without an override.
     pub query_limits: Option<QueryDetailLimits>,
     pub population: usize,
@@ -303,6 +307,13 @@ pub struct SensorQualificationReport {
     pub environment: String,
     pub build_identifier: String,
     pub source_sha256: String,
+    pub build_contract_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_layout_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_graph: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub real_clock: Option<RealClockQualification>,
     pub target: String,
     pub build_class: String,
     pub rustc: String,
@@ -367,6 +378,20 @@ pub struct SensorQualificationReport {
     pub raw: Vec<BoundedHistogram>,
     pub normalized: Vec<BoundedHistogram>,
     pub caveat: &'static str,
+}
+
+/// Measured elapsed-time scheduling; no alternate simulation or scheduler is introduced.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealClockQualification {
+    pub measured_wall_seconds: f64,
+    pub measured_simulation_seconds: f64,
+    pub achieved_simulated_seconds_per_wall_second: f64,
+    pub dropped_wall_seconds: f64,
+    pub final_pending_wall_seconds: f64,
+    pub maximum_pending_wall_seconds: f64,
+    pub final_catch_up_wall_debt_seconds: f64,
+    pub gameplay_continuation_sha256: String,
 }
 
 fn graph(width: usize, large: bool) -> GraphSpec {
@@ -452,7 +477,7 @@ pub(crate) fn prepare_sensor_cohort_workload(
     cohort: &super::trained_cohort::TrainedCohort,
 ) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
     use super::fresh_run::FreshRunError;
-    if options.trained_artifact.is_some() || options.large_graph {
+    if options.trained_artifact.is_some() || options.large_graph || options.source_graph.is_some() {
         return Err(FreshRunError::Settings(
             "cohort supplies its graph; omit single-artifact and graph overrides".into(),
         ));
@@ -512,9 +537,16 @@ pub(crate) fn sensor_workload_spec(
             .validate()
             .map_err(|error| super::fresh_run::FreshRunError::Settings(error.into()))?;
     }
-    if !matches!(options.population, 55 | 300) {
+    if !(1..=300).contains(&options.population)
+        || (!matches!(options.population, 55 | 300) && options.source_graph.is_none())
+    {
         return Err(super::fresh_run::FreshRunError::Settings(
-            "qualification workload must be P0/P1".into(),
+            "qualification requires P0/P1 or a bounded custom graph population (1..300)".into(),
+        ));
+    }
+    if options.source_graph.is_some() && (trained.is_some() || options.large_graph) {
+        return Err(super::fresh_run::FreshRunError::Settings(
+            "custom graph cannot override a trained or canned graph".into(),
         ));
     }
     let contract = SensorContractIdentity::new(options.profile, options.bins)
@@ -593,7 +625,12 @@ pub(crate) fn sensor_workload_spec(
     Ok((
         updates,
         trained.map_or_else(
-            || graph(contract.input_size(), options.large_graph),
+            || {
+                options
+                    .source_graph
+                    .clone()
+                    .unwrap_or_else(|| graph(contract.input_size(), options.large_graph))
+            },
             |artifact| artifact.graph.spec().clone(),
         ),
     ))
@@ -783,7 +820,7 @@ pub fn run_sensor_cohort_qualification(
     workspace: &Path,
     index: &Path,
 ) -> Result<SensorQualificationReport, String> {
-    if options.trained_artifact.is_some() || options.large_graph {
+    if options.trained_artifact.is_some() || options.large_graph || options.source_graph.is_some() {
         return Err("cohort supplies its graph; omit single-artifact and graph overrides".into());
     }
     run_with_sources(
@@ -814,7 +851,8 @@ fn run_with_sources(
             return Err("capture qualification requires baseline v2 and v4".into());
         }
     }
-    if !matches!(options.population, 55 | 300)
+    if !(1..=300).contains(&options.population)
+        || (!matches!(options.population, 55 | 300) && options.source_graph.is_none())
         || options.warmup_steps > MAX_QUALIFICATION_STEPS
         || options.measured_steps == 0
         || options.measured_steps > MAX_QUALIFICATION_STEPS
@@ -823,7 +861,10 @@ fn run_with_sources(
             .checked_add(options.measured_steps)
             .is_none_or(|sum| sum > MAX_QUALIFICATION_STEPS)
     {
-        return Err("qualification requires P0/P1 and 1..60000 total steps".into());
+        return Err(
+            "qualification requires P0/P1 or a custom 1..300 population and 1..60000 total steps"
+                .into(),
+        );
     }
     if std::fs::symlink_metadata(workspace)
         .map_err(|error| error.to_string())?
@@ -850,7 +891,7 @@ fn run_with_sources(
     let mut report=SensorQualificationReport {
         query_detail_limits: options.query_limits,
         version:if cohort.is_some() {7}else if trained.is_some() {6}else{5},trained_cohort:cohort.as_ref().map(|value|value.descriptor(options.population)),trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
-        source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
+        source_sha256:crate::native_addon_source_sha256(),build_contract_sha256:crate::native_addon_build_contract_sha256(),graph_layout_sha256:None,source_graph:None,real_clock:None,target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
         cpu_model:super::sensing_fixture::system_cpu_model(),total_memory_bytes:super::sensing_fixture::linux_total_memory_bytes(),
@@ -861,7 +902,7 @@ fn run_with_sources(
         teacher_respawn_delay_seconds:options.teacher_respawn_delay_seconds,
         consumer_work:[ConsumerSensorWork::default();3],minimum_due_consumers:None,maximum_due_consumers:0,
         all_consumer_ray_incomplete_fraction:None,all_consumer_ray_incomplete_below_one_percent:None,shared_batch_budget_held:None,
-        graph_size:if cohort.is_some() {"trained-cohort"}else if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
+        graph_size:if options.source_graph.is_some() {"custom"}else if cohort.is_some() {"trained-cohort"}else if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
         sensor_sha256:contract.sha256_hex().map_err(|error|error.to_string())?,
         ray_minimum:options.ray_limits.map(RayWorkLimits::minimum),ray_cap:options.ray_limits.map(RayWorkLimits::cap),
         ray_batch:options.ray_limits.map(RayWorkLimits::batch),normalized:contract.order().iter().map(|label|BoundedHistogram::new(label,-1.0,1.0)).collect(),
@@ -873,6 +914,9 @@ fn run_with_sources(
         step_cost:None,observer_cost:None,native_step_p95_within_60hz:None,ordinary_ray_incomplete_below_one_percent:None,
         caveat:"Actual seeded native random-population gameplay with ten explicitly recorded v1/v2 baselines, duration-only completion, optional unlimited evolved respawn, and discard-new overflow. Includes authoritative complete steps and frame packing; excludes startup/checkpoint publication, Node/browser/network and observer analysis. Run-start uses a real immutable checkpoint plus matching benchmark acknowledgement, without SQLite. Simulated wall times are controlled; this does not measure wall-debt scheduling under load. This is not a trained-policy distribution, external-controller workload qualification, tactical agreement, ablation or final production-default selection. Clearance metres invert encoded Float32 channel minima and are censored at the sensing radius; incomplete body values are conservative, not ground truth. Pellet values use a systematic maximum-64 subset per committed boundary. Decaying due counts remain explicit; no zero-sample quality pass.",
     };
+    if options.real_clock {
+        report.caveat = "Actual native gameplay driven by elapsed monotonic wall time through the ordinary scheduler, including complete steps, frame packing and observer overhead. Startup/checkpoint construction is excluded. Reports debt and discarded wall time; p99 is descriptive, not a separate deadline gate. Seeded fresh genomes and baseline v2 do not establish evolved-policy quality, full-stack contention or default promotion.";
+    }
     if trained.is_some() {
         report.caveat = "Actual native trained-clone qualification cohort, initialized cold from one independently validated portable graph/weights artifact before the durable run-start boundary. Random initialization RNG draws are retained; no runtime founder/import command is introduced. This is one cloned learned policy, not a genetically diverse mature population. Evolved-life/economic sensor values are authoritative and can differ from the baseline teacher domain. Artifact cadence/life-state rules are recorded settings. Complete steps, frame packing, sensor distributions and optional committed teacher capture are measured; wall-debt scheduling, representative coverage, integrated contention and production defaults are separate gates.";
     }
@@ -906,6 +950,18 @@ fn run_with_sources(
             .map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
+    report.graph_layout_sha256 = Some(
+        pending
+            .qualification_authority()
+            .graph()
+            .layout_digest_sha256
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    );
+    if options.source_graph.is_some() {
+        report.source_graph = Some(metadata["graphSpec"].clone());
+    }
     report.parameter_count = metadata["parameterCount"]
         .as_u64()
         .map(|value| value as usize);
@@ -935,8 +991,14 @@ fn run_with_sources(
     let mut steps = Vec::with_capacity(options.measured_steps);
     let mut observer = Vec::with_capacity(options.measured_steps);
     report.admitted = true;
+    let wall_origin = Instant::now();
+    let mut measurement_origin = wall_origin;
+    let mut dropped_wall_at_start = 0.0;
+    let mut maximum_pending_wall_seconds = 0.0_f64;
     for ordinal in 0..options.warmup_steps + options.measured_steps {
         if ordinal == options.warmup_steps {
+            measurement_origin = Instant::now();
+            dropped_wall_at_start = running.scheduler_diagnostics().dropped_wall_seconds;
             capture = options
                 .capture
                 .map(|settings| {
@@ -949,19 +1011,52 @@ fn run_with_sources(
                 })
                 .transpose()?;
         }
-        let wall_ms = ((ordinal as u64 + 1) * 1000).div_ceil(60);
-        let started = Instant::now();
-        let progress = running
-            .service_after_command_drain(
-                wall_ms,
-                SchedulerServiceMode::Background,
-                Some(RunningFramePublication::new(
-                    FrameV1ViewDescriptor::default(),
-                    &mut frame,
-                )),
-            )
-            .map_err(|error| error.to_string())?;
-        let service_duration = started.elapsed();
+        let (progress, service_duration) = loop {
+            let wall_ms = if options.real_clock {
+                u64::try_from(wall_origin.elapsed().as_millis())
+                    .map_err(|_| "qualification clock overflow")?
+            } else {
+                ((ordinal as u64 + 1) * 1000).div_ceil(60)
+            };
+            let started = Instant::now();
+            let progress = running
+                .service_after_command_drain(
+                    wall_ms,
+                    SchedulerServiceMode::Background,
+                    Some(RunningFramePublication::new(
+                        FrameV1ViewDescriptor::default(),
+                        &mut frame,
+                    )),
+                )
+                .map_err(|error| error.to_string())?;
+            let service_duration = started.elapsed();
+            if options.real_clock && ordinal >= options.warmup_steps {
+                maximum_pending_wall_seconds = maximum_pending_wall_seconds
+                    .max(running.scheduler_diagnostics().pending_wall_seconds);
+            }
+            if let RunningAuthorityLoopProgress::Idle {
+                wall_seconds_until_step,
+                ..
+            } = progress
+            {
+                if options.real_clock {
+                    // Bounded polling uses the existing scheduler's readiness result.
+                    std::thread::sleep(std::time::Duration::from_secs_f64(
+                        wall_seconds_until_step.clamp(0.0001, 0.001),
+                    ));
+                    if wall_origin.elapsed().as_secs_f64()
+                        > 30.0 + (options.warmup_steps + options.measured_steps) as f64 / 6.0
+                    {
+                        return Err(
+                            "real-clock qualification exceeded ten times its simulated duration"
+                                .into(),
+                        );
+                    }
+                    continue;
+                }
+            }
+            break (progress, service_duration);
+        };
         let elapsed = service_duration.as_secs_f64() * 1000.0;
         if !matches!(progress, RunningAuthorityLoopProgress::Published { .. })
             || running.completed_step() != ordinal as u64 + 1
@@ -994,6 +1089,21 @@ fn run_with_sources(
     if let Some(capture) = capture {
         report.capture =
             Some(capture.finish(&mut running, options.measured_steps, steps.iter().sum())?);
+    }
+    if options.real_clock {
+        let wall = measurement_origin.elapsed().as_secs_f64();
+        let scheduler = running.scheduler_diagnostics();
+        let simulation = options.measured_steps as f64 * scheduler.fixed_step_seconds;
+        report.real_clock = Some(RealClockQualification {
+            measured_wall_seconds: wall,
+            measured_simulation_seconds: simulation,
+            achieved_simulated_seconds_per_wall_second: simulation / wall,
+            dropped_wall_seconds: scheduler.dropped_wall_seconds - dropped_wall_at_start,
+            final_pending_wall_seconds: scheduler.pending_wall_seconds,
+            maximum_pending_wall_seconds,
+            final_catch_up_wall_debt_seconds: scheduler.catch_up_wall_debt_seconds,
+            gameplay_continuation_sha256: running.qualification_restored_continuation_sha256(),
+        });
     }
     report.completed_steps = running.completed_step();
     report.continuation_sha256 = Some(running.qualification_continuation_sha256());
@@ -1116,6 +1226,8 @@ mod tests {
             Some(super::super::baseline_v2::BaselineV2Mode::Stochastic),
         ] {
             let mut options = SensorQualificationOptions {
+                source_graph: None,
+                real_clock: false,
                 query_limits: None,
                 population: 55,
                 profile: SensorProfile::Motion,
@@ -1219,6 +1331,8 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/portable-brain-v1.slither-brain");
         let artifact = load_trained_artifact(&path).unwrap();
         let mut options = SensorQualificationOptions {
+            source_graph: None,
+            real_clock: false,
             query_limits: None,
             population: 55,
             profile: SensorProfile::Basic,
@@ -1379,6 +1493,8 @@ mod tests {
     fn actual_capture_bytes_and_authority_match_across_fast_slow_and_parallel_runs() {
         use super::super::capture_qualification::CaptureQualificationOptions;
         let mut options = SensorQualificationOptions {
+            source_graph: None,
+            real_clock: false,
             query_limits: None,
             population: 55,
             profile: SensorProfile::Motion,
@@ -1535,5 +1651,36 @@ mod tests {
             .unwrap();
             assert_eq!(compiled.total_parameters, parameters);
         }
+    }
+    #[test]
+    fn custom_graph_population_is_bounded_and_real_clock_uses_native_scheduler() {
+        let mut options = super::super::checkpoint_capacity::capacity_workload_options(3, false);
+        options.bins = 16;
+        assert!(sensor_workload_spec(&options, None).is_err());
+        options.source_graph = Some(graph(264, false));
+        assert!(sensor_workload_spec(&options, None).is_ok());
+        for population in [0, 301] {
+            let mut invalid = options.clone();
+            invalid.population = population;
+            assert!(sensor_workload_spec(&invalid, None).is_err());
+        }
+        let mut conflicting = options.clone();
+        conflicting.large_graph = true;
+        assert!(sensor_workload_spec(&conflicting, None).is_err());
+        options.real_clock = true;
+        options.warmup_steps = 1;
+        options.measured_steps = 2;
+        let workspace = Scratch::new();
+        let report = run_sensor_qualification(&options, &workspace.0).unwrap();
+        assert!(report.admitted, "{:?}", report.rejection);
+        assert_eq!(report.population, 3);
+        assert_eq!(report.completed_steps, 3);
+        assert_eq!(report.graph_size, "custom");
+        assert!(report.source_graph.is_some());
+        let clock = report.real_clock.unwrap();
+        assert!(clock.measured_wall_seconds > 0.0);
+        assert_eq!(clock.dropped_wall_seconds, 0.0);
+        assert!((clock.measured_simulation_seconds - 2.0 / 60.0).abs() < 1e-12);
+        assert_eq!(clock.gameplay_continuation_sha256.len(), 64);
     }
 }

@@ -9,7 +9,7 @@ use slither_native::engine::sensor_qualification::{
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// One exclusively created scratch tree; only this exact resolved tree is removable.
@@ -80,6 +80,9 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     let mut values = BTreeMap::new();
     while let Some(flag) = arguments.next() {
         if ![
+            "--graph-json",
+            "--population",
+            "--clock",
             "--soak-shadow-artifact",
             "--trained-cohort",
             "--capture",
@@ -226,14 +229,65 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         ),
         _ => return Err("--pellet-checks and --segment-checks must be supplied together".into()),
     };
-    let options = SensorQualificationOptions {
-        query_limits,
-        trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
-        population: match required("--scenario")? {
+    let source_graph = values
+        .get("--graph-json")
+        .map(|path| -> Result<_, Box<dyn Error>> {
+            if [
+                "--graph",
+                "--trained-artifact",
+                "--trained-cohort",
+                "--soak-shadow-artifact",
+            ]
+            .iter()
+            .any(|key| values.contains_key(*key))
+            {
+                return Err(
+                    "custom graph cannot be combined with canned, trained or shadow graph sources"
+                        .into(),
+                );
+            }
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)?
+                .take(1024 * 1024 + 1)
+                .read_to_end(&mut bytes)?;
+            slither_native::engine::graph_json::decode_graph_json(&bytes).map_err(Into::into)
+        })
+        .transpose()?;
+    let real_clock = match values
+        .get("--clock")
+        .map(String::as_str)
+        .unwrap_or("controlled")
+    {
+        "controlled" => false,
+        "real" => true,
+        _ => return Err("--clock must be controlled or real".into()),
+    };
+    if real_clock && values.contains_key("--soak-shadow-artifact") {
+        return Err("continuous capture soak uses its existing controlled-clock mode".into());
+    }
+    let population = match (values.get("--population"), values.get("--scenario")) {
+        (Some(value), None) if source_graph.is_some() => {
+            let count: usize = value.parse()?;
+            if !(1..=300).contains(&count) {
+                return Err("custom population must be 1..300".into());
+            }
+            count
+        }
+        (None, Some(value)) => match value.as_str() {
             "P0" => 55,
             "P1" => 300,
             _ => return Err("--scenario must be P0/P1".into()),
         },
+        _ => {
+            return Err("supply --scenario P0/P1, or --graph-json with --population 1..300".into())
+        }
+    };
+    let options = SensorQualificationOptions {
+        source_graph,
+        real_clock,
+        query_limits,
+        trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
+        population,
         profile,
         bins: integer("--bins", "16")?,
         ray_limits,
@@ -271,6 +325,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         {
             "scalar" => InferenceMathBackend::Scalar,
             "sse2" => InferenceMathBackend::Sse2,
+            "i16-matrix-fma128" => InferenceMathBackend::I16MatrixFma128,
             _ => return Err("invalid arithmetic backend".into()),
         },
         warmup_steps: integer("--warmup", "3")?,

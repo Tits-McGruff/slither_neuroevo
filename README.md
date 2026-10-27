@@ -586,6 +586,41 @@ Normal startup requires the production addon and rejects the test build.
 Scientific qualification and long benchmarks run only through the manual
 Qualification workflow or explicit benchmark commands.
 
+The opt-in native backend `rust-i16-matrix-fma128-v1` keeps canonical genomes and
+checkpoint weights in Float32. Its derived inference cache uses symmetric signed
+i16 weights and one Float32 scale per major matrix. Dense/MLP interleaved biases
+share the matrix scale; separate recurrent biases remain Float32. It requires
+runtime SSE4.1 and FMA support (including OS AVX state support). SSE2 remains the
+default. Native callers select `InferenceMathBackend::I16MatrixFma128` explicitly
+through `prepare_configured_fresh_run_with_math`; reset and restore preserve the
+recorded backend. Teacher/reference paths retain their existing backend choices.
+
+For inference-only qualification on Oxygen, run from `native/`:
+
+```sh
+RUSTFLAGS='-C target-cpu=native' cargo run --release --features engine-test-hooks \
+  --bin matrix-i16-benchmark -- --brains 85 --workers 7 --warmup 20 --passes 100
+```
+
+The JSON report includes source/build identity, conversion time, cache bytes,
+population passes per second, speedup against SSE2, and controller/recurrent error
+against the scalar reference over 64 deliveries. Direct errors use identical
+input/state pairs; separate sequence errors include recurrent feedback. Inputs are synthetic bounded
+observations and genomes use production seeded initialization. F32 128-bit FMA
+is a benchmark-only comparator. Use `--workers` to compare supported worker counts,
+including 7; no worker count is hard-coded in the engine. Long simulation and
+evolved-cohort qualification on the production machine remain required before
+any separate decision to promote this backend to the default. Generated reports
+belong in ignored local directories or CI artifacts.
+
+The native sensor qualifier also accepts `--graph-json graph.json --population 85`
+in place of `--scenario`. Select `--clock real` to drive the ordinary scheduler
+from monotonic elapsed time and report real-time factor, retained debt and discarded
+wall time. The default `--clock controlled` retains deterministic step scheduling.
+Custom graphs cannot be combined with canned, trained-cohort or shadow graph
+sources. Backend selection remains explicit through `--math-backend sse2` or
+`--math-backend i16-matrix-fma128`; neither option changes production defaults.
+
 ## Controls
 
 - Mouse wheel: Zoom in or out around the pointer. Manual zoom and panning stay in place across frames.

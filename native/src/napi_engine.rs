@@ -1242,9 +1242,10 @@ impl ExperimentalStage6aFreshRunSession {
                 ))
             }
         };
-        let math = match bounded_object_string(&admission, "mathBackend", 6)?.as_str() {
+        let math = match bounded_object_string(&admission, "mathBackend", 32)?.as_str() {
             "scalar" => crate::engine::inference::InferenceMathBackend::Scalar,
             "sse2" => crate::engine::inference::InferenceMathBackend::Sse2,
+            "i16-matrix-fma128" => crate::engine::inference::InferenceMathBackend::I16MatrixFma128,
             _ => {
                 return Err(Error::new(
                     Status::InvalidArg,
@@ -1978,6 +1979,8 @@ impl Task for InitializeExperimentalFreshRunTask {
                     if let Some(population) = workload_population {
                         let options =
                             crate::engine::sensor_qualification::SensorQualificationOptions {
+                                source_graph: None,
+                                real_clock: false,
                                 query_limits: *query_limits,
                                 population: *population,
                                 profile: *profile,

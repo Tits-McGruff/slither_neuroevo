@@ -97,3 +97,8 @@ required-features = ["engine-test-hooks"]
 name = "crowded-sensor-qualification"
 path = "src/bin/crowded_sensor_qualification.rs"
 required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "matrix-i16-benchmark"
+path = "src/bin/matrix_i16_benchmark.rs"
+required-features = ["engine-test-hooks"]

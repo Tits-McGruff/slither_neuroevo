@@ -1,0 +1,355 @@
+//! Derived inference storage. Canonical parameters and persistence remain Float32.
+use super::*;
+use std::ops::Range;
+
+/// Compact graph-bound inference cache; never serialized or used by evolution.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuantizedInferenceWeights {
+    pub(super) layout: [u8; 32],
+    values: Box<[i16]>,
+    scales: Box<[f32]>,
+}
+impl QuantizedInferenceWeights {
+    #[cfg(test)]
+    pub(super) fn storage_address(&self) -> *const i16 {
+        self.values.as_ptr()
+    }
+    /// Numeric allocation bytes, including zero placeholders for separate recurrent biases.
+    pub fn allocated_bytes(&self) -> usize {
+        self.values.len() * 2 + self.scales.len() * 4
+    }
+    /// Number of major matrices, independent of row count.
+    pub fn matrix_count(&self) -> usize {
+        self.scales.len()
+    }
+}
+
+/// Identity of immutable weights at a complete population/brain ownership boundary.
+/// Physical life replacement does not invalidate population weights.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct BoundCache {
+    epoch: u64,
+    pub(super) handle: super::super::state::BrainHandle,
+    pub(super) genome_id: Option<u64>,
+    pub(super) weights: Option<QuantizedInferenceWeights>,
+}
+
+/// Compile matrix domains from the validated existing execution ranges.
+/// Dense/MLP biases are interleaved and share that affine matrix's scale.
+/// Recurrent biases are separate and read directly from canonical Float32 storage.
+pub(super) fn matrix_layout(nodes: &mut [ExecutionNode]) -> Vec<TensorRange> {
+    let mut matrices = Vec::new();
+    for node in nodes {
+        node.matrix_start = matrices.len();
+        let mut offset = node.parameter.offset;
+        let mut add = |len| {
+            matrices.push(TensorRange { offset, len });
+            offset += len;
+        };
+        match node.node_type {
+            CompiledNodeType::Dense | CompiledNodeType::Mlp => {
+                let mut input = node.inputs[0].len;
+                for output in node.hidden.iter().chain(std::iter::once(&node.output)) {
+                    add((input + 1) * output.len);
+                    input = output.len;
+                }
+            }
+            CompiledNodeType::Gru | CompiledNodeType::Lstm | CompiledNodeType::Rru => {
+                let gates = match node.node_type {
+                    CompiledNodeType::Gru => 3,
+                    CompiledNodeType::Lstm => 4,
+                    _ => 2,
+                };
+                for _ in 0..gates {
+                    add(node.inputs[0].len * node.output.len);
+                }
+                for _ in 0..gates {
+                    add(node.output.len * node.output.len);
+                }
+            }
+            _ => {}
+        }
+    }
+    matrices
+}
+
+impl GraphExecutionPlan {
+    /// Quantize once at parameter publication, using deterministic nearest rounding
+    /// (halfway values away from zero). Reject nonfinite canonical parameters.
+    pub fn quantize(&self, weights: &[f32]) -> Result<QuantizedInferenceWeights, InferenceError> {
+        require_length("quantization weights", weights.len(), self.total_parameters)?;
+        require_finite("quantization weights", weights)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(weights.len())
+            .map_err(|_| InferenceError::AllocationFailed {
+                buffer: "i16 inference weights",
+                elements: weights.len(),
+            })?;
+        values.resize(weights.len(), 0);
+        let mut scales = Vec::new();
+        scales.try_reserve_exact(self.matrices.len()).map_err(|_| {
+            InferenceError::AllocationFailed {
+                buffer: "i16 matrix scales",
+                elements: self.matrices.len(),
+            }
+        })?;
+        for matrix in &self.matrices {
+            let range = matrix.offset..matrix.offset + matrix.len;
+            let source = &weights[range.clone()];
+            scales.push(quantize_matrix(source, &mut values[range]));
+        }
+        Ok(QuantizedInferenceWeights {
+            layout: self.layout_digest_sha256,
+            values: values.into_boxed_slice(),
+            scales: scales.into_boxed_slice(),
+        })
+    }
+
+    /// Bind immutable authority weights before dispatching calculation workers.
+    /// A new population epoch rebuilds caches; added/replaced entity brain handles
+    /// rebuild only their entries. Ordinary repeated evaluations never convert.
+    /// Callers must advance the epoch when mutating canonical population weights.
+    /// Ordinary brain-buffer swaps retain immutable weights by handle/owner, so
+    /// allocation addresses deliberately do not participate in invalidation.
+    pub fn prepare_weight_caches(
+        &mut self,
+        epoch: u64,
+        population: &[PopulationGenome],
+        brains: &[BrainRuntimeState],
+    ) -> Result<(), InferenceError> {
+        if self.math_backend != InferenceMathBackend::I16MatrixFma128 {
+            return Ok(());
+        }
+        self.caches.truncate(brains.len());
+        self.caches
+            .try_reserve_exact(brains.len().saturating_sub(self.caches.len()))
+            .map_err(|_| InferenceError::AllocationFailed {
+                buffer: "i16 cache bindings",
+                elements: brains.len(),
+            })?;
+        for (index, brain) in brains.iter().enumerate() {
+            let (weights, genome_id) = match brain.owner {
+                BrainOwner::PopulationSlot(slot) => {
+                    let genome = population.get(slot as usize).ok_or(
+                        InferenceError::PopulationSlotOutOfBounds {
+                            slot,
+                            population_count: population.len(),
+                        },
+                    )?;
+                    (
+                        Some(genome.weights.as_ref()),
+                        Some(genome.lineage.genome_id),
+                    )
+                }
+                BrainOwner::Entity(_) => (brain.non_population_weights.as_deref(), None),
+            };
+            if self.caches.get(index).is_some_and(|c| {
+                c.epoch == epoch && c.handle == brain.handle && c.genome_id == genome_id
+            }) {
+                continue;
+            }
+            // Drop retired storage before allocating its replacement.
+            if let Some(c) = self.caches.get_mut(index) {
+                c.weights = None;
+            }
+            let entry = BoundCache {
+                epoch,
+                handle: brain.handle,
+                genome_id,
+                weights: weights.map(|w| self.quantize(w)).transpose()?,
+            };
+            if index < self.caches.len() {
+                self.caches[index] = entry;
+            } else {
+                self.caches.push(entry);
+            }
+        }
+        Ok(())
+    }
+
+    /// Derived numeric cache bytes retained by this plan, for existing diagnostics.
+    pub fn inference_cache_bytes(&self) -> usize {
+        self.caches
+            .iter()
+            .filter_map(|c| c.weights.as_ref())
+            .map(QuantizedInferenceWeights::allocated_bytes)
+            .sum()
+    }
+}
+
+/// Copyable view of one node/layer's existing parameter region. Scale indexes
+/// are fixed matrix ordinals compiled once, never searched in the row loop.
+#[derive(Clone, Copy)]
+pub(super) struct NodeWeights<'a> {
+    canonical: &'a [f32],
+    quantized: Option<&'a [i16]>,
+    scales: &'a [f32],
+}
+impl<'a> NodeWeights<'a> {
+    pub(super) fn new(
+        canonical: &'a [f32],
+        cache: Option<&'a QuantizedInferenceWeights>,
+        range: TensorRange,
+        matrix: usize,
+    ) -> Self {
+        let end = range.offset + range.len;
+        Self {
+            canonical: &canonical[range.offset..end],
+            quantized: cache.map(|c| &c.values[range.offset..end]),
+            scales: cache.map_or(&[], |c| &c.scales[matrix..]),
+        }
+    }
+    pub(super) fn len(self) -> usize {
+        self.canonical.len()
+    }
+    #[inline]
+    pub(super) fn dot(
+        self,
+        backend: InferenceMathBackend,
+        range: Range<usize>,
+        input: &[f32],
+        matrix: usize,
+    ) -> f32 {
+        match self.quantized {
+            Some(q) => {
+                simd_kernels::dot_product_i16_fma128(&q[range], input, None, self.scales[matrix])
+            }
+            None => dot_product(backend, &self.canonical[range], input),
+        }
+    }
+    #[inline]
+    pub(super) fn dot_mul(
+        self,
+        backend: InferenceMathBackend,
+        range: Range<usize>,
+        left: &[f32],
+        right: &[f32],
+        matrix: usize,
+    ) -> f32 {
+        match self.quantized {
+            Some(q) => simd_kernels::dot_product_i16_fma128(
+                &q[range],
+                left,
+                Some(right),
+                self.scales[matrix],
+            ),
+            None => dot_product_mul(backend, &self.canonical[range], left, right),
+        }
+    }
+    #[inline]
+    pub(super) fn bias(self, index: usize, matrix: Option<usize>) -> f32 {
+        match (self.quantized, matrix) {
+            (Some(q), Some(m)) => q[index] as f32 * self.scales[m],
+            _ => self.canonical[index],
+        }
+    }
+}
+
+/// Conservative peak cache admission, including binding capacity and matrix metadata.
+/// This runs before background population allocation, including metadata-only restore.
+pub(crate) fn matrix_i16_cache_admission_bytes(
+    graph: &CompiledGraph,
+    owners: usize,
+) -> Option<usize> {
+    let matrices = graph.nodes.iter().try_fold(0usize, |count, node| {
+        count.checked_add(match node.node_type {
+            CompiledNodeType::Dense => 1,
+            CompiledNodeType::Mlp => node.hidden_sizes.len().checked_add(1)?,
+            CompiledNodeType::Gru => 6,
+            CompiledNodeType::Lstm => 8,
+            CompiledNodeType::Rru => 4,
+            _ => 0,
+        })
+    })?;
+    graph
+        .total_parameters
+        .checked_mul(2)?
+        .checked_add(matrices.checked_mul(4)?)?
+        .checked_add(std::mem::size_of::<BoundCache>())?
+        .checked_mul(owners)?
+        .checked_add(matrices.checked_mul(std::mem::size_of::<TensorRange>())?)
+}
+
+/// Symmetric nearest quantization of one complete matrix, including interleaved
+/// affine biases. The quantization rule and tie policy belong to backend v1.
+fn quantize_matrix(source: &[f32], destination: &mut [i16]) -> f32 {
+    let maximum = source.iter().fold(0.0_f32, |a, b| a.max(b.abs()));
+    // Preserve finite subnormals without division by a scale rounded to zero.
+    let scale = if maximum == 0.0 {
+        1.0
+    } else {
+        (maximum / 32767.0).max(f32::from_bits(1))
+    };
+    for (q, &value) in destination.iter_mut().zip(source) {
+        *q = (value / scale).round().clamp(-32767.0, 32767.0) as i16;
+    }
+    scale
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn symmetric_quantization_zero_sign_extrema_ties_and_subnormals() {
+        let mut q = [99; 11];
+        assert_eq!(quantize_matrix(&[0.0; 11], &mut q), 1.0);
+        assert_eq!(q, [0; 11]);
+        let source = [
+            -5.0, 5.0, -4.99999, 4.99999, -0.000001, 0.000001, 0.0, -0.3, 0.3, -2.5, 2.5,
+        ];
+        let scale = quantize_matrix(&source, &mut q);
+        assert_eq!(scale, 5.0 / 32767.0);
+        assert_eq!(&q[..6], &[-32767, 32767, -32767, 32767, 0, 0]);
+        for (&value, &integer) in source.iter().zip(&q) {
+            assert_ne!(integer, i16::MIN);
+            assert!((value - integer as f32 * scale).abs() <= scale * 0.501);
+        }
+        let mut again = [0; 11];
+        assert_eq!(quantize_matrix(&source, &mut again), scale);
+        assert_eq!(q, again);
+        let mut ties = [0; 3];
+        assert_eq!(quantize_matrix(&[32767.0, 0.5, -0.5], &mut ties), 1.0);
+        assert_eq!(ties, [32767, 1, -1]);
+        let mut tiny = [0; 2];
+        assert_eq!(
+            quantize_matrix(&[f32::from_bits(1), -f32::from_bits(1)], &mut tiny),
+            f32::from_bits(1)
+        );
+        assert_eq!(tiny, [1, -1]);
+    }
+
+    #[test]
+    fn fma128_sign_extension_unaligned_vectors_short_rows_and_tails() {
+        if !simd_kernels::runtime_i16_fma128_available() {
+            return;
+        }
+        for length in 0..66 {
+            let weights: Vec<i16> = (0..length + 1)
+                .map(|i| [-32767, -123, 0, 1, 32767][i % 5])
+                .collect();
+            let inputs: Vec<f32> = (0..length + 1).map(|i| (i as f32 - 17.0) / 31.0).collect();
+            let right: Vec<f32> = inputs.iter().map(|x| x * 0.2).collect();
+            // Deliberately start at an unaligned i16 and Float32 address.
+            for multiplier in [None, Some(&right[1..])] {
+                let actual = simd_kernels::dot_product_i16_fma128(
+                    &weights[1..],
+                    &inputs[1..],
+                    multiplier,
+                    0.0001,
+                );
+                let expected: f64 = (0..length)
+                    .map(|i| {
+                        f64::from(weights[i + 1])
+                            * f64::from(inputs[i + 1] * multiplier.map_or(1.0, |r| r[i]))
+                    })
+                    .sum::<f64>()
+                    * 0.0001;
+                assert!(
+                    (f64::from(actual) - expected).abs() < 0.00002,
+                    "length={length} actual={actual} expected={expected}"
+                );
+            }
+        }
+    }
+}
