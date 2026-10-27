@@ -386,6 +386,30 @@ fn quantize_matrix(source: &[f32], destination: &mut [i16]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "engine-test-hooks")]
+    #[test]
+    fn matrix_diagnostics_measure_interleaved_bias_outlier_without_changing_cache() {
+        let graph = crate::engine::graph_json::compile_training_graph_json(
+            br#"{
+            "type":"graph","outputSize":2,"nodes":[{"id":"input","type":"Input","outputSize":2},
+            {"id":"head","type":"Dense","inputSize":2,"outputSize":2}],
+            "edges":[{"from":"input","to":"head"}],"outputs":[{"nodeId":"head"}]}"#,
+        )
+        .unwrap();
+        let plan =
+            GraphExecutionPlan::build_with_math_backend(&graph, InferenceMathBackend::Scalar)
+                .unwrap();
+        let weights = [0.5, -1.0, 5.0, -0.25, 0.75, -2.0];
+        let cache = plan.quantize(&weights).unwrap();
+        let before = cache.clone();
+        let report = plan.quantization_diagnostics(&weights, &cache).unwrap();
+        assert_eq!(report.as_array().unwrap().len(), 1);
+        assert_eq!(report[0]["length"], 6);
+        assert_eq!(report[0]["biasStrictlyDominates"], true);
+        assert_eq!(report[0]["biasScaleInflation"], 5.0);
+        assert_eq!(report[0]["maxAbsNonBias"], 1.0);
+        assert_eq!(cache, before);
+    }
     #[test]
     fn symmetric_quantization_zero_sign_extrema_ties_and_subnormals() {
         let mut q = [99; 11];

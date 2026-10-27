@@ -658,6 +658,40 @@ pub(crate) fn prepare_sensor_qualification_run(
     baseline: Option<super::baseline_v2::BaselineV2Settings>,
     trained: &[super::brain_artifact::ValidatedBrainArtifact],
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_sensor_qualification_population(
+        request, settings, graph, profile, bins, limits, math, baseline, trained, None,
+    )
+}
+
+/// Qualification-only transfer of distinct canonical population members.
+#[cfg(feature = "engine-test-hooks")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_sensor_qualification_population(
+    mut request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    limits: RunningStepWorkLimits,
+    math: InferenceMathBackend,
+    baseline: Option<super::baseline_v2::BaselineV2Settings>,
+    trained: &[super::brain_artifact::ValidatedBrainArtifact],
+    evolved: Option<&super::evolved_cohort::EvolvedCohort>,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if let Some(cohort) = evolved {
+        let source_bytes = cohort
+            .weights
+            .iter()
+            .chain(&cohort.recurrent)
+            .try_fold(1024 * 1024usize, |sum, w| sum.checked_add(w.len() * 4))
+            .ok_or_else(|| FreshRunError::Settings("cohort reservation overflow".into()))?;
+        request.memory_ceiling_bytes = request
+            .memory_ceiling_bytes
+            .checked_sub(source_bytes)
+            .ok_or_else(|| {
+                FreshRunError::Settings("cohort exhausted construction admission".into())
+            })?;
+    }
     let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
     if (profile != super::sensor_contract::SensorProfile::V3) != limits.ray_work.is_some() {
@@ -678,12 +712,42 @@ pub(crate) fn prepare_sensor_qualification_run(
         settings,
         graph,
         true,
-        (profile != super::sensor_contract::SensorProfile::V3).then_some(identity),
+        (profile != super::sensor_contract::SensorProfile::V3).then_some(identity.clone()),
         limits,
         baseline,
     )?;
     if !trained.is_empty() {
         install_qualified_population_artifacts(&mut prepared, trained)?;
+    }
+    if let Some(cohort) = evolved {
+        let source_contract =
+            super::sensor_contract::SensorContractIdentity::from_settings(&cohort.settings)
+                .map_err(|e| FreshRunError::Settings(e.to_string()))?;
+        if !trained.is_empty()
+            || source_contract != identity
+            || prepared.graph.layout_digest_sha256 != cohort.graph.layout_digest_sha256
+            || prepared.candidate.population.len() != cohort.weights.len()
+            || prepared
+                .candidate
+                .population
+                .iter()
+                .zip(&cohort.weights)
+                .any(|(g, w)| g.weights.len() != w.len())
+        {
+            return Err(FreshRunError::Settings(
+                "evolved population graph/sensors/count mismatch".into(),
+            ));
+        }
+        for (genome, weights) in prepared
+            .candidate
+            .population
+            .iter_mut()
+            .zip(&cohort.weights)
+        {
+            genome.weights.copy_from_slice(weights);
+        }
+        // Fresh physical lives use the ordinary reset state rule. Controlled numerical
+        // comparisons separately start from the source checkpoint recurrent states.
     }
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();

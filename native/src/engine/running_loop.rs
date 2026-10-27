@@ -1388,7 +1388,13 @@ impl RunningAuthorityLoop {
         {
             return Err("soak authoritative storage exceeded admitted record bounds".into());
         }
-        Ok(serde_json::json!({"completedStep":self.completed_step(),
+        Ok(
+            serde_json::json!({"completedStep":self.completed_step(),"generation":state.generation.generation,
+            "generationElapsedSeconds":state.generation.elapsed_seconds,
+            "populationOutcomes":world.snakes.iter().filter(|s|s.population_slot.is_some()).map(|s|serde_json::json!({
+                "slot":s.population_slot,"alive":s.alive,"ageSeconds":s.age_seconds,"food":s.food,"points":s.points,
+                "fitness":s.fitness,"kills":s.kills,"length":s.body.len,"speed":s.speed,"turn":s.turn,"boost":s.input_boost})).collect::<Vec<_>>(),
+            "lifeEnds":format!("{:?}",lives.recent_life_ends),
             "snakes":world.snakes.len(),"snakeCapacity":world.snakes.capacity(),"snakeLimit":config.max_world_snakes,
             "bodyPoints":world.body_points.len(),"bodyCapacity":world.body_points.capacity(),"bodyLimit":config.max_body_points,
             "pellets":world.pellets.len(),"pelletCapacity":world.pellets.capacity(),"pelletLimit":config.max_pellets,
@@ -1403,7 +1409,8 @@ impl RunningAuthorityLoop {
             "admittedStateBytes":self.authoritative_memory_bytes(),
             "currentRssBytes":super::soak_qualification::current_rss_bytes(),
             "placementCandidates":telemetry.placement.candidates,
-            "placementGeometryChecks":telemetry.placement.geometry_checks}))
+            "placementGeometryChecks":telemetry.placement.geometry_checks}),
+        )
     }
 
     /// Same-build/environment continuation witness for observer noninterference.

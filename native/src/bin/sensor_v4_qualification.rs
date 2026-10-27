@@ -73,6 +73,8 @@ struct Arguments {
     output: PathBuf,
     soak_shadow: Option<PathBuf>,
     cohort: Option<PathBuf>,
+    evolved_checkpoint: Option<PathBuf>,
+    evolve_generations: Option<u64>,
 }
 
 fn parse() -> Result<Arguments, Box<dyn Error>> {
@@ -81,6 +83,8 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     while let Some(flag) = arguments.next() {
         if ![
             "--graph-json",
+            "--evolved-checkpoint",
+            "--evolve-generations",
             "--population",
             "--clock",
             "--soak-shadow-artifact",
@@ -265,8 +269,27 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     if real_clock && values.contains_key("--soak-shadow-artifact") {
         return Err("continuous capture soak uses its existing controlled-clock mode".into());
     }
+    if values.contains_key("--evolve-generations") && !values.contains_key("--evolved-checkpoint") {
+        return Err("--evolve-generations requires --evolved-checkpoint".into());
+    }
+    if values.contains_key("--evolved-checkpoint")
+        && [
+            "--graph-json",
+            "--graph",
+            "--trained-artifact",
+            "--trained-cohort",
+            "--soak-shadow-artifact",
+            "--capture",
+        ]
+        .iter()
+        .any(|key| values.contains_key(*key))
+    {
+        return Err("evolved checkpoint cannot be combined with other source/capture modes".into());
+    }
     let population = match (values.get("--population"), values.get("--scenario")) {
-        (Some(value), None) if source_graph.is_some() => {
+        (Some(value), None)
+            if source_graph.is_some() || values.contains_key("--evolved-checkpoint") =>
+        {
             let count: usize = value.parse()?;
             if !(1..=300).contains(&count) {
                 return Err("custom population must be 1..300".into());
@@ -344,6 +367,11 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         output: PathBuf::from(required("--output")?),
         soak_shadow: values.get("--soak-shadow-artifact").map(PathBuf::from),
         cohort: values.get("--trained-cohort").map(PathBuf::from),
+        evolved_checkpoint: values.get("--evolved-checkpoint").map(PathBuf::from),
+        evolve_generations: values
+            .get("--evolve-generations")
+            .map(|v| v.parse())
+            .transpose()?,
     })
 }
 
@@ -354,6 +382,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         output,
         soak_shadow,
         cohort,
+        evolved_checkpoint,
+        evolve_generations,
     } = parse()?;
     let workspace = Workspace::create(&path)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
@@ -397,6 +427,28 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
             )
             .map_err(std::io::Error::other)?
+        } else if let Some(checkpoint) = &evolved_checkpoint {
+            if let Some(generations) = evolve_generations {
+                serde_json::to_value(
+                    slither_native::engine::sensor_qualification::mature_evolved_population(
+                        &options,
+                        &workspace.path,
+                        checkpoint,
+                        generations,
+                        output_parent,
+                    )
+                    .map_err(std::io::Error::other)?,
+                )?
+            } else {
+                serde_json::to_value(
+                slither_native::engine::sensor_qualification::run_evolved_population_qualification(
+                    &options,
+                    &workspace.path,
+                    checkpoint,
+                )
+                .map_err(std::io::Error::other)?,
+            )?
+            }
         } else if let Some(index) = &cohort {
             serde_json::to_value(
                 slither_native::engine::sensor_qualification::run_sensor_cohort_qualification(
