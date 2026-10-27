@@ -32,8 +32,6 @@ use std::time::Instant;
 
 /// Authoritative controller output width: turn and boost.
 const CONTROLLER_OUTPUT_SIZE: usize = 2;
-/// Conservative admission allowance for each additional reusable sensor query scratch.
-const PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Wall time around the two worker-pool phases in one neural batch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -206,6 +204,20 @@ impl NeuralControlPipeline {
     ) -> Result<usize, NeuralControlError> {
         validate_calculation_workers(calculation_workers)
             .map_err(NeuralControlError::InvalidCalculationWorkers)?;
+        Self::required_staging_bytes_for_validated_workers(max_work, inference, calculation_workers)
+    }
+
+    /// Calculate fixed staging after the caller has admitted the worker count.
+    ///
+    /// Nested sensor-query buffers grow inside the separately declared worker-scratch
+    /// reservation. Charging an additional fixed allowance here double-counts that
+    /// reservation and can make an otherwise admitted CPU count impossible to start.
+    fn required_staging_bytes_for_validated_workers(
+        max_work: usize,
+        inference: &GraphExecutionPlan,
+        calculation_workers: usize,
+    ) -> Result<usize, NeuralControlError> {
+        debug_assert!(calculation_workers > 0);
         let workspace = CalculationWorkspace::<()>::required_bytes(
             max_work,
             calculation_workers,
@@ -239,11 +251,6 @@ impl NeuralControlPipeline {
             checked_element_bytes::<Option<InferenceError>>(
                 calculation_workers,
                 "parallel inference errors",
-            )?,
-            checked_product(
-                additional_workers,
-                PARALLEL_SENSOR_SCRATCH_ALLOWANCE_BYTES,
-                "parallel sensor scratch allowance",
             )?,
             observations,
             outputs,
@@ -1432,6 +1439,86 @@ mod tests {
         GraphExecutionPlan::build(&graph).unwrap()
     }
 
+    fn production_scale_graph_plan() -> GraphExecutionPlan {
+        let graph = compile_graph(
+            &GraphSpec {
+                nodes: vec![
+                    GraphNodeSpec {
+                        id: "input".to_owned(),
+                        kind: GraphNodeKind::Input { output_size: 264 },
+                    },
+                    GraphNodeSpec {
+                        id: "mlp-a".to_owned(),
+                        kind: GraphNodeKind::Dense {
+                            input_size: 264,
+                            output_size: 396,
+                        },
+                    },
+                    GraphNodeSpec {
+                        id: "LSTM".to_owned(),
+                        kind: GraphNodeKind::Lstm {
+                            input_size: 264,
+                            hidden_size: 396,
+                        },
+                    },
+                    GraphNodeSpec {
+                        id: "concat".to_owned(),
+                        kind: GraphNodeKind::Concat,
+                    },
+                    GraphNodeSpec {
+                        id: "mlp-b".to_owned(),
+                        kind: GraphNodeKind::Mlp {
+                            input_size: 792,
+                            hidden_sizes: vec![264, 134],
+                            output_size: 2,
+                        },
+                    },
+                ],
+                edges: vec![
+                    GraphEdge {
+                        from: "input".to_owned(),
+                        to: "mlp-a".to_owned(),
+                        from_port: None,
+                        to_port: None,
+                    },
+                    GraphEdge {
+                        from: "input".to_owned(),
+                        to: "LSTM".to_owned(),
+                        from_port: None,
+                        to_port: None,
+                    },
+                    GraphEdge {
+                        from: "mlp-a".to_owned(),
+                        to: "concat".to_owned(),
+                        from_port: None,
+                        to_port: Some(0),
+                    },
+                    GraphEdge {
+                        from: "LSTM".to_owned(),
+                        to: "concat".to_owned(),
+                        from_port: None,
+                        to_port: Some(1),
+                    },
+                    GraphEdge {
+                        from: "concat".to_owned(),
+                        to: "mlp-b".to_owned(),
+                        from_port: None,
+                        to_port: None,
+                    },
+                ],
+                outputs: vec![GraphOutputRef {
+                    node_id: "mlp-b".to_owned(),
+                    port: None,
+                }],
+                output_size: 2,
+            },
+            &crate::engine::fresh_run::stage6a_p0_graph_limits(),
+        )
+        .unwrap();
+        assert_eq!(graph.total_parameters, 1_397_096);
+        GraphExecutionPlan::build(&graph).unwrap()
+    }
+
     fn snake(index: usize, handle: BrainHandle, body_start: usize) -> SnakeState {
         SnakeState {
             id: 1_000 + index as u64,
@@ -1998,6 +2085,42 @@ mod tests {
             .iter()
             .zip(recurrent_before)
             .all(|(brain, before)| brain.recurrent == before));
+    }
+
+    #[test]
+    fn sixteen_worker_fixed_staging_fits_the_declared_worker_scratch_budget() {
+        let plan = production_scale_graph_plan();
+        let required =
+            NeuralControlPipeline::required_staging_bytes_for_validated_workers(85, &plan, 16)
+                .unwrap();
+        assert!(required < 512 * 1024 * 1024);
+    }
+
+    #[test]
+    fn sixteen_worker_pipeline_constructs_when_the_host_admits_sixteen_workers() {
+        if super::super::calculation_workers::available_calculation_workers() < 16 {
+            return;
+        }
+        let sensor = SensorEvaluator::new_v4(
+            SensorConfig {
+                bins: 16,
+                ..SensorConfig::default()
+            },
+            crate::engine::movement::MovementConfig::typescript_defaults(),
+            1.0 / 60.0,
+            crate::engine::sensor_contract::SensorProfile::Motion,
+        )
+        .unwrap();
+        assert_eq!(sensor.layout().input_size, 264);
+        let plan = production_scale_graph_plan();
+        let budget = 512 * 1024 * 1024;
+        let required =
+            NeuralControlPipeline::required_staging_bytes_for_sensor(85, &sensor, &plan, 16)
+                .unwrap();
+        assert!(required < budget);
+        let pipeline = NeuralControlPipeline::try_new(85, sensor, plan, 16, budget).unwrap();
+        assert_eq!(pipeline.capacity_diagnostics().calculation_workers, 16);
+        assert!(pipeline.allocated_staging_bytes() <= required);
     }
 
     #[test]
