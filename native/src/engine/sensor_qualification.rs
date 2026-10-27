@@ -24,7 +24,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// Maximum retained timings; simulation state and histogram storage stay fixed.
-pub const MAX_QUALIFICATION_STEPS: usize = 1_200_000;
+pub const MAX_QUALIFICATION_STEPS: usize = 60_000;
+/// Separate cold evolved-run ceiling; capture/soak admission retains its existing bound.
+const MAX_EVOLVED_QUALIFICATION_STEPS: usize = 1_200_000;
 /// Fixed histogram resolution, with explicit under/overflow counters.
 const HISTOGRAM_BUCKETS: usize = 32;
 
@@ -303,6 +305,9 @@ pub struct SensorQualificationReport {
     pub evolved_population: Option<serde_json::Value>,
     pub incomplete_events: Vec<serde_json::Value>,
     pub gameplay_boundaries: Vec<serde_json::Value>,
+    /// At most 32 actual first-generation delivered rows per population slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_bank: Option<Vec<Vec<f32>>>,
     /// Present only when the caller explicitly selects a bounded query-detail pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_detail_limits: Option<QueryDetailLimits>,
@@ -913,6 +918,11 @@ fn run_with_sources(
     evolved: Option<super::evolved_cohort::EvolvedCohort>,
     maturation: Option<Maturation<'_>>,
 ) -> Result<SensorQualificationReport, String> {
+    let step_limit = if evolved.is_some() {
+        MAX_EVOLVED_QUALIFICATION_STEPS
+    } else {
+        MAX_QUALIFICATION_STEPS
+    };
     if let Some(limits) = options.query_limits {
         limits.validate()?;
     }
@@ -929,13 +939,13 @@ fn run_with_sources(
     }
     if !(1..=300).contains(&options.population)
         || (!matches!(options.population, 55 | 300) && options.source_graph.is_none())
-        || options.warmup_steps > MAX_QUALIFICATION_STEPS
+        || options.warmup_steps > step_limit
         || options.measured_steps == 0
-        || options.measured_steps > MAX_QUALIFICATION_STEPS
+        || options.measured_steps > step_limit
         || options
             .warmup_steps
             .checked_add(options.measured_steps)
-            .is_none_or(|sum| sum > MAX_QUALIFICATION_STEPS)
+            .is_none_or(|sum| sum > step_limit)
     {
         return Err(
             "qualification requires P0/P1 or a custom 1..300 population and 1..1200000 total steps"
@@ -965,7 +975,7 @@ fn run_with_sources(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        evolved_population:evolved.as_ref().map(|c|c.provenance.clone()),incomplete_events:Vec::new(),gameplay_boundaries:Vec::new(),query_detail_limits: options.query_limits,
+        observation_bank:evolved.as_ref().filter(|_|observer_enabled).map(|_|vec![Vec::new();options.population]),evolved_population:evolved.as_ref().map(|c|c.provenance.clone()),incomplete_events:Vec::new(),gameplay_boundaries:Vec::new(),query_detail_limits: options.query_limits,
         version:if cohort.is_some() {7}else if trained.is_some() {6}else{5},trained_cohort:cohort.as_ref().map(|value|value.descriptor(options.population)),trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
         source_sha256:crate::native_addon_source_sha256(),build_contract_sha256:crate::native_addon_build_contract_sha256(),graph_layout_sha256:None,source_graph:None,real_clock:None,target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
@@ -1218,7 +1228,7 @@ fn run_with_sources(
             let publication = running
                 .publish_pending_generation_checkpoint(
                     workspace,
-                    CheckpointOperationId::parse(&format!("{:032x}", ordinal + 1))
+                    CheckpointOperationId::parse(format!("{:032x}", ordinal + 1))
                         .map_err(|e| e.to_string())?,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1270,6 +1280,27 @@ fn run_with_sources(
             return Err(format!(
                 "qualification did not publish exactly one step: {progress:?}"
             ));
+        }
+        if !transition && running.generation() == 1 {
+            if let Some(bank) = &mut report.observation_bank {
+                let (batch, world) = running
+                    .qualification_batch()
+                    .ok_or("missing observation-bank batch")?;
+                let width = report.sensor_contract.input_size();
+                for (ordinal, unit) in batch.work().iter().enumerate() {
+                    let snake = &world.snakes[unit.snake_index()];
+                    if let Some(slot) = snake.population_slot {
+                        let target = bank
+                            .get_mut(slot as usize)
+                            .ok_or("observation bank slot mismatch")?;
+                        if target.len() < 32 * width {
+                            target.extend_from_slice(
+                                &batch.observations()[ordinal * width..(ordinal + 1) * width],
+                            );
+                        }
+                    }
+                }
+            }
         }
         if ordinal >= options.warmup_steps {
             steps.push(elapsed);

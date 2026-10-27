@@ -64,8 +64,10 @@ impl Errors {
             for (i, n) in self.bins.iter().enumerate() {
                 cumulative += n;
                 if cumulative >= target {
-                    return json!({"lower":f32::from_bits((i as u32)<<15),
-                    "upperExclusive":f32::from_bits(((i as u32)+1)<<15)});
+                    // Expand one Float32 ULP to include rounding of the exact
+                    // Float64 difference into its histogram key.
+                    return json!({"lower":f32::from_bits(((i as u32)<<15).saturating_sub(1)),
+                    "upperExclusive":f32::from_bits((((i as u32)+1)<<15)+1)});
                 }
             }
             Value::Null
@@ -92,7 +94,8 @@ impl Brain {
         self.after.fill(0.0);
     }
     fn evaluate(&mut self, plan: &GraphExecutionPlan, step: usize) {
-        let input = &self.rows[(step % 32) * self.width..(step % 32 + 1) * self.width];
+        let row = step % (self.rows.len() / self.width);
+        let input = &self.rows[row * self.width..(row + 1) * self.width];
         if plan.math_backend() == InferenceMathBackend::I16MatrixFma128 {
             plan.evaluate_quantized(
                 &self.weights,
@@ -121,6 +124,7 @@ impl Brain {
 }
 fn main() -> Result<(), Box<dyn Error>> {
     let mut source = None;
+    let mut observation_source = None;
     let mut output = None;
     let mut workers = 7;
     let mut count = 85;
@@ -133,6 +137,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let value = args.next().ok_or("missing argument")?;
         match flag.as_str() {
             "--checkpoint" => source = Some(PathBuf::from(value)),
+            "--observation-bank" => observation_source = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
             "--workers" => workers = value.parse()?,
             "--brains" => count = value.parse()?,
@@ -163,6 +168,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         InferenceMathBackend::BenchmarkF32Fma128,
     )?;
     let width = sse.input_size();
+    let observation_bank: Option<Vec<Vec<f32>>> = observation_source
+        .as_ref()
+        .map(|path| -> Result<_, Box<dyn Error>> {
+            let metadata = std::fs::metadata(path)?;
+            if !metadata.is_file() || metadata.len() > 64 * 1024 * 1024 {
+                return Err("observation source exceeds bounded report size".into());
+            }
+            let report: Value = serde_json::from_reader(File::open(path)?)?;
+            if report["graphLayoutSha256"] != graph.layout_digest_hex() {
+                return Err("observation graph mismatch".into());
+            }
+            let bank: Vec<Vec<f32>> = serde_json::from_value(report["observationBank"].clone())?;
+            if bank.len() != count
+                || bank.iter().any(|rows| {
+                    rows.is_empty()
+                        || rows.len() % width != 0
+                        || rows.len() > 32 * width
+                        || rows.iter().any(|v| !v.is_finite())
+                })
+            {
+                return Err("invalid bounded observation bank".into());
+            }
+            Ok(bank)
+        })
+        .transpose()?;
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(workers)
         .build()?;
@@ -182,9 +212,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             initial,
             output: vec![0.0; graph.output_size],
             scratch: CalculationScratch::try_new(sse.scratch_layout(), 64 * 1024 * 1024)?,
-            rows: (0..32 * width)
-                .map(|i| (((i * 17 + slot * 13) % 997) as f32 / 498.0 - 1.0) * 0.8)
-                .collect(),
+            rows: observation_bank
+                .as_ref()
+                .map(|bank| bank[slot].clone())
+                .unwrap_or_else(|| {
+                    (0..32 * width)
+                        .map(|i| (((i * 17 + slot * 13) % 997) as f32 / 498.0 - 1.0) * 0.8)
+                        .collect()
+                }),
             width,
         });
     }
@@ -228,7 +263,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let mut errors: [Errors; 4] = std::array::from_fn(|_| Errors::default());
                 let mut trace = Vec::with_capacity(deliveries);
                 for step in 0..deliveries {
-                    let input = &brain.rows[(step % 32) * width..(step % 32 + 1) * width];
+                    let row = step % (brain.rows.len() / width);
+                    let input = &brain.rows[row * width..(row + 1) * width];
                     sse.evaluate(
                         &brain.weights,
                         &before,
@@ -306,7 +342,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "deliveries":deliveries,"referenceBackend":sse.math_backend().label(),"candidateBackend":quantized.math_backend().label(),
         "errorOrder":["pairedController","pairedRecurrent","feedbackController","feedbackRecurrent"],
         "errors":aggregate.iter().map(Errors::report).collect::<Vec<_>>(),"perGenome":per_genome,
-        "observations":"32 deterministic bounded synthetic rows per genome, repeated; same external input for both backends",
+        "observations":if observation_bank.is_some() {"Actual delivered Motion/B16/ray rows from the same mature cohort, up to 32 per genome, repeated identically for both backends"} else {"32 deterministic bounded synthetic rows per genome, repeated; same external input for both backends"},
+        "observationRowsPerGenome":brains.iter().map(|b|b.rows.len()/width).collect::<Vec<_>>(),
         "initialState":"original checkpoint recurrent state keyed by brain handle",
         "percentiles":"bounded Float32-bit histogram intervals; MAE/RMSE/max accumulated in Float64"});
     std::fs::write(
