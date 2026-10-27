@@ -75,6 +75,7 @@ struct Arguments {
     cohort: Option<PathBuf>,
     evolved_checkpoint: Option<PathBuf>,
     evolve_generations: Option<u64>,
+    production_source: bool,
 }
 
 fn parse() -> Result<Arguments, Box<dyn Error>> {
@@ -85,6 +86,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             "--graph-json",
             "--evolved-checkpoint",
             "--evolve-generations",
+            "--source-build-class",
             "--population",
             "--clock",
             "--soak-shadow-artifact",
@@ -272,6 +274,18 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     if values.contains_key("--evolve-generations") && !values.contains_key("--evolved-checkpoint") {
         return Err("--evolve-generations requires --evolved-checkpoint".into());
     }
+    let production_source = match values
+        .get("--source-build-class")
+        .map(String::as_str)
+        .unwrap_or("test-hooks")
+    {
+        "production" => true,
+        "test-hooks" => false,
+        _ => return Err("--source-build-class requires production or test-hooks".into()),
+    };
+    if values.contains_key("--source-build-class") && !values.contains_key("--evolved-checkpoint") {
+        return Err("source class applies only to explicit population transfer".into());
+    }
     if values.contains_key("--evolved-checkpoint")
         && [
             "--graph-json",
@@ -372,6 +386,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             .get("--evolve-generations")
             .map(|v| v.parse())
             .transpose()?,
+        production_source,
     })
 }
 
@@ -384,6 +399,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         cohort,
         evolved_checkpoint,
         evolve_generations,
+        production_source,
     } = parse()?;
     let workspace = Workspace::create(&path)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
@@ -436,6 +452,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         checkpoint,
                         generations,
                         output_parent,
+                        production_source,
                     )
                     .map_err(std::io::Error::other)?,
                 )?
@@ -445,6 +462,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     &options,
                     &workspace.path,
                     checkpoint,
+                            production_source,
                 )
                 .map_err(std::io::Error::other)?,
             )?

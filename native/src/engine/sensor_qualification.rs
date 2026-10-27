@@ -863,12 +863,17 @@ pub fn run_evolved_population_qualification(
     options: &SensorQualificationOptions,
     workspace: &Path,
     checkpoint: &Path,
+    production_source: bool,
 ) -> Result<SensorQualificationReport, String> {
     if options.trained_artifact.is_some() || options.large_graph || options.source_graph.is_some() {
         return Err("evolved checkpoint supplies its graph; omit other sources".into());
     }
-    let evolved = super::evolved_cohort::EvolvedCohort::load(checkpoint, options.population)
-        .map_err(|e| e.to_string())?;
+    let evolved = if production_source {
+        super::evolved_cohort::EvolvedCohort::load_production(checkpoint, options.population)
+    } else {
+        super::evolved_cohort::EvolvedCohort::load(checkpoint, options.population)
+    }
+    .map_err(|e| e.to_string())?;
     let mut options = options.clone();
     options.source_graph = Some(evolved.graph.spec().clone());
     run_with_sources(&options, workspace, true, None, Some(evolved), None)
@@ -882,14 +887,19 @@ pub fn mature_evolved_population(
     checkpoint: &Path,
     generations: u64,
     retained: &Path,
+    production_source: bool,
 ) -> Result<SensorQualificationReport, String> {
     if !(1..=100).contains(&generations) || options.real_clock || options.warmup_steps != 0 {
         return Err(
             "maturation requires 1..100 generations, controlled clock and zero warmup".into(),
         );
     }
-    let evolved = super::evolved_cohort::EvolvedCohort::load(checkpoint, options.population)
-        .map_err(|e| e.to_string())?;
+    let evolved = if production_source {
+        super::evolved_cohort::EvolvedCohort::load_production(checkpoint, options.population)
+    } else {
+        super::evolved_cohort::EvolvedCohort::load(checkpoint, options.population)
+    }
+    .map_err(|e| e.to_string())?;
     let mut options = options.clone();
     options.source_graph = Some(evolved.graph.spec().clone());
     run_with_sources(
@@ -918,7 +928,8 @@ fn run_with_sources(
     evolved: Option<super::evolved_cohort::EvolvedCohort>,
     maturation: Option<Maturation<'_>>,
 ) -> Result<SensorQualificationReport, String> {
-    let step_limit = if evolved.is_some() {
+    let has_evolved = evolved.is_some();
+    let step_limit = if has_evolved {
         MAX_EVOLVED_QUALIFICATION_STEPS
     } else {
         MAX_QUALIFICATION_STEPS
@@ -1097,6 +1108,9 @@ fn run_with_sources(
             return Ok(report);
         }
     };
+    // Cold source copies are no longer needed after admitted population transfer.
+    // Keep compact provenance in the report, not another population during inference.
+    drop(evolved);
     let metadata: serde_json::Value = serde_json::from_str(
         &pending
             .startup_metadata_json()
@@ -1135,7 +1149,7 @@ fn run_with_sources(
         .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
         .map_err(|error| error.to_string())?;
     report.authoritative_memory_reservation_bytes = Some(running.authoritative_memory_bytes());
-    if evolved.is_some() {
+    if has_evolved {
         report
             .gameplay_boundaries
             .push(running.qualification_storage_snapshot()?);
@@ -1217,7 +1231,7 @@ fn run_with_sources(
             break (progress, service_duration);
         };
         let elapsed = service_duration.as_secs_f64() * 1000.0;
-        let transition = evolved.is_some()
+        let transition = has_evolved
             && matches!(
                 progress,
                 RunningAuthorityLoopProgress::GenerationTransitionPending { .. }
@@ -1322,7 +1336,7 @@ fn run_with_sources(
             }
             observer.push(analysis.elapsed().as_secs_f64() * 1000.0);
         }
-        if evolved.is_some() && (ordinal % 600 == 0 || transition) {
+        if has_evolved && (ordinal % 600 == 0 || transition) {
             eprintln!(
                 "committedStep={} generation={} transition={transition}",
                 running.completed_step(),
@@ -1357,7 +1371,7 @@ fn run_with_sources(
         });
     }
     report.completed_steps = running.completed_step();
-    if evolved.is_some() {
+    if has_evolved {
         report
             .gameplay_boundaries
             .push(running.qualification_storage_snapshot()?);
@@ -1557,6 +1571,7 @@ mod tests {
         let cohort = super::super::evolved_cohort::EvolvedCohort::load(&file, 3).unwrap();
         assert_eq!(cohort.weights, expected);
         assert_eq!(cohort.provenance["selection"][2]["sourceSlot"], 3);
+        assert!(super::super::evolved_cohort::EvolvedCohort::load_production(&file, 3).is_err());
         drop(cohort);
         options.population = 3;
         options.source_graph = None;
@@ -1564,7 +1579,8 @@ mod tests {
         options.warmup_steps = 1;
         options.measured_steps = 960;
         let report =
-            run_evolved_population_qualification(&options, &Scratch::new().0, &file).unwrap();
+            run_evolved_population_qualification(&options, &Scratch::new().0, &file, false)
+                .unwrap();
         assert!(report.admitted, "{:?}", report.rejection);
         assert_eq!(report.completed_steps, 961);
         // Floating fixed-step chronology reaches the first 8-second boundary

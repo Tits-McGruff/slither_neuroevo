@@ -621,6 +621,19 @@ Custom graphs cannot be combined with canned, trained-cohort or shadow graph
 sources. Backend selection remains explicit through `--math-backend sse2` or
 `--math-backend i16-matrix-fma128`; neither option changes production defaults.
 
+For an actual checkpoint population, use `--evolved-checkpoint FILE --population 85`
+instead of another graph source. `--source-build-class production` explicitly
+selects read-only extraction from a production checkpoint; the default accepts
+test-hooks checkpoints made by the qualifier. This copies canonical F32 genomes
+into fresh admitted lives and records source provenance, rather than claiming
+exact cross-build continuation. Ordinary restore/replay identity checks stay intact.
+In controlled-clock mode, `--warmup 0 --evolve-generations 20 --steps 1200000`
+evolves through ordinary generation/checkpoint handoffs and retains the final
+native checkpoint beside the report. Use a task-owned empty workspace and keep
+reports/checkpoints outside it. The `evolved-i16-qualification` binary accepts
+that checkpoint and `--observation-bank REPORT.json` for 10,000-delivery controlled
+comparisons, per-matrix bias/scale diagnostics and repeated population benchmarks.
+
 ## Controls
 
 - Mouse wheel: Zoom in or out around the pointer. Manual zoom and panning stay in place across frames.

@@ -16,11 +16,27 @@ impl EvolvedCohort {
     /// Select unique evenly spaced original population slots, without fitness selection.
     /// This is explicitly population transfer, not exact cross-build continuation.
     pub fn load(path: &Path, count: usize) -> Result<Self, Box<dyn Error>> {
+        Self::load_for_class(path, count, &crate::native_addon_build_class())
+    }
+
+    /// Read-only production-population transfer into a qualification build.
+    /// The producer must still be production/release on the supported target;
+    /// this never changes ordinary restore policy or publishes restored authority.
+    pub fn load_production(path: &Path, count: usize) -> Result<Self, Box<dyn Error>> {
+        Self::load_for_class(path, count, "production")
+    }
+
+    fn load_for_class(
+        path: &Path,
+        count: usize,
+        producer_class: &str,
+    ) -> Result<Self, Box<dyn Error>> {
         if !(1..=300).contains(&count) {
             return Err("cohort size requires 1..300".into());
         }
-        let (limits, graph_limits, policy) =
+        let (limits, graph_limits, mut policy) =
             fresh_run::stage6a_p0_archive_validation_contract(4 * 1024 * 1024 * 1024, false)?;
+        policy.expected_build_class = producer_class.into();
         let restored = checkpoint::restore_checkpoint(path, &limits, &graph_limits, &policy)?;
         let state = restored.state.state();
         if state.population.len() < count {
@@ -53,6 +69,9 @@ impl EvolvedCohort {
                 "sourceGeneration":state.generation.generation,
                 "sourcePopulation":state.population.len(),
                 "sourceBackend":state.identity.math_backend,
+                "sourceBuildClass":state.identity.build_class,
+                "sourceTarget":state.identity.target_triple,
+                "sourceProfile":state.identity.build_profile,
                 "sourceBuild":state.identity.engine_build_id,
                 "logicalRootSha256":restored.content.logical_root_sha256,
                 "selectionRule":"floor(cohortSlot * sourcePopulation / cohortSize)",
