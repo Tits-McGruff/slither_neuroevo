@@ -196,6 +196,7 @@ pub struct CostDistribution {
     pub minimum_ms: f64,
     pub median_ms: f64,
     pub p95_ms: f64,
+    pub p99_ms: f64,
     pub maximum_ms: f64,
     pub total_ms: f64,
 }
@@ -212,6 +213,7 @@ pub(crate) fn distribution(values: &mut [f64]) -> CostDistribution {
         minimum_ms: values[0],
         median_ms: quantile(1, 2),
         p95_ms: quantile(95, 100),
+        p99_ms: quantile(99, 100),
         maximum_ms: values[values.len() - 1],
         total_ms,
     }
@@ -1682,5 +1684,15 @@ mod tests {
         assert_eq!(clock.dropped_wall_seconds, 0.0);
         assert!((clock.measured_simulation_seconds - 2.0 / 60.0).abs() < 1e-12);
         assert_eq!(clock.gameplay_continuation_sha256.len(), 64);
+    }
+    #[test]
+    fn cost_distribution_reports_nearest_rank_p99_without_a_deadline_gate() {
+        let mut samples: Vec<_> = (1..=1000).rev().map(f64::from).collect();
+        let report = distribution(&mut samples);
+        assert_eq!(report.p95_ms, 950.0);
+        assert_eq!(report.p99_ms, 990.0);
+        assert_eq!(report.maximum_ms, 1000.0);
+        let one = distribution(&mut [2.5]);
+        assert_eq!(one.p99_ms, 2.5);
     }
 }
