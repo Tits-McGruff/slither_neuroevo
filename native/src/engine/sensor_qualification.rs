@@ -889,6 +889,63 @@ pub fn mature_evolved_population(
     retained: &Path,
     production_source: bool,
 ) -> Result<SensorQualificationReport, String> {
+    run_maturation(
+        options,
+        workspace,
+        checkpoint,
+        generations,
+        retained,
+        production_source,
+        None,
+    )
+}
+
+/// Stream cold generation/quantization diagnostics during ordinary sustained evolution.
+/// This opt-in study accepts only the existing SSE2 and full matrix-i16 backends.
+pub fn qualify_evolved_backend_evolution(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    checkpoint: &Path,
+    generations: u64,
+    retained: &Path,
+    production_source: bool,
+    diagnostic_directory: &Path,
+) -> Result<SensorQualificationReport, String> {
+    if !matches!(
+        options.math,
+        InferenceMathBackend::Sse2 | InferenceMathBackend::I16MatrixFma128
+    ) {
+        return Err("evolution study compares only SSE2 and full matrix-i16".into());
+    }
+    if diagnostic_directory
+        .parent()
+        .ok_or("diagnostic parent missing")?
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        != retained.canonicalize().map_err(|e| e.to_string())?
+    {
+        return Err("evolution diagnostics must be a new child of retained output".into());
+    }
+    run_maturation(
+        options,
+        workspace,
+        checkpoint,
+        generations,
+        retained,
+        production_source,
+        Some(diagnostic_directory),
+    )
+}
+
+fn run_maturation(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    checkpoint: &Path,
+    generations: u64,
+    retained: &Path,
+    production_source: bool,
+    diagnostic_directory: Option<&Path>,
+) -> Result<SensorQualificationReport, String> {
     if !(1..=100).contains(&generations) || options.real_clock || options.warmup_steps != 0 {
         return Err(
             "maturation requires 1..100 generations, controlled clock and zero warmup".into(),
@@ -911,6 +968,7 @@ pub fn mature_evolved_population(
         Some(Maturation {
             target_generation: 1 + generations,
             retained,
+            diagnostic_directory,
         }),
     )
 }
@@ -918,6 +976,7 @@ pub fn mature_evolved_population(
 struct Maturation<'a> {
     target_generation: u64,
     retained: &'a Path,
+    diagnostic_directory: Option<&'a Path>,
 }
 
 fn run_with_sources(
@@ -1157,6 +1216,15 @@ fn run_with_sources(
             .gameplay_boundaries
             .push(running.qualification_storage_snapshot()?);
     }
+    let mut evolution_observer = maturation
+        .as_ref()
+        .and_then(|m| m.diagnostic_directory)
+        .map(|directory| {
+            super::running_loop::evolution_qualification::EvolutionObserver::create(
+                directory, &running,
+            )
+        })
+        .transpose()?;
     let mut frame = Vec::with_capacity(running.admitted_frame_bytes());
     let mut capture = None;
     let run_id = format!(
@@ -1171,6 +1239,10 @@ fn run_with_sources(
     let mut dropped_wall_at_start = 0.0;
     let mut maximum_pending_wall_seconds = 0.0_f64;
     let mut reached_maturation = false;
+    let mut generation_service_wall = 0.0_f64;
+    let mut generation_wall_origin = Instant::now();
+    let mut generation_native_costs = NativePhaseCostTotals::default();
+    let mut generation_consumers = [ConsumerSensorWork::default(); 3];
     for ordinal in 0..options.warmup_steps + options.measured_steps {
         if ordinal == options.warmup_steps {
             measurement_origin = Instant::now();
@@ -1234,12 +1306,48 @@ fn run_with_sources(
             break (progress, service_duration);
         };
         let elapsed = service_duration.as_secs_f64() * 1000.0;
+        generation_service_wall += service_duration.as_secs_f64();
         let transition = has_evolved
             && matches!(
                 progress,
                 RunningAuthorityLoopProgress::GenerationTransitionPending { .. }
             );
+        if evolution_observer.is_some() {
+            generation_native_costs.record(
+                u64::try_from(service_duration.as_micros()).unwrap_or(u64::MAX),
+                running.last_step_cost(),
+            );
+            // The existing observation gate intentionally excludes terminal work.
+            if let Some(consumers) = running.qualification_sensor_work() {
+                for (total, current) in generation_consumers.iter_mut().zip(consumers) {
+                    total.merge(current);
+                }
+            }
+        }
         if transition {
+            let mut evolution_row = evolution_observer
+                .as_mut()
+                .map(|observer| {
+                    observer.generation(
+                        &running,
+                        generation_service_wall,
+                        generation_wall_origin.elapsed().as_secs_f64(),
+                    )
+                })
+                .transpose()?;
+            if let Some(row) = &mut evolution_row {
+                row["nativePhaseCosts"] =
+                    serde_json::to_value(generation_native_costs).map_err(|e| e.to_string())?;
+                row["nonterminalConsumerWork"] =
+                    serde_json::to_value(generation_consumers).map_err(|e| e.to_string())?;
+                let cost = running.last_step_cost();
+                row["generationPreparationMicros"] = serde_json::json!(cost.generation_preparation);
+                row["generationAdmissionMicros"] = serde_json::json!(cost.generation_admission);
+                row["evolutionSummaryMicros"] =
+                    serde_json::json!(cost.generation_evolution_summary);
+                row["evolutionReproductionMicros"] =
+                    serde_json::json!(cost.generation_evolution_reproduction);
+            }
             let before = running.qualification_storage_snapshot()?;
             let started = Instant::now();
             let publication = running
@@ -1271,25 +1379,50 @@ fn run_with_sources(
                 .map_err(|e| e.to_string())?;
             report.gameplay_boundaries.push(serde_json::json!({"before":before,"after":running.qualification_storage_snapshot()?,
                 "checkpointAndHandoffWallSeconds":started.elapsed().as_secs_f64(),"commitRecord":format!("{:?}",publication.commit_record)}));
+            if let Some(row) = &mut evolution_row {
+                row["checkpointAndHandoffWallSeconds"] =
+                    serde_json::json!(started.elapsed().as_secs_f64());
+                row["normalEngineWallSeconds"] =
+                    serde_json::json!(generation_service_wall + started.elapsed().as_secs_f64());
+            }
             if let Some(maturation) = &maturation {
                 let generation = u64::from_str_radix(&publication.descriptor.generation_hex, 16)
                     .map_err(|e| e.to_string())?;
                 if generation >= maturation.target_generation {
                     let filename = &publication.descriptor.relative_filename;
-                    let destination = maturation.retained.join(filename);
-                    if destination.exists() {
-                        return Err("mature checkpoint destination already exists".into());
-                    }
-                    std::fs::copy(workspace.join(filename), &destination)
-                        .map_err(|e| e.to_string())?;
-                    report.evolved_population.as_mut().unwrap()["matureCheckpoint"] = serde_json::json!({"filename":filename,"generation":generation,"logicalRootSha256":publication.descriptor.logical_root_sha256});
+                    let retained_name = if let Some(directory) = maturation.diagnostic_directory {
+                        directory
+                            .file_name()
+                            .ok_or("diagnostic directory name")?
+                            .to_string_lossy()
+                            .to_string()
+                            + "/"
+                            + filename
+                    } else {
+                        let destination = maturation.retained.join(filename);
+                        if destination.exists() {
+                            return Err("mature checkpoint destination already exists".into());
+                        }
+                        std::fs::copy(workspace.join(filename), &destination)
+                            .map_err(|e| e.to_string())?;
+                        filename.clone()
+                    };
+                    report.evolved_population.as_mut().unwrap()["matureCheckpoint"] = serde_json::json!({"filename":retained_name,"generation":generation,"logicalRootSha256":publication.descriptor.logical_root_sha256});
                     reached_maturation = true;
                 }
             }
             // Generated archive is task-owned; retain its compact logical descriptor,
             // release the large payload after its ordinary durability handshake.
-            std::fs::remove_file(workspace.join(publication.descriptor.relative_filename))
-                .map_err(|e| e.to_string())?;
+            if let (Some(observer), Some(row)) = (&mut evolution_observer, evolution_row) {
+                observer.commit(row, workspace, &publication.descriptor)?;
+            } else {
+                std::fs::remove_file(workspace.join(publication.descriptor.relative_filename))
+                    .map_err(|e| e.to_string())?;
+            }
+            generation_service_wall = 0.0;
+            generation_wall_origin = Instant::now();
+            generation_native_costs = NativePhaseCostTotals::default();
+            generation_consumers = [ConsumerSensorWork::default(); 3];
         }
         if (!matches!(progress, RunningAuthorityLoopProgress::Published { .. }) && !transition)
             || running.completed_step() != ordinal as u64 + 1
@@ -1317,6 +1450,11 @@ fn run_with_sources(
                         }
                     }
                 }
+            }
+        }
+        if !transition {
+            if let Some(observer) = &mut evolution_observer {
+                observer.sample(&running)?;
             }
         }
         if ordinal >= options.warmup_steps {
@@ -1505,19 +1643,34 @@ mod tests {
                     kind: GraphNodeKind::Input { output_size: 264 },
                 },
                 GraphNodeSpec {
+                    id: "memory".into(),
+                    kind: GraphNodeKind::Lstm {
+                        input_size: 264,
+                        hidden_size: 4,
+                    },
+                },
+                GraphNodeSpec {
                     id: "head".into(),
                     kind: GraphNodeKind::Dense {
-                        input_size: 264,
+                        input_size: 4,
                         output_size: 2,
                     },
                 },
             ],
-            edges: vec![GraphEdge {
-                from: "input".into(),
-                to: "head".into(),
-                from_port: None,
-                to_port: None,
-            }],
+            edges: vec![
+                GraphEdge {
+                    from: "input".into(),
+                    to: "memory".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+                GraphEdge {
+                    from: "memory".into(),
+                    to: "head".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+            ],
             outputs: vec![GraphOutputRef {
                 node_id: "head".into(),
                 port: None,
@@ -1599,6 +1752,104 @@ mod tests {
                 .unwrap()["value"],
             3.0
         );
+        assert_eq!(std::fs::read(&file).unwrap(), source_bytes);
+        // Small fixtures check noninterference; measured studies use the mature
+        // 85-genome exact-396 cohort supplied separately.
+        if InferenceMathBackend::I16MatrixFma128.is_available() {
+            options.warmup_steps = 0;
+            options.measured_steps = 1200;
+            for backend in [
+                InferenceMathBackend::Sse2,
+                InferenceMathBackend::I16MatrixFma128,
+            ] {
+                options.math = backend;
+                let plain_output = Scratch::new();
+                let plain = mature_evolved_population(
+                    &options,
+                    &Scratch::new().0,
+                    &file,
+                    2,
+                    &plain_output.0,
+                    false,
+                )
+                .unwrap();
+                let observed_output = Scratch::new();
+                let diagnostics = observed_output.0.join("evolution");
+                let observed = qualify_evolved_backend_evolution(
+                    &options,
+                    &Scratch::new().0,
+                    &file,
+                    2,
+                    &observed_output.0,
+                    false,
+                    &diagnostics,
+                )
+                .unwrap();
+                assert_eq!(observed.continuation_sha256, plain.continuation_sha256);
+                let rows: Vec<serde_json::Value> =
+                    std::fs::read_to_string(diagnostics.join("generations.jsonl"))
+                        .unwrap()
+                        .lines()
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
+                assert_eq!(rows.len(), 2);
+                for (index, row) in rows.iter().enumerate() {
+                    assert_eq!(row["generation"], index + 1);
+                    assert_eq!(row["fitnessBySlot"].as_array().unwrap().len(), 3);
+                    assert_eq!(row["population"]["genomes"].as_array().unwrap().len(), 3);
+                    assert_eq!(
+                        row["population"]["aggregateQuantization"]["clippingCount"],
+                        0
+                    );
+                    assert!(row["normalEngineWallSeconds"].as_f64().unwrap() > 0.0);
+                    assert_eq!(row["reproduction"]["eliteCopies"], 1);
+                    assert_eq!(row["reproduction"]["offspring"], 2);
+                    assert_eq!(
+                        row["population"]["genomes"][0]["matrices"]
+                            .as_array()
+                            .unwrap()
+                            .len(),
+                        9
+                    );
+                    assert_eq!(
+                        row["population"]["genomes"][0]["separateF32Biases"][0]["length"],
+                        16
+                    );
+                    assert!(row["population"]["sampledControllerComparisons"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|v| v["commonPostPublicationState"].as_array().unwrap().len() == 8));
+                }
+                assert!(!diagnostics
+                    .join(rows[0]["checkpointFile"].as_str().unwrap())
+                    .exists());
+                let last = diagnostics.join(rows[1]["checkpointFile"].as_str().unwrap());
+                let decoded = super::super::evolved_cohort::EvolvedCohort::load(&last, 3).unwrap();
+                assert_eq!(decoded.provenance["sourceGeneration"], 3);
+                assert!(qualify_evolved_backend_evolution(
+                    &options,
+                    &Scratch::new().0,
+                    &file,
+                    2,
+                    &observed_output.0,
+                    false,
+                    &diagnostics
+                )
+                .is_err());
+            }
+            options.math = InferenceMathBackend::I16AffineFma128;
+            assert!(qualify_evolved_backend_evolution(
+                &options,
+                &Scratch::new().0,
+                &file,
+                2,
+                &source.0,
+                false,
+                &source.0.join("mixed-rejected")
+            )
+            .is_err());
+        }
         assert_eq!(std::fs::read(&file).unwrap(), source_bytes);
     }
 

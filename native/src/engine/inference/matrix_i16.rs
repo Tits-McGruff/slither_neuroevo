@@ -148,6 +148,8 @@ impl GraphExecutionPlan {
                 let mut error_max = 0.0_f64;
                 let mut zeros = 0;
                 let mut saturated = 0;
+                let mut clipped = 0;
+                let mut forbidden_magnitude = 0;
                 let mut bias_max = 0.0_f32;
                 let mut weight_max = 0.0_f32;
                 let mut non_bias_error = 0.0;
@@ -163,6 +165,10 @@ impl GraphExecutionPlan {
                     error_max = error_max.max(difference);
                     zeros += usize::from(q == 0);
                     saturated += usize::from(q.unsigned_abs() == 32767);
+                    // Endpoint occupancy is expected for a matrix maximum. Only
+                    // a rounded value outside the symmetric range needs clipping.
+                    clipped += usize::from((w / scale).round().abs() > 32767.0);
+                    forbidden_magnitude += usize::from(q == i16::MIN);
                     if affine && offset % (input + 1) == input {
                         bias_max = bias_max.max(w.abs());
                     } else {
@@ -200,10 +206,27 @@ impl GraphExecutionPlan {
                 let n = source.len() as f64;
                 let p99 = abs[(source.len() * 99).div_ceil(100).saturating_sub(1)];
                 let p999 = abs[(source.len() * 999).div_ceil(1000).saturating_sub(1)];
+                let rms = (squared / n).sqrt();
+                let rmse = (error_squared / n).sqrt();
+                let setter = if max == 0.0 {
+                    "zero"
+                } else if !affine || weight_max > bias_max {
+                    "weight"
+                } else if bias_max > weight_max {
+                    "bias"
+                } else {
+                    "tie"
+                };
                 rows.push(serde_json::json!({"node":node.id,"matrixIndex":index,
                     "matrixWithinNode":index-node.matrix_start,"length":source.len(),
-                    "maxAbs":max,"meanAbs":sum/n,"rms":(squared/n).sqrt(),
-                    "scale":scale,"mae":error/n,"maxError":error_max,"rmse":(error_squared/n).sqrt(),
+                    "canonicalOffset":matrix.offset,"scaleSetter":setter,
+                    "maxAbs":max,"meanAbs":sum/n,"rms":rms,
+                    "scale":scale,"mae":error/n,"maxError":error_max,"rmse":rmse,
+                    "relativeRmse":if rms > 0.0 {Some(rmse/rms)} else {None},
+                    "relativeMae":if sum > 0.0 {Some(error/sum)} else {None},
+                    "relativeMaxError":if max > 0.0 {Some(error_max/max)} else {None},
+                    "scaleToRms":if rms > 0.0 {Some(f64::from(scale)/rms)} else {None},
+                    "symmetricEndpointCount":saturated,"clippingCount":clipped,"forbiddenMagnitudeCount":forbidden_magnitude,
                     "fractionZero":zeros as f64/n,"fractionAtSymmetricLimit":saturated as f64/n,
                     "p99Abs":p99,"maxToP99":if p99 > 0.0 {Some(max/f64::from(p99))} else {None},
                     "p999Abs":p999,
@@ -540,6 +563,11 @@ mod tests {
         assert_eq!(report[0]["biasStrictlyDominates"], true);
         assert_eq!(report[0]["biasScaleInflation"], 5.0);
         assert_eq!(report[0]["maxAbsNonBias"], 1.0);
+        assert_eq!(report[0]["scaleSetter"], "bias");
+        assert_eq!(report[0]["symmetricEndpointCount"], 1);
+        assert_eq!(report[0]["clippingCount"], 0);
+        assert_eq!(report[0]["forbiddenMagnitudeCount"], 0);
+        assert!(report[0]["relativeRmse"].as_f64().unwrap() > 0.0);
         assert!(
             report[0]["nonBiasMae"].as_f64().unwrap()
                 > report[0]["weightOnlyDiagnosticMae"].as_f64().unwrap()
@@ -549,6 +577,13 @@ mod tests {
                 > report[0]["weightOnlyDiagnosticRmse"].as_f64().unwrap()
         );
         assert_eq!(cache, before);
+        let zeros = [0.0; 6];
+        let zero_cache = plan.quantize(&zeros).unwrap();
+        let zero_report = plan.quantization_diagnostics(&zeros, &zero_cache).unwrap();
+        assert_eq!(zero_report[0]["scaleSetter"], "zero");
+        assert_eq!(zero_report[0]["symmetricEndpointCount"], 0);
+        assert_eq!(zero_report[0]["clippingCount"], 0);
+        assert!(zero_report[0]["relativeRmse"].is_null());
     }
     #[test]
     fn symmetric_quantization_zero_sign_extrema_ties_and_subnormals() {

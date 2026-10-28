@@ -36,6 +36,10 @@ use std::path::Path;
 /// Version of the retained running-authority loop contract.
 pub const RUNNING_AUTHORITY_LOOP_VERSION: u32 = 1;
 
+#[cfg(feature = "engine-test-hooks")]
+#[path = "evolution_qualification.rs"]
+pub(crate) mod evolution_qualification;
+
 /// Current ability of one retained running-authority loop to accept a step.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RunningAuthorityLoopState {

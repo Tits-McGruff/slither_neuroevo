@@ -75,6 +75,7 @@ struct Arguments {
     cohort: Option<PathBuf>,
     evolved_checkpoint: Option<PathBuf>,
     evolve_generations: Option<u64>,
+    evolution_diagnostics: Option<PathBuf>,
     production_source: bool,
 }
 
@@ -86,6 +87,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             "--graph-json",
             "--evolved-checkpoint",
             "--evolve-generations",
+            "--evolution-diagnostics",
             "--source-build-class",
             "--population",
             "--clock",
@@ -387,6 +389,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             .get("--evolve-generations")
             .map(|v| v.parse())
             .transpose()?,
+        evolution_diagnostics: values.get("--evolution-diagnostics").map(PathBuf::from),
         production_source,
     })
 }
@@ -400,8 +403,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         cohort,
         evolved_checkpoint,
         evolve_generations,
+        evolution_diagnostics,
         production_source,
     } = parse()?;
+    if evolution_diagnostics.is_some()
+        && (evolve_generations.is_none() || evolved_checkpoint.is_none())
+    {
+        return Err(
+            "--evolution-diagnostics requires evolved checkpoint and generation count".into(),
+        );
+    }
     let workspace = Workspace::create(&path)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
         let output_parent = output
@@ -446,7 +457,17 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map_err(std::io::Error::other)?
         } else if let Some(checkpoint) = &evolved_checkpoint {
             if let Some(generations) = evolve_generations {
-                serde_json::to_value(
+                let report = if let Some(directory) = &evolution_diagnostics {
+                    slither_native::engine::sensor_qualification::qualify_evolved_backend_evolution(
+                        &options,
+                        &workspace.path,
+                        checkpoint,
+                        generations,
+                        output_parent,
+                        production_source,
+                        directory,
+                    )
+                } else {
                     slither_native::engine::sensor_qualification::mature_evolved_population(
                         &options,
                         &workspace.path,
@@ -455,8 +476,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         output_parent,
                         production_source,
                     )
-                    .map_err(std::io::Error::other)?,
-                )?
+                };
+                serde_json::to_value(report.map_err(std::io::Error::other)?)?
             } else {
                 serde_json::to_value(
                 slither_native::engine::sensor_qualification::run_evolved_population_qualification(
