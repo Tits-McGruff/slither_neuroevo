@@ -161,9 +161,15 @@ def main():
                 axis.plot(points, [mean(r[metric] for r in rows if r["backend"] == backend and r["generation"] == g) for g in points], color=color, linewidth=2.3, label=backend)
             axis.set(xlabel="Additional generation", ylabel=label)
             axis.grid(alpha=.2)
+            if metric == "affineBiasDominantFraction":
+                axis.set_ylim(0, 1)
         axes.flat[0].legend()
-        fig.suptitle("Sustained evolution: exact-396 mature cohort, 85 genomes, seven workers\nFaint lines: independent seeds; thick lines: seed means")
-        fig.tight_layout()
+        status = "Complete: five seed pairs" if summary["complete"] else f"PARTIAL: {len(pair_seeds)}/5 completed seed pairs; {len(rows)} generation records"
+        fig.suptitle("Sustained evolution: exact-396 mature cohort, 85 genomes, seven workers\n"
+                     + status + "\nFaint lines: independent seeds; thick lines: available seed means")
+        fig.text(.5, .006, "Weight quantization diagnostics use full-i16 on both populations; SSE2 weight errors are counterfactual.",
+                 ha="center", fontsize=9)
+        fig.tight_layout(rect=(0, .025, 1, 1))
         fig.savefig(args.output / "evolution-trends.png", dpi=160)
         fig.savefig(args.output / "evolution-trends.svg")
         plt.close(fig)
