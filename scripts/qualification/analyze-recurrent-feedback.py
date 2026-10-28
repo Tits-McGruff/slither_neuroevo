@@ -45,7 +45,7 @@ def select_trace_windows(slot, data):
                 first = crossing["firstCrossing"]
                 intervals.append((max(1,first-32), min(10000,first+64)))
         peak = int(row[:, 2].argmax()+1)
-        if row[:, 2].max() > 0.01:
+        if pair_index == 0 or row[:, 2].max() > 0.01:
             intervals.append((max(1,peak-32), min(10000,peak+32)))
     for pair_index in (4,5):
         row = data[pair_index]
