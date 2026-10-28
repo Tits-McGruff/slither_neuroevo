@@ -112,6 +112,9 @@ def main():
         assert game["graphLayoutSha256"] == report["graphLayoutSha256"]
         assert game["evolvedPopulation"]["logicalRootSha256"] == report["sourceCohort"]["logicalRootSha256"]
         assert game["sensorContract"]["inputSize"] == 264 and game["sensorContract"]["bins"] == 16
+        # Existing qualification_sensor_work order: neural, baseline, external.
+        assert len(game["consumerWork"]) == 3
+        neural_observations = game["consumerWork"][0]["observations"]
         boundaries = [row["before"] for row in game["gameplayBoundaries"] if "before" in row]
         boundaries.append(game["gameplayBoundaries"][-1])
         outcomes = [row for boundary in boundaries for row in boundary["populationOutcomes"]]
@@ -121,6 +124,8 @@ def main():
                          "nativePhaseCosts": game["nativePhaseCosts"], "physicsPhaseCosts": game["physicsPhaseCosts"],
                          "peakRssBytes": game["peakRssBytes"], "aggregateCpuStealFraction": resources["aggregateCpuStealFraction"],
                          "observations": sum(row["observations"] for row in game["consumerWork"]),
+                         "consumerWorkByClass": dict(zip(("neural", "baseline", "external"), game["consumerWork"])),
+                         "amortizedInferenceMicrosPerNeuralObservation": game["nativePhaseCosts"]["inferenceMicros"] / neural_observations,
                          "incompleteObservations": sum(row["incompleteObservations"] for row in game["consumerWork"]),
                          "bodyCappedObservations": game["bodyCappedObservations"], "pelletCappedObservations": game["pelletCappedObservations"],
                          "boundaryLifecycleCounters": [{key: b[key] for key in ("generation", "lives", "deaths", "respawns")} for b in boundaries],
