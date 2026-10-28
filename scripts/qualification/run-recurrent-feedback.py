@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
-    parser.add_argument("--phase", choices=("full", "trace", "seed"), required=True)
+    parser.add_argument("--phase", choices=("full", "trace", "seed", "validate"), required=True)
     parser.add_argument("--trace-windows", type=Path)
     parser.add_argument("--seed-deliveries", type=int, choices=(1,32), default=1)
     args = parser.parse_args()
@@ -43,6 +43,8 @@ def main():
     env["PATH"] = str(Path.home() / ".cargo/bin") + os.pathsep + env["PATH"]
     env["RUSTFLAGS"] = "-C target-cpu=native"
     phase_label = f"seed-{args.seed_deliveries}" if args.phase == "seed" else args.phase
+    if (destination / phase_label).exists() or (destination / f"{phase_label}-progress.json").exists() or (args.phase == "full" and (destination / "smoke").exists()):
+        raise FileExistsError(f"refusing to replace retained {phase_label} output")
     progress = {"phase": phase_label, "sourceCommit": commit, "defaultBackend": "rust-sse2-v1"}
 
     def run(name, command):
@@ -72,8 +74,17 @@ def main():
         assert args.trace_windows
         run("build-trace", ["cargo", "build", "--manifest-path", "native/Cargo.toml", "--release", "--features", "engine-test-hooks", "--bin", "recurrent-feedback-investigation"])
         run("trace", [*common, "--deliveries", "10000", "--slots", "24,30,35", "--trace-windows", str(args.trace_windows.resolve()), "--output", str(destination / "trace")])
-    else:
+    elif args.phase == "seed":
         run(phase_label, [*common, "--deliveries", "10000", "--slots", "24,30,35", "--i16-prefix-deliveries", str(args.seed_deliveries), "--output", str(destination / phase_label)])
+    else:
+        for name, command in [
+            ("validation-fmt", ["cargo", "fmt", "--manifest-path", "native/Cargo.toml", "--", "--check"]),
+            ("validation-check", ["cargo", "check", "--manifest-path", "native/Cargo.toml"]),
+            ("validation-hooks-lib", ["cargo", "test", "--manifest-path", "native/Cargo.toml", "--release", "--features", "engine-test-hooks", "--lib"]),
+            ("validation-harness", ["cargo", "test", "--manifest-path", "native/Cargo.toml", "--release", "--features", "engine-test-hooks", "--bin", "recurrent-feedback-investigation"]),
+            ("validation-clippy", ["cargo", "clippy", "--manifest-path", "native/Cargo.toml", "--all-targets", "--all-features", "--", "-D", "warnings"]),
+        ]:
+            run(name, command)
     assert digest(checkpoint) == expected
     assert (artifacts / "SHA256SUMS").read_bytes() == original_checksums
     progress.update(stage="complete", status="passed", updatedUnixSeconds=time.time(), originalArtifactManifestUnchanged=True)
