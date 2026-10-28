@@ -31,6 +31,7 @@ def main():
                          "memory_carry_delta","forget_gate_delta","candidate_drive_delta","input_gate_delta",
                          "cell_decomposition_residual"])
         for slot in (24,30,35):
+            cycle_history = {}
             with gzip.open(root / f"trace/slot-{slot:02}-lstm.jsonl.gz","rt") as source:
                 for line in source:
                     step = json.loads(line)
@@ -78,9 +79,15 @@ def main():
                                 "maxLocalPreactivation":float(np.abs(local_pre).max()),"maxPropagatedPreactivation":float(np.abs(propagated_pre).max()),
                                 "controller":mode["controller"],"referenceController":step["modes"][0]["controller"]}
                         if step["delivery"] % 32 == 0:
+                            previous_cycle = cycle_history.get((step["delivery"]-32,mode["mode"]))
+                            cycle_movement = None if previous_cycle is None else {
+                                "candidateHiddenRms":float(np.sqrt(np.mean((h-previous_cycle[0])**2))),
+                                "referenceHiddenRms":float(np.sqrt(np.mean((ref_h-previous_cycle[1])**2)))}
                             retained.append({"slot":slot,"delivery":step["delivery"],"mode":mode["mode"],
                                 "cellMax":peak,"hiddenRms":float(np.sqrt(np.mean((h-ref_h)**2))),
-                                "preactivationLocalMax":float(np.abs(local_pre).max()),"preactivationPropagatedMax":float(np.abs(propagated_pre).max())})
+                                "preactivationLocalMax":float(np.abs(local_pre).max()),"preactivationPropagatedMax":float(np.abs(propagated_pre).max()),
+                                "movementSincePreviousObservationCycle":cycle_movement})
+                            cycle_history[(step["delivery"],mode["mode"])] = (h,ref_h)
             print("internal traces analyzed",slot,counts[slot],flush=True)
     (root / "internal-lstm-analysis.json").write_text(json.dumps({"traceDeliveries":counts,"peaks":peaks,"observationCycleBoundaries":retained,
         "decomposition":"preactivation candidate - SSE reference = (candidate - SSE evaluated on candidate prior state) + (SSE on candidate state - SSE reference)",

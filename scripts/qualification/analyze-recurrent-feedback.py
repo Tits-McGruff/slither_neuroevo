@@ -77,9 +77,11 @@ def main():
             all_genomes.append(genome)
             if slot in (24, 30, 35):
                 intervals = [(1, 16)]
-                for pair_index in range(6):
+                # Choose windows from the primary three-way comparison; capture
+                # every ablation inside those same windows for direct inspection.
+                for pair_index in range(2):
                     row = data[pair_index]
-                    for metric, threshold in ((4, 1e-3), (1, 1e-2)):
+                    for metric, threshold in ((4, 1e-3), (4, 1e-2), (1, 1e-2)):
                         crossing = onset(row[:, metric], threshold)
                         start = crossing["persistentWindowStart"]
                         if start is not None:

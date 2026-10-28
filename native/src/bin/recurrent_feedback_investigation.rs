@@ -70,6 +70,7 @@ fn main() -> Result<(), AnyError> {
     let mut workers = 7;
     let mut slots = (0..85).collect::<Vec<usize>>();
     let mut windows = Vec::<TraceWindow>::new();
+    let mut i16_prefix: Option<usize> = None;
     while let Some(flag) = args.next() {
         let value = args.next().ok_or("missing argument")?;
         match flag.as_str() {
@@ -80,6 +81,7 @@ fn main() -> Result<(), AnyError> {
             "--deliveries" => deliveries = value.parse()?,
             "--slots" => slots = value.split(',').map(str::parse).collect::<Result<_, _>>()?,
             "--trace-windows" => windows = serde_json::from_reader(File::open(value)?)?,
+            "--i16-prefix-deliveries" => i16_prefix = Some(value.parse()?),
             _ => return Err("unknown option".into()),
         }
     }
@@ -93,6 +95,17 @@ fn main() -> Result<(), AnyError> {
         return Err("invalid trace window".into());
     }
     validate_calculation_workers(workers)?;
+    if i16_prefix.is_some_and(|n| !(1..=32).contains(&n)) {
+        return Err("i16 seed prefix requires 1..32 deliveries".into());
+    }
+    let labels = FeedbackMode::ALL.map(|mode| {
+        if mode == FeedbackMode::I16 {
+            if let Some(n) = i16_prefix {
+                return format!("i16-prefix-{n}-then-sse2");
+            }
+        }
+        mode.label().to_owned()
+    });
     let output = output.ok_or("--output required")?;
     std::fs::create_dir(&output)?;
     let checkpoint = checkpoint.ok_or("--checkpoint required")?;
@@ -148,23 +161,28 @@ fn main() -> Result<(), AnyError> {
             let capture = windows.iter().any(|w| w.slot == slot && w.first <= step+1 && step < w.last);
             let mut mode_traces = Vec::new();
             for (index, mode) in FeedbackMode::ALL.into_iter().enumerate() {
-                match mode {
+                // Causal seed control: after a bounded i16 prefix, this
+                // trajectory uses only canonical F32 weights and SSE2.
+                let effective = if mode == FeedbackMode::I16 && i16_prefix.is_some_and(|n| step >= n) {
+                    FeedbackMode::Sse2
+                } else { mode };
+                match effective {
                     FeedbackMode::Sse2 => sse.evaluate(weights, &before[index], &mut after[index], input, &mut outputs[index], &mut scratch.view())?,
                     FeedbackMode::Fma128 => fma.evaluate(weights, &before[index], &mut after[index], input, &mut outputs[index], &mut scratch.view())?,
                     FeedbackMode::I16 => quantized.evaluate_quantized(weights, &cache, &before[index], &mut after[index], input, &mut outputs[index], &mut scratch.view())?,
-                    _ => sse.evaluate_feedback_diagnostic(mode, weights, &cache, &before[index], &mut after[index], input, &mut outputs[index], &mut scratch.view(), None)?,
+                    _ => sse.evaluate_feedback_diagnostic(effective, weights, &cache, &before[index], &mut after[index], input, &mut outputs[index], &mut scratch.view(), None)?,
                 }
                 if capture || (index < 3 && (step < 32 || step % 1024 == 0)) {
                     let mut check_state = vec![0.0; 792]; let mut check_output = [0.0; 2];
                     let mut lstm = Vec::<LstmCellTrace>::new();
-                    sse.evaluate_feedback_diagnostic(mode, weights, &cache, &before[index], &mut check_state, input, &mut check_output, &mut scratch.view(), capture.then_some(&mut lstm))?;
+                    sse.evaluate_feedback_diagnostic(effective, weights, &cache, &before[index], &mut check_state, input, &mut check_output, &mut scratch.view(), capture.then_some(&mut lstm))?;
                     assert_eq!(check_state, after[index], "diagnostic state differs slot {slot} step {step} mode {mode:?}");
                     assert_eq!(check_output, outputs[index], "diagnostic controller differs");
                     parity_checks += 1;
                     if capture {
                         let mut counterfactual = Vec::<LstmCellTrace>::new();
                         sse.evaluate_feedback_diagnostic(FeedbackMode::Sse2, weights, &cache, &before[index], &mut check_state, input, &mut check_output, &mut scratch.view(), Some(&mut counterfactual))?;
-                        mode_traces.push(json!({"mode":mode.label(),"controller":outputs[index],"lstm":lstm,
+                        mode_traces.push(json!({"mode":labels[index],"effectiveArithmetic":effective.label(),"controller":outputs[index],"lstm":lstm,
                             "sseOnSameStateController":check_output,"sseOnSameStateLstm":counterfactual}));
                     }
                 }
@@ -179,7 +197,7 @@ fn main() -> Result<(), AnyError> {
                 let errors = [ErrorStats::between(&outputs[candidate], &outputs[reference]),
                     ErrorStats::between(&after[candidate][..396], &after[reference][..396]),
                     ErrorStats::between(&after[candidate][396..], &after[reference][396..])];
-                write!(csv,"{slot},{},{}:{}", step+1, FeedbackMode::ALL[candidate].label(), FeedbackMode::ALL[reference].label())?;
+                write!(csv,"{slot},{},{}:{}", step+1, labels[candidate], labels[reference])?;
                 for (total, e) in pair_totals.iter_mut().zip(errors) {
                     total.merge(e); write!(csv,",{},{},{}",e.mae(),(e.squared/e.count as f64).sqrt(),e.max)?;
                 }
@@ -194,7 +212,7 @@ fn main() -> Result<(), AnyError> {
     let metadata = json!({"nativeSourceSha256":slither_native::native_addon_source_sha256(),"buildContractSha256":slither_native::native_addon_build_contract_sha256(),
         "rustc":slither_native::native_addon_rustc_version(),"target":slither_native::native_addon_build_target(),
         "graphLayoutSha256":cohort.graph.layout_digest_hex(),"sourceCohort":cohort.provenance,"brains":85,"selectedSlots":slots,
-        "workers":workers,"deliveries":deliveries,"wallSeconds":started.elapsed().as_secs_f64(),"modes":FeedbackMode::ALL.map(FeedbackMode::label),
+        "workers":workers,"deliveries":deliveries,"wallSeconds":started.elapsed().as_secs_f64(),"modes":labels,"i16PrefixDeliveries":i16_prefix,
         "metrics":["controller","hidden","cell"],"results":results,
         "initialState":"same original checkpoint recurrent state keyed by brain handle; no burn-in",
         "observations":"identical original 32 actual Motion/B16/ray observation rows repeated cyclically per genome",
