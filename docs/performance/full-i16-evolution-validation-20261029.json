@@ -227,5 +227,16 @@
     },
     "localArtifactManifestVerified": true,
     "sourcePartialPrefixPreserved": true
+  },
+  "compiledKernelAudit": {
+    "sourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+    "symbol": "slither_native::engine::inference::matrix_i16::NodeWeights::dot",
+    "symbolBytes": 1335,
+    "signedI16Expansion": "vpmovsxwd using XMM registers",
+    "floatConversion": "vcvtdq2ps using XMM registers",
+    "packedFma": "vfmadd231ps using XMM registers",
+    "conversionUsesYmm": false,
+    "packedFmaUsesYmm": false,
+    "assemblySha256": "39ed4f9013a080b7e7517593462dc3546f72f6a285d9399972e81d0b01203e59"
   }
 }
