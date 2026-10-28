@@ -304,5 +304,25 @@
   ],
   "pairedMixedWins": 7,
   "aggregateCpuStealFraction": 0.1905766504642366,
-  "cpuStealScope": "Entire combined isolated-timing and numerical process; not timing-only"
+  "cpuStealScope": "Entire combined isolated-timing and numerical process; not timing-only",
+  "closedLoop": {
+    "sse2": {
+      "measuredSimulationSeconds": 1000,
+      "measuredSteps": 60000,
+      "measuredWallSeconds": 1225.189338156,
+      "realTimeFactor": 0.8162003772454252,
+      "meanStepMs": 20.15995893616675,
+      "stepP50Ms": 17.619021,
+      "stepP99Ms": 43.341373000000004,
+      "meanInferenceMs": 13.168377516666666,
+      "peakRssMiB": 937.84765625,
+      "aggregateCpuStealFraction": 0.09348496810535646,
+      "observations": 3324799,
+      "incompleteObservations": 0,
+      "historicalSse2GameplayHashAndObservationCountersMatch": true
+    }
+  },
+  "laterDiagnosticValidationCommit": "c2315c5048e5d3a5ae138127e46bbcc62262a9ca",
+  "laterDiagnosticNativeSourceSha256": "9e54ebc21df34d0b9e65a07fb74b16627791d78e4acca00c4ea55b065d3bb494",
+  "laterDiagnosticChange": "Full-layout ablation helper rejects compact cache/plan before indexing; test added. Measured inference code unchanged."
 }
