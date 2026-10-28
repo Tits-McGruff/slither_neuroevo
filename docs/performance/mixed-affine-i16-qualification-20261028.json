@@ -1,5 +1,5 @@
 {
-  "status": "isolated-inference-and-feedback-complete; closed-loop-and-Linux-validation-running",
+  "status": "Isolated inference, 10000-delivery feedback, SSE2/mixed closed-loop complete; full-i16 closed-loop and Linux validation running",
   "sourceCommit": "1679938909744bb63c11259c361cb6bc3fa0bf53",
   "nativeSourceSha256": "4ea6c1308f933bf613b962d61e1fa00eb6dd69513ac9910d38b8a833b4f9ae9f",
   "buildContractSha256": "sha256:033119a7009787468f6cc885add333b42396edc60fc10e1a0b4d347927e587f3",
@@ -317,9 +317,33 @@
       "meanInferenceMs": 13.168377516666666,
       "peakRssMiB": 937.84765625,
       "aggregateCpuStealFraction": 0.09348496810535646,
-      "observations": 3324799,
+      "observationsByClass": {
+        "neural": 1865556,
+        "baseline": 1459243,
+        "external": 0
+      },
+      "amortizedInferenceMicrosPerNeuralObservation": 423.5212724785533,
       "incompleteObservations": 0,
       "historicalSse2GameplayHashAndObservationCountersMatch": true
+    },
+    "mixed": {
+      "measuredSimulationSeconds": 1000,
+      "measuredSteps": 60000,
+      "measuredWallSeconds": 1079.184394498,
+      "realTimeFactor": 0.9266257046509332,
+      "meanStepMs": 17.73104356163342,
+      "stepP50Ms": 16.160809,
+      "stepP99Ms": 35.986718,
+      "meanInferenceMs": 10.9969107,
+      "peakRssMiB": 991.80078125,
+      "aggregateCpuStealFraction": 0.0884974958812755,
+      "observationsByClass": {
+        "neural": 1933713,
+        "baseline": 1457926,
+        "external": 0
+      },
+      "amortizedInferenceMicrosPerNeuralObservation": 341.2164276704971,
+      "incompleteObservations": 0
     }
   },
   "laterDiagnosticValidationCommit": "c2315c5048e5d3a5ae138127e46bbcc62262a9ca",
