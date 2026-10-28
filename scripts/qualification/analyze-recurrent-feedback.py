@@ -30,6 +30,38 @@ def onset(values, threshold, width=128, required=96):
             "windowDeliveries": width, "requiredAbove": required}
 
 
+def select_trace_windows(slot, data):
+    intervals = [(1, 16)]
+    # Choose windows from the primary three-way comparison; capture
+    # every ablation inside those same windows for direct inspection.
+    for pair_index in range(2):
+        row = data[pair_index]
+        for metric, threshold in ((4, 1e-3), (4, 1e-2), (1, 1e-2)):
+            crossing = onset(row[:, metric], threshold)
+            start = crossing["persistentWindowStart"]
+            if start is not None:
+                intervals.append((max(1,start-32), min(10000,start+160)))
+            if pair_index < 2 and crossing["firstCrossing"] is not None:
+                first = crossing["firstCrossing"]
+                intervals.append((max(1,first-32), min(10000,first+64)))
+        peak = int(row[:, 2].argmax()+1)
+        if row[:, 2].max() > 0.01:
+            intervals.append((max(1,peak-32), min(10000,peak+32)))
+    for pair_index in (4,5):
+        row = data[pair_index]
+        if row[:,2].max() > 0.1:
+            peak = int(row[:,2].argmax()+1)
+            intervals.append((max(1,peak-32),min(10000,peak+32)))
+    # Merge to prevent duplicate captures of overlapping regions.
+    merged = []
+    for first, last in sorted(intervals):
+        if merged and first <= merged[-1][1]+1:
+            merged[-1][1] = max(last, merged[-1][1])
+        else:
+            merged.append([first,last])
+    return [{"slot":slot,"first":first,"last":last} for first,last in merged]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path, help="feedback-investigation-20261028")
@@ -76,30 +108,7 @@ def main():
                     writer.writerow([slot, pair, start+1, start+100, *stats])
             all_genomes.append(genome)
             if slot in (24, 30, 35):
-                intervals = [(1, 16)]
-                # Choose windows from the primary three-way comparison; capture
-                # every ablation inside those same windows for direct inspection.
-                for pair_index in range(2):
-                    row = data[pair_index]
-                    for metric, threshold in ((4, 1e-3), (4, 1e-2), (1, 1e-2)):
-                        crossing = onset(row[:, metric], threshold)
-                        start = crossing["persistentWindowStart"]
-                        if start is not None:
-                            intervals.append((max(1,start-32), min(10000,start+160)))
-                        if pair_index < 2 and crossing["firstCrossing"] is not None:
-                            first = crossing["firstCrossing"]
-                            intervals.append((max(1,first-32), min(10000,first+64)))
-                    peak = int(row[:, 2].argmax()+1)
-                    if row[:, 2].max() > 0.01:
-                        intervals.append((max(1,peak-32), min(10000,peak+32)))
-                # Merge to prevent duplicate captures of overlapping regions.
-                merged = []
-                for first, last in sorted(intervals):
-                    if merged and first <= merged[-1][1]+1:
-                        merged[-1][1] = max(last, merged[-1][1])
-                    else:
-                        merged.append([first,last])
-                windows.extend({"slot":slot,"first":first,"last":last} for first,last in merged)
+                windows.extend(select_trace_windows(slot, data))
             print("analyzed", slot, flush=True)
     for metric in range(9):
         if metric % 3 != 2:
