@@ -290,5 +290,19 @@
       "max": 0.0014277100563049316
     }
   },
-  "artifactSubdirectory": "exact-396-motion-b16-v3/mixed-affine-20261028"
+  "artifactSubdirectory": "exact-396-motion-b16-v3/mixed-affine-20261028",
+  "benchmarkOrder": "Rotate/reverse order; eight repetitions balance all four backends across positions",
+  "pairedMixedSpeedupSamples": [
+    1.1291606329276354,
+    1.1143281199145219,
+    0.972537933225076,
+    1.1812243268033724,
+    1.108572801776248,
+    1.117363053803438,
+    1.1296685756589915,
+    1.1662557242282299
+  ],
+  "pairedMixedWins": 7,
+  "aggregateCpuStealFraction": 0.1905766504642366,
+  "cpuStealScope": "Entire combined isolated-timing and numerical process; not timing-only"
 }
