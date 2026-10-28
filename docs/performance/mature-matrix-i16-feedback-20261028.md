@@ -1,7 +1,7 @@
 # Mature matrix-i16 recurrent-feedback investigation
 
-Status: the full three-way comparison and matrix-group ablations are complete.
-Internal LSTM traces and finite-prefix causal controls are still being collected.
+Status: the full three-way comparison, matrix-group ablations, internal LSTM
+traces and finite-prefix causal controls are complete.
 SSE2 remains the production default; this study does not promote any backend.
 
 ## Source and retained inputs
@@ -14,6 +14,13 @@ native source SHA256 `acab13970d5b0693fd4a4a88633b3a246fbed478472b14730c77967137
 It used Rust 1.92.0, x86_64 Linux GNU, release/test-hooks,
 `RUSTFLAGS='-C target-cpu=native'`, and the original build contract
 `sha256:033119a7009787468f6cc885add333b42396edc60fc10e1a0b4d347927e587f3`.
+The later trace/prefix binary was built at
+`3a7bfba8f10b68ed090c248faaa4d381a3c31396`, native source SHA256
+`0c5e925ed5d469cf2ff544e674a3ea9b8ac33096feea17e4c4286a64079565ce`.
+Its changes add cold prefix/label support and lint fixes; production arithmetic
+is unchanged. Later runner/analysis/documentation commits retain that native
+tree. Full versus traced errors/outputs match exactly for all 10,000 deliveries,
+all seven comparisons and all three sensitive slots.
 
 The graph is the owner's exact Input264 / Dense396 + LSTM396 / Concat792 /
 MLP264,134,2 graph, layout SHA256
@@ -91,11 +98,101 @@ error. It retains both cells with large cell-state differences and cells with
 large hidden-output differences; a large saturated cell-state difference alone
 does not establish the cause of a controller excursion.
 
-Finite-prefix controls use i16 for one delivery or one 32-observation cycle,
-then execute only canonical F32/SSE2 for the rest of the trajectory. These test
-whether a small state perturbation alone persists or whether continuing to use
-changed matrices is necessary for the observed growth. Their results and the
-internal mechanism will be added after collection.
+The 1,945 main internal captures contain every cell and gate in all seven modes,
+plus SSE2 counterfactuals on each mode's own prior state. Input-dot terms in the
+SSE2 counterfactuals match the reference exactly; recurrent biases match across
+all modes. There are no changed sensors, bias conventions or nonlinear functions.
+
+At the large controller peaks, fresh preactivation error is much smaller than
+the error propagated through the different previous recurrent states:
+
+| Slot / peak delivery | Max fresh preactivation error | Max propagated preactivation error | Largest hidden-error cell | Reference / candidate next cell | Reference / candidate next hidden |
+| --- | ---: | ---: | ---: | --- | --- |
+| 24 / 9437 | .000307798 | .142070 | 201 | .206506 / -.137903 | .197118 / -.132653 |
+| 30 / 8083 | .000368357 | .102307 | 136 | -.535132 / -.188685 | -.437079 / -.166077 |
+| 35 / 6764 | .000395060 | .332729 | 303 | -.447249 / .224393 | -.412541 / .217091 |
+
+This is gradual accumulation/carried-state drift with intermittent nonlinear
+trajectory separation, rather than a single large erroneous dot product. Slots
+24 and 30 show a growing, periodically modulated error envelope. Slot 35 has
+stronger intermittent bursts and recovery. A 32-observation forcing cycle does
+not imply a fixed 32-delivery recurrent orbit; the reference states continue
+moving between observation cycles.
+
+For slot 24 cell 201 at delivery 9437, the cell difference is -.344409: the
+carried-memory contribution is -.322403 and changed candidate drive contributes
+-.0220035. Its forget gate is .983866 / .983698, retaining most of the prior
+difference. Slot 30 cell 136 similarly has carried-memory contribution .307212
+and changed candidate drive .0394192. Slot 35 cell 303 has .518553 from carried
+memory and .149443 from changed candidate drive. F32 update-rounding residuals
+in these decompositions are approximately 1e-8, rather than the source of the
+large differences.
+
+The controlling cells pass through the unsaturated part of `tanh(cell)`. Their
+hidden outputs can separate or change sign, and the downstream MLP amplifies
+that difference into a large turn difference. Candidate-gate differences are
+larger than the other gate differences near these excursions. This does not
+establish a particular candidate-gate matrix as the unique causal parameter:
+all gates and recurrent features remain coupled. The nonlinear functions are
+smooth; there is no hard gate discontinuity. Some larger absolute cell-state
+differences are in saturated cells: for example, a slot 24 cell is -73.09 versus
+-74.69, which contributes little hidden-output difference. Ranking cells only
+by cell-state error would misidentify that controller mechanism.
+
+## Finite-prefix causal controls
+
+These controls use i16 for one delivery or one 32-observation cycle, then execute
+only canonical F32/SSE2 for the rest of the trajectory. After the switch the
+candidate/reference have identical weights and arithmetic; only state differs.
+Unchanged comparator/ablation trajectories and every pre-switch delivery match
+the original full run exactly.
+
+| Slot | One-delivery prefix: controller max | 32-delivery prefix: controller max | 32-prefix peak delivery | Continuous-i16 max |
+| --- | ---: | ---: | ---: | ---: |
+| 24 | .000436604 | .00892282 | 222 | .678973 |
+| 30 | .000712901 | .0171747 | 72 | .512600 |
+| 35 | .00547245 | .981848 | 8683 | .890036 |
+
+Slots 24 and 30 retain much smaller errors after a finite prefix than under
+continuous quantization. Their last-1000-delivery controller MAEs after the
+32-prefix are .0000416238 and .000426460, versus .000169887 and .000488076 in
+their first 1000 deliveries. Continuing to use perturbed matrices is important
+for the growing error envelope in those trajectories.
+
+Slot 35 is different. At delivery 32 its state perturbation has hidden RMS
+`3.40045e-5` and cell RMS `.000423888`. Deliveries 33 through 10,000 then use
+only canonical F32/SSE2, yet controller error later reaches `.981848` at delivery
+8683. Its last-1000 controller MAE is .00596738 versus .00128543 in the first
+1000. A further 226 internal captures around the switch, first state crossing
+and late peak verify that fresh preactivation error is exactly zero in every
+captured post-switch gate record. At the peak, propagated preactivation error
+is .270570. Cell 303's previous cells are .0266662 / -.522244, next cells
+-.188260 / -.666546 and next hidden values -.180038 / -.562696. The resulting
+turn outputs are -.603953 / .377895.
+
+Thus, large trajectory separation is not exclusive to ongoing i16 execution:
+slot 35's canonical SSE2 dynamics can amplify a sufficiently directed small
+finite state perturbation. However, the ordinary F32-FMA128 perturbation does
+not produce comparable large excursions in this 10,000-delivery experiment.
+Sensitivity depends on genome, perturbation size/direction and horizon. These
+observations are not a formal proof of chaos or a claim about every possible
+arithmetic perturbation.
+
+## Smallest next implementation worth testing
+
+Keep the entire LSTM in F32/SSE2 and quantize only Dense/MLP in a separate opt-in
+mixed candidate, then benchmark its actual speed and qualify its world behavior.
+That numerical ablation has zero recurrent divergence here and controller max
+.00333805. Merely leaving input or recurrent LSTM matrices unquantized is not
+enough: either complementary quantized group can independently produce large
+slot 35 excursions. The affine matrices comprise only about 25% of this graph's
+parameters, so the original all-i16 throughput gain cannot be assumed for the
+mixed candidate. No row/block scaling, bias change or production mixed backend
+is introduced by this investigation.
+
+SSE2 remains the default. Further diverse observation streams and behavioral
+qualification are still needed for any candidate; this repeated-bank study
+isolates arithmetic/state sensitivity rather than establishing live-game parity.
 
 ## Artifacts and reproduction
 
@@ -105,6 +202,8 @@ It contains per-genome compressed per-delivery CSVs, aggregate error-over-time
 CSV, per-genome 100-delivery window CSV, complete native/analysis JSON and PNG/PDF
 plots. The detailed internal JSONL traces are gzip compressed. The existing
 checkpoint and original reports remain in the parent directory.
+Plots include `sensitive-genome-feedback`, `all-genome-ablation`,
+`finite-prefix-feedback` and `lstm-error-decomposition`, each as PNG and PDF.
 
 The full comparison's native `full/report.json` SHA256 is
 `4b4653c0ab2b2fae7e0985f4b6d65cffb52b51ceb0ffc91bf71a75c3ba7b9b6a`.

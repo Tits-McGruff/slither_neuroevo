@@ -17,14 +17,19 @@ def cells(rows, field):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
+    parser.add_argument("--trace-subdir", default="trace")
+    parser.add_argument("--slots", default="24,30,35")
+    parser.add_argument("--output-prefix", default="internal-lstm")
     args = parser.parse_args()
     root = args.root.resolve()
+    metadata = json.loads((root / args.trace_subdir / "report.json").read_text())
+    expected = {r["slot"]:r["traceDeliveries"] for r in metadata["results"]}
     peaks = {}
     controller_peaks = {}
     crossings = {}
     counts = {}
     retained = []
-    with (root / "internal-lstm-error-over-time.csv").open("w",newline="") as stream:
+    with (root / f"{args.output_prefix}-error-over-time.csv").open("w",newline="") as stream:
         writer = csv.writer(stream)
         writer.writerow(["slot","delivery","mode","gate","input_dot_local_max","recurrent_dot_local_max",
                          "preactivation_local_max","preactivation_propagated_max","preactivation_total_max",
@@ -35,9 +40,9 @@ def main():
                          "hidden_cell_candidate_previous_c","hidden_cell_reference_next_c","hidden_cell_candidate_next_c",
                          "hidden_cell_reference_next_h","hidden_cell_candidate_next_h","hidden_cell_reference_preactivation",
                          "hidden_cell_candidate_preactivation","hidden_cell_reference_gate","hidden_cell_candidate_gate"])
-        for slot in (24,30,35):
+        for slot in map(int,args.slots.split(",")):
             cycle_history = {}
-            with gzip.open(root / f"trace/slot-{slot:02}-lstm.jsonl.gz","rt") as source:
+            with gzip.open(root / args.trace_subdir / f"slot-{slot:02}-lstm.jsonl.gz","rt") as source:
                 for line in source:
                     step = json.loads(line)
                     counts[slot] = counts.get(slot,0)+1
@@ -115,7 +120,8 @@ def main():
                                 "movementSincePreviousObservationCycle":cycle_movement})
                             cycle_history[(step["delivery"],mode["mode"])] = (h,ref_h)
             print("internal traces analyzed",slot,counts[slot],flush=True)
-    (root / "internal-lstm-analysis.json").write_text(json.dumps({"traceDeliveries":counts,"peaks":peaks,"controllerPeaks":controller_peaks,
+            assert counts[slot] == expected[slot], (slot,counts[slot],expected[slot])
+    (root / f"{args.output_prefix}-analysis.json").write_text(json.dumps({"traceDeliveries":counts,"peaks":peaks,"controllerPeaks":controller_peaks,
         "firstCapturedHiddenRmsCrossings":crossings,"observationCycleBoundaries":retained,
         "decomposition":"preactivation candidate - SSE reference = (candidate - SSE evaluated on candidate prior state) + (SSE on candidate state - SSE reference)",
         "cellDecomposition":"delta c = f_ref*delta previous_c + delta f*previous_c_candidate + i_ref*delta g + delta i*g_candidate + F32 rounding residual",
