@@ -1,5 +1,5 @@
 {
-  "status": "Native validation passed; first 20-generation SSE2 baseline completed and preserved. Paired i16 and remaining seed runs are in progress; no qualification decision yet.",
+  "status": "Native validation passed; first paired 20-generation SSE2/full-i16 runs completed and preserved. Four pairs remain in progress; no qualification decision yet.",
   "measuredSourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
   "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
   "backendComparison": [
@@ -238,5 +238,222 @@
     "conversionUsesYmm": false,
     "packedFmaUsesYmm": false,
     "assemblySha256": "39ed4f9013a080b7e7517593462dc3546f72f6a285d9399972e81d0b01203e59"
+  },
+  "completedFirstPair": {
+    "status": "Interim: one of five seed pairs complete. No qualification or default-selection decision.",
+    "seed": 104729,
+    "completedPairs": 1,
+    "plannedPairs": 5,
+    "generationsPerBackend": 20,
+    "completedStepsPerBackend": 576020,
+    "measuredSourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+    "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
+    "identicalInitialCanonicalPopulationAndSettings": true,
+    "outcomeMeans": {
+      "all20": {
+        "sse2": {
+          "fitnessMean": 1851.178829180219,
+          "fitnessMedian": 1099.9800530844855,
+          "fitnessBest": 9748.642100614516,
+          "scoreMean": 1.3293132824671163,
+          "foodMean": 22.047258975502746,
+          "lifetimeMeanSeconds": 200.01085294116766,
+          "netPointsMean": 1.3293132824671163,
+          "survivalCensoredFraction": 0.16999999999999998,
+          "completedLives": 70.55,
+          "sampledCoordinateVariance": 0.0022567312383711207,
+          "effectiveSelectedParents": 25.33278046469713
+        },
+        "i16-matrix-fma128": {
+          "fitnessMean": 2017.9007599187978,
+          "fitnessMedian": 1312.5746116973205,
+          "fitnessBest": 10348.606523880131,
+          "scoreMean": 1.302912170092927,
+          "foodMean": 23.836977771597873,
+          "lifetimeMeanSeconds": 203.92899019607282,
+          "netPointsMean": 1.302912170092927,
+          "survivalCensoredFraction": 0.16,
+          "completedLives": 71.4,
+          "sampledCoordinateVariance": 0.0024056166342605774,
+          "effectiveSelectedParents": 25.33278046469713
+        }
+      },
+      "last5": {
+        "sse2": {
+          "fitnessMean": 2315.181177965008,
+          "fitnessMedian": 1526.3890391021437,
+          "fitnessBest": 12633.546706816856,
+          "scoreMean": 1.3730170151486278,
+          "foodMean": 27.821159119006573,
+          "lifetimeMeanSeconds": 222.50999999998385,
+          "netPointsMean": 1.3730170151486278,
+          "survivalCensoredFraction": 0.2164705882352941,
+          "completedLives": 66.6,
+          "sampledCoordinateVariance": 0.0015578564019497697,
+          "effectiveSelectedParents": 24.68234886100055
+        },
+        "i16-matrix-fma128": {
+          "fitnessMean": 2741.813355766588,
+          "fitnessMedian": 1893.4437170043814,
+          "fitnessBest": 12886.278905976047,
+          "scoreMean": 1.2413120012911396,
+          "foodMean": 32.78249866256003,
+          "lifetimeMeanSeconds": 235.0327058823396,
+          "netPointsMean": 1.2413120012911396,
+          "survivalCensoredFraction": 0.20941176470588235,
+          "completedLives": 67.2,
+          "sampledCoordinateVariance": 0.0010428556313407853,
+          "effectiveSelectedParents": 24.68234886100055
+        }
+      }
+    },
+    "performance": {
+      "seed": 104729,
+      "backends": {
+        "sse2": {
+          "normalEngineWallSeconds": 12273.216670481983,
+          "simulationSeconds": 9600.333333331175,
+          "diagnosticWallSeconds": 154.928236754,
+          "fullProcessWallSeconds": 12462.87048597599,
+          "osPeakRssBytes": 1012539392,
+          "sampledPeakRssBytes": 1006477312,
+          "cpuStealFraction": 0.09987896354187308,
+          "neuralDeliveriesExcludingTerminal": 20001703,
+          "inferenceSeconds": 7940.99567,
+          "inferenceMicrosPerNonterminalDelivery": 397.0159775895083
+        },
+        "i16-matrix-fma128": {
+          "normalEngineWallSeconds": 9840.822494480002,
+          "simulationSeconds": 9600.333333331175,
+          "diagnosticWallSeconds": 160.83514063200002,
+          "fullProcessWallSeconds": 10039.71765659604,
+          "osPeakRssBytes": 1242468352,
+          "sampledPeakRssBytes": 1242390528,
+          "cpuStealFraction": 0.08474719755063456,
+          "neuralDeliveriesExcludingTerminal": 20393527,
+          "inferenceSeconds": 5366.050747,
+          "inferenceMicrosPerNonterminalDelivery": 263.12519394021444
+        }
+      },
+      "simulationThroughputSpeedup": 1.2471738695994548,
+      "inferenceCostPerDeliverySpeedup": 1.5088482088861301
+    },
+    "quantizationTrends": [
+      {
+        "seed": 104729,
+        "backend": "i16-matrix-fma128",
+        "first": {
+          "quantizationRelativeRmse": 3.388995972324176e-05,
+          "matrixScaleMax": 3.888826904585585e-05,
+          "matrixMaxToP99Max": 3.2440206258174675,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "last": {
+          "quantizationRelativeRmse": 3.580326679940872e-05,
+          "matrixScaleMax": 4.327017813920975e-05,
+          "matrixMaxToP99Max": 3.084929008462341,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "totalClipping": 0,
+        "totalForbiddenMagnitude": 0,
+        "minimumUniqueCanonicalGenomes": 85,
+        "minimumSpecies": 1,
+        "sampledControllerMaxError": 0.0020581483840942383
+      },
+      {
+        "seed": 104729,
+        "backend": "sse2",
+        "first": {
+          "quantizationRelativeRmse": 3.388995972324176e-05,
+          "matrixScaleMax": 3.888826904585585e-05,
+          "matrixMaxToP99Max": 3.2440206258174675,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "last": {
+          "quantizationRelativeRmse": 3.5357273712963136e-05,
+          "matrixScaleMax": 3.9428326999768615e-05,
+          "matrixMaxToP99Max": 2.832448643490937,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "totalClipping": 0,
+        "totalForbiddenMagnitude": 0,
+        "minimumUniqueCanonicalGenomes": 85,
+        "minimumSpecies": 1,
+        "sampledControllerMaxError": 0.0019840821623802185
+      }
+    ],
+    "artifacts": {
+      "sse2": {
+        "manifestEntriesVerified": 5,
+        "manifestSha256": "ec0384c8f8445506d38d49182882e12863b84c917297ec3d11dba40feb3d9e88",
+        "finalCheckpoint": {
+          "file": "a80b26b8826fde48f15ae94d5d433e4cf579640cb43d60c593f24d968efcb0f4.checkpoint-v3",
+          "sha256": "a6f16cc177367536cf1d656a4b1d0cc92a40a52e3125b51eae293272548fd806",
+          "logicalRootSha256": "a80b26b8826fde48f15ae94d5d433e4cf579640cb43d60c593f24d968efcb0f4"
+        }
+      },
+      "i16-matrix-fma128": {
+        "manifestEntriesVerified": 5,
+        "manifestSha256": "dec286593a8f82751f8529afc0344646e57edb20689ca5f36fe773862cf37c61",
+        "finalCheckpoint": {
+          "file": "0040a4ea04c437139d5520c86d1854d8f2fd0604e9c5d4a24580dd3ffb9c8d8f.checkpoint-v3",
+          "sha256": "4529aec33d0695b65f56351af6de4037482ce7bb7219a0b57eb37e6561fcbe0b",
+          "logicalRootSha256": "0040a4ea04c437139d5520c86d1854d8f2fd0604e9c5d4a24580dd3ffb9c8d8f"
+        }
+      }
+    },
+    "analysisManifestSha256": "7b93bcd9cb18af632fa13e9ee8671f16fb3bad5ebae03d1129aee34ac600893c",
+    "caveats": [
+      "One independent seed pair cannot support a qualification decision.",
+      "Normal engine throughput is workload-dependent across divergent populations; full-i16 delivered 1.96 percent more neural observations.",
+      "VM CPU steal was about 9.99 percent for SSE2 and 8.47 percent for full-i16; ratios are measured, not steal-corrected.",
+      "SSE2 population quantization diagnostics are counterfactual.",
+      "Controller probes use common post-publication recurrent state and do not test independent-feedback equivalence."
+    ],
+    "quantizationExtrema": [
+      {
+        "backend": "sse2",
+        "matrixRecordsExamined": 20400,
+        "affineBiasScaleSetters": 0,
+        "affineTiedScaleSetters": 0,
+        "maximumOutlierRatioToP99": 3.5501429301429477,
+        "largestScale": {
+          "generation": 16,
+          "slot": 42,
+          "node": "mlp-b",
+          "matrixWithinNode": 0,
+          "scale": 4.284669557819143e-05,
+          "scaleSetter": "weight",
+          "canonicalMaxAbs": 1.403957724571228,
+          "biasMaxAbs": 0.8808767199516296,
+          "quantizationRmse": 1.2368235006817799e-05,
+          "maxToP99": 2.219669048875969
+        }
+      },
+      {
+        "backend": "i16-matrix-fma128",
+        "matrixRecordsExamined": 20400,
+        "affineBiasScaleSetters": 0,
+        "affineTiedScaleSetters": 0,
+        "maximumOutlierRatioToP99": 3.5496672723372433,
+        "largestScale": {
+          "generation": 16,
+          "slot": 29,
+          "node": "mlp-b",
+          "matrixWithinNode": 0,
+          "scale": 5.133946979185566e-05,
+          "scaleSetter": "weight",
+          "canonicalMaxAbs": 1.68224036693573,
+          "biasMaxAbs": 0.7438163161277771,
+          "quantizationRmse": 1.4816195055741624e-05,
+          "maxToP99": 2.658901612394191
+        }
+      }
+    ],
+    "transientOutlier": "Full-i16 largest scale occurred in generation 16 from an ordinary MLP weight of 1.68224036693573; maximum scale fell from 5.133946979185566e-5 to 4.015595550299622e-5 in generation 17. No bias-set affine scales or clipping occurred in either completed run."
   }
 }
