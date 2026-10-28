@@ -134,5 +134,70 @@
     "validation-linux.json": "cb806e1d033047e7a002f79c6d3d13a41bb50da3bb03278f9e6cf649a78d4bb7",
     "validation-windows/receipt.json": "dd7f9fd336a82b4f73780ac143bc60ae90f6b39c395bed7bc37938dc5ce3c991",
     "validation-windows/SHA256SUMS": "8e595ef1042cf46e800c0fe04c3b51887be62cc16e3de899730a4a5eaef1f52e"
+  },
+  "initialQuantizationAudit": {
+    "sourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+    "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
+    "auditSha256": "7d3cac3a48f89f658b63c6f05d18140f6735d51325f05ef7b2033a32ccc5508b",
+    "genomes": 85,
+    "matrices": 1020,
+    "affineMatrices": 340,
+    "biasScaleSetters": 0,
+    "tiedBiasAndWeightScaleSetters": 0,
+    "maximumBiasScaleInflation": 1.0,
+    "maximumScale": 3.888826904585585e-05,
+    "medianScale": 2.24898976739496e-05,
+    "maximumCanonicalMatrixMagnitude": 1.274251937866211,
+    "maximumOutlierRatioToP99": 3.2440206258174675,
+    "aggregate": {
+      "clippingCount": 0,
+      "mae": 6.004554391866896e-06,
+      "maxError": 1.9490718841552734e-05,
+      "meanAbs": 0.16465192575569867,
+      "relativeRmse": 3.388995972324176e-05,
+      "rms": 0.21091977092782482,
+      "rmse": 7.148062541579362e-06,
+      "symmetricEndpointCount": 1020,
+      "values": 118618520
+    },
+    "groups": [
+      {
+        "node": "LSTM",
+        "matrices": 680,
+        "maximumScale": 2.9673035896848887e-05,
+        "meanRelativeRmse": 4.199596866958022e-05,
+        "biasScaleSetters": 0
+      },
+      {
+        "node": "mlp-a",
+        "matrices": 85,
+        "maximumScale": 3.100850517512299e-05,
+        "meanRelativeRmse": 3.206595040720027e-05,
+        "biasScaleSetters": 0
+      },
+      {
+        "node": "mlp-b",
+        "matrices": 255,
+        "maximumScale": 3.888826904585585e-05,
+        "meanRelativeRmse": 2.4725796800454e-05,
+        "biasScaleSetters": 0
+      }
+    ]
+  },
+  "matureCohortBoundaryAudit": {
+    "seed": 104729,
+    "backend": "sse2",
+    "generation": 1,
+    "simulatedSeconds": 480.01666666655876,
+    "completedLives": 74,
+    "survivalCensoredFraction": 0.12941176470588237,
+    "eliteCopies": 10,
+    "offspring": 75,
+    "sampledComparisons": 15,
+    "canonicalF32UnchangedDuringEvaluation": true,
+    "quantizationUnchangedDuringEvaluation": true,
+    "rawRecordSha256": "09989db369a1aa1738b49e98ab324466ce04e67794e85ce9431ae246f2bb28e6",
+    "nativePhaseSamples": 28801,
+    "note": "First SSE2 generation verifies the mature-cohort instrumentation; no evolutionary comparison or qualification decision yet."
   }
 }
