@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
+#[cfg(feature = "engine-test-hooks")]
+pub mod feedback_diagnostics;
 mod matrix_i16;
 pub(crate) use matrix_i16::matrix_i16_cache_admission_bytes;
 pub use matrix_i16::QuantizedInferenceWeights;

@@ -107,3 +107,8 @@ required-features = ["engine-test-hooks"]
 name = "evolved-i16-qualification"
 path = "src/bin/evolved_i16_qualification.rs"
 required-features = ["engine-test-hooks"]
+
+[[bin]]
+name = "recurrent-feedback-investigation"
+path = "src/bin/recurrent_feedback_investigation.rs"
+required-features = ["engine-test-hooks"]
