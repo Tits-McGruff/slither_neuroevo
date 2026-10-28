@@ -80,9 +80,13 @@ def main():
                 for pair_index in range(6):
                     row = data[pair_index]
                     for metric, threshold in ((4, 1e-3), (1, 1e-2)):
-                        start = onset(row[:, metric], threshold)["persistentWindowStart"]
+                        crossing = onset(row[:, metric], threshold)
+                        start = crossing["persistentWindowStart"]
                         if start is not None:
                             intervals.append((max(1,start-32), min(10000,start+160)))
+                        if pair_index < 2 and crossing["firstCrossing"] is not None:
+                            first = crossing["firstCrossing"]
+                            intervals.append((max(1,first-32), min(10000,first+64)))
                     peak = int(row[:, 2].argmax()+1)
                     if row[:, 2].max() > 0.01:
                         intervals.append((max(1,peak-32), min(10000,peak+32)))
