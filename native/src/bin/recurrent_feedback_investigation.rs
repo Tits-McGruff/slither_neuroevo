@@ -145,7 +145,7 @@ fn main() -> Result<(), AnyError> {
         for step in 0..deliveries {
             let row = step % 32;
             let input = &observation_bank[slot][row*264..(row+1)*264];
-            let capture = windows.iter().any(|w| w.slot == slot && w.first <= step+1 && step+1 <= w.last);
+            let capture = windows.iter().any(|w| w.slot == slot && w.first <= step+1 && step < w.last);
             let mut mode_traces = Vec::new();
             for (index, mode) in FeedbackMode::ALL.into_iter().enumerate() {
                 match mode {
@@ -174,13 +174,13 @@ fn main() -> Result<(), AnyError> {
                 writeln!(trace_file)?; trace_count += 1;
             }
             // Six candidates against SSE2, plus i16 against F32-FMA128.
-            for pair in 0..7 {
+            for (pair, pair_totals) in totals.iter_mut().enumerate() {
                 let (candidate, reference) = if pair < 6 { (pair+1, 0) } else { (2, 1) };
                 let errors = [ErrorStats::between(&outputs[candidate], &outputs[reference]),
                     ErrorStats::between(&after[candidate][..396], &after[reference][..396]),
                     ErrorStats::between(&after[candidate][396..], &after[reference][396..])];
                 write!(csv,"{slot},{},{}:{}", step+1, FeedbackMode::ALL[candidate].label(), FeedbackMode::ALL[reference].label())?;
-                for (total, e) in totals[pair].iter_mut().zip(errors) {
+                for (total, e) in pair_totals.iter_mut().zip(errors) {
                     total.merge(e); write!(csv,",{},{},{}",e.mae(),(e.squared/e.count as f64).sqrt(),e.max)?;
                 }
                 writeln!(csv,",{},{},{},{}",outputs[candidate][0],outputs[candidate][1],outputs[reference][0],outputs[reference][1])?;

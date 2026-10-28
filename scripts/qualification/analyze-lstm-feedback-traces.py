@@ -1,0 +1,91 @@
+"""Decompose retained LSTM traces into local arithmetic and propagated errors."""
+import argparse
+import csv
+import gzip
+import json
+from pathlib import Path
+
+import numpy as np
+
+GATES = ("input", "forget", "output", "candidate")
+
+
+def cells(rows, field):
+    return np.asarray([row[field] for row in rows], dtype=np.float64)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", type=Path)
+    args = parser.parse_args()
+    root = args.root.resolve()
+    peaks = {}
+    counts = {}
+    retained = []
+    with (root / "internal-lstm-error-over-time.csv").open("w",newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["slot","delivery","mode","gate","input_dot_local_max","recurrent_dot_local_max",
+                         "preactivation_local_max","preactivation_propagated_max","preactivation_total_max",
+                         "gate_total_max","preactivation_sign_changes","cell_max","hidden_max","dominant_cell",
+                         "reference_cell","candidate_cell","reference_hidden","candidate_hidden",
+                         "memory_carry_delta","forget_gate_delta","candidate_drive_delta","input_gate_delta",
+                         "cell_decomposition_residual"])
+        for slot in (24,30,35):
+            with gzip.open(root / f"trace/slot-{slot:02}-lstm.jsonl.gz","rt") as source:
+                for line in source:
+                    step = json.loads(line)
+                    counts[slot] = counts.get(slot,0)+1
+                    reference = step["modes"][0]["lstm"]
+                    ref_pre = cells(reference,"preactivation")
+                    ref_gate = cells(reference,"gate")
+                    ref_c = cells(reference,"next_cell")
+                    ref_h = cells(reference,"next_hidden")
+                    ref_previous_c = cells(reference,"previous_cell")
+                    for mode in step["modes"][1:]:
+                        own = mode["lstm"]
+                        same_state_sse = mode["sseOnSameStateLstm"]
+                        pre = cells(own,"preactivation")
+                        local_pre = pre-cells(same_state_sse,"preactivation")
+                        propagated_pre = cells(same_state_sse,"preactivation")-ref_pre
+                        gates = cells(own,"gate")
+                        c = cells(own,"next_cell")
+                        h = cells(own,"next_hidden")
+                        previous_c = cells(own,"previous_cell")
+                        dominant = int(np.argmax(np.abs(c-ref_c)))
+                        # Exact real-number decomposition of the F32 gate/state
+                        # values. The residual is the ordinary F32 update rounding.
+                        memory = ref_gate[:,1]*(previous_c-ref_previous_c)
+                        forget = (gates[:,1]-ref_gate[:,1])*previous_c
+                        candidate = ref_gate[:,0]*(gates[:,3]-ref_gate[:,3])
+                        input_gate = (gates[:,0]-ref_gate[:,0])*gates[:,3]
+                        residual = (c-ref_c)-(memory+forget+candidate+input_gate)
+                        input_local = cells(own,"input_dot")-cells(same_state_sse,"input_dot")
+                        recurrent_local = cells(own,"recurrent_dot")-cells(same_state_sse,"recurrent_dot")
+                        for gate,gatename in enumerate(GATES):
+                            writer.writerow([slot,step["delivery"],mode["mode"],gatename,
+                                np.abs(input_local[:,gate]).max(),np.abs(recurrent_local[:,gate]).max(),
+                                np.abs(local_pre[:,gate]).max(),np.abs(propagated_pre[:,gate]).max(),np.abs(pre[:,gate]-ref_pre[:,gate]).max(),
+                                np.abs(gates[:,gate]-ref_gate[:,gate]).max(),np.sum(np.signbit(pre[:,gate])!=np.signbit(ref_pre[:,gate])),
+                                np.abs(c-ref_c).max(),np.abs(h-ref_h).max(),dominant,
+                                ref_c[dominant],c[dominant],ref_h[dominant],h[dominant],
+                                memory[dominant],forget[dominant],candidate[dominant],input_gate[dominant],residual[dominant]])
+                        key = f"{slot}:{mode['mode']}"
+                        peak = float(np.abs(c-ref_c).max())
+                        if key not in peaks or peak > peaks[key]["cellMax"]:
+                            peaks[key] = {"slot":slot,"mode":mode["mode"],"delivery":step["delivery"],"cellMax":peak,
+                                "hiddenMax":float(np.abs(h-ref_h).max()),"cell":dominant,
+                                "reference":reference[dominant],"candidate":own[dominant],"sseOnCandidateState":same_state_sse[dominant],
+                                "maxLocalPreactivation":float(np.abs(local_pre).max()),"maxPropagatedPreactivation":float(np.abs(propagated_pre).max()),
+                                "controller":mode["controller"],"referenceController":step["modes"][0]["controller"]}
+                        if step["delivery"] % 32 == 0:
+                            retained.append({"slot":slot,"delivery":step["delivery"],"mode":mode["mode"],
+                                "cellMax":peak,"hiddenRms":float(np.sqrt(np.mean((h-ref_h)**2))),
+                                "preactivationLocalMax":float(np.abs(local_pre).max()),"preactivationPropagatedMax":float(np.abs(propagated_pre).max())})
+            print("internal traces analyzed",slot,counts[slot],flush=True)
+    (root / "internal-lstm-analysis.json").write_text(json.dumps({"traceDeliveries":counts,"peaks":peaks,"observationCycleBoundaries":retained,
+        "decomposition":"preactivation candidate - SSE reference = (candidate - SSE evaluated on candidate prior state) + (SSE on candidate state - SSE reference)",
+        "cellDecomposition":"delta c = f_ref*delta previous_c + delta f*previous_c_candidate + i_ref*delta g + delta i*g_candidate + F32 rounding residual",
+        "scope":"All gates/cells for every backend/ablation within explicit captured windows; peaks are peaks within those windows"},indent=2)+"\n")
+
+
+if __name__ == "__main__": main()
