@@ -127,9 +127,11 @@ def main():
         for backend in ("sse2", "i16-matrix-fma128"):
             run = runs[(seed, backend)]
             receipt = json.loads((args.artifacts / f"seed-{seed}-{backend}-receipt.json").read_text())
+            native_report = json.loads((args.artifacts / f"seed-{seed}-{backend}/report.json").read_text())
             values[backend] = {"normalEngineWallSeconds": sum(r["normalEngineWallSeconds"] for r in run), "simulationSeconds": sum(r["simulatedSeconds"] for r in run),
                 "diagnosticWallSeconds": sum(r["diagnosticWallSeconds"] for r in run), "fullProcessWallSeconds": receipt["wallSeconds"],
-                "peakRssBytes": receipt["sampledPeakRssBytes"], "cpuStealFraction": receipt["aggregateCpuStealFraction"],
+                "osPeakRssBytes": native_report["peakRssBytes"], "sampledPeakRssBytes": receipt["sampledPeakRssBytes"],
+                "cpuStealFraction": receipt["aggregateCpuStealFraction"],
                 "neuralDeliveriesExcludingTerminal": sum(r["neuralDeliveriesExcludingTerminal"] for r in run), "inferenceSeconds": sum(r["inferenceSeconds"] for r in run)}
         a, b = values["sse2"], values["i16-matrix-fma128"]
         performance.append({"seed": seed, "backends": values, "simulationThroughputSpeedup": (a["normalEngineWallSeconds"] / a["simulationSeconds"]) / (b["normalEngineWallSeconds"] / b["simulationSeconds"]),
