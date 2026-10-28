@@ -1,5 +1,5 @@
 {
-  "status": "All measurements and scientific analysis complete; Linux validation running",
+  "status": "complete; opt-in backend; SSE2 remains default",
   "sourceCommit": "1679938909744bb63c11259c361cb6bc3fa0bf53",
   "nativeSourceSha256": "4ea6c1308f933bf613b962d61e1fa00eb6dd69513ac9910d38b8a833b4f9ae9f",
   "buildContractSha256": "sha256:033119a7009787468f6cc885add333b42396edc60fc10e1a0b4d347927e587f3",
@@ -406,5 +406,31 @@
   "laterDiagnosticNativeSourceSha256": "9e54ebc21df34d0b9e65a07fb74b16627791d78e4acca00c4ea55b065d3bb494",
   "laterDiagnosticChange": "Full-layout ablation helper rejects compact cache/plan before indexing; test added. Measured inference code unchanged.",
   "analysisSourceCommit": "5b1d01e845b9ad110df7b63302de3da9baf22fee",
-  "compressedTraceSha256": "7459ec62be338a2d9d16cd6fa238f455396348d417e31ffeae0ece74d0658bd6"
+  "compressedTraceSha256": "7459ec62be338a2d9d16cd6fa238f455396348d417e31ffeae0ece74d0658bd6",
+  "validation": {
+    "measurementSourceLinuxReleaseHooksLibraryPassed": 836,
+    "finalNativeSourceCommit": "c2315c5048e5d3a5ae138127e46bbcc62262a9ca",
+    "finalNativeSourceSha256": "9e54ebc21df34d0b9e65a07fb74b16627791d78e4acca00c4ea55b065d3bb494",
+    "windowsDefaultLibraryPassed": 745,
+    "windowsReleaseHooksLibraryPassed": 836,
+    "linuxDefaultLibraryPassed": 745,
+    "linuxReleaseHooksLibraryPassed": 837,
+    "binaryAndDocTests": "passed on both platforms",
+    "fmtCheck": "passed",
+    "cargoCheck": "passed",
+    "clippyAllTargetsAllFeaturesDenyWarnings": "passed",
+    "sourceIdentityUnitTests": {
+      "passed": 9,
+      "windowsSymlinkPrivilegeSkips": 3
+    },
+    "worker1And7ContinuationMatched": true,
+    "automaticBranchCiRuns": 0,
+    "ciNote": "Explicit local and Oxygen validation receipts retained",
+    "debugHooksAttempt": "Seven pre-existing release-profile guards failed in debug; required release suites passed"
+  },
+  "preservation": {
+    "existingQualificationArtifactsVerifiedBothHosts": 280,
+    "originalUnfinishedSourceFilesVerified": 22
+  },
+  "artifactManifest": "SHA256SUMS"
 }
