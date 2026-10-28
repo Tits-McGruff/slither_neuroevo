@@ -194,6 +194,21 @@ SSE2 remains the default. Further diverse observation streams and behavioral
 qualification are still needed for any candidate; this repeated-bank study
 isolates arithmetic/state sensitivity rather than establishing live-game parity.
 
+## Validation
+
+Windows validation passed: rustfmt, `cargo check`, ordinary `cargo test` (741
+library tests plus the doctest), release/test-hooks library tests (830), and
+Clippy across all targets/features with warnings denied. Oxygen validation
+passed: rustfmt, `cargo check`, release/test-hooks library tests (831), the
+investigation executable's unit test, and Clippy across all targets/features
+with warnings denied. The test-hooks LSTM tracer matches the ordinary SSE2,
+F32-FMA128 and matrix-i16 endpoints in both the small-shape unit test and the
+mature-cohort captures. All new Python tools pass syntax compilation.
+
+All six experiment/validation phases completed successfully; that status means
+the commands and structural/numerical consistency checks completed, not that
+matrix-i16 passed a default-promotion gate. No remaining test failure was found.
+
 ## Artifacts and reproduction
 
 Generated results remain outside Git under the preserved qualification root:
@@ -211,6 +226,9 @@ The analysis summary SHA256 is
 `f02bb7185d7992588c032b76605e555cc8ffe0c93930df505fda919f62f570f6`.
 Large traces/checkpoints are retained as local/target-host artifacts, not Git
 payloads or source snapshots.
+The companion [SHA256 manifest](mature-matrix-i16-feedback-20261028.sha256)
+identifies 265 retained new result files. Mutable progress/cleanup records are
+excluded from those scientific artifact checksums.
 
 The ordinary test-hooks executable can be run against the retained inputs with
 a new output directory:
