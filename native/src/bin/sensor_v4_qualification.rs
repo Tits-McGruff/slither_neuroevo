@@ -363,6 +363,7 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
             "scalar" => InferenceMathBackend::Scalar,
             "sse2" => InferenceMathBackend::Sse2,
             "i16-matrix-fma128" => InferenceMathBackend::I16MatrixFma128,
+            "i16-affine-fma128-sse2" => InferenceMathBackend::I16AffineFma128,
             _ => return Err("invalid arithmetic backend".into()),
         },
         warmup_steps: integer("--warmup", "3")?,

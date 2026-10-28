@@ -524,11 +524,15 @@ pub fn run_stage4_inference_evidence(
         (_, InferenceMathBackend::BenchmarkF32Fma128) => "benchmark F32 FMA comparator",
         (_, InferenceMathBackend::Scalar) => "new measured development-machine Rust scalar result",
         (_, InferenceMathBackend::I16MatrixFma128) => "new measured matrix i16 inference result",
+        (_, InferenceMathBackend::I16AffineFma128) => {
+            "new measured affine i16 with F32/SSE2 recurrence result"
+        }
         (_, InferenceMathBackend::Sse2) => "new measured development-machine Rust SSE2 result",
     };
     let (path_name, caveat) = match options.math_backend {
         InferenceMathBackend::BenchmarkF32Fma128 => ("benchmark-f32-fma128", "Benchmark-only arithmetic comparator; no checkpoint identity."),
         InferenceMathBackend::I16MatrixFma128 => ("rust-i16-matrix-fma128", "Synthetic inference microbenchmark; production-machine qualification remains required."),
+        InferenceMathBackend::I16AffineFma128 => ("rust-i16-affine-fma128-sse2", "Opt-in mixed inference microbenchmark; production-machine qualification remains required."),
         InferenceMathBackend::Scalar => (
             "rust-scalar-coarse-heterogeneous",
             "Source-shaped synthetic inference-only microbenchmark. It excludes actual fresh/evolved genomes and sensor observations, sensing, physics, frames, Node, N-API, the live coordinator, SIMD, parallelism, and end-to-end server latency; it cannot by itself satisfy the Stage 4 production-workload gate.",

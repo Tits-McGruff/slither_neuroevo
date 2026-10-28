@@ -595,6 +595,18 @@ default. Native callers select `InferenceMathBackend::I16MatrixFma128` explicitl
 through `prepare_configured_fresh_run_with_math`; reset and restore preserve the
 recorded backend. Teacher/reference paths retain their existing backend choices.
 
+The separate opt-in backend `rust-i16-affine-fma128-sse2-v1` quantizes only
+Dense/MLP matrices using the same matrix scales, interleaved bias handling and
+128-bit i16/FMA kernel. Every recurrent node (including the entire LSTM) reads
+canonical F32 weights and uses existing SSE2 arithmetic. Its packed cache omits
+recurrent weights and biases. Native callers select
+`InferenceMathBackend::I16AffineFma128`; the sensor qualifier accepts
+`--math-backend i16-affine-fma128-sse2`. Runtime SSE4.1/FMA support is required.
+The existing SSE2 default and full matrix-i16 backend retain their identities.
+In graphs with quantized affine nodes upstream of recurrence, changed inputs can
+still change recurrent state; F32 recurrent arithmetic does not promise equal
+state for different inputs.
+
 For inference-only qualification on Oxygen, run from `native/`:
 
 ```sh
@@ -620,6 +632,7 @@ wall time. The default `--clock controlled` retains deterministic step schedulin
 Custom graphs cannot be combined with canned, trained-cohort or shadow graph
 sources. Backend selection remains explicit through `--math-backend sse2` or
 `--math-backend i16-matrix-fma128`; neither option changes production defaults.
+The mixed option above also requires explicit selection and does not alter defaults.
 
 For an actual checkpoint population, use `--evolved-checkpoint FILE --population 85`
 instead of another graph source. `--source-build-class production` explicitly

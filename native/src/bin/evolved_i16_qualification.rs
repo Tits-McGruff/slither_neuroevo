@@ -96,7 +96,7 @@ impl Brain {
     fn evaluate(&mut self, plan: &GraphExecutionPlan, step: usize) {
         let row = step % (self.rows.len() / self.width);
         let input = &self.rows[row * self.width..(row + 1) * self.width];
-        if plan.math_backend() == InferenceMathBackend::I16MatrixFma128 {
+        if plan.math_backend().uses_i16_cache() {
             plan.evaluate_quantized(
                 &self.weights,
                 &self.cache,
@@ -132,10 +132,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut warmup = 30;
     let mut passes = 300;
     let mut repetitions = 3;
+    let mut candidate = InferenceMathBackend::I16MatrixFma128;
+    let mut require_exact_recurrent = false;
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let value = args.next().ok_or("missing argument")?;
         match flag.as_str() {
+            "--candidate" => {
+                candidate = match value.as_str() {
+                    "i16-matrix-fma128" => InferenceMathBackend::I16MatrixFma128,
+                    "i16-affine-fma128-sse2" => InferenceMathBackend::I16AffineFma128,
+                    _ => return Err("invalid candidate".into()),
+                }
+            }
             "--checkpoint" => source = Some(PathBuf::from(value)),
             "--observation-bank" => observation_source = Some(PathBuf::from(value)),
             "--output" => output = Some(PathBuf::from(value)),
@@ -145,6 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "--warmup" => warmup = value.parse()?,
             "--passes" => passes = value.parse()?,
             "--repetitions" => repetitions = value.parse()?,
+            "--require-exact-recurrent" => require_exact_recurrent = value.parse()?,
             _ => return Err("unknown option".into()),
         }
     }
@@ -161,12 +171,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cohort = EvolvedCohort::load(&source.ok_or("--checkpoint required")?, count)?;
     let graph = &cohort.graph;
     let sse = GraphExecutionPlan::build_with_math_backend(graph, InferenceMathBackend::Sse2)?;
-    let quantized =
-        GraphExecutionPlan::build_with_math_backend(graph, InferenceMathBackend::I16MatrixFma128)?;
+    let quantized = GraphExecutionPlan::build_with_math_backend(graph, candidate)?;
     let fma = GraphExecutionPlan::build_with_math_backend(
         graph,
         InferenceMathBackend::BenchmarkF32Fma128,
     )?;
+    let full_i16 =
+        GraphExecutionPlan::build_with_math_backend(graph, InferenceMathBackend::I16MatrixFma128)?;
     let width = sse.input_size();
     let observation_bank: Option<Vec<Vec<f32>>> = observation_source
         .as_ref()
@@ -228,14 +239,27 @@ fn main() -> Result<(), Box<dyn Error>> {
         serde_json::to_vec_pretty(&matrices)?,
     )?;
     let mut timings = Vec::new();
+    let mut cached_backend = candidate;
     for repetition in 0..repetitions {
-        // Alternate order to expose warm host/order effects.
-        let plans = if repetition % 2 == 0 {
-            [&sse, &fma, &quantized]
-        } else {
-            [&quantized, &fma, &sse]
-        };
+        // Rotate/reverse order. Eight mixed repetitions balance all four
+        // implementations across positions. Cache switches and warmup are untimed.
+        let mut plans = vec![&sse, &fma];
+        if candidate == InferenceMathBackend::I16AffineFma128 {
+            plans.push(&full_i16);
+        }
+        plans.push(&quantized);
+        let len = plans.len();
+        plans.rotate_left(repetition % len);
+        if repetition / len % 2 == 1 {
+            plans.reverse();
+        }
         for plan in plans {
+            if plan.math_backend().uses_i16_cache() && cached_backend != plan.math_backend() {
+                for brain in &mut brains {
+                    brain.cache = plan.quantize(&brain.weights)?;
+                }
+                cached_backend = plan.math_backend();
+            }
             brains.iter_mut().for_each(Brain::reset);
             for step in 0..warmup {
                 pool.install(|| brains.par_iter_mut().for_each(|b| b.evaluate(plan, step)));
@@ -248,6 +272,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             timings.push(json!({"repetition":repetition,"backend":plan.math_backend().label(),"msPerPopulationPass":ms,"populationPassesPerSecond":1000.0/ms}));
         }
         eprintln!("benchmark repetition {} complete", repetition + 1);
+    }
+    if cached_backend != candidate {
+        for brain in &mut brains {
+            brain.cache = quantized.quantize(&brain.weights)?;
+        }
     }
     let time_series: Vec<_> = pool.install(|| {
         brains
@@ -295,6 +324,25 @@ fn main() -> Result<(), Box<dyn Error>> {
                     window_errors[step / 1000][0].add(&paired, &reference);
                     window_errors[step / 1000][1].add(&paired_state, &after);
                     brain.evaluate(&quantized, step);
+                    if require_exact_recurrent {
+                        assert!(
+                            paired_state
+                                .iter()
+                                .zip(&after)
+                                .all(|(a, b)| a.to_bits() == b.to_bits()),
+                            "paired recurrence differs at slot {slot}, delivery {}",
+                            step + 1
+                        );
+                        assert!(
+                            brain
+                                .before
+                                .iter()
+                                .zip(&after)
+                                .all(|(a, b)| a.to_bits() == b.to_bits()),
+                            "feedback recurrence differs at slot {slot}, delivery {}",
+                            step + 1
+                        );
+                    }
                     errors[2].add(&brain.output, &reference);
                     errors[3].add(&brain.before, &after);
                     window_errors[step / 1000][2].add(&brain.output, &reference);
@@ -373,6 +421,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "sourceCohort":cohort.provenance,"brains":count,"workers":workers,"warmup":warmup,"passes":passes,"repetitions":repetitions,"timings":timings,
         "conversionMs":conversion_ms,"cacheBytes":brains.iter().map(|b|b.cache.allocated_bytes()).sum::<usize>(),"canonicalBytes":count*graph.total_parameters*4,
         "deliveries":deliveries,"referenceBackend":sse.math_backend().label(),"candidateBackend":quantized.math_backend().label(),
+        "requireExactRecurrent":require_exact_recurrent,
         "errorOrder":["pairedController","pairedRecurrent","feedbackController","feedbackRecurrent"],
         "errors":aggregate.iter().map(Errors::report).collect::<Vec<_>>(),"perGenome":per_genome,
         "deliveryWindows":window_report(&aggregate_windows),

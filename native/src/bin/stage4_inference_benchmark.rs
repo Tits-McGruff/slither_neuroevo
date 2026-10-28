@@ -70,9 +70,10 @@ fn parse_options() -> Result<CliOptions, String> {
                     "scalar" => InferenceMathBackend::Scalar,
                     "sse2" => InferenceMathBackend::Sse2,
                     "i16-matrix-fma128" => InferenceMathBackend::I16MatrixFma128,
+            "i16-affine-fma128-sse2" => InferenceMathBackend::I16AffineFma128,
                     _ => {
                         return Err(
-                            "--math-backend must be scalar, sse2 or i16-matrix-fma128".to_owned()
+                            "--math-backend must be scalar, sse2, i16-matrix-fma128 or i16-affine-fma128-sse2".to_owned()
                         )
                     }
                 });

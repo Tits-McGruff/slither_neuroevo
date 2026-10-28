@@ -1469,6 +1469,9 @@ fn production_restore_policy(
     policy
         .allowed_math_backends
         .push(InferenceMathBackend::I16MatrixFma128.label().into());
+    policy
+        .allowed_math_backends
+        .push(InferenceMathBackend::I16AffineFma128.label().into());
     policy.allowed_settings_schema_sha256.push(modern);
     for mut settings in [
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
@@ -2894,58 +2897,63 @@ mod tests {
         if !InferenceMathBackend::I16MatrixFma128.is_available() {
             return;
         }
-        let settings = numeric_fresh_settings(selected_fresh_default_settings().unwrap());
-        let mut fresh = prepare_configured_fresh_run_with_math(
-            request(42),
-            &settings,
-            super::super::graph::default_stack_graph_spec(264),
+        for backend in [
             InferenceMathBackend::I16MatrixFma128,
-        )
-        .unwrap();
-        let original = fresh.startup_metadata_json().unwrap();
-        let directory = TestDirectory::create("matrix-i16-checkpoint");
-        let descriptor = fresh
-            .publish_checkpoint(
+            InferenceMathBackend::I16AffineFma128,
+        ] {
+            let settings = numeric_fresh_settings(selected_fresh_default_settings().unwrap());
+            let mut fresh = prepare_configured_fresh_run_with_math(
+                request(42),
+                &settings,
+                super::super::graph::default_stack_graph_spec(264),
+                backend,
+            )
+            .unwrap();
+            let original = fresh.startup_metadata_json().unwrap();
+            let directory = TestDirectory::create("matrix-i16-checkpoint");
+            let descriptor = fresh
+                .publish_checkpoint(
+                    directory.path(),
+                    CheckpointOperationId::parse("abcdefabcdefabcdefabcdefabcdefab").unwrap(),
+                )
+                .unwrap();
+            let mut restored = prepare_stage6a_p0_checkpoint_restore(
                 directory.path(),
-                CheckpointOperationId::parse("abcdefabcdefabcdefabcdefabcdefab").unwrap(),
+                &descriptor,
+                TEST_MEMORY_CEILING,
             )
             .unwrap();
-        let mut restored = prepare_stage6a_p0_checkpoint_restore(
-            directory.path(),
-            &descriptor,
-            TEST_MEMORY_CEILING,
-        )
-        .unwrap();
-        assert_eq!(restored.startup_metadata_json().unwrap(), original);
-        fresh.acknowledge_persistence(&descriptor).unwrap();
-        fresh.configure_calculation_workers(1).unwrap();
-        restored
-            .configure_calculation_workers(
-                3.min(super::super::calculation_workers::available_calculation_workers()),
-            )
-            .unwrap();
-        for transition in [&mut fresh, &mut restored] {
-            transition.publish_running_authority().unwrap();
-        }
-        let mut fresh = fresh
-            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
-            .unwrap();
-        let mut restored = restored
-            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
-            .unwrap();
-        let mut left = Vec::with_capacity(fresh.admitted_frame_bytes());
-        let mut right = Vec::with_capacity(restored.admitted_frame_bytes());
-        for now in (17..=170).step_by(17) {
-            fresh
-                .service_after_command_drain(now, SchedulerServiceMode::Background, None)
-                .unwrap();
+            assert_eq!(restored.startup_metadata_json().unwrap(), original);
+            fresh.acknowledge_persistence(&descriptor).unwrap();
+            fresh.configure_calculation_workers(1).unwrap();
             restored
-                .service_after_command_drain(now, SchedulerServiceMode::Background, None)
+                .configure_calculation_workers(
+                    3.min(super::super::calculation_workers::available_calculation_workers()),
+                )
                 .unwrap();
-            assert_eq!(fresh.completed_step(), restored.completed_step());
-            fresh.pack_display_into(now, &mut left).unwrap();
-            restored.pack_display_into(now, &mut right).unwrap();
-            assert_eq!(left, right);
+            for transition in [&mut fresh, &mut restored] {
+                transition.publish_running_authority().unwrap();
+            }
+            let mut fresh = fresh
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            let mut restored = restored
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            let mut left = Vec::with_capacity(fresh.admitted_frame_bytes());
+            let mut right = Vec::with_capacity(restored.admitted_frame_bytes());
+            for now in (17..=170).step_by(17) {
+                fresh
+                    .service_after_command_drain(now, SchedulerServiceMode::Background, None)
+                    .unwrap();
+                restored
+                    .service_after_command_drain(now, SchedulerServiceMode::Background, None)
+                    .unwrap();
+                assert_eq!(fresh.completed_step(), restored.completed_step());
+                fresh.pack_display_into(now, &mut left).unwrap();
+                restored.pack_display_into(now, &mut right).unwrap();
+                assert_eq!(left, right);
+            }
         }
     }
 

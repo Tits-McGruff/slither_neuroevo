@@ -1246,6 +1246,9 @@ impl ExperimentalStage6aFreshRunSession {
             "scalar" => crate::engine::inference::InferenceMathBackend::Scalar,
             "sse2" => crate::engine::inference::InferenceMathBackend::Sse2,
             "i16-matrix-fma128" => crate::engine::inference::InferenceMathBackend::I16MatrixFma128,
+            "i16-affine-fma128-sse2" => {
+                crate::engine::inference::InferenceMathBackend::I16AffineFma128
+            }
             _ => {
                 return Err(Error::new(
                     Status::InvalidArg,

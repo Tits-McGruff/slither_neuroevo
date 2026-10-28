@@ -6,6 +6,7 @@ use std::ops::Range;
 #[derive(Clone, Debug, PartialEq)]
 pub struct QuantizedInferenceWeights {
     pub(super) layout: [u8; 32],
+    pub(super) backend: InferenceMathBackend,
     values: Box<[i16]>,
     scales: Box<[f32]>,
 }
@@ -37,14 +38,24 @@ pub(super) struct BoundCache {
 /// Compile matrix domains from the validated existing execution ranges.
 /// Dense/MLP biases are interleaved and share that affine matrix's scale.
 /// Recurrent biases are separate and read directly from canonical Float32 storage.
-pub(super) fn matrix_layout(nodes: &mut [ExecutionNode]) -> Vec<TensorRange> {
+pub(super) fn matrix_layout(
+    nodes: &mut [ExecutionNode],
+    backend: InferenceMathBackend,
+) -> Vec<TensorRange> {
     let mut matrices = Vec::new();
+    let mut packed_offset = 0;
     for node in nodes {
         node.matrix_start = matrices.len();
+        node.cache_offset = if backend == InferenceMathBackend::I16AffineFma128 {
+            packed_offset
+        } else {
+            node.parameter.offset
+        };
         let mut offset = node.parameter.offset;
         let mut add = |len| {
             matrices.push(TensorRange { offset, len });
             offset += len;
+            packed_offset += len;
         };
         match node.node_type {
             CompiledNodeType::Dense | CompiledNodeType::Mlp => {
@@ -55,6 +66,9 @@ pub(super) fn matrix_layout(nodes: &mut [ExecutionNode]) -> Vec<TensorRange> {
                 }
             }
             CompiledNodeType::Gru | CompiledNodeType::Lstm | CompiledNodeType::Rru => {
+                if backend == InferenceMathBackend::I16AffineFma128 {
+                    continue;
+                }
                 let gates = match node.node_type {
                     CompiledNodeType::Gru => 3,
                     CompiledNodeType::Lstm => 4,
@@ -86,15 +100,16 @@ impl GraphExecutionPlan {
         require_length(
             "diagnostic cache",
             cache.values.len(),
-            self.total_parameters,
+            self.cache_value_count(),
         )?;
         require_length("diagnostic scales", cache.scales.len(), self.matrices.len())?;
-        if cache.layout != self.layout_digest_sha256 {
+        if cache.layout != self.layout_digest_sha256 || cache.backend != self.cache_backend() {
             return Err(InferenceError::InvalidCompiledGraph {
                 detail: "diagnostic cache layout mismatch".into(),
             });
         }
         let mut rows = Vec::new();
+        let mut packed_cursor = 0;
         for node in &self.nodes {
             let end = self
                 .nodes
@@ -115,7 +130,13 @@ impl GraphExecutionPlan {
                     break;
                 }
                 let source = &weights[matrix.offset..matrix.offset + matrix.len];
-                let quantized = &cache.values[matrix.offset..matrix.offset + matrix.len];
+                let cached_offset = if self.math_backend == InferenceMathBackend::I16AffineFma128 {
+                    packed_cursor
+                } else {
+                    matrix.offset
+                };
+                let quantized = &cache.values[cached_offset..cached_offset + matrix.len];
+                packed_cursor += matrix.len;
                 let scale = cache.scales[index];
                 let mut abs: Vec<f32> = source.iter().map(|v| v.abs()).collect();
                 abs.sort_unstable_by(f32::total_cmp);
@@ -213,13 +234,14 @@ impl GraphExecutionPlan {
         require_length("quantization weights", weights.len(), self.total_parameters)?;
         require_finite("quantization weights", weights)?;
         let mut values = Vec::new();
+        let value_count = self.cache_value_count();
         values
-            .try_reserve_exact(weights.len())
+            .try_reserve_exact(value_count)
             .map_err(|_| InferenceError::AllocationFailed {
                 buffer: "i16 inference weights",
-                elements: weights.len(),
+                elements: value_count,
             })?;
-        values.resize(weights.len(), 0);
+        values.resize(value_count, 0);
         let mut scales = Vec::new();
         scales.try_reserve_exact(self.matrices.len()).map_err(|_| {
             InferenceError::AllocationFailed {
@@ -227,16 +249,45 @@ impl GraphExecutionPlan {
                 elements: self.matrices.len(),
             }
         })?;
+        let mut packed_cursor = 0;
         for matrix in &self.matrices {
             let range = matrix.offset..matrix.offset + matrix.len;
             let source = &weights[range.clone()];
-            scales.push(quantize_matrix(source, &mut values[range]));
+            let cached_offset = if self.math_backend == InferenceMathBackend::I16AffineFma128 {
+                packed_cursor
+            } else {
+                range.start
+            };
+            scales.push(quantize_matrix(
+                source,
+                &mut values[cached_offset..cached_offset + matrix.len],
+            ));
+            packed_cursor += matrix.len;
         }
         Ok(QuantizedInferenceWeights {
             layout: self.layout_digest_sha256,
+            backend: self.cache_backend(),
             values: values.into_boxed_slice(),
             scales: scales.into_boxed_slice(),
         })
+    }
+
+    /// Only selected affine regions occupy the mixed cache; full-i16 v1 retains
+    /// its original flat allocation and zero recurrent-bias placeholders.
+    fn cache_value_count(&self) -> usize {
+        if self.math_backend == InferenceMathBackend::I16AffineFma128 {
+            self.matrices.iter().map(|matrix| matrix.len).sum()
+        } else {
+            self.total_parameters
+        }
+    }
+
+    fn cache_backend(&self) -> InferenceMathBackend {
+        if self.math_backend == InferenceMathBackend::I16AffineFma128 {
+            self.math_backend
+        } else {
+            InferenceMathBackend::I16MatrixFma128
+        }
     }
 
     /// Bind immutable authority weights before dispatching calculation workers.
@@ -251,7 +302,7 @@ impl GraphExecutionPlan {
         population: &[PopulationGenome],
         brains: &[BrainRuntimeState],
     ) -> Result<(), InferenceError> {
-        if self.math_backend != InferenceMathBackend::I16MatrixFma128 {
+        if !self.math_backend.uses_i16_cache() {
             return Ok(());
         }
         self.caches.truncate(brains.len());
@@ -326,10 +377,20 @@ impl<'a> NodeWeights<'a> {
         range: TensorRange,
         matrix: usize,
     ) -> Self {
+        Self::new_at(canonical, cache, range, matrix, range.offset)
+    }
+    /// Canonical and cached regions can have different offsets in a mixed plan.
+    pub(super) fn new_at(
+        canonical: &'a [f32],
+        cache: Option<&'a QuantizedInferenceWeights>,
+        range: TensorRange,
+        matrix: usize,
+        cache_offset: usize,
+    ) -> Self {
         let end = range.offset + range.len;
         Self {
             canonical: &canonical[range.offset..end],
-            quantized: cache.map(|c| &c.values[range.offset..end]),
+            quantized: cache.map(|c| &c.values[cache_offset..cache_offset + range.len]),
             scales: cache.map_or(&[], |c| &c.scales[matrix..]),
         }
     }
@@ -385,23 +446,57 @@ pub(crate) fn matrix_i16_cache_admission_bytes(
     graph: &CompiledGraph,
     owners: usize,
 ) -> Option<usize> {
+    i16_cache_admission_bytes(graph, owners, InferenceMathBackend::I16MatrixFma128)
+}
+
+/// Charge only the matrix groups and packed values selected by the backend.
+pub(crate) fn i16_cache_admission_bytes(
+    graph: &CompiledGraph,
+    owners: usize,
+    backend: InferenceMathBackend,
+) -> Option<usize> {
+    if !backend.uses_i16_cache() {
+        return None;
+    }
+    let mixed = backend == InferenceMathBackend::I16AffineFma128;
     let matrices = graph.nodes.iter().try_fold(0usize, |count, node| {
         count.checked_add(match node.node_type {
             CompiledNodeType::Dense => 1,
             CompiledNodeType::Mlp => node.hidden_sizes.len().checked_add(1)?,
-            CompiledNodeType::Gru => 6,
-            CompiledNodeType::Lstm => 8,
-            CompiledNodeType::Rru => 4,
+            CompiledNodeType::Gru if !mixed => 6,
+            CompiledNodeType::Lstm if !mixed => 8,
+            CompiledNodeType::Rru if !mixed => 4,
             _ => 0,
         })
     })?;
-    graph
-        .total_parameters
+    let values = if mixed {
+        graph
+            .nodes
+            .iter()
+            .filter(|node| {
+                matches!(
+                    node.node_type,
+                    CompiledNodeType::Dense | CompiledNodeType::Mlp
+                )
+            })
+            .try_fold(0usize, |count, node| {
+                count.checked_add(node.parameter_length)
+            })?
+    } else {
+        graph.total_parameters
+    };
+    values
         .checked_mul(2)?
         .checked_add(matrices.checked_mul(4)?)?
         .checked_add(std::mem::size_of::<BoundCache>())?
         .checked_mul(owners)?
-        .checked_add(matrices.checked_mul(std::mem::size_of::<TensorRange>())?)
+        .checked_add(matrices.checked_mul(std::mem::size_of::<TensorRange>())?)?
+        .checked_add(
+            graph
+                .nodes
+                .len()
+                .checked_mul(std::mem::size_of::<usize>())?,
+        )
 }
 
 /// Symmetric nearest quantization of one complete matrix, including interleaved

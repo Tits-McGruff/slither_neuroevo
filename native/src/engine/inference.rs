@@ -18,6 +18,9 @@ use std::fmt;
 #[cfg(feature = "engine-test-hooks")]
 pub mod feedback_diagnostics;
 mod matrix_i16;
+#[cfg(test)]
+mod mixed_tests;
+pub(crate) use matrix_i16::i16_cache_admission_bytes;
 pub(crate) use matrix_i16::matrix_i16_cache_admission_bytes;
 pub use matrix_i16::QuantizedInferenceWeights;
 use matrix_i16::{BoundCache, NodeWeights};
@@ -51,6 +54,8 @@ struct ExecutionNode {
     parameter: TensorRange,
     state: Option<TensorRange>,
     matrix_start: usize,
+    /// Packed inference-cache start; canonical parameter offsets remain unchanged.
+    cache_offset: usize,
 }
 
 /// Numeric implementation selected once for one immutable execution plan.
@@ -62,6 +67,8 @@ pub enum InferenceMathBackend {
     Sse2,
     /// Matrix-scaled symmetric i16 storage, four-lane Float32 FMA accumulation.
     I16MatrixFma128,
+    /// Dense/MLP matrix-i16 FMA128; all recurrent nodes use canonical F32/SSE2.
+    I16AffineFma128,
     /// Benchmark comparator only; never admitted from persisted backend metadata.
     #[cfg(feature = "engine-test-hooks")]
     BenchmarkF32Fma128,
@@ -83,6 +90,7 @@ impl InferenceMathBackend {
             Self::Scalar => "rust-scalar-v1",
             Self::Sse2 => "rust-sse2-v1",
             Self::I16MatrixFma128 => "rust-i16-matrix-fma128-v1",
+            Self::I16AffineFma128 => "rust-i16-affine-fma128-sse2-v1",
             #[cfg(feature = "engine-test-hooks")]
             Self::BenchmarkF32Fma128 => "benchmark-f32-fma128-v1",
         }
@@ -94,6 +102,7 @@ impl InferenceMathBackend {
             "rust-scalar-v1" => Some(Self::Scalar),
             "rust-sse2-v1" => Some(Self::Sse2),
             "rust-i16-matrix-fma128-v1" => Some(Self::I16MatrixFma128),
+            "rust-i16-affine-fma128-sse2-v1" => Some(Self::I16AffineFma128),
             _ => None,
         }
     }
@@ -103,10 +112,17 @@ impl InferenceMathBackend {
         match self {
             Self::Scalar => true,
             Self::Sse2 => simd_kernels::runtime_sse2_available(),
-            Self::I16MatrixFma128 => simd_kernels::runtime_i16_fma128_available(),
+            Self::I16MatrixFma128 | Self::I16AffineFma128 => {
+                simd_kernels::runtime_i16_fma128_available()
+            }
             #[cfg(feature = "engine-test-hooks")]
             Self::BenchmarkF32Fma128 => simd_kernels::runtime_i16_fma128_available(),
         }
+    }
+
+    /// Both opt-in variants require a prepared, backend-specific inference cache.
+    pub const fn uses_i16_cache(self) -> bool {
+        matches!(self, Self::I16MatrixFma128 | Self::I16AffineFma128)
     }
 }
 
@@ -394,6 +410,7 @@ impl GraphExecutionPlan {
                 parameter,
                 state,
                 matrix_start: 0,
+                cache_offset: 0,
             });
         }
         if parameter_cursor != graph.total_parameters {
@@ -464,7 +481,7 @@ impl GraphExecutionPlan {
             });
         }
 
-        let matrices = matrix_i16::matrix_layout(&mut execution_nodes);
+        let matrices = matrix_i16::matrix_layout(&mut execution_nodes, math_backend);
         Ok(Self {
             matrices,
             caches: Vec::new(),
@@ -756,9 +773,9 @@ impl GraphExecutionPlan {
         output: &mut [f32],
         scratch: &mut CalculationScratchView<'_>,
     ) -> Result<(), InferenceError> {
-        if cache.layout != self.layout_digest_sha256 {
+        if cache.layout != self.layout_digest_sha256 || cache.backend != self.math_backend {
             return Err(InferenceError::InvalidCompiledGraph {
-                detail: "i16 cache graph mismatch".into(),
+                detail: "i16 cache graph/backend mismatch".into(),
             });
         }
         self.evaluate_inner(
@@ -783,7 +800,7 @@ impl GraphExecutionPlan {
         output: &mut [f32],
         scratch: &mut CalculationScratchView<'_>,
     ) -> Result<(), InferenceError> {
-        if (self.math_backend == InferenceMathBackend::I16MatrixFma128) != cache.is_some() {
+        if self.math_backend.uses_i16_cache() != cache.is_some() {
             return Err(InferenceError::InvalidCompiledGraph {
                 detail: "i16 execution requires a prepared cache and the i16 backend".into(),
             });
@@ -860,8 +877,13 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Dense => {
                     let source = only_input(node)?;
-                    let parameters =
-                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
+                    let parameters = NodeWeights::new_at(
+                        weights,
+                        cache,
+                        node.parameter,
+                        node.matrix_start,
+                        node.cache_offset,
+                    );
                     let (input_values, output_values) =
                         forward_slices(scratch.activation, source, node.output, &node.id)?;
                     affine_tanh(self.math_backend, parameters, input_values, output_values)?;
@@ -871,8 +893,12 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Gru => {
                     let source = only_input(node)?;
-                    let parameters =
-                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
+                    let parameters = NodeWeights::new(
+                        weights,
+                        self.recurrent_cache(cache),
+                        node.parameter,
+                        node.matrix_start,
+                    );
                     let state = required_state(node)?;
                     let before = slice_range(recurrent_before, state)?;
                     let after = slice_range_mut(recurrent_after, state)?;
@@ -890,8 +916,12 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Lstm => {
                     let source = only_input(node)?;
-                    let parameters =
-                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
+                    let parameters = NodeWeights::new(
+                        weights,
+                        self.recurrent_cache(cache),
+                        node.parameter,
+                        node.matrix_start,
+                    );
                     let state = required_state(node)?;
                     let before = slice_range(recurrent_before, state)?;
                     let after = slice_range_mut(recurrent_after, state)?;
@@ -908,8 +938,12 @@ impl GraphExecutionPlan {
                 }
                 CompiledNodeType::Rru => {
                     let source = only_input(node)?;
-                    let parameters =
-                        NodeWeights::new(weights, cache, node.parameter, node.matrix_start);
+                    let parameters = NodeWeights::new(
+                        weights,
+                        self.recurrent_cache(cache),
+                        node.parameter,
+                        node.matrix_start,
+                    );
                     let state = required_state(node)?;
                     let before = slice_range(recurrent_before, state)?;
                     let after = slice_range_mut(recurrent_after, state)?;
@@ -986,7 +1020,7 @@ impl GraphExecutionPlan {
                 forward_slices(activation, source, *destination, &node.id)?;
             affine_tanh(
                 self.math_backend,
-                NodeWeights::new(
+                NodeWeights::new_at(
                     weights,
                     cache,
                     TensorRange {
@@ -994,6 +1028,7 @@ impl GraphExecutionPlan {
                         len: layer_parameters,
                     },
                     node.matrix_start + layer,
+                    node.cache_offset + parameter_cursor - node.parameter.offset,
                 ),
                 input_values,
                 output_values,
@@ -1008,6 +1043,18 @@ impl GraphExecutionPlan {
             });
         }
         Ok(())
+    }
+
+    /// The mixed backend never exposes quantized values to a recurrent kernel.
+    fn recurrent_cache<'a>(
+        &self,
+        cache: Option<&'a QuantizedInferenceWeights>,
+    ) -> Option<&'a QuantizedInferenceWeights> {
+        if self.math_backend == InferenceMathBackend::I16AffineFma128 {
+            None
+        } else {
+            cache
+        }
     }
 }
 
@@ -1214,7 +1261,7 @@ fn preflight_work(
         let brain = &brains[unit.brain_index()];
         let weights = weights_for(unit, brain, population)?;
         require_length("brain weights", weights.len(), plan.total_parameters)?;
-        if plan.math_backend == InferenceMathBackend::I16MatrixFma128 {
+        if plan.math_backend.uses_i16_cache() {
             let valid = plan.caches.get(unit.brain_index()).is_some_and(|c| {
                 c.handle == brain.handle
                     && c.genome_id
@@ -1591,7 +1638,9 @@ fn dot_product(backend: InferenceMathBackend, weights: &[f32], input: &[f32]) ->
             }
             sum
         }
-        InferenceMathBackend::Sse2 => simd_kernels::dot_product_sse2(weights, input),
+        InferenceMathBackend::Sse2 | InferenceMathBackend::I16AffineFma128 => {
+            simd_kernels::dot_product_sse2(weights, input)
+        }
         InferenceMathBackend::I16MatrixFma128 => unreachable!("i16 dot requires cache"),
         #[cfg(feature = "engine-test-hooks")]
         InferenceMathBackend::BenchmarkF32Fma128 => {
@@ -1623,7 +1672,9 @@ fn dot_product_mul(
             }
             sum
         }
-        InferenceMathBackend::Sse2 => simd_kernels::dot_product_mul_sse2(weights, left, right),
+        InferenceMathBackend::Sse2 | InferenceMathBackend::I16AffineFma128 => {
+            simd_kernels::dot_product_mul_sse2(weights, left, right)
+        }
         InferenceMathBackend::I16MatrixFma128 => unreachable!("i16 dot requires cache"),
         #[cfg(feature = "engine-test-hooks")]
         InferenceMathBackend::BenchmarkF32Fma128 => {
@@ -3559,47 +3610,48 @@ mod tests {
         if !InferenceMathBackend::I16MatrixFma128.is_available() {
             return;
         }
-        let graph = complete_graph();
-        let mut plan = GraphExecutionPlan::build_with_math_backend(
-            &graph,
+        for backend in [
             InferenceMathBackend::I16MatrixFma128,
-        )
-        .unwrap();
-        let (_, mut brains, mut population) = population_fixture(&plan, 3);
-        plan.prepare_weight_caches(1, &population, &brains).unwrap();
-        let initial = plan.inference_cache_bytes();
-        assert!(initial > 0);
-        // Identical immutable ownership preserves the cache allocations.
-        let address = plan.caches[0].weights.as_ref().unwrap().storage_address();
-        plan.prepare_weight_caches(1, &population, &brains).unwrap();
-        assert_eq!(
-            address,
-            plan.caches[0].weights.as_ref().unwrap().storage_address()
-        );
-        let old = plan.caches[0].weights.clone();
-        population[0].weights[0] = 5.0;
-        population[0].lineage.genome_id += 1000;
-        plan.prepare_weight_caches(2, &population, &brains).unwrap();
-        assert_ne!(old, plan.caches[0].weights);
-        assert_eq!(initial, plan.inference_cache_bytes());
-        // A replaced non-population brain is also quantized, with no population alias.
-        brains[0].owner = BrainOwner::Entity(999);
-        brains[0].handle.id += 1000;
-        brains[0].non_population_weights =
-            Some(vec![0.0; plan.total_parameters()].into_boxed_slice());
-        plan.prepare_weight_caches(2, &population, &brains).unwrap();
-        assert_ne!(plan.caches[0].weights, old);
-        assert_eq!(initial, plan.inference_cache_bytes());
-        let storage = plan.caches[0].weights.as_ref().unwrap().storage_address();
-        let cloned_brains = brains.clone();
-        plan.prepare_weight_caches(2, &population, &cloned_brains)
-            .unwrap();
-        assert_eq!(
-            storage,
-            plan.caches[0].weights.as_ref().unwrap().storage_address()
-        );
-        let admitted = matrix_i16_cache_admission_bytes(&graph, brains.len()).unwrap();
-        assert!(admitted >= initial);
+            InferenceMathBackend::I16AffineFma128,
+        ] {
+            let graph = complete_graph();
+            let mut plan = GraphExecutionPlan::build_with_math_backend(&graph, backend).unwrap();
+            let (_, mut brains, mut population) = population_fixture(&plan, 3);
+            plan.prepare_weight_caches(1, &population, &brains).unwrap();
+            let initial = plan.inference_cache_bytes();
+            assert!(initial > 0);
+            // Identical immutable ownership preserves the cache allocations.
+            let address = plan.caches[0].weights.as_ref().unwrap().storage_address();
+            plan.prepare_weight_caches(1, &population, &brains).unwrap();
+            assert_eq!(
+                address,
+                plan.caches[0].weights.as_ref().unwrap().storage_address()
+            );
+            let old = plan.caches[0].weights.clone();
+            population[0].weights[0] = 5.0;
+            population[0].lineage.genome_id += 1000;
+            plan.prepare_weight_caches(2, &population, &brains).unwrap();
+            assert_ne!(old, plan.caches[0].weights);
+            assert_eq!(initial, plan.inference_cache_bytes());
+            // A replaced non-population brain is also quantized, with no population alias.
+            brains[0].owner = BrainOwner::Entity(999);
+            brains[0].handle.id += 1000;
+            brains[0].non_population_weights =
+                Some(vec![0.0; plan.total_parameters()].into_boxed_slice());
+            plan.prepare_weight_caches(2, &population, &brains).unwrap();
+            assert_ne!(plan.caches[0].weights, old);
+            assert_eq!(initial, plan.inference_cache_bytes());
+            let storage = plan.caches[0].weights.as_ref().unwrap().storage_address();
+            let cloned_brains = brains.clone();
+            plan.prepare_weight_caches(2, &population, &cloned_brains)
+                .unwrap();
+            assert_eq!(
+                storage,
+                plan.caches[0].weights.as_ref().unwrap().storage_address()
+            );
+            let admitted = i16_cache_admission_bytes(&graph, brains.len(), backend).unwrap();
+            assert!(admitted >= initial);
+        }
     }
     #[test]
     fn matrix_i16_domains_preserve_zero_graph_and_distinct_matrix_scales() {

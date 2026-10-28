@@ -53,7 +53,7 @@ impl Brain {
     }
     fn evaluate(&mut self, plan: &GraphExecutionPlan, step: usize) {
         let input = &self.rows[(step % 32) * 264..(step % 32 + 1) * 264];
-        if plan.math_backend() == InferenceMathBackend::I16MatrixFma128 {
+        if plan.math_backend().uses_i16_cache() {
             plan.evaluate_quantized(
                 &self.weights,
                 &self.cache,
