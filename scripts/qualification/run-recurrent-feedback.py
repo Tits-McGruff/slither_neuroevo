@@ -28,6 +28,8 @@ def main():
     parser.add_argument("--phase", choices=("full", "trace", "seed", "validate"), required=True)
     parser.add_argument("--trace-windows", type=Path)
     parser.add_argument("--seed-deliveries", type=int, choices=(1,32), default=1)
+    parser.add_argument("--slots", default="24,30,35", help="targeted trace/seed cohort slots")
+    parser.add_argument("--tag", default="", help="optional alphanumeric suffix for a separate retained run")
     args = parser.parse_args()
     checkout = args.checkout.resolve()
     artifacts = args.artifacts.resolve()
@@ -43,6 +45,10 @@ def main():
     env["PATH"] = str(Path.home() / ".cargo/bin") + os.pathsep + env["PATH"]
     env["RUSTFLAGS"] = "-C target-cpu=native"
     phase_label = f"seed-{args.seed_deliveries}" if args.phase == "seed" else args.phase
+    if args.tag:
+        if not args.tag.isalnum() or len(args.tag) > 32:
+            raise ValueError("run tag must be 1..32 alphanumeric characters")
+        phase_label += "-" + args.tag
     if (destination / phase_label).exists() or (destination / f"{phase_label}-progress.json").exists() or (args.phase == "full" and (destination / "smoke").exists()):
         raise FileExistsError(f"refusing to replace retained {phase_label} output")
     progress = {"phase": phase_label, "sourceCommit": commit, "defaultBackend": "rust-sse2-v1"}
@@ -73,9 +79,10 @@ def main():
     elif args.phase == "trace":
         assert args.trace_windows
         run("build-trace", ["cargo", "build", "--manifest-path", "native/Cargo.toml", "--release", "--features", "engine-test-hooks", "--bin", "recurrent-feedback-investigation"])
-        run("trace", [*common, "--deliveries", "10000", "--slots", "24,30,35", "--trace-windows", str(args.trace_windows.resolve()), "--output", str(destination / "trace")])
+        run(phase_label, [*common, "--deliveries", "10000", "--slots", args.slots, "--trace-windows", str(args.trace_windows.resolve()), "--output", str(destination / phase_label)])
     elif args.phase == "seed":
-        run(phase_label, [*common, "--deliveries", "10000", "--slots", "24,30,35", "--i16-prefix-deliveries", str(args.seed_deliveries), "--output", str(destination / phase_label)])
+        trace = ["--trace-windows", str(args.trace_windows.resolve())] if args.trace_windows else []
+        run(phase_label, [*common, "--deliveries", "10000", "--slots", args.slots, "--i16-prefix-deliveries", str(args.seed_deliveries), *trace, "--output", str(destination / phase_label)])
     else:
         for name, command in [
             ("validation-fmt", ["cargo", "fmt", "--manifest-path", "native/Cargo.toml", "--", "--check"]),
