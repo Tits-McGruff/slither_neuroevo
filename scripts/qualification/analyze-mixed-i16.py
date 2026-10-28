@@ -4,10 +4,12 @@ Usage: python scripts/qualification/analyze-mixed-i16.py /path/to/mixed-affine-2
 Generated CSV/JSON/plots stay alongside the measured artifacts.
 """
 import csv
+from collections import Counter
 import gzip
 import json
 import math
 from pathlib import Path
+import re
 import statistics
 import sys
 
@@ -15,6 +17,26 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+
+def completed_lives(snapshots):
+    """Read the qualifier's existing bounded Debug records, checking completeness."""
+    records = []
+    fields = ("alive_seconds", "food", "kills", "life_net_points", "life_gross_earned", "life_boost_spent", "final_length", "peak_length")
+    for snapshot in snapshots:
+        chunks = re.findall(r"EvolvedLifeEndRecord \{([^{}]*)\}", snapshot["lifeEnds"])
+        assert len(chunks) == snapshot["recentLifeEnds"] == snapshot["deaths"]
+        for chunk in chunks:
+            cause = re.search(r"\bcause: ([A-Za-z][A-Za-z0-9_]*)", chunk)
+            assert cause is not None
+            record = {"cause": cause.group(1)}
+            for field in fields:
+                match = re.search(r"\b" + field + r": (-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)", chunk)
+                assert match is not None
+                record[field] = float(match.group(1))
+                assert math.isfinite(record[field])
+            records.append(record)
+    return records
 
 
 def main():
@@ -93,6 +115,7 @@ def main():
         boundaries = [row["before"] for row in game["gameplayBoundaries"] if "before" in row]
         boundaries.append(game["gameplayBoundaries"][-1])
         outcomes = [row for boundary in boundaries for row in boundary["populationOutcomes"]]
+        lives = completed_lives(boundaries)
         engine[label] = {"realClock": game["realClock"], "stepCost": game["stepCost"],
                          "meanStepMs": game["stepCost"]["totalMs"] / game["measuredSteps"],
                          "nativePhaseCosts": game["nativePhaseCosts"], "physicsPhaseCosts": game["physicsPhaseCosts"],
@@ -101,6 +124,9 @@ def main():
                          "incompleteObservations": sum(row["incompleteObservations"] for row in game["consumerWork"]),
                          "bodyCappedObservations": game["bodyCappedObservations"], "pelletCappedObservations": game["pelletCappedObservations"],
                          "boundaryLifecycleCounters": [{key: b[key] for key in ("generation", "lives", "deaths", "respawns")} for b in boundaries],
+                         "completedPopulationLives": len(lives), "populationDeathCauses": dict(Counter(row["cause"] for row in lives)),
+                         "completedLifeMeans": {key: statistics.fmean(row[key] for row in lives) if lives else None
+                                                for key in ("alive_seconds", "food", "kills", "life_net_points", "life_gross_earned", "life_boost_spent", "final_length", "peak_length")},
                          "sourceSnapshotMeans": {key: statistics.fmean(row[key] for row in outcomes) for key in ("ageSeconds", "food", "points", "fitness", "kills", "length")},
                          "behaviorScope": "Source population snapshots, including 5-second warmup; closed-loop worlds evolve independently. No behavioral-equivalence claim."}
     one, seven = read("controlled-mixed-w1.json"), read("controlled-mixed-w7.json")
