@@ -1,0 +1,138 @@
+{
+  "status": "Native validation passed; sustained evolutionary measurements running. No qualification decision yet.",
+  "measuredSourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+  "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
+  "backendComparison": [
+    "rust-sse2-v1",
+    "rust-i16-matrix-fma128-v1"
+  ],
+  "defaultBackend": "rust-sse2-v1",
+  "experiment": {
+    "population": 85,
+    "parametersPerGenome": 1397096,
+    "workers": 7,
+    "inputs": 264,
+    "sensors": "Motion/B16 with body/wall rays",
+    "generationSeconds": 480,
+    "generationsPerRun": 20,
+    "seedPairs": 5,
+    "seeds": [
+      104729,
+      130363,
+      155921,
+      196613,
+      262147
+    ],
+    "checkpointSha256": "f2230b4147180cdb32366a283388eac40a1bd3cacf30ca313a5470685c6be935",
+    "graphLayoutSha256": "87d6630df32fd9fea900835db0daee478f799507d3fedb242ad63680640fbfd0"
+  },
+  "linux": {
+    "sourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+    "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
+    "platform": "x86_64 Linux GNU",
+    "rustflags": "-C target-cpu=native",
+    "buildContractSha256": "sha256:033119a7009787468f6cc885add333b42396edc60fc10e1a0b4d347927e587f3",
+    "checks": {
+      "build": {
+        "exitCode": 0,
+        "receiptSha256": "0164686a4dd872a0e6ded2efbebf83223a94df880d71368cb25bb5e81db49fa1",
+        "logSha256": "3d04aaaab85f8b826bcfb7355e3cbf95597da54e2fded9a3d19f33ef6360de15",
+        "passedTestCounts": []
+      },
+      "fmt": {
+        "exitCode": 0,
+        "receiptSha256": "421594d149f6da43f211d25f191f8b1ae9ca753006e14acf8a19329b4c6b6de6",
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "passedTestCounts": []
+      },
+      "check": {
+        "exitCode": 0,
+        "receiptSha256": "04e2684a79cd7bc097b91c812b3d47bb84350d739adf485e1dfdbda8fb2d03cf",
+        "logSha256": "0c35d219af8ae2650b659d2c16ae3dd92e7b9cd1968f7a65104fec29c7e2b92f",
+        "passedTestCounts": []
+      },
+      "clippy": {
+        "exitCode": 0,
+        "receiptSha256": "84bbeaf53bbb78293fbaa7c0120dbf35ef0b8d32838cece4025ffb1fde65b4a0",
+        "logSha256": "f7d3bcdf4e41913704577ceb9fd99d523fad718fa0a0fc2a247ce06df159a506",
+        "passedTestCounts": []
+      },
+      "tests-default": {
+        "exitCode": 0,
+        "receiptSha256": "b32012742d92bee8eac8a08cfc0a4e23c204e212ecc9e636459c9f3d02c7c06e",
+        "logSha256": "bee66367dc5c7e9daa6a015f49d5bc35c6978c8c2cc8ed9744d31323911f07ae",
+        "passedTestCounts": [
+          745,
+          0,
+          0,
+          1
+        ]
+      },
+      "tests-release-hooks": {
+        "exitCode": 0,
+        "receiptSha256": "36b4fc1ae233280947ee6b2704872c982d4c076235c9e1197df9ee8910a9d01b",
+        "logSha256": "8c2980ef0d320acbc75fcdbcee51dab974d1aaaa7c24e1a03ace925beb873f6d",
+        "passedTestCounts": [
+          837,
+          0,
+          0,
+          2,
+          0,
+          0,
+          2,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1
+        ]
+      }
+    }
+  },
+  "windows": {
+    "measuredSourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+    "testOnlyCheckpoint": "0286349",
+    "identity": {
+      "SLITHER_NATIVE_BUILD_IDENTIFIER": "slither_native/0.1.0+b5fb7f4cf2e9.d53d8d195b6fbad5",
+      "SLITHER_NATIVE_SOURCE_SHA256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
+      "SLITHER_NATIVE_BUILD_TARGET": "x86_64-pc-windows-msvc",
+      "SLITHER_NATIVE_RUSTC_VERSION": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+      "SLITHER_NATIVE_BUILD_CONTRACT_SHA256": "sha256:c3a4f4596f6912c344aef8e74e8341b56aad986a1c1164f1a893644902f683e7"
+    },
+    "platform": "x86_64 Windows MSVC",
+    "compilerFlags": "repository defaults; no target-cpu override",
+    "checks": {
+      "fmt": 0,
+      "check": 0,
+      "strictClippyAllTargetsAllFeatures": 0,
+      "testsDefault": 0,
+      "testsReleaseEngineTestHooks": 0,
+      "targetedObserverNoninterference": 0,
+      "targetedQuantizationDiagnostics": 0,
+      "pairedStatisticsTests": 0
+    },
+    "logs": {
+      "check.log": "c32131167434ae0bc4d61964c5663f96727466219b14d1a00b3f2048e5fc926a",
+      "clippy.log": "35441a6c2db4ba0cc6eb25e7d65d9a7934dd4dcb0ed161729274956a859ec4d4",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "noninterference.log": "061de67aa8319eaef1e4db2e82ae95d44e2ed00284afa9e57b5c7605d0924671",
+      "tests-default.log": "76c222bcd1dfde95ae5c87ba17b2ee294216d4342bcee55493e2cbdf5230b55c",
+      "tests-release-hooks.log": "21ade0def4aa3ce2c7b29d78966532f251efe87890118d11c3f28a619dc4003e"
+    }
+  },
+  "preservationAudit": {
+    "originalUnfinishedFilesUnchanged": 22,
+    "priorArtifactEntriesVerifiedOnEachHost": 343
+  },
+  "artifacts": "data/benchmarks/matrix-i16-evolution-20261029; generated data stays outside Git",
+  "validationArtifactSha256": {
+    "validation-linux.json": "cb806e1d033047e7a002f79c6d3d13a41bb50da3bb03278f9e6cf649a78d4bb7",
+    "validation-windows/receipt.json": "dd7f9fd336a82b4f73780ac143bc60ae90f6b39c395bed7bc37938dc5ce3c991",
+    "validation-windows/SHA256SUMS": "8e595ef1042cf46e800c0fe04c3b51887be62cc16e3de899730a4a5eaef1f52e"
+  }
+}
