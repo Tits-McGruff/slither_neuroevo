@@ -95,9 +95,14 @@ impl GraphExecutionPlan {
                 detail: "diagnostic requires SSE4.1/FMA".into(),
             });
         }
-        if cache.layout != self.layout_digest_sha256 {
+        // This cold ablation API indexes the original full matrix layout.
+        // Compact mixed caches/plans are evaluated by the production API instead.
+        if cache.layout != self.layout_digest_sha256
+            || cache.backend != InferenceMathBackend::I16MatrixFma128
+            || self.math_backend == InferenceMathBackend::I16AffineFma128
+        {
             return Err(InferenceError::InvalidCompiledGraph {
-                detail: "diagnostic cache graph mismatch".into(),
+                detail: "diagnostic requires matching graph and full-i16 cache/plan layout".into(),
             });
         }
         require_length("weights", weights.len(), self.total_parameters)?;

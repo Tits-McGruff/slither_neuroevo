@@ -80,6 +80,49 @@ fn mixed_compact_cache_has_only_affine_values_and_a_distinct_identity() {
 
 #[cfg(feature = "engine-test-hooks")]
 #[test]
+fn mixed_diagnostic_rejects_compact_cache_or_plan_before_writes() {
+    use super::feedback_diagnostics::FeedbackMode;
+    if !InferenceMathBackend::I16AffineFma128.is_available() {
+        return;
+    }
+    // Equal cache sizes make backend/layout rejection independent of length.
+    let json = br#"{"type":"graph","outputSize":2,"nodes":[
+        {"id":"input","type":"Input","outputSize":3},
+        {"id":"head","type":"Dense","inputSize":3,"outputSize":2}],
+        "edges":[{"from":"input","to":"head"}],"outputs":[{"nodeId":"head"}]}"#;
+    let sse = plan(json, InferenceMathBackend::Sse2);
+    let mixed = plan(json, InferenceMathBackend::I16AffineFma128);
+    let weights = vec![0.25; sse.total_parameters()];
+    let full_cache = sse.quantize(&weights).unwrap();
+    let compact_cache = mixed.quantize(&weights).unwrap();
+    assert_eq!(
+        full_cache.allocated_bytes(),
+        compact_cache.allocated_bytes()
+    );
+    for (selected, cache) in [(&sse, &compact_cache), (&mixed, &full_cache)] {
+        let mut output = [123.0; 2];
+        let mut workspace = scratch(selected);
+        let mut traces = Vec::new();
+        assert!(selected
+            .evaluate_feedback_diagnostic(
+                FeedbackMode::I16Affine,
+                &weights,
+                cache,
+                &[],
+                &mut [],
+                &[0.5; 3],
+                &mut output,
+                &mut workspace.view(),
+                Some(&mut traces),
+            )
+            .is_err());
+        assert_eq!(output, [123.0; 2]);
+        assert!(traces.is_empty());
+    }
+}
+
+#[cfg(feature = "engine-test-hooks")]
+#[test]
 fn mixed_exact_graph_matches_the_affine_ablation_and_bit_exact_sse2_recurrence() {
     use super::feedback_diagnostics::FeedbackMode;
     if !InferenceMathBackend::I16AffineFma128.is_available() {
