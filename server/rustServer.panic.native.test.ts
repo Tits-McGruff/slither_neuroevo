@@ -410,7 +410,8 @@ describeNetworkSuite('Rust server caught calculation panic', () => {
         (message['type'] === 'newRunResult' && message['applied'] === true))).toBe(false);
       expect(durableState(dbPath)).toEqual(databaseBefore);
       expect((await readdir(`${dbPath}.checkpoints`)).sort()).toEqual(filesBefore);
-      expect(await readFile(checkpointPath)).toEqual(checkpointBefore);
+      // Check every byte and length directly instead of enumerating millions of Buffer properties.
+      expect((await readFile(checkpointPath)).equals(checkpointBefore)).toBe(true);
       peer.terminate(); peer = undefined;
       await server.close(); server = undefined;
       configurePanicFixture(false);
