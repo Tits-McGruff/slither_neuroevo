@@ -507,10 +507,10 @@
   "retainedArtifactManifest": {
     "file": "full-i16-evolution-artifacts-20261029.sha256",
     "root": "data/benchmarks/matrix-i16-evolution-20261029",
-    "entries": 42,
-    "sha256": "43b58760da687c0375ad53fd0045782db5a54835463247331f28f6c88c89d55c",
-    "scope": "Four completed runs, completed-pair analysis snapshot and platform validation receipts; ongoing runs excluded.",
-    "artifactCopy": "two-pairs-SHA256SUMS"
+    "entries": 45,
+    "sha256": "aabc8d04e485d3fc6e18280cff2861acdc0fe937dea669170e8bc134d6b2797f",
+    "scope": "Four completed runs, completed-pair analysis, initial bias-scale observation and platform validation receipts; ongoing native run payloads excluded.",
+    "artifactCopy": "two-pairs-and-bias-observation-SHA256SUMS"
   },
   "completedTwoPairs": {
     "status": "Interim: two of five seed pairs complete. No qualification or default-selection decision.",
@@ -684,5 +684,35 @@
     },
     "secondSseManifestEntriesVerifiedOnBothHosts": 5,
     "analysisManifestSha256": "396932abcfb03cde36f788ecf44277cfb4c65d2198174e2b312d4d8c135cf285"
+  },
+  "firstBiasScaleObservation": {
+    "seed": 155921,
+    "sourceTraceSha256": "16484e394f204d9a40a3f5a436b5827d39bcb54317afa6c5bbf0e6c97a51c65a",
+    "scope": "First five generations only; continue observing subsequent generations.",
+    "node": "mlp-a",
+    "nodeKind": "Dense",
+    "dimensions": [
+      264,
+      396
+    ],
+    "observedGenerations": [
+      4,
+      5
+    ],
+    "observedSlots": [
+      27,
+      34
+    ],
+    "biasMagnitude": 1.047056794166565,
+    "ordinaryWeightMaximum": 0.9545962810516357,
+    "scaleInflation": 1.096858263015747,
+    "matrixRmse": [
+      9.233099687553633e-06,
+      9.232427239630043e-06
+    ],
+    "controllerProbeCoverage": "Neither affected slot was in the predefined sample; global controller errors do not bound those particular cases.",
+    "interpretation": "Rare bias-set scales are observed, with modest scale inflation. This is not a demonstrated numerical or evolutionary pathology. No quantizer or bias-policy change is justified by these cases alone.",
+    "productionChange": "None; SSE2 remains the default.",
+    "artifactManifestSha256": "f933d1d0f0daaa8fe845099fc4c5fcf9e8dd0cdee11184566dd39a17a942412e"
   }
 }
