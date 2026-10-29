@@ -1,5 +1,5 @@
 {
-  "status": "Native validation passed; three 20-generation runs completed and preserved (one seed pair plus full-i16 for seed 130363). Paired SSE2 and remaining seeds are in progress; no qualification decision yet.",
+  "status": "Native validation passed; two paired 20-generation SSE2/full-i16 comparisons completed and preserved. Remaining seed runs are in progress; no qualification decision yet.",
   "measuredSourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
   "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
   "backendComparison": [
@@ -507,9 +507,182 @@
   "retainedArtifactManifest": {
     "file": "full-i16-evolution-artifacts-20261029.sha256",
     "root": "data/benchmarks/matrix-i16-evolution-20261029",
-    "entries": 34,
-    "sha256": "c42f26cd549cca774a0126d0c1283565a24c97623e690afd01a14043bacf7d28",
-    "scope": "Three completed runs, latest partial analysis and platform validation receipts; ongoing runs excluded.",
-    "artifactCopy": "three-completed-runs-SHA256SUMS"
+    "entries": 42,
+    "sha256": "43b58760da687c0375ad53fd0045782db5a54835463247331f28f6c88c89d55c",
+    "scope": "Four completed runs, completed-pair analysis snapshot and platform validation receipts; ongoing runs excluded.",
+    "artifactCopy": "two-pairs-SHA256SUMS"
+  },
+  "completedTwoPairs": {
+    "status": "Interim: two of five seed pairs complete. No qualification or default-selection decision.",
+    "completedPairs": 2,
+    "plannedPairs": 5,
+    "generationRecords": 80,
+    "pairedLastFiveMeanFitness": [
+      {
+        "seed": 104729,
+        "sse2": 2315.181177965008,
+        "i16-matrix-fma128": 2741.813355766588
+      },
+      {
+        "seed": 130363,
+        "sse2": 2240.1848125294064,
+        "i16-matrix-fma128": 2265.729077721645
+      }
+    ],
+    "pairedLateFitnessComparison": {
+      "seedPairs": 2,
+      "pairedDifferences": [
+        426.6321778015799,
+        25.544265192238527
+      ],
+      "meanDifference": 226.08822149690923,
+      "medianDifference": 226.08822149690923,
+      "range": [
+        25.544265192238527,
+        426.6321778015799
+      ],
+      "exploratoryBootstrap95PercentInterval": [
+        25.544265192238527,
+        426.6321778015799
+      ],
+      "twoSidedExactSignFlipP": 0.5,
+      "warning": "Seed pair is the unit; small n, exploratory interval and symmetric-null sign-flip inference, no noninferiority claim."
+    },
+    "secondaryLateDifferences": {
+      "foodMean": [
+        4.961339543553457,
+        -0.0796589271011463
+      ],
+      "lifetimeMeanSeconds": [
+        12.522705882355751,
+        -43.76819607842353
+      ],
+      "netPointsMean": [
+        -0.13170501385748823,
+        0.017380685775135518
+      ],
+      "survivalCensoredFraction": [
+        -0.007058823529411756,
+        -0.06117647058823525
+      ],
+      "sampledCoordinateVariance": [
+        -0.0005150007706089844,
+        0.0008496037117413757
+      ]
+    },
+    "performanceSpeedups": [
+      {
+        "seed": 104729,
+        "simulationThroughputSpeedup": 1.2471738695994548,
+        "inferenceCostPerDeliverySpeedup": 1.5088482088861301
+      },
+      {
+        "seed": 130363,
+        "simulationThroughputSpeedup": 1.2498321938346753,
+        "inferenceCostPerDeliverySpeedup": 1.475289235816142
+      }
+    ],
+    "quantizationTrends": [
+      {
+        "seed": 104729,
+        "backend": "i16-matrix-fma128",
+        "first": {
+          "quantizationRelativeRmse": 3.388995972324176e-05,
+          "matrixScaleMax": 3.888826904585585e-05,
+          "matrixMaxToP99Max": 3.2440206258174675,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "last": {
+          "quantizationRelativeRmse": 3.580326679940872e-05,
+          "matrixScaleMax": 4.327017813920975e-05,
+          "matrixMaxToP99Max": 3.084929008462341,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "totalClipping": 0,
+        "totalForbiddenMagnitude": 0,
+        "minimumUniqueCanonicalGenomes": 85,
+        "minimumSpecies": 1,
+        "sampledControllerMaxError": 0.0020581483840942383
+      },
+      {
+        "seed": 104729,
+        "backend": "sse2",
+        "first": {
+          "quantizationRelativeRmse": 3.388995972324176e-05,
+          "matrixScaleMax": 3.888826904585585e-05,
+          "matrixMaxToP99Max": 3.2440206258174675,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "last": {
+          "quantizationRelativeRmse": 3.5357273712963136e-05,
+          "matrixScaleMax": 3.9428326999768615e-05,
+          "matrixMaxToP99Max": 2.832448643490937,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "totalClipping": 0,
+        "totalForbiddenMagnitude": 0,
+        "minimumUniqueCanonicalGenomes": 85,
+        "minimumSpecies": 1,
+        "sampledControllerMaxError": 0.0019840821623802185
+      },
+      {
+        "seed": 130363,
+        "backend": "i16-matrix-fma128",
+        "first": {
+          "quantizationRelativeRmse": 3.388995972324176e-05,
+          "matrixScaleMax": 3.888826904585585e-05,
+          "matrixMaxToP99Max": 3.2440206258174675,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "last": {
+          "quantizationRelativeRmse": 3.7273879074883443e-05,
+          "matrixScaleMax": 4.493247251957655e-05,
+          "matrixMaxToP99Max": 3.396721902465739,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "totalClipping": 0,
+        "totalForbiddenMagnitude": 0,
+        "minimumUniqueCanonicalGenomes": 85,
+        "minimumSpecies": 1,
+        "sampledControllerMaxError": 0.0020104050636291504
+      },
+      {
+        "seed": 130363,
+        "backend": "sse2",
+        "first": {
+          "quantizationRelativeRmse": 3.388995972324176e-05,
+          "matrixScaleMax": 3.888826904585585e-05,
+          "matrixMaxToP99Max": 3.2440206258174675,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "last": {
+          "quantizationRelativeRmse": 3.576619749515828e-05,
+          "matrixScaleMax": 4.174590139882639e-05,
+          "matrixMaxToP99Max": 3.0686152811952367,
+          "affineBiasDominantFraction": 0.0,
+          "affineBiasScaleInflationMax": 1.0
+        },
+        "totalClipping": 0,
+        "totalForbiddenMagnitude": 0,
+        "minimumUniqueCanonicalGenomes": 85,
+        "minimumSpecies": 1,
+        "sampledControllerMaxError": 0.0020066797733306885
+      }
+    ],
+    "secondSseManifestSha256": "dc199e0e37fc0eb8e8a98a99f10aaa78f044d02db4959160b21c481d1935d901",
+    "secondSseFinalCheckpoint": {
+      "file": "0c698eaa83b7fabc0afff947fdc05274423cb62e81479238203e81e69199e37e.checkpoint-v3",
+      "sha256": "e201b6ba8683c432449e50f18b3f49477bee370a91b8594cfd94b088fe310ebd",
+      "logicalRootSha256": "0c698eaa83b7fabc0afff947fdc05274423cb62e81479238203e81e69199e37e"
+    },
+    "secondSseManifestEntriesVerifiedOnBothHosts": 5,
+    "analysisManifestSha256": "396932abcfb03cde36f788ecf44277cfb4c65d2198174e2b312d4d8c135cf285"
   }
 }
