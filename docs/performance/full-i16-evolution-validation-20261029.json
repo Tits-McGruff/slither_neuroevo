@@ -1,5 +1,5 @@
 {
-  "status": "Native validation passed; two paired 20-generation SSE2/full-i16 comparisons completed and preserved. Remaining seed runs are in progress; no qualification decision yet.",
+  "status": "Native validation passed; three paired 20-generation SSE2/full-i16 comparisons completed and preserved. Two seed pairs remain in progress; no qualification decision yet.",
   "measuredSourceCommit": "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
   "nativeSourceSha256": "3ab5d5172813504bbcfc55d3dd6b10ccfcc1f7ca558be3a54f6880e3ddf3ddac",
   "backendComparison": [
@@ -507,10 +507,10 @@
   "retainedArtifactManifest": {
     "file": "full-i16-evolution-artifacts-20261029.sha256",
     "root": "data/benchmarks/matrix-i16-evolution-20261029",
-    "entries": 45,
-    "sha256": "aabc8d04e485d3fc6e18280cff2861acdc0fe937dea669170e8bc134d6b2797f",
-    "scope": "Four completed runs, completed-pair analysis, initial bias-scale observation and platform validation receipts; ongoing native run payloads excluded.",
-    "artifactCopy": "two-pairs-and-bias-observation-SHA256SUMS"
+    "entries": 61,
+    "sha256": "a323d3faec000de147c2c50c1dc4be9aaa3989b55436c2e66c8208476d8a37b1",
+    "scope": "Six completed runs, completed-pair analysis, initial bias-scale observation and platform validation receipts; ongoing native run payloads excluded.",
+    "artifactCopy": "three-pairs-SHA256SUMS"
   },
   "completedTwoPairs": {
     "status": "Interim: two of five seed pairs complete. No qualification or default-selection decision.",
@@ -714,5 +714,202 @@
     "interpretation": "Rare bias-set scales are observed, with modest scale inflation. This is not a demonstrated numerical or evolutionary pathology. No quantizer or bias-policy change is justified by these cases alone.",
     "productionChange": "None; SSE2 remains the default.",
     "artifactManifestSha256": "f933d1d0f0daaa8fe845099fc4c5fcf9e8dd0cdee11184566dd39a17a942412e"
+  },
+  "completedThreePairs": {
+    "status": "Interim: three of five seed pairs complete; no qualification or default-selection decision.",
+    "completedPairs": 3,
+    "plannedPairs": 5,
+    "generationRecords": 120,
+    "pairedLastFiveMeanFitness": [
+      {
+        "seed": 104729,
+        "sse2": 2315.181177965008,
+        "i16-matrix-fma128": 2741.813355766588
+      },
+      {
+        "seed": 130363,
+        "sse2": 2240.1848125294064,
+        "i16-matrix-fma128": 2265.729077721645
+      },
+      {
+        "seed": 155921,
+        "sse2": 2224.1208858113755,
+        "i16-matrix-fma128": 2069.0024476503722
+      }
+    ],
+    "pairedLateFitnessComparison": {
+      "seedPairs": 3,
+      "pairedDifferences": [
+        426.6321778015799,
+        25.544265192238527,
+        -155.11843816100327
+      ],
+      "meanDifference": 99.01933494427173,
+      "medianDifference": 25.544265192238527,
+      "range": [
+        -155.11843816100327,
+        426.6321778015799
+      ],
+      "exploratoryBootstrap95PercentInterval": [
+        -155.11843816100327,
+        426.6321778015799
+      ],
+      "twoSidedExactSignFlipP": 0.75,
+      "warning": "Seed pair is the unit; small n, exploratory interval and symmetric-null sign-flip inference, no noninferiority claim."
+    },
+    "pairedAll20FitnessComparison": {
+      "seedPairs": 3,
+      "pairedDifferences": [
+        166.72193073857875,
+        111.74328236096653,
+        -209.50678690653376
+      ],
+      "meanDifference": 22.986142064337173,
+      "medianDifference": 111.74328236096653,
+      "range": [
+        -209.50678690653376,
+        166.72193073857875
+      ],
+      "exploratoryBootstrap95PercentInterval": [
+        -209.50678690653376,
+        166.72193073857875
+      ],
+      "twoSidedExactSignFlipP": 1.0,
+      "warning": "Seed pair is the unit; small n, exploratory interval and symmetric-null sign-flip inference, no noninferiority claim."
+    },
+    "secondaryLateDifferences": {
+      "foodMean": [
+        4.961339543553457,
+        -0.0796589271011463,
+        -2.6403569634880597
+      ],
+      "lifetimeMeanSeconds": [
+        12.522705882355751,
+        -43.76819607842353,
+        0.021843137252744782
+      ],
+      "netPointsMean": [
+        -0.13170501385748823,
+        0.017380685775135518,
+        0.05060920665702695
+      ],
+      "survivalCensoredFraction": [
+        -0.007058823529411756,
+        -0.06117647058823525,
+        0.004705882352941171
+      ],
+      "sampledCoordinateVariance": [
+        -0.0005150007706089844,
+        0.0008496037117413757,
+        0.000604904844640323
+      ]
+    },
+    "performanceSpeedups": [
+      {
+        "seed": 104729,
+        "simulationThroughputSpeedup": 1.2471738695994548,
+        "inferenceCostPerDeliverySpeedup": 1.5088482088861301
+      },
+      {
+        "seed": 130363,
+        "simulationThroughputSpeedup": 1.2498321938346753,
+        "inferenceCostPerDeliverySpeedup": 1.475289235816142
+      },
+      {
+        "seed": 155921,
+        "simulationThroughputSpeedup": 1.312815311417948,
+        "inferenceCostPerDeliverySpeedup": 1.5083745956950603
+      }
+    ],
+    "quantizationAudit": [
+      {
+        "run": "seed-104729-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.5357273712963136e-05,
+        "sampledControllerMaxError": 0.0019840821623802185
+      },
+      {
+        "run": "seed-104729-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.580326679940872e-05,
+        "sampledControllerMaxError": 0.0020581483840942383
+      },
+      {
+        "run": "seed-130363-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.576619749515828e-05,
+        "sampledControllerMaxError": 0.0020066797733306885
+      },
+      {
+        "run": "seed-130363-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.7273879074883443e-05,
+        "sampledControllerMaxError": 0.0020104050636291504
+      },
+      {
+        "run": "seed-155921-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.6027050469769266e-05,
+        "sampledControllerMaxError": 0.0021840035915374756
+      },
+      {
+        "run": "seed-155921-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [
+          {
+            "generation": 4,
+            "slot": 27,
+            "node": "mlp-a",
+            "inflation": 1.096858263015747
+          },
+          {
+            "generation": 5,
+            "slot": 34,
+            "node": "mlp-a",
+            "inflation": 1.096858263015747
+          }
+        ],
+        "finalRelativeRmse": 3.617287241132064e-05,
+        "sampledControllerMaxError": 0.001806468702852726
+      }
+    ],
+    "thirdPairArtifacts": {
+      "sse2": {
+        "manifestSha256": "cf3b784e5039456c4217abdb4cd4941f0f6ab5cf8c4cd5387e27f6a421453a7c",
+        "finalCheckpoint": {
+          "file": "9dd13e0a47231bea467cc5807d67a7d1a2b08c56278c387361b4a8782c45499b.checkpoint-v3",
+          "sha256": "1af2bc435a87b11df6d24d2b5cc12a14abb163c5d68a84cbeb5c5d48b591b5a2",
+          "logicalRootSha256": "9dd13e0a47231bea467cc5807d67a7d1a2b08c56278c387361b4a8782c45499b"
+        },
+        "manifestEntriesVerifiedOnBothHosts": 5
+      },
+      "i16-matrix-fma128": {
+        "manifestSha256": "f3e3e47536fae07d4d795ed666a92ca1108d3505d27e3b88b7bc5d966f58a770",
+        "finalCheckpoint": {
+          "file": "1dc1cca2099693ac43384f79a7d747686a9cca11a18646d6b607a420d51ec31a.checkpoint-v3",
+          "sha256": "e2debd8f126f0af1a230585ed3240ff12d264b45ec90955e187d61a52387d841",
+          "logicalRootSha256": "1dc1cca2099693ac43384f79a7d747686a9cca11a18646d6b607a420d51ec31a"
+        },
+        "manifestEntriesVerifiedOnBothHosts": 5
+      }
+    },
+    "analysisManifestSha256": "e1ca0b13579769235efdb6851bb27866efa50225bcfaba0fbb3f1787121cf922"
   }
 }
