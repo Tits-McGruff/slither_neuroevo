@@ -507,10 +507,10 @@
   "retainedArtifactManifest": {
     "file": "full-i16-evolution-artifacts-20261029.sha256",
     "root": "data/benchmarks/matrix-i16-evolution-20261029",
-    "entries": 61,
-    "sha256": "a323d3faec000de147c2c50c1dc4be9aaa3989b55436c2e66c8208476d8a37b1",
-    "scope": "Six completed runs, completed-pair analysis, initial bias-scale observation and platform validation receipts; ongoing native run payloads excluded.",
-    "artifactCopy": "three-pairs-SHA256SUMS"
+    "entries": 77,
+    "sha256": "cf7f8fa0783ecdb7731ac3774c933d5fcc074885b249594053e799454a335941",
+    "scope": "Eight completed runs, completed-pair analysis, initial bias-scale observation and platform validation receipts; ongoing native run payloads excluded.",
+    "artifactCopy": "four-pairs-SHA256SUMS"
   },
   "completedTwoPairs": {
     "status": "Interim: two of five seed pairs complete. No qualification or default-selection decision.",
@@ -911,5 +911,237 @@
       }
     },
     "analysisManifestSha256": "e1ca0b13579769235efdb6851bb27866efa50225bcfaba0fbb3f1787121cf922"
+  },
+  "fourCompletedPairs": {
+    "status": "Interim: four of five seed pairs complete; no qualification or default-selection decision.",
+    "completedPairs": 4,
+    "plannedPairs": 5,
+    "generationRecords": 160,
+    "pairedLastFiveMeanFitness": [
+      {
+        "seed": 104729,
+        "sse2": 2315.181177965008,
+        "i16-matrix-fma128": 2741.813355766588
+      },
+      {
+        "seed": 130363,
+        "sse2": 2240.1848125294064,
+        "i16-matrix-fma128": 2265.729077721645
+      },
+      {
+        "seed": 155921,
+        "sse2": 2224.1208858113755,
+        "i16-matrix-fma128": 2069.0024476503722
+      },
+      {
+        "seed": 196613,
+        "sse2": 2074.6312692376014,
+        "i16-matrix-fma128": 2131.628077260012
+      }
+    ],
+    "pairedLateFitnessComparison": {
+      "seedPairs": 4,
+      "pairedDifferences": [
+        426.6321778015799,
+        25.544265192238527,
+        -155.11843816100327,
+        56.99680802241073
+      ],
+      "meanDifference": 88.51370321380648,
+      "medianDifference": 41.27053660732463,
+      "range": [
+        -155.11843816100327,
+        426.6321778015799
+      ],
+      "exploratoryBootstrap95PercentInterval": [
+        -102.08962661514977,
+        326.3601996492446
+      ],
+      "twoSidedExactSignFlipP": 0.625,
+      "warning": "Seed pair is the unit; small n, exploratory interval and symmetric-null sign-flip inference, no noninferiority claim."
+    },
+    "pairedAll20FitnessComparison": {
+      "seedPairs": 4,
+      "pairedDifferences": [
+        166.72193073857875,
+        111.74328236096653,
+        -209.50678690653376,
+        33.757912902025055
+      ],
+      "meanDifference": 25.679084773759143,
+      "medianDifference": 72.7505976314958,
+      "range": [
+        -209.50678690653376,
+        166.72193073857875
+      ],
+      "exploratoryBootstrap95PercentInterval": [
+        -129.1942695896587,
+        139.23260654977264
+      ],
+      "twoSidedExactSignFlipP": 0.875,
+      "warning": "Seed pair is the unit; small n, exploratory interval and symmetric-null sign-flip inference, no noninferiority claim."
+    },
+    "secondaryLateDifferences": {
+      "foodMean": [
+        4.961339543553457,
+        -0.0796589271011463,
+        -2.6403569634880597,
+        0.46812013517582685
+      ],
+      "lifetimeMeanSeconds": [
+        12.522705882355751,
+        -43.76819607842353,
+        0.021843137252744782,
+        -26.786039215682308
+      ],
+      "netPointsMean": [
+        -0.13170501385748823,
+        0.017380685775135518,
+        0.05060920665702695,
+        0.10255713069892347
+      ],
+      "survivalCensoredFraction": [
+        -0.007058823529411756,
+        -0.06117647058823525,
+        0.004705882352941171,
+        -0.03764705882352942
+      ],
+      "sampledCoordinateVariance": [
+        -0.0005150007706089844,
+        0.0008496037117413757,
+        0.000604904844640323,
+        -0.00032742795271399855
+      ]
+    },
+    "performanceSpeedups": [
+      {
+        "seed": 104729,
+        "simulationThroughputSpeedup": 1.2471738695994548,
+        "inferenceCostPerDeliverySpeedup": 1.5088482088861301
+      },
+      {
+        "seed": 130363,
+        "simulationThroughputSpeedup": 1.2498321938346753,
+        "inferenceCostPerDeliverySpeedup": 1.475289235816142
+      },
+      {
+        "seed": 155921,
+        "simulationThroughputSpeedup": 1.312815311417948,
+        "inferenceCostPerDeliverySpeedup": 1.5083745956950603
+      },
+      {
+        "seed": 196613,
+        "simulationThroughputSpeedup": 1.173207706434975,
+        "inferenceCostPerDeliverySpeedup": 1.3045812627812508
+      }
+    ],
+    "quantizationAudit": [
+      {
+        "run": "seed-104729-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.5357273712963136e-05,
+        "sampledControllerMaxError": 0.0019840821623802185
+      },
+      {
+        "run": "seed-104729-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.580326679940872e-05,
+        "sampledControllerMaxError": 0.0020581483840942383
+      },
+      {
+        "run": "seed-130363-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.576619749515828e-05,
+        "sampledControllerMaxError": 0.0020066797733306885
+      },
+      {
+        "run": "seed-130363-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.7273879074883443e-05,
+        "sampledControllerMaxError": 0.0020104050636291504
+      },
+      {
+        "run": "seed-155921-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.6027050469769266e-05,
+        "sampledControllerMaxError": 0.0021840035915374756
+      },
+      {
+        "run": "seed-155921-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [
+          {
+            "generation": 4,
+            "slot": 27,
+            "node": "mlp-a",
+            "inflation": 1.096858263015747
+          },
+          {
+            "generation": 5,
+            "slot": 34,
+            "node": "mlp-a",
+            "inflation": 1.096858263015747
+          }
+        ],
+        "finalRelativeRmse": 3.617287241132064e-05,
+        "sampledControllerMaxError": 0.001806468702852726
+      },
+      {
+        "run": "seed-196613-sse2",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.5717287719032454e-05,
+        "sampledControllerMaxError": 0.0015498995780944824
+      },
+      {
+        "run": "seed-196613-i16-matrix-fma128",
+        "clipping": 0,
+        "forbiddenMagnitudes": 0,
+        "minimumUniqueGenomes": 85,
+        "biasSetters": [],
+        "finalRelativeRmse": 3.537075370240665e-05,
+        "sampledControllerMaxError": 0.0022228509187698364
+      }
+    ],
+    "fourthPairArtifacts": {
+      "sse2": {
+        "manifestSha256": "8ab08208a23fc5d4bce3391ac3e01d384ee83307e26f5cab3c65830df8ade7d5",
+        "finalCheckpoint": {
+          "file": "fe7f2e28b87ff72eef7391cdd428ed7804a97e2ef133f24e6f00e2d4537fdce6.checkpoint-v3",
+          "sha256": "afe2b94f6c789aaff6aca11f4b4eadf361b18381e43804f1c2e883d76fb989a2",
+          "logicalRootSha256": "fe7f2e28b87ff72eef7391cdd428ed7804a97e2ef133f24e6f00e2d4537fdce6"
+        },
+        "manifestEntriesVerifiedOnBothHosts": 5
+      },
+      "i16-matrix-fma128": {
+        "manifestSha256": "378e4cc37bb3233266fc87267e40dcf8770d8d46e726ab92855d88792529f19c",
+        "finalCheckpoint": {
+          "file": "f8892426db6c1bd0b951abee4b22351965e98644289a8611907ede2db6aad5ba.checkpoint-v3",
+          "sha256": "bb78fd071908f9eb56daa6029db9e63f889d0ddbeef8f51eca464166af85f034",
+          "logicalRootSha256": "f8892426db6c1bd0b951abee4b22351965e98644289a8611907ede2db6aad5ba"
+        },
+        "manifestEntriesVerifiedOnBothHosts": 5
+      }
+    },
+    "analysisManifestSha256": "f474bce311f5f5fbe9fa72ca158aa31c88c95447613b372c6df1f08094f648fd"
   }
 }
