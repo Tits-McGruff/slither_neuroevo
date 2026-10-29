@@ -1,0 +1,159 @@
+{
+  "status": "Integrated implementation validated; SSE2 default unchanged; full matrix-i16 normal explicit opt-in.",
+  "mainBeforeIntegration": "876cd744480009885a9f605a543f85aaf99cff33",
+  "experimentTip": "a6bdb6f4c462fe430cb8547883adaeb53119da8d",
+  "mergeCommit": "b7c974509711ccfd2f30c68225f6f0133dd137ae",
+  "supportingTestCorrectionCommit": "fac68cdca4851d1c54f48464a7b0d20ee28c31a7",
+  "integratedExperimentCommitCount": 49,
+  "integratedExperimentCommits": [
+    "59a80b21472a13bd233f5c1e870bb6e1ebbb2c0d",
+    "89a683191935017256e1554fb8bbb4ef51a53a78",
+    "0e6115043c7b6ba531ed208908f3c54e5b2df4ee",
+    "479c2323770418850ea0f37515d49d5d43382078",
+    "af19b705579cf71387c8fa83641434d33867c91d",
+    "73f1c8764eac85e45dda9cdaaf9b93c62673fc38",
+    "e7935ead191d0ffce047784262c179ca63e374b2",
+    "b2c72b019316464586b178baf366c50f1e55455e",
+    "a27d5fed8ec42267ed04fcf3b6f30e877bf49371",
+    "7279ad6723f28405bc54ef7c997a9d5a4932166e",
+    "78c2c9b4766cce2bdd51fe44a96a62a00abc95e5",
+    "6a30d79b139ce6faffab0704df88b14eb1c76681",
+    "f081744daf626e8d82ca8a0674d1ac3f795fc4a4",
+    "bd9a839958a817537a46bca4af3228c6b2836d9a",
+    "3ec600a6bc7beb035290237eda70f29684cb3f92",
+    "3a7bfba8f10b68ed090c248faaa4d381a3c31396",
+    "31db056e17f2b481844aeb34598923f963c18051",
+    "34fa756830661068e3dfe3dcac9cdf88b27c353a",
+    "b9aa54e99bcf89745db231c420f47050632a262c",
+    "b29810f0787a8415ef9ecaff4157d1207f99e3d3",
+    "049b53283d0e4b4271ba507b7d9de07d49fd3c62",
+    "1679938909744bb63c11259c361cb6bc3fa0bf53",
+    "eeeb2ae6737ace1db978f20d00b4a21bfa983203",
+    "3b4f0743d396ffa7d9ecf2d268b41f5c4f567e69",
+    "468fa5249ba7b139cd5b47f17a36011983c0a9b6",
+    "c284ba0dea600b7b560d796cb702430b3706a1c9",
+    "c2315c5048e5d3a5ae138127e46bbcc62262a9ca",
+    "db336d78fbfab231c648cd0147091a221d2508ab",
+    "11cd2d1078e46ed7392d0cb5df961a9800c207db",
+    "61f308b4d3960e1f212826f5c99376c69b9da0ae",
+    "5b1d01e845b9ad110df7b63302de3da9baf22fee",
+    "ec7c9a73d4c9de5030b24e2b344e109793945b5a",
+    "a98e1aa3671e8b819acef588ccc4e23357f187dc",
+    "b5fb7f4cf2e904a33dfae966efbded9abf5e42ae",
+    "02863494a67e39732fed1a4f3f53218268c3b13f",
+    "60052fb88a06e8ced4327f9ac134b0212440e8c8",
+    "14f834284ba841b1d4b4f225fe961a6d04fe88e7",
+    "37e623f62342be2db9a4f067a75f6c1ca9a100e5",
+    "1398a5a012dfad7a87973c0f83b959e632b838ee",
+    "ff886dcbdad880e7d4f38ff9104b57407c00e8ef",
+    "d06220e4058187ae6f050905fef171ca29ea44b7",
+    "062a656ffcc5752a7056ae571ab14e0f6b64fc6b",
+    "5ce2872f412188b4cdb77a4102a99a4ae3662fdf",
+    "295fb21a7d1a9ba238cd52fcb87cecd8f4e11998",
+    "2b5a5d67c1f007698d0218ab8acab76657570934",
+    "a115f38f34935797a48f2a6c0565d00c357741c6",
+    "0070f535d2ae02a03ea59c98b66a36a48bc4c4e0",
+    "45d19f7057ba22217f0a82fad11b44c635f2fba2",
+    "a6bdb6f4c462fe430cb8547883adaeb53119da8d"
+  ],
+  "mergeConflicts": false,
+  "interveningMainChanges": false,
+  "additionalIntegrationChanges": [
+    "Ordinary optional mathBackend TOML/API, MATH_BACKEND environment and --math-backend CLI selection; omitted configuration stays omitted.",
+    "Stable scalar/SSE2/full-i16/mixed identities admitted through the existing coarse native startup constructor.",
+    "Explicit CPU unavailability and recorded-checkpoint arithmetic mismatch reject without reinterpretation or backend fallback.",
+    "Actual math identity reported in health and optional Protocol 2 welcome metadata.",
+    "CI admits bounded, syntactically checked compact SHA-256 manifests and checks Clippy across all targets/features.",
+    "Exact Buffer.equals length-and-byte assertion replaces slow deep comparison in the existing panic test; no timeout or tolerance changes."
+  ],
+  "protectedImplementationUnchangedFromExperiment": [
+    "native/src/engine/inference.rs",
+    "native/src/engine/inference",
+    "native/src/simd_kernels.rs",
+    "native/src/engine/state.rs",
+    "native/src/engine/genome.rs",
+    "native/src/engine/evolution.rs",
+    "native/src/engine/checkpoint.rs",
+    "native/src/engine/checkpoint_v3.rs"
+  ],
+  "productionDefaultConfigLiteralUnchanged": true,
+  "freshDefault": "rust-sse2-v1",
+  "mixedBackendStatus": "rust-i16-affine-fma128-sse2-v1 remains diagnostic/experimental explicit opt-in",
+  "runtimeCpuRequirementsUnchanged": "x86_64; SSE4.1 and FMA with existing OS support detection",
+  "canonicalF32AndCheckpointFormatUnchanged": true,
+  "validationCodeCommit": "fac68cdca4851d1c54f48464a7b0d20ee28c31a7",
+  "nativeRuntimeCodeCommit": "b7c974509711ccfd2f30c68225f6f0133dd137ae",
+  "windows": {
+    "target": "x86_64-pc-windows-msvc",
+    "nativeSourceSha256": "2dd303d06aa1e154df021369a2459af935d95e08054442c3c8ea164a913f38f5",
+    "buildContractSha256": "sha256:3b592e686658f6c9e452b4cd898f12700c455077ecf4da9c2635cbdb342b2cfa",
+    "compilerFlags": "repository defaults",
+    "rustDefaultLibraryTests": 747,
+    "rustReleaseHookLibraryTests": 838,
+    "binaryAndDocTestsPassed": true,
+    "jsTests": {
+      "passed": 1036,
+      "skipped": 18,
+      "exitCode": 0
+    },
+    "pythonTests": {
+      "tests": 29,
+      "result": "OK"
+    },
+    "fmtCheckClippyAllTargetsAllFeatures": true,
+    "productionAddonSourceIdentityHandshakePassed": true,
+    "fullI16CpuAdmitted": true
+  },
+  "linux": {
+    "target": "x86_64-unknown-linux-gnu",
+    "nativeSourceSha256": "2dd303d06aa1e154df021369a2459af935d95e08054442c3c8ea164a913f38f5",
+    "buildContractSha256": "sha256:3bcf1d0a16aeef770a5316c503b16e0a2bf2212f8d360309768b2bc4c2b8f51e",
+    "compilerFlags": "repository defaults; no target-cpu override",
+    "rustDefaultLibraryTests": 747,
+    "rustReleaseHookLibraryTests": 839,
+    "binaryAndDocTestsPassed": true,
+    "jsTests": {
+      "passed": 1039,
+      "skipped": 15,
+      "exitCode": 0
+    },
+    "pythonTests": {
+      "tests": 29,
+      "result": "OK"
+    },
+    "fmtCheckClippyAllTargetsAllFeatures": true,
+    "productionAddonSourceIdentityHandshakePassed": true,
+    "fullI16CpuAdmitted": true
+  },
+  "requiredCoverage": [
+    "backend selection and CPU admission",
+    "cache packing, reuse and invalidation",
+    "Dense/MLP/LSTM numerical correctness",
+    "canonical checkpoint weights and exact same-backend replay",
+    "recorded backend mismatch and source/build identity",
+    "normal config/env/CLI/API selection, health and welcome"
+  ],
+  "initialLinuxFailuresResolved": [
+    "Task dependency symlinks needed scoped Git excludes matching normal dependency-directory ignores.",
+    "Existing 4.7 MB Buffer deep equality took 20.58 seconds; exact Buffer.equals preserves all bytes/length and the unchanged 15000ms timeout."
+  ],
+  "validationArtifactRoot": "data/benchmarks/matrix-i16-main-integration-20261030",
+  "validationArtifactManifests": {
+    "windows": {
+      "entries": 18,
+      "sha256": "1e639c7030e59920d5fd8a83322b3a54fc18ea26771d5391201d87ece21e4ae4",
+      "verifiedOnBothHosts": true
+    },
+    "linux": {
+      "entries": 20,
+      "sha256": "b38a96f51ead5386a7c1ddfd12c54d4268041a664393627e444b12b85edf0e25",
+      "verifiedOnBothHosts": true
+    }
+  },
+  "qualificationOnlyCommittedFilesLeftOut": [],
+  "qualificationHarnesses": "Retained existing committed tools; native qualification entry points remain engine-test-hooks gated.",
+  "largeRawQualificationArtifactsImported": false,
+  "newPerformanceOrEvolutionExperiments": false,
+  "originalUnfinishedFilesVerifiedUnchanged": 22,
+  "productionOwnerConfigurationEdited": false
+}
