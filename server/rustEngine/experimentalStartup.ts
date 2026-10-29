@@ -60,6 +60,8 @@ export interface ExperimentalStartupOptions {
   restoreLatest?: boolean;
   /** Exact retained root; validation failure never substitutes another checkpoint. */
   restoreCheckpointId?: string;
+  /** One-shot new lineage from canonical population/graph/settings; source is never activated. */
+  populationFromCheckpointId?: string;
   /** Controlled immutable checkpoint directory. */
   managedDirectory: string;
   /** Optional normalized Uint32 seed; omission uses OS entropy. */
@@ -158,6 +160,14 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   if ([options.restoreCurrent === true, options.restoreLatest === true, options.restoreCheckpointId !== undefined].filter(Boolean).length > 1) throw new Error('choose one checkpoint startup selector');
   if (options.restoreCheckpointId !== undefined && !/^[0-9a-f]{64}$/u.test(options.restoreCheckpointId)) throw new Error('invalid exact managed checkpoint ID');
   const restoring = options.restoreCurrent === true || options.restoreLatest === true || options.restoreCheckpointId !== undefined;
+  if (options.populationFromCheckpointId !== undefined &&
+      (restoring || !/^[0-9a-f]{64}$/u.test(options.populationFromCheckpointId) ||
+       options.mathBackend === undefined || options.seed !== undefined)) {
+    throw new Error('population fork requires a fresh lineage, exact source checkpoint, explicit backend and no seed override');
+  }
+  if (options.populationFromCheckpointId !== undefined && !existsSync(resolve(options.databasePath))) {
+    throw new Error('population fork requires an existing managed database');
+  }
   if (restoring && options.seed !== undefined) throw new Error('checkpoint restore cannot override its retained seed');
   // The constructor seed is unused by native restore; welcome comes only from its metadata.
   const seed = restoring ? 0 : (options.seed ?? randomBytes(4).readUInt32LE());
@@ -353,6 +363,17 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
           }
         }
       }
+    } else if (options.populationFromCheckpointId !== undefined) {
+      const source = await persistence.selectRetainedCheckpoint(options.populationFromCheckpointId);
+      if (!source.descriptor || source.descriptor.logicalRootSha256 !== options.populationFromCheckpointId) {
+        throw new Error('population fork source checkpoint is unavailable');
+      }
+      // The complete source root remains in the durable new run ID. This is a
+      // population-only new run, never an exact replay or an arithmetic-changing resume.
+      const runId = `population-fork-${options.populationFromCheckpointId}-${randomUUID()}`;
+      session = makeSession(runId);
+      await session.initializeFromPopulationCheckpoint(source.descriptor);
+      console.info(`[rust.startup] population fork source=${options.populationFromCheckpointId} run=${runId} backend=${mathBackend}`);
     } else {
       session = makeSession(randomUUID());
       await session.initialize();

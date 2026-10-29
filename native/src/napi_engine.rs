@@ -920,6 +920,7 @@ impl ExperimentalStage6aFreshRunSession {
         descriptor: Object<'_>,
         recovery_branch: Option<bool>,
         compatible_build: Option<bool>,
+        population_fork: Option<bool>,
     ) -> Result<AsyncTask<InitializeExperimentalFreshRunTask>> {
         self.begin_operation(FRESH_OPERATION_INITIALIZE)?;
         let parsed = (|| {
@@ -932,14 +933,24 @@ impl ExperimentalStage6aFreshRunSession {
             let descriptor = checkpoint_descriptor_from_napi_object(&descriptor)?;
             let recovery = recovery_branch.unwrap_or(false);
             let compatible = compatible_build.unwrap_or(false);
-            if (descriptor.run_id != self.request.run_id) != recovery {
+            let population_fork = population_fork.unwrap_or(false);
+            if population_fork {
+                if recovery
+                    || !compatible
+                    || self.requested_math.is_none()
+                    || descriptor.run_id == self.request.run_id
+                {
+                    return Err(Error::new(Status::InvalidArg,
+                        "population fork requires a distinct new run, explicit backend and compatible source validation"));
+                }
+            } else if (descriptor.run_id != self.request.run_id) != recovery {
                 return Err(Error::new(
                     Status::InvalidArg,
                     "selected checkpoint run differs from session run",
                 ));
             }
             ensure_fresh_transition_absent(&self.inner)?;
-            Ok((directory, descriptor, recovery, compatible))
+            Ok((directory, descriptor, recovery, compatible, population_fork))
         })();
         let restore = match parsed {
             Ok(restore) => restore,
@@ -1892,7 +1903,7 @@ enum FreshRunInitialization {
     },
     #[cfg(feature = "engine-test-hooks")]
     QualifiedCheckpoint(Box<QualifiedCheckpointInitialization>),
-    Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool)>),
+    Checkpoint(Box<(PathBuf, CheckpointDescriptor, bool, bool, bool)>),
     LegacySqlite((PathBuf, i64)),
 }
 
@@ -1917,7 +1928,8 @@ impl Task for InitializeExperimentalFreshRunTask {
         match catch_unwind(AssertUnwindSafe(|| {
             let mut transition = match &self.source {
                 FreshRunInitialization::Checkpoint(restore) => {
-                    let (directory, descriptor, recovery, compatible) = restore.as_ref();
+                    let (directory, descriptor, recovery, compatible, population_fork) =
+                        restore.as_ref();
                     let restored = if *compatible {
                         prepare_stage6a_p0_compatible_checkpoint_restore(
                             directory,
@@ -1933,7 +1945,17 @@ impl Task for InitializeExperimentalFreshRunTask {
                     };
                     restored
                         .and_then(|transition| {
-                            if *recovery {
+                            if *population_fork {
+                                crate::engine::fresh_run::prepare_population_checkpoint_fork(
+                                    self.request.clone(),
+                                    transition,
+                                    self.requested_math.ok_or_else(|| {
+                                        crate::engine::fresh_run::FreshRunError::Settings(
+                                            "population fork requires an explicit backend".into(),
+                                        )
+                                    })?,
+                                )
+                            } else if *recovery {
                                 transition
                                     .into_committed_recovery_branch(self.request.run_id.clone())
                                     .map_err(crate::engine::fresh_run::FreshRunError::from)

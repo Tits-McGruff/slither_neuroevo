@@ -63,6 +63,8 @@ export interface ServerConfig {
   mathBackend?: InferenceMathBackend;
   /** Automatic first startup, explicit fresh/latest startup, or one managed checkpoint identity. */
   resume: ResumeSelection;
+  /** One-shot population-only source for an explicit fresh lineage, never a resume override. */
+  populationFrom?: string;
   seed?: number;
 }
 
@@ -359,6 +361,11 @@ export function normalizeConfig(
     1, rustWorkerMaximum,
     warn ? message => warn(`${message} Valid Rust worker range: 1..${rustWorkerMaximum} (available logical CPUs).`) : undefined);
   const resume = normalizeResumeSelection(input.resume, warn);
+  if (input.populationFrom !== undefined &&
+      (typeof input.populationFrom !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(input.populationFrom) ||
+       resume !== 'fresh' || input.mathBackend === undefined || seed !== undefined)) {
+    throw new Error('--population-from requires sha256:ID, --fresh, an explicit math backend, and no seed override');
+  }
 
   const output: ServerConfig = {
     host,
@@ -378,6 +385,7 @@ export function normalizeConfig(
     logLevel,
     rustCalculationWorkers,
     ...(input.mathBackend === undefined ? {} : { mathBackend: parseInferenceMathBackend(input.mathBackend) }),
+    ...(input.populationFrom === undefined ? {} : { populationFrom: input.populationFrom as string }),
     resume
   };
   if (seed !== undefined) output.seed = seed;
@@ -498,6 +506,10 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   }
   const selectedMath = cliMath ?? env['MATH_BACKEND'];
   if (selectedMath !== undefined) parseInferenceMathBackend(selectedMath);
+  const populationFrom = getArgValue(argv, '--population-from') ?? env['SERVER_POPULATION_FROM'];
+  if (populationFrom !== undefined && !/^sha256:[0-9a-f]{64}$/u.test(populationFrom)) {
+    throw new Error('--population-from requires sha256:ID with a lowercase managed checkpoint digest');
+  }
   const cliSpoolGiB = getArgValue(argv, '--distillation-spool-gib');
   if (argv.some(arg => arg === '--distillation-spool-gib' || arg.startsWith('--distillation-spool-gib=')) &&
       cliSpoolGiB === undefined) throw new Error('--distillation-spool-gib requires a value');
@@ -581,5 +593,6 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   }
   if (selectedSpoolGiB !== undefined) input.distillationSpoolGiB = selectedSpoolGiB;
   if (selectedMath !== undefined) input.mathBackend = parseInferenceMathBackend(selectedMath);
+  if (populationFrom !== undefined) input.populationFrom = populationFrom;
   return normalizeConfig(input, warn, rustWorkerMaximum);
 }

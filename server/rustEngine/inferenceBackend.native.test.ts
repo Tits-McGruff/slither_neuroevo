@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
@@ -79,5 +79,43 @@ it.each([undefined, 'rust-i16-matrix-fma128-v1'] as const)('passes normal server
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ mathBackend: backend ?? 'rust-sse2-v1' });
     } finally { await server.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 30_000);
+
+it('starts a population-only i16 lineage without rewriting its scalar source and resumes it normally', async () => {
+  const backend = 'rust-i16-matrix-fma128-v1';
+  if (!admitted(backend)) return;
+  const root = mkdtempSync(join(tmpdir(), 'slither-population-fork-'));
+  const options = { databasePath: join(root, 'owner.db'), managedDirectory: join(root, 'checkpoints'),
+    calculationWorkers: 1, onWake() {} };
+  try {
+    const source = await createExperimentalServerRuntime({ ...options, seed: 42, mathBackend: 'rust-scalar-v1' });
+    const descriptor = source.runStart.descriptor;
+    const metadata = source.metadata;
+    await source.close();
+    const sourceBytes = readFileSync(join(options.managedDirectory, descriptor.relativeFilename));
+    const fork = await createExperimentalServerRuntime({ ...options, populationFromCheckpointId: descriptor.logicalRootSha256,
+      mathBackend: backend });
+    const forkCheckpoint = fork.runStart.checkpointId;
+    try {
+      expect(fork.metadata).toMatchObject({ mathBackend: backend, seed: metadata.seed,
+        settings: metadata.settings, graphSpec: metadata.graphSpec, parameterCount: metadata.parameterCount });
+      expect(fork.metadata.runId).toContain(`population-fork-${descriptor.logicalRootSha256}-`);
+      expect(fork.runStart.descriptor).toMatchObject({ boundaryKind: 'run-start', generation: '0000000000000001',
+        completedStep: '0000000000000000', weightCount: descriptor.weightCount, populationCount: descriptor.populationCount });
+      expect(forkCheckpoint).not.toBe(descriptor.logicalRootSha256);
+      expect(readFileSync(join(options.managedDirectory, descriptor.relativeFilename)).equals(sourceBytes)).toBe(true);
+    } finally { await fork.close(); }
+    const resumed = await createExperimentalServerRuntime({ ...options, restoreLatest: true, mathBackend: backend });
+    try {
+      expect(resumed.metadata.mathBackend).toBe(backend);
+      expect(resumed.runStart.checkpointId).toBe(forkCheckpoint);
+    } finally { await resumed.close(); }
+    await expect(createExperimentalServerRuntime({ ...options, restoreLatest: true,
+      populationFromCheckpointId: descriptor.logicalRootSha256, mathBackend: backend })).rejects.toThrow(/fresh lineage/u);
+    await expect(createExperimentalServerRuntime({ ...options, populationFromCheckpointId: '0'.repeat(64),
+      mathBackend: backend })).rejects.toThrow(/checkpoint|retained/u);
+    const afterFailure = await createExperimentalServerRuntime({ ...options, restoreLatest: true, mathBackend: backend });
+    try { expect(afterFailure.runStart.checkpointId).toBe(forkCheckpoint); } finally { await afterFailure.close(); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);

@@ -1547,6 +1547,13 @@ impl AuthoritativeState {
         Self::validate_and_own(self.candidate, self.graph, policy)
     }
 
+    /// Consume an offline source after its checkpoint has passed ordinary admission.
+    /// Only canonical population weights are used by the new-run constructor;
+    /// world, recurrent state and chronology are deliberately retired here.
+    pub(crate) fn into_population_for_new_run(self) -> Vec<PopulationGenome> {
+        self.candidate.population
+    }
+
     /// Read the immutable state contract.
     #[must_use]
     pub fn state(&self) -> &StateCandidate {

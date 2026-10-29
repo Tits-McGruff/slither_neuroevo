@@ -163,7 +163,7 @@ export interface ExperimentalFreshRunNativeHandle extends RustRunStartPersistenc
   initialize(): Promise<unknown>;
   /** Stream and validate the worker-selected immutable boundary off-loop. */
   initializeFromCheckpoint(managedDirectory: string, descriptor: ManagedCheckpointDescriptor,
-    recoveryBranch?: boolean, compatibleBuild?: boolean): Promise<unknown>;
+    recoveryBranch?: boolean, compatibleBuild?: boolean, populationFork?: boolean): Promise<unknown>;
   /** Read one selected TypeScript v2 population without crossing the main Node isolate. */
   initializeFromLegacySqlite(databasePath: string, snapshotIdHex: U64Hex): Promise<unknown>;
   /** Construct and publish the running world off the Node loop. */
@@ -384,6 +384,15 @@ export class ExperimentalFreshRunSession {
     );
     this.restoredBoundary = selected;
     return parseFreshRunSnapshot(result, selected);
+  }
+
+  /** Consume a privately validated source into a fresh, separately durable population lineage. */
+  public async initializeFromPopulationCheckpoint(
+    descriptor: ManagedCheckpointDescriptor
+  ): Promise<ExperimentalFreshRunSnapshot> {
+    return parseFreshRunSnapshot(await this.native.initializeFromCheckpoint(
+      this.managedDirectory, parseManagedCheckpointDescriptor(descriptor), false, true, true
+    ));
   }
 
   /** Convert one worker-selected TypeScript v2 population into a fresh Rust boundary. */

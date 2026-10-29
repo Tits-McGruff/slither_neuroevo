@@ -222,6 +222,26 @@ it('leaves omitted arithmetic unchanged and resolves explicit backend choices th
   expect(PRODUCTION_CLI_HELP).toContain('Fresh default: SSE2');
 });
 
+it('admits one-shot population forks only with fresh startup, explicit arithmetic and the retained seed', () => {
+  const { config, database } = fixture();
+  const original = 'mathBackend = "rust-i16-matrix-fma128-v1"\n';
+  writeFileSync(config, original);
+  const checkpoint = `sha256:${'a'.repeat(64)}`;
+  expect(parseProductionCli(['--fresh', '--population-from', checkpoint], { SERVER_CONFIG: config }))
+    .toMatchObject({ resume: 'fresh', populationFrom: checkpoint, mathBackend: 'rust-i16-matrix-fma128-v1' });
+  expect(parseProductionCli(['--fresh'], { SERVER_CONFIG: config, SERVER_POPULATION_FROM: checkpoint }))
+    .toMatchObject({ resume: 'fresh', populationFrom: checkpoint });
+  for (const args of [[], ['--resume', 'latest'], ['--fresh', '--seed', '7']]) {
+    expect(() => parseProductionCli([...args, '--population-from', checkpoint], { SERVER_CONFIG: config }))
+      .toThrow(/population-from/u);
+  }
+  expect(() => parseProductionCli(['--fresh', '--population-from', 'latest'], { SERVER_CONFIG: config })).toThrow(/sha256/u);
+  writeFileSync(config, '');
+  expect(() => parseProductionCli(['--fresh', '--population-from', checkpoint], { SERVER_CONFIG: config })).toThrow(/explicit math backend/u);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+  expect(DEFAULT_CONFIG).not.toHaveProperty('populationFrom');
+});
+
 it.each(['', 'auto', 'avx2', 'benchmark-f32-fma128-v1', 'rust-i16-matrix-fma128-v2', 'constructor', 'toString'])('rejects explicit unknown arithmetic %s before owner-file creation', value => {
   const { root, config, database } = fixture();
   expect(() => parseProductionCli([`--math-backend=${value}`], { SERVER_CONFIG: config })).toThrow();

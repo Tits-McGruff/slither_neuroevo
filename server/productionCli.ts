@@ -39,6 +39,7 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--math-backend': { value: 'BACKEND', choices: INFERENCE_MATH_BACKEND_CHOICES,
     description: 'Explicit native arithmetic (MATH_BACKEND / mathBackend). Fresh default: SSE2; matrix-i16 requires SSE4.1/FMA; affine-i16 remains experimental.' },
   '--fresh': { description: 'Start a new generation-one run; conflicts with --resume.' },
+  '--population-from': { value: 'sha256:ID', description: 'One-shot --fresh population fork preserving saved graph/settings/F32 genomes/seed; requires explicit --math-backend (SERVER_POPULATION_FROM). Remove after startup; subsequent launches resume normally.' },
   '--resume': { value: 'latest|sha256:ID', description: 'Select a retained managed checkpoint (SERVER_RESUME).' },
   '--help': { description: 'Print help and exit without creating configuration or starting the game.' }
 };

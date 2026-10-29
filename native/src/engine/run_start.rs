@@ -213,6 +213,18 @@ impl PendingRunStartTransition {
         })
     }
 
+    /// Retire a validated private checkpoint into a population-only new run.
+    /// This cannot turn an active authority or an unvalidated fresh candidate
+    /// into an arithmetic-changing resume.
+    pub(crate) fn into_population_for_new_run(
+        self,
+    ) -> Result<AuthoritativeState, RunStartTransitionError> {
+        if self.authority_published || !self.restored_checkpoint {
+            return Err(RunStartTransitionError::InvalidBoundary);
+        }
+        Ok(self.authority)
+    }
+
     /// Keep the selected runtime ceiling separate from private boundary admission.
     pub(crate) fn selected_running_memory_ceiling_bytes(&self) -> usize {
         self.admission_policy.memory_ceiling_bytes

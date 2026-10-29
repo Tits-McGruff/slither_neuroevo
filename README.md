@@ -111,6 +111,29 @@ use explicit resume/conversion for a supported legacy store.
 | `--resume latest` | Validates the current checkpoint. If needed, recovers from the newest valid retained boundary under a labelled recovery branch. |
 | `--resume sha256:ID` | Selects that exact retained checkpoint, including an older generation or prior run. Requires the producing build identity and never substitutes another checkpoint. |
 
+To select different inference arithmetic while retaining a population, start a
+separate lineage from an exact managed checkpoint:
+
+```sh
+npm run server -- --fresh --population-from sha256:CHECKPOINT_ID --math-backend i16-matrix-fma128
+```
+
+This one-time operation preserves the canonical F32 genomes, graph, complete
+settings and source seed. It uses ordinary compatible-checkpoint validation,
+memory/disk admission and durable run-start publication. Generation numbering,
+fitness, physical lives, recurrent state and RNG chronology start anew using the
+normal new-run rules. The source file and prior lineage remain unchanged. The
+new run ID contains the complete source checkpoint ID; this is a population
+transfer, not exact continuation across arithmetic backends.
+
+`--population-from` requires `--fresh`, an explicit math backend and no seed
+override. For the normal service launcher the equivalent one-time environment
+is `SLITHER_START_MODE=fresh` plus `SERVER_POPULATION_FROM=sha256:CHECKPOINT_ID`,
+with the backend selected through `MATH_BACKEND` or TOML `mathBackend`.
+After successful startup, remove `SERVER_POPULATION_FROM` and return the
+launcher to its normal resume/auto mode; retain the explicit backend selection.
+Do not leave a fresh-start operation configured for automatic restarts.
+
 - Selecting a checkpoint other than the active current one creates a separate
   branch after validation. The source's later history is preserved.
 - After a rebuild, `--resume latest` can continue a checkpoint when its state

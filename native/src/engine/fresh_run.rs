@@ -237,6 +237,81 @@ pub fn prepare_configured_fresh_run_with_math(
     graph: GraphSpec,
     math: InferenceMathBackend,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    let prepared = prepare_configured_fresh_boundary(request, settings, graph, math)?;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+/// Start a new lineage using an admitted checkpoint's unchanged F32 population.
+/// The source is charged while the ordinary new-run boundary is allocated. Its
+/// lives, recurrent state, fitness and RNG chronology do not cross this boundary.
+pub(crate) fn prepare_population_checkpoint_fork(
+    mut request: Stage6aP0FreshRunRequest,
+    source: PendingRunStartTransition,
+    math: InferenceMathBackend,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let source = source.into_population_for_new_run()?;
+    if request.run_id == source.state().identity.run_id {
+        return Err(FreshRunError::InvalidRunId);
+    }
+    let full_ceiling = request.memory_ceiling_bytes;
+    request.memory_ceiling_bytes = full_ceiling
+        .checked_sub(source.memory_estimate().total_bytes)
+        .ok_or_else(|| {
+            FreshRunError::Settings("population fork source exceeds memory admission".into())
+        })?;
+    request.seed = source.state().identity.seed;
+    let settings = numeric_fresh_settings(source.state().config.settings.clone());
+    let mut prepared =
+        prepare_configured_fresh_boundary(request, &settings, source.graph_spec().clone(), math)?;
+    if prepared.candidate.config.settings != source.state().config.settings
+        || prepared.graph.layout_digest_sha256 != source.graph().layout_digest_sha256
+        || prepared.candidate.population.len() != source.state().population.len()
+        || prepared
+            .candidate
+            .population
+            .iter()
+            .zip(&source.state().population)
+            .any(|(target, original)| target.weights.len() != original.weights.len())
+    {
+        return Err(FreshRunError::Settings(
+            "population fork must preserve source settings, graph and population shape".into(),
+        ));
+    }
+    for (target, original) in prepared
+        .candidate
+        .population
+        .iter_mut()
+        .zip(source.into_population_for_new_run())
+    {
+        target.weights = original.weights;
+    }
+    // The private source and the temporary initialized weights have now retired.
+    prepared.admission_policy.memory_ceiling_bytes = full_ceiling;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+fn prepare_configured_fresh_boundary(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     if !math.is_available() {
         return Err(FreshRunError::Settings(format!(
             "inference backend {} is unavailable on this CPU",
@@ -264,15 +339,7 @@ pub fn prepare_configured_fresh_run_with_math(
     };
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();
-    PendingRunStartTransition::admit(
-        prepared.candidate,
-        prepared.graph,
-        prepared.admission_policy,
-        prepared.checkpoint_limits,
-        prepared.graph_limits,
-        prepared.work_limits,
-    )
-    .map_err(FreshRunError::from)
+    Ok(prepared)
 }
 
 /// Explicit v4 Reset/New Run selection. No qualification-only constructor or
@@ -2929,6 +2996,121 @@ mod tests {
             assert_eq!(metadata["mathBackend"], backend.label());
             assert!(!fresh.checkpoint_published());
         }
+    }
+
+    #[test]
+    fn population_checkpoint_fork_preserves_f32_settings_seed_and_durability() {
+        let math = InferenceMathBackend::I16MatrixFma128;
+        if !math.is_available() {
+            return;
+        }
+        let mut prepared = prepare_configured_fresh_boundary(
+            request(42),
+            &[],
+            super::super::graph::default_stack_graph_spec(264),
+            InferenceMathBackend::Scalar,
+        )
+        .unwrap();
+        for (slot, genome) in prepared.candidate.population.iter_mut().enumerate() {
+            genome.weights[0] = -5.0;
+            genome.weights[1] = 5.0;
+            genome.weights[2] = (slot as f32 + 1.0) * 1e-6;
+        }
+        let expected = prepared
+            .candidate
+            .population
+            .iter()
+            .map(|g| g.weights.clone())
+            .collect::<Vec<_>>();
+        let mut original = PendingRunStartTransition::admit(
+            prepared.candidate,
+            prepared.graph,
+            prepared.admission_policy,
+            prepared.checkpoint_limits,
+            prepared.graph_limits,
+            prepared.work_limits,
+        )
+        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_str(&original.startup_metadata_json().unwrap()).unwrap();
+        let directory = TestDirectory::create("population-backend-fork");
+        let descriptor = original
+            .publish_checkpoint(
+                directory.path(),
+                CheckpointOperationId::parse("abcdefabcdefabcdefabcdefabcdefab").unwrap(),
+            )
+            .unwrap();
+        let original_bytes =
+            std::fs::read(directory.path().join(&descriptor.relative_filename)).unwrap();
+        let restore = || {
+            prepare_stage6a_p0_compatible_checkpoint_restore(
+                directory.path(),
+                &descriptor,
+                TEST_MEMORY_CEILING,
+            )
+            .unwrap()
+        };
+        let mut target_request = request(999);
+        // Unlike a single-owner fixture, construction charges both admitted
+        // populations until the source buffers have moved to the new boundary.
+        target_request.memory_ceiling_bytes = 4 * 1024 * MIB;
+        target_request.run_id = "population-fork-test".into();
+        let mut fork =
+            prepare_population_checkpoint_fork(target_request.clone(), restore(), math).unwrap();
+        let fork_metadata: serde_json::Value =
+            serde_json::from_str(&fork.startup_metadata_json().unwrap()).unwrap();
+        for key in [
+            "settings",
+            "graphSpec",
+            "graphKey",
+            "parameterCount",
+            "seed",
+        ] {
+            assert_eq!(fork_metadata[key], metadata[key], "fork changed {key}");
+        }
+        assert_eq!(fork_metadata["mathBackend"], math.label());
+        assert_eq!(fork_metadata["runId"], "population-fork-test");
+        assert!(fork.publish_running_authority().is_err());
+        let fork_descriptor = fork
+            .publish_checkpoint(
+                directory.path(),
+                CheckpointOperationId::parse("12345678123456781234567812345678").unwrap(),
+            )
+            .unwrap();
+        assert_ne!(
+            fork_descriptor.logical_root_sha256,
+            descriptor.logical_root_sha256
+        );
+        let inspected = prepare_stage6a_p0_checkpoint_restore(
+            directory.path(),
+            &fork_descriptor,
+            TEST_MEMORY_CEILING,
+        )
+        .unwrap()
+        .into_population_for_new_run()
+        .unwrap();
+        for (actual, expected) in inspected.state().population.iter().zip(&expected) {
+            assert_eq!(&actual.weights, expected);
+        }
+        assert_eq!(
+            std::fs::read(directory.path().join(&descriptor.relative_filename)).unwrap(),
+            original_bytes
+        );
+        fork.acknowledge_persistence(&fork_descriptor).unwrap();
+        fork.publish_running_authority().unwrap();
+        assert!(original.into_population_for_new_run().is_err()); // fresh is not a validated restore
+        target_request.run_id = descriptor.run_id.clone();
+        assert!(
+            prepare_population_checkpoint_fork(target_request.clone(), restore(), math).is_err()
+        );
+        target_request.run_id = "memory-rejected-fork".into();
+        target_request.memory_ceiling_bytes = 1;
+        assert!(
+            prepare_population_checkpoint_fork(target_request, restore(), math)
+                .unwrap_err()
+                .to_string()
+                .contains("memory admission")
+        );
     }
 
     #[test]
