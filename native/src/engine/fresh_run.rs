@@ -142,6 +142,14 @@ fn numeric_fresh_settings(
 pub fn prepare_default_fresh_run(
     request: Stage6aP0FreshRunRequest,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_default_fresh_run_with_math(request, InferenceMathBackend::Sse2)
+}
+
+/// Select arithmetic explicitly while retaining the ordinary production graph/settings.
+pub fn prepare_default_fresh_run_with_math(
+    request: Stage6aP0FreshRunRequest,
+    math: InferenceMathBackend,
+) -> Result<PendingRunStartTransition, FreshRunError> {
     let settings = selected_fresh_default_settings()?;
     let contract = super::sensor_contract::SensorContractIdentity::from_settings(&settings)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
@@ -149,7 +157,7 @@ pub fn prepare_default_fresh_run(
         request,
         &numeric_fresh_settings(settings),
         super::graph::default_stack_graph_spec(contract.input_size()),
-        InferenceMathBackend::Sse2,
+        math,
     )
 }
 
@@ -223,12 +231,18 @@ pub fn prepare_configured_fresh_run_with_settings_and_graph(
 }
 
 /// Reset/New Run preserves the arithmetic backend captured with its held source.
-pub(crate) fn prepare_configured_fresh_run_with_math(
+pub fn prepare_configured_fresh_run_with_math(
     request: Stage6aP0FreshRunRequest,
     settings: &[FreshRunSettingUpdate],
     graph: GraphSpec,
     math: InferenceMathBackend,
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    if !math.is_available() {
+        return Err(FreshRunError::Settings(format!(
+            "inference backend {} is unavailable on this CPU",
+            math.label()
+        )));
+    }
     let defaults;
     let settings = if settings.is_empty() {
         defaults = numeric_fresh_settings(selected_fresh_default_settings()?);
@@ -652,6 +666,40 @@ pub(crate) fn prepare_sensor_qualification_run(
     baseline: Option<super::baseline_v2::BaselineV2Settings>,
     trained: &[super::brain_artifact::ValidatedBrainArtifact],
 ) -> Result<PendingRunStartTransition, FreshRunError> {
+    prepare_sensor_qualification_population(
+        request, settings, graph, profile, bins, limits, math, baseline, trained, None,
+    )
+}
+
+/// Qualification-only transfer of distinct canonical population members.
+#[cfg(feature = "engine-test-hooks")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_sensor_qualification_population(
+    mut request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    profile: super::sensor_contract::SensorProfile,
+    bins: usize,
+    limits: RunningStepWorkLimits,
+    math: InferenceMathBackend,
+    baseline: Option<super::baseline_v2::BaselineV2Settings>,
+    trained: &[super::brain_artifact::ValidatedBrainArtifact],
+    evolved: Option<&super::evolved_cohort::EvolvedCohort>,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    if let Some(cohort) = evolved {
+        let source_bytes = cohort
+            .weights
+            .iter()
+            .chain(&cohort.recurrent)
+            .try_fold(1024 * 1024usize, |sum, w| sum.checked_add(w.len() * 4))
+            .ok_or_else(|| FreshRunError::Settings("cohort reservation overflow".into()))?;
+        request.memory_ceiling_bytes = request
+            .memory_ceiling_bytes
+            .checked_sub(source_bytes)
+            .ok_or_else(|| {
+                FreshRunError::Settings("cohort exhausted construction admission".into())
+            })?;
+    }
     let identity = super::sensor_contract::SensorContractIdentity::new(profile, bins)
         .map_err(|error| FreshRunError::Settings(error.to_string()))?;
     if (profile != super::sensor_contract::SensorProfile::V3) != limits.ray_work.is_some() {
@@ -672,12 +720,42 @@ pub(crate) fn prepare_sensor_qualification_run(
         settings,
         graph,
         true,
-        (profile != super::sensor_contract::SensorProfile::V3).then_some(identity),
+        (profile != super::sensor_contract::SensorProfile::V3).then_some(identity.clone()),
         limits,
         baseline,
     )?;
     if !trained.is_empty() {
         install_qualified_population_artifacts(&mut prepared, trained)?;
+    }
+    if let Some(cohort) = evolved {
+        let source_contract =
+            super::sensor_contract::SensorContractIdentity::from_settings(&cohort.settings)
+                .map_err(|e| FreshRunError::Settings(e.to_string()))?;
+        if !trained.is_empty()
+            || source_contract != identity
+            || prepared.graph.layout_digest_sha256 != cohort.graph.layout_digest_sha256
+            || prepared.candidate.population.len() != cohort.weights.len()
+            || prepared
+                .candidate
+                .population
+                .iter()
+                .zip(&cohort.weights)
+                .any(|(g, w)| g.weights.len() != w.len())
+        {
+            return Err(FreshRunError::Settings(
+                "evolved population graph/sensors/count mismatch".into(),
+            ));
+        }
+        for (genome, weights) in prepared
+            .candidate
+            .population
+            .iter_mut()
+            .zip(&cohort.weights)
+        {
+            genome.weights.copy_from_slice(weights);
+        }
+        // Fresh physical lives use the ordinary reset state rule. Controlled numerical
+        // comparisons separately start from the source checkpoint recurrent states.
     }
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();
@@ -1396,6 +1474,12 @@ fn production_restore_policy(
     policy
         .allowed_math_backends
         .push(InferenceMathBackend::Sse2.label().into());
+    policy
+        .allowed_math_backends
+        .push(InferenceMathBackend::I16MatrixFma128.label().into());
+    policy
+        .allowed_math_backends
+        .push(InferenceMathBackend::I16AffineFma128.label().into());
     policy.allowed_settings_schema_sha256.push(modern);
     for mut settings in [
         typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
@@ -2813,6 +2897,102 @@ mod tests {
                 .publish_first_scheduled_frame_v1(&mut Vec::new())
                 .unwrap();
             assert_eq!(transition.completed_step(), 1);
+        }
+    }
+
+    #[test]
+    fn production_fresh_math_selection_is_explicit_and_rejects_retained_mismatch() {
+        for backend in [
+            InferenceMathBackend::Scalar,
+            InferenceMathBackend::Sse2,
+            InferenceMathBackend::I16MatrixFma128,
+            InferenceMathBackend::I16AffineFma128,
+        ] {
+            let result = prepare_default_fresh_run_with_math(request(42), backend);
+            if !backend.is_available() {
+                assert!(result.unwrap_err().to_string().contains("unavailable"));
+                continue;
+            }
+            let fresh = result.unwrap();
+            fresh.require_math_backend(backend).unwrap();
+            let other = if backend == InferenceMathBackend::Scalar {
+                InferenceMathBackend::Sse2
+            } else {
+                InferenceMathBackend::Scalar
+            };
+            assert!(fresh
+                .require_math_backend(other)
+                .unwrap_err()
+                .contains("explicit inference backend mismatch:"));
+            let metadata: serde_json::Value =
+                serde_json::from_str(&fresh.startup_metadata_json().unwrap()).unwrap();
+            assert_eq!(metadata["mathBackend"], backend.label());
+            assert!(!fresh.checkpoint_published());
+        }
+    }
+
+    #[test]
+    fn matrix_i16_backend_checkpoint_preserves_f32_and_exact_worker_replay() {
+        if !InferenceMathBackend::I16MatrixFma128.is_available() {
+            return;
+        }
+        for backend in [
+            InferenceMathBackend::I16MatrixFma128,
+            InferenceMathBackend::I16AffineFma128,
+        ] {
+            let settings = numeric_fresh_settings(selected_fresh_default_settings().unwrap());
+            let mut fresh = prepare_configured_fresh_run_with_math(
+                request(42),
+                &settings,
+                super::super::graph::default_stack_graph_spec(264),
+                backend,
+            )
+            .unwrap();
+            let original = fresh.startup_metadata_json().unwrap();
+            let directory = TestDirectory::create("matrix-i16-checkpoint");
+            let descriptor = fresh
+                .publish_checkpoint(
+                    directory.path(),
+                    CheckpointOperationId::parse("abcdefabcdefabcdefabcdefabcdefab").unwrap(),
+                )
+                .unwrap();
+            let mut restored = prepare_stage6a_p0_checkpoint_restore(
+                directory.path(),
+                &descriptor,
+                TEST_MEMORY_CEILING,
+            )
+            .unwrap();
+            assert_eq!(restored.startup_metadata_json().unwrap(), original);
+            fresh.acknowledge_persistence(&descriptor).unwrap();
+            fresh.configure_calculation_workers(1).unwrap();
+            restored
+                .configure_calculation_workers(
+                    3.min(super::super::calculation_workers::available_calculation_workers()),
+                )
+                .unwrap();
+            for transition in [&mut fresh, &mut restored] {
+                transition.publish_running_authority().unwrap();
+            }
+            let mut fresh = fresh
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            let mut restored = restored
+                .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+                .unwrap();
+            let mut left = Vec::with_capacity(fresh.admitted_frame_bytes());
+            let mut right = Vec::with_capacity(restored.admitted_frame_bytes());
+            for now in (17..=170).step_by(17) {
+                fresh
+                    .service_after_command_drain(now, SchedulerServiceMode::Background, None)
+                    .unwrap();
+                restored
+                    .service_after_command_drain(now, SchedulerServiceMode::Background, None)
+                    .unwrap();
+                assert_eq!(fresh.completed_step(), restored.completed_step());
+                fresh.pack_display_into(now, &mut left).unwrap();
+                restored.pack_display_into(now, &mut right).unwrap();
+                assert_eq!(left, right);
+            }
         }
     }
 

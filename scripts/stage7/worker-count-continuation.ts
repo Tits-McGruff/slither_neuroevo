@@ -33,7 +33,7 @@ interface GenerationResult {
 }
 
 /** Worker counts accepted by the current production runtime. */
-const WORKER_COUNTS = [1, 4, 5, 6] as const;
+const WORKER_COUNTS = [1, 4, 5, 6, 7] as const;
 
 /** Small production health projection needed to await one full generation. */
 interface Health {

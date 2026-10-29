@@ -302,3 +302,109 @@ mod dot_tests {
         dot_product_sse2(&[0.0; 33], &[0.0; 32]);
     }
 }
+
+/// Runtime admission includes OS support for AVX register state through Rust's
+/// FMA detector. No AVX2 instructions or 256-bit vectors are used by this path.
+pub(crate) fn runtime_i16_fma128_available() -> bool {
+    std::arch::is_x86_feature_detected!("sse4.1") && std::arch::is_x86_feature_detected!("fma")
+}
+
+/// Safe, equal-slice entry; backend construction must have admitted SSE4.1/FMA.
+#[inline]
+pub(crate) fn dot_product_i16_fma128(
+    weights: &[i16],
+    input: &[f32],
+    multiplier: Option<&[f32]>,
+    scale: f32,
+) -> f32 {
+    assert_eq!(weights.len(), input.len());
+    if let Some(right) = multiplier {
+        assert_eq!(right.len(), input.len());
+    }
+    // SAFETY: Equal slice lengths establish readable, possibly unaligned spans;
+    // the execution-plan constructor checks CPU features before selecting this kernel.
+    unsafe { dot_i16_matrix_fma128(weights, input, multiplier, scale) }
+}
+
+/// Eight signed i16 values per unaligned source load, two four-lane FMA chains.
+/// Scale is applied once after reduction and the scalar tail.
+///
+/// # Safety
+/// The CPU must support SSE4.1 and FMA. Slice lengths must match.
+#[target_feature(enable = "sse4.1,fma")]
+unsafe fn dot_i16_matrix_fma128(
+    weights: &[i16],
+    input: &[f32],
+    multiplier: Option<&[f32]>,
+    scale: f32,
+) -> f32 {
+    let mut index = 0;
+    let mut a = _mm_setzero_ps();
+    let mut b = a;
+    // SAFETY: Each load is bounded by a complete eight-element span. Float
+    // loads each cover four elements of that span. No alignment is assumed.
+    unsafe {
+        while index + 8 <= input.len() {
+            let packed = _mm_loadu_si128(weights.as_ptr().add(index).cast());
+            let low = _mm_cvtepi32_ps(_mm_cvtepi16_epi32(packed));
+            let high = _mm_cvtepi32_ps(_mm_cvtepi16_epi32(_mm_srli_si128::<8>(packed)));
+            let mut x = _mm_loadu_ps(input.as_ptr().add(index));
+            let mut y = _mm_loadu_ps(input.as_ptr().add(index + 4));
+            if let Some(right) = multiplier {
+                x = _mm_mul_ps(x, _mm_loadu_ps(right.as_ptr().add(index)));
+                y = _mm_mul_ps(y, _mm_loadu_ps(right.as_ptr().add(index + 4)));
+            }
+            a = _mm_fmadd_ps(low, x, a);
+            b = _mm_fmadd_ps(high, y, b);
+            index += 8;
+        }
+        let mut lanes = [0.0_f32; 4];
+        _mm_storeu_ps(lanes.as_mut_ptr(), _mm_add_ps(a, b));
+        let mut sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+        while index < input.len() {
+            let x = input[index] * multiplier.map_or(1.0, |r| r[index]);
+            sum = (weights[index] as f32).mul_add(x, sum);
+            index += 1;
+        }
+        sum * scale
+    }
+}
+
+/// Benchmark-only F32 comparator; it is never a persisted production backend.
+#[cfg(feature = "engine-test-hooks")]
+#[target_feature(enable = "sse4.1,fma")]
+unsafe fn f32_fma128(weights: &[f32], input: &[f32]) -> f32 {
+    let mut i = 0;
+    let mut a = _mm_setzero_ps();
+    let mut b = a;
+    // SAFETY: Equal slices at the caller and full-vector loop bounds prove loads.
+    unsafe {
+        while i + 8 <= input.len() {
+            a = _mm_fmadd_ps(
+                _mm_loadu_ps(weights.as_ptr().add(i)),
+                _mm_loadu_ps(input.as_ptr().add(i)),
+                a,
+            );
+            b = _mm_fmadd_ps(
+                _mm_loadu_ps(weights.as_ptr().add(i + 4)),
+                _mm_loadu_ps(input.as_ptr().add(i + 4)),
+                b,
+            );
+            i += 8;
+        }
+        let mut lanes = [0.0; 4];
+        _mm_storeu_ps(lanes.as_mut_ptr(), _mm_add_ps(a, b));
+        let mut sum = lanes[0] + lanes[1] + lanes[2] + lanes[3];
+        while i < input.len() {
+            sum = weights[i].mul_add(input[i], sum);
+            i += 1;
+        }
+        sum
+    }
+}
+#[cfg(feature = "engine-test-hooks")]
+pub(crate) fn dot_product_f32_fma128(weights: &[f32], input: &[f32]) -> f32 {
+    assert_eq!(weights.len(), input.len());
+    // SAFETY: The plan admits FMA/SSE4.1, and equal slices prove load bounds.
+    unsafe { f32_fma128(weights, input) }
+}

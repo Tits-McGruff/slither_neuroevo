@@ -11,6 +11,7 @@ const TSX = resolve('node_modules/tsx/dist/cli.mjs');
 
 it.each([
   { args: ['--help'], status: 0, text: 'Usage: npm run server' },
+  { args: ['--math-backend', 'avx2'], status: 1, text: '--math-backend requires one of:' },
   { args: ['--input-hold-ms', '750'], status: 1, text: '--input-hold-ms is fixed at 500 in production' },
   { args: ['--db-pth', '/mnt/experiment.db', '--resume', 'latest'], status: 1, text: 'unknown production argument: --db-pth' }
 ])('exits production CLI before configuration, database or listener startup: $args', ({ args, status, text }) => {

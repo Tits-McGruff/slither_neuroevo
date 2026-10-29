@@ -1,3 +1,4 @@
+import { parseInferenceMathBackend, type InferenceMathBackend } from '../config.ts';
 import Database from 'better-sqlite3';
 import { validateRustCalculationWorkers } from '../rustWorkers.ts';
 import { existsSync } from 'node:fs';
@@ -47,6 +48,8 @@ const require = createRequire(import.meta.url);
 export interface ExperimentalStartupOptions {
   /** Bounded persistent Rust calculation threads, independent of old Node MT. */
   calculationWorkers?: number;
+  /** Optional stable arithmetic selection, checked by Rust against CPU and retained identity. */
+  mathBackend?: InferenceMathBackend;
   /** Owner-selected physical checkpoint budget in MiB. */
   checkpointBudgetMiB?: number;
   /** Selected metadata database; fresh startup appends a run to a compatible managed store. */
@@ -159,6 +162,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   // The constructor seed is unused by native restore; welcome comes only from its metadata.
   const seed = restoring ? 0 : (options.seed ?? randomBytes(4).readUInt32LE());
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) throw new RangeError('experimental seed must be a Uint32');
+  const mathBackend = options.mathBackend === undefined ? undefined : parseInferenceMathBackend(options.mathBackend);
   const calculationWorkers = validateRustCalculationWorkers(options.calculationWorkers ?? 1);
   const checkpointBudgetMiB = options.checkpointBudgetMiB ??
     Number(OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap / (1024n * 1024n));
@@ -213,6 +217,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     const makeSession = (runId: string): ExperimentalFreshRunSession => createExperimentalFreshRunSession({
       binding, sourceIdentity, runId, seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
       calculationWorkers,
+      ...(mathBackend === undefined ? {} : { mathBackend }),
       persistence, managedDirectory, activateRunOnCommit: true,
       beforeRunStartCommit: descriptor => admitPendingRunStartCheckpoint(descriptor,
         () => persistence.inspectStorage(), managedDirectory, BigInt(checkpointBudgetMiB) * 1024n * 1024n, protectedAutomaticBytes)
@@ -267,6 +272,9 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
               ? selection.recovery ?? selection.importBranch ?? undefined : undefined);
         }
       } catch (currentError) {
+        // An explicit arithmetic mismatch is a user request conflict, not corruption.
+        // Never choose an older boundary merely to satisfy a different backend request.
+        if (currentError instanceof Error && currentError.message.includes('explicit inference backend mismatch:')) throw currentError;
         // A selected legacy-only database has no managed lineage to scan.
         // Preserve its conversion error instead of replacing it with a
         // misleading "no active lineage available for recovery" rejection.

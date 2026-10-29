@@ -825,6 +825,18 @@ impl WorldStepWorkspace {
         Ok(self.external_replacement.unavailable_reservations(key)?)
     }
 
+    /// Read the completed physics retained behind a terminal generation barrier.
+    /// The coordinator has invalidated ordinary publication, but physics still
+    /// validates its original step key and complete substep count. Terminal
+    /// guards run before deferred external replacement; this is their exact world.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_terminal_world(
+        &self,
+        key: PhysicsStepKey,
+    ) -> Result<&WorldState, WorldStepError> {
+        Ok(self.physics.finish(key)?.world())
+    }
+
     /// Complete provisional world used to filter superseded observations.
     pub(crate) fn staged_world(&self, key: PhysicsStepKey) -> Result<&WorldState, WorldStepError> {
         if !self.ready || self.key != Some(key) {

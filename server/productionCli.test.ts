@@ -201,3 +201,33 @@ it('rejects missing quota values and invalid TOML without migration writes', () 
   expect(() => parseProductionCli([], { SERVER_CONFIG: config })).toThrow(/distillationSpoolGiB/u);
   expect(readFileSync(config, 'utf8')).toBe(original);
 });
+
+
+it('leaves omitted arithmetic unchanged and resolves explicit backend choices through normal configuration precedence', () => {
+  const { config, database } = fixture();
+  writeFileSync(config, '');
+  expect(DEFAULT_CONFIG).not.toHaveProperty('mathBackend');
+  expect(normalizeConfig({})).not.toHaveProperty('mathBackend');
+  expect(parseProductionCli([], { SERVER_CONFIG: config })).not.toHaveProperty('mathBackend');
+  const original = 'mathBackend = "i16-affine-fma128-sse2"\n';
+  writeFileSync(config, original);
+  expect(parseProductionCli([], { SERVER_CONFIG: config })?.mathBackend).toBe('rust-i16-affine-fma128-sse2-v1');
+  expect(parseProductionCli([], { SERVER_CONFIG: config, MATH_BACKEND: 'i16-matrix-fma128' })?.mathBackend).toBe('rust-i16-matrix-fma128-v1');
+  expect(parseProductionCli(['--math-backend=sse2'], { SERVER_CONFIG: config, MATH_BACKEND: 'i16-matrix-fma128' })?.mathBackend).toBe('rust-sse2-v1');
+  expect(parseProductionCli(['--math-backend', 'rust-i16-matrix-fma128-v1'], { SERVER_CONFIG: config })?.mathBackend).toBe('rust-i16-matrix-fma128-v1');
+  expect(parseProductionCli(['--math-backend', 'scalar'], { SERVER_CONFIG: config })?.mathBackend).toBe('rust-scalar-v1');
+  expect(readFileSync(config, 'utf8')).toBe(original);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+  expect(PRODUCTION_CLI_HELP).toContain('--math-backend BACKEND');
+  expect(PRODUCTION_CLI_HELP).toContain('Fresh default: SSE2');
+});
+
+it.each(['', 'auto', 'avx2', 'benchmark-f32-fma128-v1', 'rust-i16-matrix-fma128-v2', 'constructor', 'toString'])('rejects explicit unknown arithmetic %s before owner-file creation', value => {
+  const { root, config, database } = fixture();
+  expect(() => parseProductionCli([`--math-backend=${value}`], { SERVER_CONFIG: config })).toThrow();
+  expect(() => parseConfig([], { SERVER_CONFIG: config, MATH_BACKEND: value })).toThrow(/mathBackend/u);
+  expect(readdirSync(root)).toEqual(['owner.db']);
+  writeFileSync(config, `mathBackend = ${JSON.stringify(value)}\n`);
+  expect(() => parseConfig([], { SERVER_CONFIG: config })).toThrow(/mathBackend/u);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+});

@@ -6,6 +6,30 @@ import { DEFAULT_DISTILLATION_SPOOL_GIB, validateDistillationSpoolGiB } from './
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+/** Stable arithmetic identities accepted by normal startup and checkpoint admission. */
+export const INFERENCE_MATH_BACKENDS = [
+  'rust-scalar-v1', 'rust-sse2-v1', 'rust-i16-matrix-fma128-v1',
+  'rust-i16-affine-fma128-sse2-v1'
+] as const;
+/** Explicit native inference arithmetic; omission preserves fresh SSE2 / recorded restore. */
+export type InferenceMathBackend = typeof INFERENCE_MATH_BACKENDS[number];
+/** Existing native CLI spellings also accepted by the production selector. */
+const MATH_BACKEND_ALIASES = {
+  scalar: 'rust-scalar-v1', sse2: 'rust-sse2-v1',
+  'i16-matrix-fma128': 'rust-i16-matrix-fma128-v1',
+  'i16-affine-fma128-sse2': 'rust-i16-affine-fma128-sse2-v1'
+} as const;
+/** Complete CLI choice set; resolved configuration always carries a stable identity. */
+export const INFERENCE_MATH_BACKEND_CHOICES = [...INFERENCE_MATH_BACKENDS, ...Object.keys(MATH_BACKEND_ALIASES)];
+
+/** Validate an explicit request without silently substituting another arithmetic backend. */
+export function parseInferenceMathBackend(value: unknown): InferenceMathBackend {
+  if (typeof value === 'string') {
+    if ((INFERENCE_MATH_BACKENDS as readonly string[]).includes(value)) return value as InferenceMathBackend;
+    if (Object.hasOwn(MATH_BACKEND_ALIASES, value)) return MATH_BACKEND_ALIASES[value as keyof typeof MATH_BACKEND_ALIASES];
+  }
+  throw new RangeError(`mathBackend requires one of: ${INFERENCE_MATH_BACKEND_CHOICES.join(', ')}`);
+}
 /** Startup population-selection policy. */
 export type ResumeSelection = 'auto' | 'latest' | 'fresh' | `sha256:${string}`;
 
@@ -35,6 +59,8 @@ export interface ServerConfig {
   logLevel: LogLevel;
   /** Rust calculation threads within the process-available logical CPU count. */
   rustCalculationWorkers: number;
+  /** Explicit native arithmetic; absent leaves fresh SSE2 and recorded checkpoint arithmetic intact. */
+  mathBackend?: InferenceMathBackend;
   /** Automatic first startup, explicit fresh/latest startup, or one managed checkpoint identity. */
   resume: ResumeSelection;
   seed?: number;
@@ -351,6 +377,7 @@ export function normalizeConfig(
     distillationSpoolGiB: validateDistillationSpoolGiB(input.distillationSpoolGiB),
     logLevel,
     rustCalculationWorkers,
+    ...(input.mathBackend === undefined ? {} : { mathBackend: parseInferenceMathBackend(input.mathBackend) }),
     resume
   };
   if (seed !== undefined) output.seed = seed;
@@ -425,6 +452,7 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     logLevel: data['logLevel'],
     seed: data['seed'],
     rustCalculationWorkers: data['rustCalculationWorkers'],
+    mathBackend: data['mathBackend'],
     resume: data['resume']
   };
 }
@@ -464,6 +492,12 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   }
   const warn = (msg: string) => console.warn(`[config] ${msg}`);
   validateLegacyKeys({ inferenceBackend: env['INFERENCE_BACKEND'], mtEnabled: env['MT_ENABLED'], mtWorkers: env['MT_WORKERS'], tickRateHz: env['TICK_RATE'] }, warn);
+  const cliMath = getArgValue(argv, '--math-backend');
+  if (argv.some(arg => arg === '--math-backend' || arg.startsWith('--math-backend=')) && cliMath === undefined) {
+    throw new Error('--math-backend requires a value');
+  }
+  const selectedMath = cliMath ?? env['MATH_BACKEND'];
+  if (selectedMath !== undefined) parseInferenceMathBackend(selectedMath);
   const cliSpoolGiB = getArgValue(argv, '--distillation-spool-gib');
   if (argv.some(arg => arg === '--distillation-spool-gib' || arg.startsWith('--distillation-spool-gib=')) &&
       cliSpoolGiB === undefined) throw new Error('--distillation-spool-gib requires a value');
@@ -546,5 +580,6 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
     input.resume = resumeRaw;
   }
   if (selectedSpoolGiB !== undefined) input.distillationSpoolGiB = selectedSpoolGiB;
+  if (selectedMath !== undefined) input.mathBackend = parseInferenceMathBackend(selectedMath);
   return normalizeConfig(input, warn, rustWorkerMaximum);
 }

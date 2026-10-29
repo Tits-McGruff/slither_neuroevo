@@ -39,7 +39,7 @@ use crate::engine::error::{truncate_utf8, EngineError, EngineErrorCode, MAX_ERRO
 use crate::engine::export_archive::prepare_legacy_sqlite_population_import;
 use crate::engine::frame_v1::FrameV1Metadata;
 use crate::engine::fresh_run::{
-    prepare_default_fresh_run, prepare_stage6a_p0_checkpoint_restore,
+    prepare_default_fresh_run_with_math, prepare_stage6a_p0_checkpoint_restore,
     prepare_stage6a_p0_compatible_checkpoint_restore, Stage6aP0FreshRunRequest,
 };
 use crate::engine::generation::GenerationCommitRecord;
@@ -794,16 +794,36 @@ struct ExperimentalFreshRunInner {
     fault_detail: Option<String>,
 }
 
-/// Explicitly experimental owner for one real fixed-P0 fresh Rust lineage.
+/// Coarse startup owner used by the Rust-authoritative production server.
 ///
 /// Construction, managed-file publication, and initial-world activation run on
-/// libuv workers. The normal server does not instantiate this class yet.
+/// libuv workers. Optional arithmetic selection is admitted before population allocation.
 #[napi(js_name = "ExperimentalStage6aFreshRunSession")]
 pub struct ExperimentalStage6aFreshRunSession {
     request: Stage6aP0FreshRunRequest,
+    requested_math: Option<crate::engine::inference::InferenceMathBackend>,
     calculation_workers: usize,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
+}
+
+/// Validate an explicit stable identity before allocating any population.
+/// Availability is supplied by runtime CPU detection in production.
+fn parse_requested_math_backend(
+    label: Option<&str>,
+    available: impl FnOnce(crate::engine::inference::InferenceMathBackend) -> bool,
+) -> std::result::Result<Option<crate::engine::inference::InferenceMathBackend>, String> {
+    let Some(label) = label else {
+        return Ok(None);
+    };
+    let backend = crate::engine::inference::InferenceMathBackend::from_label(label)
+        .ok_or_else(|| format!("unknown inference math backend: {label}"))?;
+    if !available(backend) {
+        return Err(format!(
+            "inference backend {label} is unavailable on this CPU"
+        ));
+    }
+    Ok(Some(backend))
 }
 
 /// Unwind-safe ownership of one synchronous experimental mutation root.
@@ -827,7 +847,16 @@ impl ExperimentalStage6aFreshRunSession {
         seed_hex: JsString<'_>,
         memory_ceiling_bytes_hex: JsString<'_>,
         calculation_workers: Option<u32>,
+        math_backend: Option<JsString<'_>>,
     ) -> Result<Self> {
+        let math_backend = math_backend
+            .map(|value| bounded_js_string(value, "mathBackend", 64, false))
+            .transpose()?;
+        let requested_math = parse_requested_math_backend(
+            math_backend.as_deref(),
+            crate::engine::inference::InferenceMathBackend::is_available,
+        )
+        .map_err(|error| Error::new(Status::InvalidArg, error))?;
         let calculation_workers = calculation_workers.unwrap_or(1) as usize;
         validate_calculation_workers(calculation_workers)
             .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
@@ -848,6 +877,7 @@ impl ExperimentalStage6aFreshRunSession {
             )
         })?;
         Ok(Self {
+            requested_math,
             request: Stage6aP0FreshRunRequest {
                 run_id,
                 seed,
@@ -875,6 +905,7 @@ impl ExperimentalStage6aFreshRunSession {
             capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
+            requested_math: self.requested_math,
             source: FreshRunInitialization::Fresh,
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
@@ -925,6 +956,7 @@ impl ExperimentalStage6aFreshRunSession {
             capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
+            requested_math: self.requested_math,
             source: FreshRunInitialization::Checkpoint(Box::new(restore)),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
@@ -975,6 +1007,7 @@ impl ExperimentalStage6aFreshRunSession {
             capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
+            requested_math: self.requested_math,
             source: FreshRunInitialization::LegacySqlite(legacy),
             inner: Arc::clone(&self.inner),
             active_operation: Arc::clone(&self.active_operation),
@@ -1242,9 +1275,13 @@ impl ExperimentalStage6aFreshRunSession {
                 ))
             }
         };
-        let math = match bounded_object_string(&admission, "mathBackend", 6)?.as_str() {
+        let math = match bounded_object_string(&admission, "mathBackend", 32)?.as_str() {
             "scalar" => crate::engine::inference::InferenceMathBackend::Scalar,
             "sse2" => crate::engine::inference::InferenceMathBackend::Sse2,
+            "i16-matrix-fma128" => crate::engine::inference::InferenceMathBackend::I16MatrixFma128,
+            "i16-affine-fma128-sse2" => {
+                crate::engine::inference::InferenceMathBackend::I16AffineFma128
+            }
             _ => {
                 return Err(Error::new(
                     Status::InvalidArg,
@@ -1317,6 +1354,7 @@ impl ExperimentalStage6aFreshRunSession {
             capacity_audit_json: None,
             request: self.request.clone(),
             calculation_workers: self.calculation_workers,
+            requested_math: None,
             source: FreshRunInitialization::QualifiedCheckpoint(Box::new(
                 QualifiedCheckpointInitialization {
                     directory,
@@ -1425,6 +1463,7 @@ impl ExperimentalStage6aFreshRunSession {
                 capacity_audit_json: None,
                 request: self.request.clone(),
                 calculation_workers: self.calculation_workers,
+                requested_math: None,
                 source: FreshRunInitialization::Capacity {
                     population,
                     large_graph,
@@ -1584,6 +1623,7 @@ impl ExperimentalStage6aFreshRunSession {
                 capacity_audit_json: None,
                 request: self.request.clone(),
                 calculation_workers: self.calculation_workers,
+                requested_math: None,
                 source: FreshRunInitialization::Qualification(
                     profile,
                     bins,
@@ -1863,6 +1903,7 @@ pub struct InitializeExperimentalFreshRunTask {
     capacity_audit_json: Option<String>,
     request: Stage6aP0FreshRunRequest,
     calculation_workers: usize,
+    requested_math: Option<crate::engine::inference::InferenceMathBackend>,
     source: FreshRunInitialization,
     inner: Arc<Mutex<ExperimentalFreshRunInner>>,
     active_operation: Arc<AtomicU8>,
@@ -1978,6 +2019,8 @@ impl Task for InitializeExperimentalFreshRunTask {
                     if let Some(population) = workload_population {
                         let options =
                             crate::engine::sensor_qualification::SensorQualificationOptions {
+                                source_graph: None,
+                                real_clock: false,
                                 query_limits: *query_limits,
                                 population: *population,
                                 profile: *profile,
@@ -2065,9 +2108,16 @@ impl Task for InitializeExperimentalFreshRunTask {
                         .map_err(|error| error.to_string())?
                     }
                 }
-                FreshRunInitialization::Fresh => prepare_default_fresh_run(self.request.clone())
-                    .map_err(|error| error.to_string())?,
+                FreshRunInitialization::Fresh => prepare_default_fresh_run_with_math(
+                    self.request.clone(),
+                    self.requested_math
+                        .unwrap_or(crate::engine::inference::InferenceMathBackend::Sse2),
+                )
+                .map_err(|error| error.to_string())?,
             };
+            if let Some(requested) = self.requested_math {
+                transition.require_math_backend(requested)?;
+            }
             transition.configure_calculation_workers(self.calculation_workers)?;
             let mut inner = lock_recover(&self.inner);
             if let Some(detail) = inner.fault_detail.as_deref() {
@@ -5912,6 +5962,35 @@ mod tests {
     use std::time::{Duration, Instant};
 
     #[test]
+    fn explicit_inference_selection_rejects_unavailable_cpu_and_unknown_identity() {
+        use crate::engine::inference::InferenceMathBackend;
+        assert_eq!(
+            parse_requested_math_backend(None, |_| panic!("omission needs no CPU override")),
+            Ok(None)
+        );
+        for backend in [
+            InferenceMathBackend::Scalar,
+            InferenceMathBackend::Sse2,
+            InferenceMathBackend::I16MatrixFma128,
+            InferenceMathBackend::I16AffineFma128,
+        ] {
+            assert_eq!(
+                parse_requested_math_backend(Some(backend.label()), |_| true),
+                Ok(Some(backend))
+            );
+            let error = parse_requested_math_backend(Some(backend.label()), |_| false).unwrap_err();
+            assert!(error.contains(backend.label()) && error.contains("unavailable on this CPU"));
+        }
+        for label in ["unknown-v1", "benchmark-f32-fma128-v1", "", "constructor"] {
+            assert!(parse_requested_math_backend(Some(label), |_| panic!(
+                "unknown identities never reach CPU admission"
+            ))
+            .unwrap_err()
+            .contains("unknown inference math backend"));
+        }
+    }
+
+    #[test]
     fn retained_origin_wire_metadata_preserves_full_width_ids_and_source_classes() {
         use crate::engine::brain_artifact::BrainSourceKind;
         use crate::engine::retained_origin::RetainedNeuralOrigin;
@@ -6156,6 +6235,7 @@ mod tests {
     #[test]
     fn fresh_run_session_exposes_one_nonblocking_operation_owner() {
         let session = ExperimentalStage6aFreshRunSession {
+            requested_math: None,
             request: Stage6aP0FreshRunRequest {
                 run_id: "unit-run".to_owned(),
                 seed: 1,
@@ -6241,6 +6321,7 @@ mod tests {
     #[test]
     fn fresh_run_worker_panic_permanently_faults_with_bounded_first_detail() {
         let session = ExperimentalStage6aFreshRunSession {
+            requested_math: None,
             request: Stage6aP0FreshRunRequest {
                 run_id: "unit-fault-run".to_owned(),
                 seed: 1,

@@ -25,6 +25,8 @@ use std::time::Instant;
 
 /// Maximum retained timings; simulation state and histogram storage stay fixed.
 pub const MAX_QUALIFICATION_STEPS: usize = 60_000;
+/// Separate cold evolved-run ceiling; capture/soak admission retains its existing bound.
+const MAX_EVOLVED_QUALIFICATION_STEPS: usize = 1_200_000;
 /// Fixed histogram resolution, with explicit under/overflow counters.
 const HISTOGRAM_BUCKETS: usize = 32;
 
@@ -64,6 +66,10 @@ impl QueryDetailLimits {
 /// Every resource/work choice is explicit; these are not production defaults.
 #[derive(Clone, Debug)]
 pub struct SensorQualificationOptions {
+    /// Optional bounded operator-supplied graph; defaults and trained cohorts stay unchanged.
+    pub source_graph: Option<GraphSpec>,
+    /// Drive the existing scheduler with elapsed monotonic wall time instead of simulated wall ticks.
+    pub real_clock: bool,
     /// None retains the existing normalized production settings without an override.
     pub query_limits: Option<QueryDetailLimits>,
     pub population: usize,
@@ -191,7 +197,10 @@ impl BoundedHistogram {
 pub struct CostDistribution {
     pub minimum_ms: f64,
     pub median_ms: f64,
+    pub p90_ms: f64,
     pub p95_ms: f64,
+    pub p99_ms: f64,
+    pub p999_ms: f64,
     pub maximum_ms: f64,
     pub total_ms: f64,
 }
@@ -207,7 +216,10 @@ pub(crate) fn distribution(values: &mut [f64]) -> CostDistribution {
     CostDistribution {
         minimum_ms: values[0],
         median_ms: quantile(1, 2),
+        p90_ms: quantile(90, 100),
         p95_ms: quantile(95, 100),
+        p99_ms: quantile(99, 100),
+        p999_ms: quantile(999, 1000),
         maximum_ms: values[values.len() - 1],
         total_ms,
     }
@@ -288,6 +300,14 @@ impl NativePhysicsPhaseTotals {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SensorQualificationReport {
+    /// Read-only evolved source and ordinary generation/behavior summaries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evolved_population: Option<serde_json::Value>,
+    pub incomplete_events: Vec<serde_json::Value>,
+    pub gameplay_boundaries: Vec<serde_json::Value>,
+    /// At most 32 actual first-generation delivered rows per population slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_bank: Option<Vec<Vec<f32>>>,
     /// Present only when the caller explicitly selects a bounded query-detail pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_detail_limits: Option<QueryDetailLimits>,
@@ -303,6 +323,13 @@ pub struct SensorQualificationReport {
     pub environment: String,
     pub build_identifier: String,
     pub source_sha256: String,
+    pub build_contract_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_layout_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_graph: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub real_clock: Option<RealClockQualification>,
     pub target: String,
     pub build_class: String,
     pub rustc: String,
@@ -367,6 +394,20 @@ pub struct SensorQualificationReport {
     pub raw: Vec<BoundedHistogram>,
     pub normalized: Vec<BoundedHistogram>,
     pub caveat: &'static str,
+}
+
+/// Measured elapsed-time scheduling; no alternate simulation or scheduler is introduced.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealClockQualification {
+    pub measured_wall_seconds: f64,
+    pub measured_simulation_seconds: f64,
+    pub achieved_simulated_seconds_per_wall_second: f64,
+    pub dropped_wall_seconds: f64,
+    pub final_pending_wall_seconds: f64,
+    pub maximum_pending_wall_seconds: f64,
+    pub final_catch_up_wall_debt_seconds: f64,
+    pub gameplay_continuation_sha256: String,
 }
 
 fn graph(width: usize, large: bool) -> GraphSpec {
@@ -452,7 +493,7 @@ pub(crate) fn prepare_sensor_cohort_workload(
     cohort: &super::trained_cohort::TrainedCohort,
 ) -> Result<super::run_start::PendingRunStartTransition, super::fresh_run::FreshRunError> {
     use super::fresh_run::FreshRunError;
-    if options.trained_artifact.is_some() || options.large_graph {
+    if options.trained_artifact.is_some() || options.large_graph || options.source_graph.is_some() {
         return Err(FreshRunError::Settings(
             "cohort supplies its graph; omit single-artifact and graph overrides".into(),
         ));
@@ -512,9 +553,16 @@ pub(crate) fn sensor_workload_spec(
             .validate()
             .map_err(|error| super::fresh_run::FreshRunError::Settings(error.into()))?;
     }
-    if !matches!(options.population, 55 | 300) {
+    if !(1..=300).contains(&options.population)
+        || (!matches!(options.population, 55 | 300) && options.source_graph.is_none())
+    {
         return Err(super::fresh_run::FreshRunError::Settings(
-            "qualification workload must be P0/P1".into(),
+            "qualification requires P0/P1 or a bounded custom graph population (1..300)".into(),
+        ));
+    }
+    if options.source_graph.is_some() && (trained.is_some() || options.large_graph) {
+        return Err(super::fresh_run::FreshRunError::Settings(
+            "custom graph cannot override a trained or canned graph".into(),
         ));
     }
     let contract = SensorContractIdentity::new(options.profile, options.bins)
@@ -593,7 +641,12 @@ pub(crate) fn sensor_workload_spec(
     Ok((
         updates,
         trained.map_or_else(
-            || graph(contract.input_size(), options.large_graph),
+            || {
+                options
+                    .source_graph
+                    .clone()
+                    .unwrap_or_else(|| graph(contract.input_size(), options.large_graph))
+            },
             |artifact| artifact.graph.spec().clone(),
         ),
     ))
@@ -687,6 +740,15 @@ fn observe_committed(
             hist.observe(value);
         }
         let work = batch.diagnostics()[ordinal];
+        if work.incomplete_rays != 0 && report.incomplete_events.len() < 128 {
+            let scheduler = loop_.scheduler_diagnostics();
+            report.incomplete_events.push(serde_json::json!({"completedStep":loop_.completed_step(),
+                "populationSlot":snake.population_slot,"snakeId":snake.id.to_string(),"incompleteDirections":work.incomplete_rays,
+                "rayCells":work.ray_work.cells,"rayCandidates":work.ray_work.candidates,"rayIntersections":work.ray_work.intersections,
+                "raySaturated":work.ray_work.saturated,"pelletCapHits":work.pellet_cap_hits,"bodyCapHits":work.segment_cap_hits,
+                "pendingWallSeconds":scheduler.pending_wall_seconds,"catchUpDebtSeconds":scheduler.catch_up_wall_debt_seconds,
+                "backend":report.math_backend,"reason":"bounded ray grant exhausted; conservative unknown directions"}));
+        }
         report.raw[12].observe(work.ray_work.charged() as f64);
         let near = f64::from_bits(work.radii_bits[0]);
         let bins = report.sensor_contract.bins();
@@ -774,7 +836,7 @@ fn run_with_observer(
     workspace: &Path,
     observer_enabled: bool,
 ) -> Result<SensorQualificationReport, String> {
-    run_with_sources(options, workspace, observer_enabled, None)
+    run_with_sources(options, workspace, observer_enabled, None, None, None)
 }
 
 /// Construct a native mixed learned cohort; ordinary production fresh runs remain unchanged.
@@ -783,7 +845,7 @@ pub fn run_sensor_cohort_qualification(
     workspace: &Path,
     index: &Path,
 ) -> Result<SensorQualificationReport, String> {
-    if options.trained_artifact.is_some() || options.large_graph {
+    if options.trained_artifact.is_some() || options.large_graph || options.source_graph.is_some() {
         return Err("cohort supplies its graph; omit single-artifact and graph overrides".into());
     }
     run_with_sources(
@@ -791,7 +853,130 @@ pub fn run_sensor_cohort_qualification(
         workspace,
         true,
         Some(super::trained_cohort::load(index)?),
+        None,
+        None,
     )
+}
+
+/// Mature, genetically distinct population transfer; original checkpoint remains read-only.
+pub fn run_evolved_population_qualification(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    checkpoint: &Path,
+    production_source: bool,
+) -> Result<SensorQualificationReport, String> {
+    if options.trained_artifact.is_some() || options.large_graph || options.source_graph.is_some() {
+        return Err("evolved checkpoint supplies its graph; omit other sources".into());
+    }
+    let evolved = if production_source {
+        super::evolved_cohort::EvolvedCohort::load_production(checkpoint, options.population)
+    } else {
+        super::evolved_cohort::EvolvedCohort::load(checkpoint, options.population)
+    }
+    .map_err(|e| e.to_string())?;
+    let mut options = options.clone();
+    options.source_graph = Some(evolved.graph.spec().clone());
+    run_with_sources(&options, workspace, true, None, Some(evolved), None)
+}
+
+/// Evolve an exact source graph through ordinary generations, retaining only the
+/// requested final native checkpoint outside the disposable workspace.
+pub fn mature_evolved_population(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    checkpoint: &Path,
+    generations: u64,
+    retained: &Path,
+    production_source: bool,
+) -> Result<SensorQualificationReport, String> {
+    run_maturation(
+        options,
+        workspace,
+        checkpoint,
+        generations,
+        retained,
+        production_source,
+        None,
+    )
+}
+
+/// Stream cold generation/quantization diagnostics during ordinary sustained evolution.
+/// This opt-in study accepts only the existing SSE2 and full matrix-i16 backends.
+pub fn qualify_evolved_backend_evolution(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    checkpoint: &Path,
+    generations: u64,
+    retained: &Path,
+    production_source: bool,
+    diagnostic_directory: &Path,
+) -> Result<SensorQualificationReport, String> {
+    if !matches!(
+        options.math,
+        InferenceMathBackend::Sse2 | InferenceMathBackend::I16MatrixFma128
+    ) {
+        return Err("evolution study compares only SSE2 and full matrix-i16".into());
+    }
+    if diagnostic_directory
+        .parent()
+        .ok_or("diagnostic parent missing")?
+        .canonicalize()
+        .map_err(|e| e.to_string())?
+        != retained.canonicalize().map_err(|e| e.to_string())?
+    {
+        return Err("evolution diagnostics must be a new child of retained output".into());
+    }
+    run_maturation(
+        options,
+        workspace,
+        checkpoint,
+        generations,
+        retained,
+        production_source,
+        Some(diagnostic_directory),
+    )
+}
+
+fn run_maturation(
+    options: &SensorQualificationOptions,
+    workspace: &Path,
+    checkpoint: &Path,
+    generations: u64,
+    retained: &Path,
+    production_source: bool,
+    diagnostic_directory: Option<&Path>,
+) -> Result<SensorQualificationReport, String> {
+    if !(1..=100).contains(&generations) || options.real_clock || options.warmup_steps != 0 {
+        return Err(
+            "maturation requires 1..100 generations, controlled clock and zero warmup".into(),
+        );
+    }
+    let evolved = if production_source {
+        super::evolved_cohort::EvolvedCohort::load_production(checkpoint, options.population)
+    } else {
+        super::evolved_cohort::EvolvedCohort::load(checkpoint, options.population)
+    }
+    .map_err(|e| e.to_string())?;
+    let mut options = options.clone();
+    options.source_graph = Some(evolved.graph.spec().clone());
+    run_with_sources(
+        &options,
+        workspace,
+        false,
+        None,
+        Some(evolved),
+        Some(Maturation {
+            target_generation: 1 + generations,
+            retained,
+            diagnostic_directory,
+        }),
+    )
+}
+
+struct Maturation<'a> {
+    target_generation: u64,
+    retained: &'a Path,
+    diagnostic_directory: Option<&'a Path>,
 }
 
 fn run_with_sources(
@@ -799,7 +984,15 @@ fn run_with_sources(
     workspace: &Path,
     observer_enabled: bool,
     cohort: Option<super::trained_cohort::TrainedCohort>,
+    evolved: Option<super::evolved_cohort::EvolvedCohort>,
+    maturation: Option<Maturation<'_>>,
 ) -> Result<SensorQualificationReport, String> {
+    let has_evolved = evolved.is_some();
+    let step_limit = if has_evolved {
+        MAX_EVOLVED_QUALIFICATION_STEPS
+    } else {
+        MAX_QUALIFICATION_STEPS
+    };
     if let Some(limits) = options.query_limits {
         limits.validate()?;
     }
@@ -814,16 +1007,20 @@ fn run_with_sources(
             return Err("capture qualification requires baseline v2 and v4".into());
         }
     }
-    if !matches!(options.population, 55 | 300)
-        || options.warmup_steps > MAX_QUALIFICATION_STEPS
+    if !(1..=300).contains(&options.population)
+        || (!matches!(options.population, 55 | 300) && options.source_graph.is_none())
+        || options.warmup_steps > step_limit
         || options.measured_steps == 0
-        || options.measured_steps > MAX_QUALIFICATION_STEPS
+        || options.measured_steps > step_limit
         || options
             .warmup_steps
             .checked_add(options.measured_steps)
-            .is_none_or(|sum| sum > MAX_QUALIFICATION_STEPS)
+            .is_none_or(|sum| sum > step_limit)
     {
-        return Err("qualification requires P0/P1 and 1..60000 total steps".into());
+        return Err(
+            "qualification requires P0/P1 or a custom 1..300 population and 1..1200000 total steps"
+                .into(),
+        );
     }
     if std::fs::symlink_metadata(workspace)
         .map_err(|error| error.to_string())?
@@ -848,9 +1045,9 @@ fn run_with_sources(
     let contract = SensorContractIdentity::new(options.profile, options.bins)
         .map_err(|error| error.to_string())?;
     let mut report=SensorQualificationReport {
-        query_detail_limits: options.query_limits,
+        observation_bank:evolved.as_ref().filter(|_|observer_enabled).map(|_|vec![Vec::new();options.population]),evolved_population:evolved.as_ref().map(|c|c.provenance.clone()),incomplete_events:Vec::new(),gameplay_boundaries:Vec::new(),query_detail_limits: options.query_limits,
         version:if cohort.is_some() {7}else if trained.is_some() {6}else{5},trained_cohort:cohort.as_ref().map(|value|value.descriptor(options.population)),trained_artifact:trained.as_ref().map(|artifact|artifact.descriptor()),native_phase_costs:NativePhaseCostTotals::default(),slow_native_phase_costs:NativePhaseCostTotals::default(),physics_phase_costs:NativePhysicsPhaseTotals::default(),slow_physics_phase_costs:NativePhysicsPhaseTotals::default(),capture:None,capture_options:options.capture,environment:options.environment.clone(),build_identifier:crate::native_addon_build_identifier(),
-        source_sha256:crate::native_addon_source_sha256(),target:crate::native_addon_build_target(),
+        source_sha256:crate::native_addon_source_sha256(),build_contract_sha256:crate::native_addon_build_contract_sha256(),graph_layout_sha256:None,source_graph:None,real_clock:None,target:crate::native_addon_build_target(),
         build_class:crate::native_addon_build_class(),rustc:crate::native_addon_rustc_version(),
         available_parallelism:std::thread::available_parallelism().ok().map(usize::from),
         cpu_model:super::sensing_fixture::system_cpu_model(),total_memory_bytes:super::sensing_fixture::linux_total_memory_bytes(),
@@ -861,7 +1058,7 @@ fn run_with_sources(
         teacher_respawn_delay_seconds:options.teacher_respawn_delay_seconds,
         consumer_work:[ConsumerSensorWork::default();3],minimum_due_consumers:None,maximum_due_consumers:0,
         all_consumer_ray_incomplete_fraction:None,all_consumer_ray_incomplete_below_one_percent:None,shared_batch_budget_held:None,
-        graph_size:if cohort.is_some() {"trained-cohort"}else if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
+        graph_size:if options.source_graph.is_some() {"custom"}else if cohort.is_some() {"trained-cohort"}else if trained.is_some() {"trained-artifact"}else if options.large_graph {"large"}else{"modest"},respawn:options.respawn,
         sensor_sha256:contract.sha256_hex().map_err(|error|error.to_string())?,
         ray_minimum:options.ray_limits.map(RayWorkLimits::minimum),ray_cap:options.ray_limits.map(RayWorkLimits::cap),
         ray_batch:options.ray_limits.map(RayWorkLimits::batch),normalized:contract.order().iter().map(|label|BoundedHistogram::new(label,-1.0,1.0)).collect(),
@@ -873,6 +1070,9 @@ fn run_with_sources(
         step_cost:None,observer_cost:None,native_step_p95_within_60hz:None,ordinary_ray_incomplete_below_one_percent:None,
         caveat:"Actual seeded native random-population gameplay with ten explicitly recorded v1/v2 baselines, duration-only completion, optional unlimited evolved respawn, and discard-new overflow. Includes authoritative complete steps and frame packing; excludes startup/checkpoint publication, Node/browser/network and observer analysis. Run-start uses a real immutable checkpoint plus matching benchmark acknowledgement, without SQLite. Simulated wall times are controlled; this does not measure wall-debt scheduling under load. This is not a trained-policy distribution, external-controller workload qualification, tactical agreement, ablation or final production-default selection. Clearance metres invert encoded Float32 channel minima and are censored at the sensing radius; incomplete body values are conservative, not ground truth. Pellet values use a systematic maximum-64 subset per committed boundary. Decaying due counts remain explicit; no zero-sample quality pass.",
     };
+    if options.real_clock {
+        report.caveat = "Actual native gameplay driven by elapsed monotonic wall time through the ordinary scheduler, including complete steps, frame packing and observer overhead. Startup/checkpoint construction is excluded. Reports debt and discarded wall time; p99 is descriptive, not a separate deadline gate. Seeded fresh genomes and baseline v2 do not establish evolved-policy quality, full-stack contention or default promotion.";
+    }
     if trained.is_some() {
         report.caveat = "Actual native trained-clone qualification cohort, initialized cold from one independently validated portable graph/weights artifact before the durable run-start boundary. Random initialization RNG draws are retained; no runtime founder/import command is introduced. This is one cloned learned policy, not a genetically diverse mature population. Evolved-life/economic sensor values are authoritative and can differ from the baseline teacher domain. Artifact cadence/life-state rules are recorded settings. Complete steps, frame packing, sensor distributions and optional committed teacher capture are measured; wall-debt scheduling, representative coverage, integrated contention and production defaults are separate gates.";
     }
@@ -885,9 +1085,79 @@ fn run_with_sources(
             options.population, options.seed
         ),
         seed: options.seed,
-        memory_ceiling_bytes: 4 * 1024 * 1024 * 1024usize,
+        // Full-size evolved qualification must admit both current and successor
+        // populations at a generation handoff, plus the cold source reservation.
+        // This explicit offline budget does not alter production admission.
+        memory_ceiling_bytes: if has_evolved { 8 } else { 4 } * 1024 * 1024 * 1024usize,
     };
-    let pending = if let Some(cohort) = &cohort {
+    let pending = if let Some(evolved) = &evolved {
+        let (_, spec) = sensor_workload_spec(options, None).map_err(|e| e.to_string())?;
+        // Start from ordinary modern defaults, not the fixed-duration sensor
+        // fixture's overrides. Legacy source settings then supply recorded values.
+        let mut updates: Vec<_> = production_default_settings(options.population, 10)
+            .into_iter()
+            .map(|s| FreshRunSettingUpdate {
+                path: s.path,
+                value: match s.value {
+                    NormalizedSettingValue::Bool(v) => f64::from(v),
+                    NormalizedSettingValue::Integer(v) => v as f64,
+                    NormalizedSettingValue::Float(v) => v,
+                    NormalizedSettingValue::Text(_) => unreachable!("numeric defaults"),
+                },
+            })
+            .collect();
+        // Use actual recorded deployment/world settings wherever the current schema
+        // recognizes them. Keep explicit 85-slot population and declared ray budgets.
+        for update in &mut updates {
+            if !["snakeCount", "sense.bubbleBins"].contains(&update.path.as_str()) {
+                if let Some(source) = evolved.settings.iter().find(|s| s.path == update.path) {
+                    update.value = match source.value {
+                        NormalizedSettingValue::Bool(v) => f64::from(v),
+                        NormalizedSettingValue::Integer(v) => v as f64,
+                        NormalizedSettingValue::Float(v) => v,
+                        NormalizedSettingValue::Text(_) => {
+                            return Err("non-numeric cohort setting".into())
+                        }
+                    };
+                }
+            }
+            if update.path == "snakeCount" {
+                update.value = options.population as f64;
+            }
+        }
+        report.caveat="Real evolved canonical population transferred into fresh lives through ordinary admission; recorded settings retained where recognized, current life-extension defaults for missing legacy fields, explicit bounded workers/ray budgets. Ordinary generation transitions/evolution/checkpoint acknowledgements are exercised; later generations can diverge. Native timing excludes checkpoint acknowledgement work; real-clock wall time includes it. Original archives are read-only. Synthetic controlled numerical stress is reported separately.";
+        report.baseline_count = updates
+            .iter()
+            .find(|s| s.path == "baselineBots.count")
+            .map_or(10, |s| s.value as usize);
+        report.respawn = updates
+            .iter()
+            .find(|s| s.path == "evolvedRespawn.enabled")
+            .is_some_and(|s| s.value != 0.0);
+        report.evolved_population.as_mut().unwrap()["normalizedSettings"] = serde_json::to_value(
+            updates
+                .iter()
+                .map(|s| serde_json::json!({"path":s.path,"value":s.value}))
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|e| e.to_string())?;
+        super::fresh_run::prepare_sensor_qualification_population(
+            request,
+            &updates,
+            spec,
+            options.profile,
+            options.bins,
+            RunningStepWorkLimits {
+                calculation_workers: options.workers,
+                ray_work: options.ray_limits,
+                ..RunningStepWorkLimits::provisional_defaults()
+            },
+            options.math,
+            options.baseline,
+            &[],
+            Some(evolved),
+        )
+    } else if let Some(cohort) = &cohort {
         prepare_sensor_cohort_workload(options, request, cohort)
     } else {
         prepare_sensor_workload_with_artifact(options, request, selected)
@@ -900,12 +1170,27 @@ fn run_with_sources(
             return Ok(report);
         }
     };
+    // Cold source copies are no longer needed after admitted population transfer.
+    // Keep compact provenance in the report, not another population during inference.
+    drop(evolved);
     let metadata: serde_json::Value = serde_json::from_str(
         &pending
             .startup_metadata_json()
             .map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
+    report.graph_layout_sha256 = Some(
+        pending
+            .qualification_authority()
+            .graph()
+            .layout_digest_sha256
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    );
+    if options.source_graph.is_some() {
+        report.source_graph = Some(metadata["graphSpec"].clone());
+    }
     report.parameter_count = metadata["parameterCount"]
         .as_u64()
         .map(|value| value as usize);
@@ -926,6 +1211,20 @@ fn run_with_sources(
         .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
         .map_err(|error| error.to_string())?;
     report.authoritative_memory_reservation_bytes = Some(running.authoritative_memory_bytes());
+    if has_evolved {
+        report
+            .gameplay_boundaries
+            .push(running.qualification_storage_snapshot()?);
+    }
+    let mut evolution_observer = maturation
+        .as_ref()
+        .and_then(|m| m.diagnostic_directory)
+        .map(|directory| {
+            super::running_loop::evolution_qualification::EvolutionObserver::create(
+                directory, &running,
+            )
+        })
+        .transpose()?;
     let mut frame = Vec::with_capacity(running.admitted_frame_bytes());
     let mut capture = None;
     let run_id = format!(
@@ -935,8 +1234,19 @@ fn run_with_sources(
     let mut steps = Vec::with_capacity(options.measured_steps);
     let mut observer = Vec::with_capacity(options.measured_steps);
     report.admitted = true;
+    let wall_origin = Instant::now();
+    let mut measurement_origin = wall_origin;
+    let mut dropped_wall_at_start = 0.0;
+    let mut maximum_pending_wall_seconds = 0.0_f64;
+    let mut reached_maturation = false;
+    let mut generation_service_wall = 0.0_f64;
+    let mut generation_wall_origin = Instant::now();
+    let mut generation_native_costs = NativePhaseCostTotals::default();
+    let mut generation_consumers = [ConsumerSensorWork::default(); 3];
     for ordinal in 0..options.warmup_steps + options.measured_steps {
         if ordinal == options.warmup_steps {
+            measurement_origin = Instant::now();
+            dropped_wall_at_start = running.scheduler_diagnostics().dropped_wall_seconds;
             capture = options
                 .capture
                 .map(|settings| {
@@ -949,26 +1259,203 @@ fn run_with_sources(
                 })
                 .transpose()?;
         }
-        let wall_ms = ((ordinal as u64 + 1) * 1000).div_ceil(60);
-        let started = Instant::now();
-        let progress = running
-            .service_after_command_drain(
-                wall_ms,
-                SchedulerServiceMode::Background,
-                Some(RunningFramePublication::new(
-                    FrameV1ViewDescriptor::default(),
-                    &mut frame,
-                )),
-            )
-            .map_err(|error| error.to_string())?;
-        let service_duration = started.elapsed();
+        let (progress, service_duration) = loop {
+            let wall_ms = if options.real_clock {
+                u64::try_from(wall_origin.elapsed().as_millis())
+                    .map_err(|_| "qualification clock overflow")?
+            } else {
+                ((ordinal as u64 + 1) * 1000).div_ceil(60)
+            };
+            let started = Instant::now();
+            let progress = running
+                .service_after_command_drain(
+                    wall_ms,
+                    SchedulerServiceMode::Background,
+                    Some(RunningFramePublication::new(
+                        FrameV1ViewDescriptor::default(),
+                        &mut frame,
+                    )),
+                )
+                .map_err(|error| error.to_string())?;
+            let service_duration = started.elapsed();
+            if options.real_clock && ordinal >= options.warmup_steps {
+                maximum_pending_wall_seconds = maximum_pending_wall_seconds
+                    .max(running.scheduler_diagnostics().pending_wall_seconds);
+            }
+            if let RunningAuthorityLoopProgress::Idle {
+                wall_seconds_until_step,
+                ..
+            } = progress
+            {
+                if options.real_clock {
+                    // Bounded polling uses the existing scheduler's readiness result.
+                    std::thread::sleep(std::time::Duration::from_secs_f64(
+                        wall_seconds_until_step.clamp(0.0001, 0.001),
+                    ));
+                    if wall_origin.elapsed().as_secs_f64()
+                        > 30.0 + (options.warmup_steps + options.measured_steps) as f64 / 6.0
+                    {
+                        return Err(
+                            "real-clock qualification exceeded ten times its simulated duration"
+                                .into(),
+                        );
+                    }
+                    continue;
+                }
+            }
+            break (progress, service_duration);
+        };
         let elapsed = service_duration.as_secs_f64() * 1000.0;
-        if !matches!(progress, RunningAuthorityLoopProgress::Published { .. })
+        generation_service_wall += service_duration.as_secs_f64();
+        let transition = has_evolved
+            && matches!(
+                progress,
+                RunningAuthorityLoopProgress::GenerationTransitionPending { .. }
+            );
+        if evolution_observer.is_some() {
+            generation_native_costs.record(
+                u64::try_from(service_duration.as_micros()).unwrap_or(u64::MAX),
+                running.last_step_cost(),
+            );
+            // The existing observation gate intentionally excludes terminal work.
+            if let Some(consumers) = running.qualification_sensor_work() {
+                for (total, current) in generation_consumers.iter_mut().zip(consumers) {
+                    total.merge(current);
+                }
+            }
+        }
+        if transition {
+            let mut evolution_row = evolution_observer
+                .as_mut()
+                .map(|observer| {
+                    observer.generation(
+                        &running,
+                        generation_service_wall,
+                        generation_wall_origin.elapsed().as_secs_f64(),
+                    )
+                })
+                .transpose()?;
+            if let Some(row) = &mut evolution_row {
+                row["nativePhaseCosts"] =
+                    serde_json::to_value(generation_native_costs).map_err(|e| e.to_string())?;
+                row["nonterminalConsumerWork"] =
+                    serde_json::to_value(generation_consumers).map_err(|e| e.to_string())?;
+                let cost = running.last_step_cost();
+                row["generationPreparationMicros"] = serde_json::json!(cost.generation_preparation);
+                row["generationAdmissionMicros"] = serde_json::json!(cost.generation_admission);
+                row["evolutionSummaryMicros"] =
+                    serde_json::json!(cost.generation_evolution_summary);
+                row["evolutionReproductionMicros"] =
+                    serde_json::json!(cost.generation_evolution_reproduction);
+            }
+            let before = running.qualification_storage_snapshot()?;
+            let started = Instant::now();
+            let publication = running
+                .publish_pending_generation_checkpoint(
+                    workspace,
+                    CheckpointOperationId::parse(format!("{:032x}", ordinal + 1))
+                        .map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+            running
+                .acknowledge_pending_generation_persistence(&publication.descriptor)
+                .map_err(|e| e.to_string())?;
+            running
+                .prepare_acknowledged_generation_reassignments()
+                .map_err(|e| e.to_string())?;
+            let wall_ms = if options.real_clock {
+                wall_origin.elapsed().as_millis() as u64
+            } else {
+                ((ordinal as u64 + 1) * 1000).div_ceil(60)
+            };
+            running
+                .publish_acknowledged_generation_start(
+                    wall_ms,
+                    Some(RunningFramePublication::new(
+                        FrameV1ViewDescriptor::default(),
+                        &mut frame,
+                    )),
+                )
+                .map_err(|e| e.to_string())?;
+            report.gameplay_boundaries.push(serde_json::json!({"before":before,"after":running.qualification_storage_snapshot()?,
+                "checkpointAndHandoffWallSeconds":started.elapsed().as_secs_f64(),"commitRecord":format!("{:?}",publication.commit_record)}));
+            if let Some(row) = &mut evolution_row {
+                row["checkpointAndHandoffWallSeconds"] =
+                    serde_json::json!(started.elapsed().as_secs_f64());
+                row["normalEngineWallSeconds"] =
+                    serde_json::json!(generation_service_wall + started.elapsed().as_secs_f64());
+            }
+            if let Some(maturation) = &maturation {
+                let generation = u64::from_str_radix(&publication.descriptor.generation_hex, 16)
+                    .map_err(|e| e.to_string())?;
+                if generation >= maturation.target_generation {
+                    let filename = &publication.descriptor.relative_filename;
+                    let retained_name = if let Some(directory) = maturation.diagnostic_directory {
+                        directory
+                            .file_name()
+                            .ok_or("diagnostic directory name")?
+                            .to_string_lossy()
+                            .to_string()
+                            + "/"
+                            + filename
+                    } else {
+                        let destination = maturation.retained.join(filename);
+                        if destination.exists() {
+                            return Err("mature checkpoint destination already exists".into());
+                        }
+                        std::fs::copy(workspace.join(filename), &destination)
+                            .map_err(|e| e.to_string())?;
+                        filename.clone()
+                    };
+                    report.evolved_population.as_mut().unwrap()["matureCheckpoint"] = serde_json::json!({"filename":retained_name,"generation":generation,"logicalRootSha256":publication.descriptor.logical_root_sha256});
+                    reached_maturation = true;
+                }
+            }
+            // Generated archive is task-owned; retain its compact logical descriptor,
+            // release the large payload after its ordinary durability handshake.
+            if let (Some(observer), Some(row)) = (&mut evolution_observer, evolution_row) {
+                observer.commit(row, workspace, &publication.descriptor)?;
+            } else {
+                std::fs::remove_file(workspace.join(publication.descriptor.relative_filename))
+                    .map_err(|e| e.to_string())?;
+            }
+            generation_service_wall = 0.0;
+            generation_wall_origin = Instant::now();
+            generation_native_costs = NativePhaseCostTotals::default();
+            generation_consumers = [ConsumerSensorWork::default(); 3];
+        }
+        if (!matches!(progress, RunningAuthorityLoopProgress::Published { .. }) && !transition)
             || running.completed_step() != ordinal as u64 + 1
         {
             return Err(format!(
                 "qualification did not publish exactly one step: {progress:?}"
             ));
+        }
+        if !transition && running.generation() == 1 {
+            if let Some(bank) = &mut report.observation_bank {
+                let (batch, world) = running
+                    .qualification_batch()
+                    .ok_or("missing observation-bank batch")?;
+                let width = report.sensor_contract.input_size();
+                for (ordinal, unit) in batch.work().iter().enumerate() {
+                    let snake = &world.snakes[unit.snake_index()];
+                    if let Some(slot) = snake.population_slot {
+                        let target = bank
+                            .get_mut(slot as usize)
+                            .ok_or("observation bank slot mismatch")?;
+                        if target.len() < 32 * width {
+                            target.extend_from_slice(
+                                &batch.observations()[ordinal * width..(ordinal + 1) * width],
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        if !transition {
+            if let Some(observer) = &mut evolution_observer {
+                observer.sample(&running)?;
+            }
         }
         if ordinal >= options.warmup_steps {
             steps.push(elapsed);
@@ -982,7 +1469,7 @@ fn run_with_sources(
                 report.slow_native_phase_costs.record(micros, phases);
                 report.slow_physics_phase_costs.record(physics);
             }
-            if observer_enabled {
+            if observer_enabled && !transition {
                 observe_committed(&running, &mut report)?;
             }
             if let Some(capture) = &mut capture {
@@ -990,12 +1477,46 @@ fn run_with_sources(
             }
             observer.push(analysis.elapsed().as_secs_f64() * 1000.0);
         }
+        if has_evolved && (ordinal % 600 == 0 || transition) {
+            eprintln!(
+                "committedStep={} generation={} transition={transition}",
+                running.completed_step(),
+                running.qualification_storage_snapshot()?["generation"]
+            );
+        }
+        if reached_maturation {
+            break;
+        }
     }
+    if maturation.is_some() && !reached_maturation {
+        return Err("maturation step ceiling reached before target generation".into());
+    }
+    report.measured_steps = steps.len();
     if let Some(capture) = capture {
         report.capture =
             Some(capture.finish(&mut running, options.measured_steps, steps.iter().sum())?);
     }
+    if options.real_clock {
+        let wall = measurement_origin.elapsed().as_secs_f64();
+        let scheduler = running.scheduler_diagnostics();
+        let simulation = report.measured_steps as f64 * scheduler.fixed_step_seconds;
+        report.real_clock = Some(RealClockQualification {
+            measured_wall_seconds: wall,
+            measured_simulation_seconds: simulation,
+            achieved_simulated_seconds_per_wall_second: simulation / wall,
+            dropped_wall_seconds: scheduler.dropped_wall_seconds - dropped_wall_at_start,
+            final_pending_wall_seconds: scheduler.pending_wall_seconds,
+            maximum_pending_wall_seconds,
+            final_catch_up_wall_debt_seconds: scheduler.catch_up_wall_debt_seconds,
+            gameplay_continuation_sha256: running.qualification_restored_continuation_sha256(),
+        });
+    }
     report.completed_steps = running.completed_step();
+    if has_evolved {
+        report
+            .gameplay_boundaries
+            .push(running.qualification_storage_snapshot()?);
+    }
     report.continuation_sha256 = Some(running.qualification_continuation_sha256());
     report.peak_rss_bytes = process_peak_rss_bytes();
     let cost = distribution(&mut steps);
@@ -1109,6 +1630,230 @@ mod tests {
     }
 
     #[test]
+    fn evolved_population_selection_and_ordinary_generation_handoff() {
+        let mut options = super::super::checkpoint_capacity::capacity_workload_options(55, false);
+        options.population = 5;
+        options.profile = SensorProfile::Motion;
+        options.bins = 16;
+        options.ray_limits = Some(RayWorkLimits::new(8, 512, 65536, 512).unwrap());
+        options.source_graph = Some(GraphSpec {
+            nodes: vec![
+                GraphNodeSpec {
+                    id: "input".into(),
+                    kind: GraphNodeKind::Input { output_size: 264 },
+                },
+                GraphNodeSpec {
+                    id: "memory".into(),
+                    kind: GraphNodeKind::Lstm {
+                        input_size: 264,
+                        hidden_size: 4,
+                    },
+                },
+                GraphNodeSpec {
+                    id: "head".into(),
+                    kind: GraphNodeKind::Dense {
+                        input_size: 4,
+                        output_size: 2,
+                    },
+                },
+            ],
+            edges: vec![
+                GraphEdge {
+                    from: "input".into(),
+                    to: "memory".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+                GraphEdge {
+                    from: "memory".into(),
+                    to: "head".into(),
+                    from_port: None,
+                    to_port: None,
+                },
+            ],
+            outputs: vec![GraphOutputRef {
+                node_id: "head".into(),
+                port: None,
+            }],
+            output_size: 2,
+        });
+        let (mut updates, spec) = sensor_workload_spec(&options, None).unwrap();
+        for entry in &mut updates {
+            if entry.path == "generationSeconds" {
+                entry.value = 8.0;
+            }
+            if entry.path == "brain.controlDt" {
+                entry.value = 0.017;
+            }
+        }
+        let mut pending = prepare_sensor_qualification_run(
+            Stage6aP0FreshRunRequest {
+                run_id: "evolved-cohort-selection-test".into(),
+                seed: 42,
+                memory_ceiling_bytes: 4 * 1024 * 1024 * 1024,
+            },
+            &updates,
+            spec,
+            options.profile,
+            options.bins,
+            RunningStepWorkLimits {
+                calculation_workers: 1,
+                ray_work: options.ray_limits,
+                ..RunningStepWorkLimits::provisional_defaults()
+            },
+            InferenceMathBackend::Sse2,
+            None,
+            &[],
+        )
+        .unwrap();
+        let expected: Vec<_> = [0, 1, 3]
+            .iter()
+            .map(|&i| {
+                pending.qualification_authority().state().population[i]
+                    .weights
+                    .clone()
+            })
+            .collect();
+        let source = Scratch::new();
+        let descriptor = pending
+            .publish_checkpoint(
+                &source.0,
+                CheckpointOperationId::parse("11111111111111111111111111111111").unwrap(),
+            )
+            .unwrap();
+        drop(pending);
+        let file = source.0.join(&descriptor.relative_filename);
+        let source_bytes = std::fs::read(&file).unwrap();
+        let cohort = super::super::evolved_cohort::EvolvedCohort::load(&file, 3).unwrap();
+        assert_eq!(cohort.weights, expected);
+        assert_eq!(cohort.provenance["selection"][2]["sourceSlot"], 3);
+        assert!(super::super::evolved_cohort::EvolvedCohort::load_production(&file, 3).is_err());
+        drop(cohort);
+        options.population = 3;
+        options.source_graph = None;
+        options.workers = 1;
+        options.warmup_steps = 1;
+        options.measured_steps = 960;
+        let report =
+            run_evolved_population_qualification(&options, &Scratch::new().0, &file, false)
+                .unwrap();
+        assert!(report.admitted, "{:?}", report.rejection);
+        assert_eq!(report.completed_steps, 961);
+        // Floating fixed-step chronology reaches the first 8-second boundary
+        // after step 480; this horizon guarantees at least one real handoff.
+        assert!(report.gameplay_boundaries.len() >= 3);
+        let settings = &report.evolved_population.unwrap()["normalizedSettings"];
+        assert_eq!(
+            settings
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["path"] == "snakeCount")
+                .unwrap()["value"],
+            3.0
+        );
+        assert_eq!(std::fs::read(&file).unwrap(), source_bytes);
+        // Small fixtures check noninterference; measured studies use the mature
+        // 85-genome exact-396 cohort supplied separately.
+        if InferenceMathBackend::I16MatrixFma128.is_available() {
+            options.warmup_steps = 0;
+            options.measured_steps = 1200;
+            for backend in [
+                InferenceMathBackend::Sse2,
+                InferenceMathBackend::I16MatrixFma128,
+            ] {
+                options.math = backend;
+                let plain_output = Scratch::new();
+                let plain = mature_evolved_population(
+                    &options,
+                    &Scratch::new().0,
+                    &file,
+                    2,
+                    &plain_output.0,
+                    false,
+                )
+                .unwrap();
+                let observed_output = Scratch::new();
+                let diagnostics = observed_output.0.join("evolution");
+                let observed = qualify_evolved_backend_evolution(
+                    &options,
+                    &Scratch::new().0,
+                    &file,
+                    2,
+                    &observed_output.0,
+                    false,
+                    &diagnostics,
+                )
+                .unwrap();
+                assert_eq!(observed.continuation_sha256, plain.continuation_sha256);
+                let rows: Vec<serde_json::Value> =
+                    std::fs::read_to_string(diagnostics.join("generations.jsonl"))
+                        .unwrap()
+                        .lines()
+                        .map(|line| serde_json::from_str(line).unwrap())
+                        .collect();
+                assert_eq!(rows.len(), 2);
+                for (index, row) in rows.iter().enumerate() {
+                    assert_eq!(row["generation"], index + 1);
+                    assert_eq!(row["fitnessBySlot"].as_array().unwrap().len(), 3);
+                    assert_eq!(row["population"]["genomes"].as_array().unwrap().len(), 3);
+                    assert_eq!(
+                        row["population"]["aggregateQuantization"]["clippingCount"],
+                        0
+                    );
+                    assert!(row["normalEngineWallSeconds"].as_f64().unwrap() > 0.0);
+                    assert_eq!(row["reproduction"]["eliteCopies"], 1);
+                    assert_eq!(row["reproduction"]["offspring"], 2);
+                    assert_eq!(
+                        row["population"]["genomes"][0]["matrices"]
+                            .as_array()
+                            .unwrap()
+                            .len(),
+                        9
+                    );
+                    assert_eq!(
+                        row["population"]["genomes"][0]["separateF32Biases"][0]["length"],
+                        16
+                    );
+                    assert!(row["population"]["sampledControllerComparisons"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|v| v["commonPostPublicationState"].as_array().unwrap().len() == 8));
+                }
+                assert!(!diagnostics
+                    .join(rows[0]["checkpointFile"].as_str().unwrap())
+                    .exists());
+                let last = diagnostics.join(rows[1]["checkpointFile"].as_str().unwrap());
+                let decoded = super::super::evolved_cohort::EvolvedCohort::load(&last, 3).unwrap();
+                assert_eq!(decoded.provenance["sourceGeneration"], 3);
+                assert!(qualify_evolved_backend_evolution(
+                    &options,
+                    &Scratch::new().0,
+                    &file,
+                    2,
+                    &observed_output.0,
+                    false,
+                    &diagnostics
+                )
+                .is_err());
+            }
+            options.math = InferenceMathBackend::I16AffineFma128;
+            assert!(qualify_evolved_backend_evolution(
+                &options,
+                &Scratch::new().0,
+                &file,
+                2,
+                &source.0,
+                false,
+                &source.0.join("mixed-rejected")
+            )
+            .is_err());
+        }
+        assert_eq!(std::fs::read(&file).unwrap(), source_bytes);
+    }
+
+    #[test]
     fn committed_observer_does_not_change_world_rng_lives_weights_or_recurrence_across_workers() {
         for mode in [
             None,
@@ -1116,6 +1861,8 @@ mod tests {
             Some(super::super::baseline_v2::BaselineV2Mode::Stochastic),
         ] {
             let mut options = SensorQualificationOptions {
+                source_graph: None,
+                real_clock: false,
                 query_limits: None,
                 population: 55,
                 profile: SensorProfile::Motion,
@@ -1219,6 +1966,8 @@ mod tests {
             Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/portable-brain-v1.slither-brain");
         let artifact = load_trained_artifact(&path).unwrap();
         let mut options = SensorQualificationOptions {
+            source_graph: None,
+            real_clock: false,
             query_limits: None,
             population: 55,
             profile: SensorProfile::Basic,
@@ -1300,6 +2049,8 @@ mod tests {
             &Scratch::new().0,
             false,
             Some(super::super::trained_cohort::load(&index).unwrap()),
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(unobserved.observations, 0);
@@ -1379,6 +2130,8 @@ mod tests {
     fn actual_capture_bytes_and_authority_match_across_fast_slow_and_parallel_runs() {
         use super::super::capture_qualification::CaptureQualificationOptions;
         let mut options = SensorQualificationOptions {
+            source_graph: None,
+            real_clock: false,
             query_limits: None,
             population: 55,
             profile: SensorProfile::Motion,
@@ -1535,5 +2288,46 @@ mod tests {
             .unwrap();
             assert_eq!(compiled.total_parameters, parameters);
         }
+    }
+    #[test]
+    fn custom_graph_population_is_bounded_and_real_clock_uses_native_scheduler() {
+        let mut options = super::super::checkpoint_capacity::capacity_workload_options(3, false);
+        options.bins = 16;
+        assert!(sensor_workload_spec(&options, None).is_err());
+        options.source_graph = Some(graph(264, false));
+        assert!(sensor_workload_spec(&options, None).is_ok());
+        for population in [0, 301] {
+            let mut invalid = options.clone();
+            invalid.population = population;
+            assert!(sensor_workload_spec(&invalid, None).is_err());
+        }
+        let mut conflicting = options.clone();
+        conflicting.large_graph = true;
+        assert!(sensor_workload_spec(&conflicting, None).is_err());
+        options.real_clock = true;
+        options.warmup_steps = 1;
+        options.measured_steps = 2;
+        let workspace = Scratch::new();
+        let report = run_sensor_qualification(&options, &workspace.0).unwrap();
+        assert!(report.admitted, "{:?}", report.rejection);
+        assert_eq!(report.population, 3);
+        assert_eq!(report.completed_steps, 3);
+        assert_eq!(report.graph_size, "custom");
+        assert!(report.source_graph.is_some());
+        let clock = report.real_clock.unwrap();
+        assert!(clock.measured_wall_seconds > 0.0);
+        assert_eq!(clock.dropped_wall_seconds, 0.0);
+        assert!((clock.measured_simulation_seconds - 2.0 / 60.0).abs() < 1e-12);
+        assert_eq!(clock.gameplay_continuation_sha256.len(), 64);
+    }
+    #[test]
+    fn cost_distribution_reports_nearest_rank_p99_without_a_deadline_gate() {
+        let mut samples: Vec<_> = (1..=1000).rev().map(f64::from).collect();
+        let report = distribution(&mut samples);
+        assert_eq!(report.p95_ms, 950.0);
+        assert_eq!(report.p99_ms, 990.0);
+        assert_eq!(report.maximum_ms, 1000.0);
+        let one = distribution(&mut [2.5]);
+        assert_eq!(one.p99_ms, 2.5);
     }
 }

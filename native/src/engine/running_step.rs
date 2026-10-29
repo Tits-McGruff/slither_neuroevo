@@ -731,6 +731,32 @@ impl RunningStepCoordinator {
         ))
     }
 
+    /// Immutable exact terminal inputs, available only while its transition is held.
+    #[cfg(feature = "engine-test-hooks")]
+    pub(crate) fn qualification_terminal_inputs(
+        &self,
+    ) -> Result<
+        (
+            &WorldState,
+            &super::evolved_lives::EvolvedGenerationState,
+            super::evolved_lives::EvolvedExperimentConfig,
+        ),
+        String,
+    > {
+        let pending = self
+            .pending_generation_transition()
+            .ok_or("no terminal transition")?;
+        let world = self
+            .world_step
+            .qualification_terminal_world(pending.source_key())
+            .map_err(|e| e.to_string())?;
+        Ok((
+            world,
+            &self.staged_evolved_generation,
+            self.projection.evolved,
+        ))
+    }
+
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn qualification_sensor_work(
         &self,

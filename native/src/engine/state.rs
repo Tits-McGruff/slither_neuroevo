@@ -3631,6 +3631,28 @@ pub fn estimate_state_memory(
         candidate.config.checkpoint_scratch_bytes,
         "declared engine scratch",
     )?;
+    if let Some(backend) =
+        super::inference::InferenceMathBackend::from_label(&candidate.identity.math_backend)
+            .filter(|backend| backend.uses_i16_cache())
+    {
+        let cache_owners = candidate
+            .config
+            .population_count
+            .checked_add(candidate.config.max_non_population_brains)
+            .ok_or(StateError::ArithmeticOverflow {
+                context: "i16 cache owners",
+            })?;
+        let cache_bytes = if backend == super::inference::InferenceMathBackend::I16MatrixFma128 {
+            super::inference::matrix_i16_cache_admission_bytes(compiled, cache_owners)
+        } else {
+            super::inference::i16_cache_admission_bytes(compiled, cache_owners, backend)
+        }
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "i16 inference cache",
+        })?;
+        estimate.scratch_bytes =
+            checked_add(estimate.scratch_bytes, cache_bytes, "i16 inference cache")?;
+    }
     // The species norm cache extends the previous slot/count summary scratch.
     estimate.scratch_bytes = checked_add(
         estimate.scratch_bytes,
@@ -4013,15 +4035,20 @@ fn validate_policy(policy: &StateAdmissionPolicy) -> Result<(), StateError> {
         "admission.expected_math_backend",
         &policy.expected_math_backend,
     )?;
-    if policy.allowed_math_backends.len() > 1
-        || policy.allowed_math_backends.iter().any(|backend| {
-            backend == &policy.expected_math_backend
-                || super::inference::InferenceMathBackend::from_label(backend).is_none()
-        })
+    if policy.allowed_math_backends.len() > 3
+        || policy
+            .allowed_math_backends
+            .iter()
+            .enumerate()
+            .any(|(index, backend)| {
+                policy.allowed_math_backends[..index].contains(backend)
+                    || backend == &policy.expected_math_backend
+                    || super::inference::InferenceMathBackend::from_label(backend).is_none()
+            })
     {
         return invalid(
             "admission.allowed_math_backends",
-            "at most one distinct supported arithmetic alternative",
+            "at most three distinct supported arithmetic alternatives",
         );
     }
     validate_sha256(
@@ -6085,6 +6112,23 @@ mod tests {
             expected_settings_schema_sha256: normalized_settings_schema_hash(&test_settings(1))
                 .expect("test settings schema must hash"),
         }
+    }
+
+    #[test]
+    fn arithmetic_admission_accepts_mixed_but_rejects_unknown_or_duplicate_labels() {
+        let mut admission = policy(128 * 1024 * 1024);
+        admission.allowed_math_backends = vec![
+            "rust-sse2-v1".into(),
+            "rust-i16-matrix-fma128-v1".into(),
+            "rust-i16-affine-fma128-sse2-v1".into(),
+        ];
+        validate_policy(&admission).unwrap();
+        admission.allowed_math_backends[2] = "unknown-arithmetic-v1".into();
+        assert!(validate_policy(&admission).is_err());
+        admission.allowed_math_backends[2] = "rust-sse2-v1".into();
+        assert!(validate_policy(&admission).is_err());
+        admission.allowed_math_backends[2] = admission.expected_math_backend.clone();
+        assert!(validate_policy(&admission).is_err());
     }
 
     fn own(

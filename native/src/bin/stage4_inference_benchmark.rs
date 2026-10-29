@@ -69,7 +69,13 @@ fn parse_options() -> Result<CliOptions, String> {
                 math_backend = Some(match value.as_str() {
                     "scalar" => InferenceMathBackend::Scalar,
                     "sse2" => InferenceMathBackend::Sse2,
-                    _ => return Err("--math-backend must be scalar or sse2".to_owned()),
+                    "i16-matrix-fma128" => InferenceMathBackend::I16MatrixFma128,
+            "i16-affine-fma128-sse2" => InferenceMathBackend::I16AffineFma128,
+                    _ => {
+                        return Err(
+                            "--math-backend must be scalar, sse2, i16-matrix-fma128 or i16-affine-fma128-sse2".to_owned()
+                        )
+                    }
                 });
             }
             Some("--warmup-passes") => {

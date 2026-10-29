@@ -1,4 +1,4 @@
-import { parseConfig, type ServerConfig } from './config.ts';
+import { INFERENCE_MATH_BACKEND_CHOICES, parseConfig, type ServerConfig } from './config.ts';
 import { RUST_CALCULATION_WORKER_MAX } from './rustWorkers.ts';
 import { validateDistillationSpoolGiB } from './rustEngine/distillationSpoolLimits.ts';
 
@@ -36,6 +36,8 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--log': { value: 'LEVEL', choices: ['debug', 'info', 'warn', 'error'], description: 'Logging level (LOG_LEVEL).' },
   '--seed': { value: 'N', integer: true, description: 'Run seed; requires --fresh when a database already exists (WORLD_SEED).' },
   '--rust-workers': { value: 'N', integer: true, description: 'Rust calculation workers (RUST_WORKERS).' },
+  '--math-backend': { value: 'BACKEND', choices: INFERENCE_MATH_BACKEND_CHOICES,
+    description: 'Explicit native arithmetic (MATH_BACKEND / mathBackend). Fresh default: SSE2; matrix-i16 requires SSE4.1/FMA; affine-i16 remains experimental.' },
   '--fresh': { description: 'Start a new generation-one run; conflicts with --resume.' },
   '--resume': { value: 'latest|sha256:ID', description: 'Select a retained managed checkpoint (SERVER_RESUME).' },
   '--help': { description: 'Print help and exit without creating configuration or starting the game.' }

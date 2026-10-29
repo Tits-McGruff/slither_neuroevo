@@ -242,3 +242,7 @@ pub mod trained_cohort;
 /// Complete ordinary observation quality, confined to qualification builds.
 #[cfg(feature = "engine-test-hooks")]
 pub(crate) mod observation_quality;
+
+/// Read-only evolved checkpoint cohorts for explicit offline qualification.
+#[cfg(feature = "engine-test-hooks")]
+pub mod evolved_cohort;

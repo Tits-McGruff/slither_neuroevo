@@ -13,6 +13,8 @@ export interface InferenceModeRecord {
   requestedBackend: InferenceBackend;
   /** Backend attached to the currently executing native authority. */
   activeBackend: ActiveInferenceBackend;
+  /** Stable arithmetic identity of the native authority; optional for older Protocol 2 peers. */
+  mathBackend?: string;
   /** Whether multi-threaded inference was requested in server configuration. */
   requestedMt: boolean;
   /** Number of active native calculation workers; zero denotes serial execution. */

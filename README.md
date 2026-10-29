@@ -586,6 +586,92 @@ Normal startup requires the production addon and rejects the test build.
 Scientific qualification and long benchmarks run only through the manual
 Qualification workflow or explicit benchmark commands.
 
+The opt-in native backend `rust-i16-matrix-fma128-v1` keeps canonical genomes and
+checkpoint weights in Float32. Its derived inference cache uses symmetric signed
+i16 weights and one Float32 scale per major matrix. Dense/MLP interleaved biases
+share the matrix scale; separate recurrent biases remain Float32. It requires
+runtime SSE4.1 and FMA support (including OS AVX state support). SSE2 remains the
+default. Select it through the normal server interface:
+
+```sh
+npm run server -- --fresh --math-backend i16-matrix-fma128
+```
+
+The equivalent TOML setting is `mathBackend = "rust-i16-matrix-fma128-v1"`;
+`MATH_BACKEND=rust-i16-matrix-fma128-v1` is the environment override. Precedence
+is CLI, environment, then TOML. Stable identities and the existing short names
+(`scalar`, `sse2`, `i16-matrix-fma128`, `i16-affine-fma128-sse2`) are accepted.
+Unknown choices and unsupported CPUs reject explicit selection. Omission keeps
+fresh SSE2 startup; restore and Reset/New Run preserve recorded arithmetic.
+An explicit request that differs from a checkpoint is rejected without changing
+its backend; select a fresh run to change arithmetic. `/api/health` and the
+Protocol 2 welcome's `inferenceMode.mathBackend` report the actual identity.
+Existing owner configuration files are never rewritten to enable i16.
+Teacher/reference paths retain their existing backend choices.
+
+The [five-seed sustained evolutionary qualification](docs/performance/full-i16-evolution-qualification-20261029.md)
+supports this normal explicit opt-in on the tested x86_64 configuration. SSE2
+remains the default; lower population medians/lifetimes remain follow-up concerns
+before a separate default-selection decision.
+
+The separate diagnostic/experimental opt-in backend `rust-i16-affine-fma128-sse2-v1` quantizes only
+Dense/MLP matrices using the same matrix scales, interleaved bias handling and
+128-bit i16/FMA kernel. Every recurrent node (including the entire LSTM) reads
+canonical F32 weights and uses existing SSE2 arithmetic. Its packed cache omits
+recurrent weights and biases. Native callers select
+`InferenceMathBackend::I16AffineFma128`; the sensor qualifier accepts
+`--math-backend i16-affine-fma128-sse2`. Runtime SSE4.1/FMA support is required.
+The existing SSE2 default and full matrix-i16 backend retain their identities.
+In graphs with quantized affine nodes upstream of recurrence, changed inputs can
+still change recurrent state; F32 recurrent arithmetic does not promise equal
+state for different inputs.
+
+For inference-only qualification on Oxygen, run from `native/`:
+
+```sh
+RUSTFLAGS='-C target-cpu=native' cargo run --release --features engine-test-hooks \
+  --bin matrix-i16-benchmark -- --brains 85 --workers 7 --warmup 20 --passes 100
+```
+
+The JSON report includes source/build identity, conversion time, cache bytes,
+population passes per second, speedup against SSE2, and controller/recurrent error
+against the scalar reference over 64 deliveries. Direct errors use identical
+input/state pairs; separate sequence errors include recurrent feedback. Inputs are synthetic bounded
+observations and genomes use production seeded initialization. F32 128-bit FMA
+is a benchmark-only comparator. Use `--workers` to compare supported worker counts,
+including 7; no worker count is hard-coded in the engine. Long simulation and
+evolved-cohort qualification on the production machine remain required before
+any separate decision to promote this backend to the default. Generated reports
+belong in ignored local directories or CI artifacts.
+
+The native sensor qualifier also accepts `--graph-json graph.json --population 85`
+in place of `--scenario`. Select `--clock real` to drive the ordinary scheduler
+from monotonic elapsed time and report real-time factor, retained debt and discarded
+wall time. The default `--clock controlled` retains deterministic step scheduling.
+Custom graphs cannot be combined with canned, trained-cohort or shadow graph
+sources. Backend selection remains explicit through `--math-backend sse2` or
+`--math-backend i16-matrix-fma128`; neither option changes production defaults.
+The mixed option above also requires explicit selection and does not alter defaults.
+
+For an actual checkpoint population, use `--evolved-checkpoint FILE --population 85`
+instead of another graph source. `--source-build-class production` explicitly
+selects read-only extraction from a production checkpoint; the default accepts
+test-hooks checkpoints made by the qualifier. This copies canonical F32 genomes
+into fresh admitted lives and records source provenance, rather than claiming
+exact cross-build continuation. Ordinary restore/replay identity checks stay intact.
+In controlled-clock mode, `--warmup 0 --evolve-generations 20 --steps 1200000`
+evolves through ordinary generation/checkpoint handoffs and retains the final
+native checkpoint beside the report. Use a task-owned empty workspace and keep
+reports/checkpoints outside it. The `evolved-i16-qualification` binary accepts
+that checkpoint and `--observation-bank REPORT.json` for 10,000-delivery controlled
+comparisons, per-matrix bias/scale diagnostics and repeated population benchmarks.
+It reports MAE/RMSE/max and percentile intervals for the whole sequence, each
+genome, and successive 1,000-delivery windows, alongside per-delivery error traces.
+These cold histograms are allocated after timed inference and are reported
+separately from inference-cache memory. The bias diagnostic also measures a
+temporary weight-only quantization domain; it does not alter the production
+bias representation or its matrix scale.
+
 ## Controls
 
 - Mouse wheel: Zoom in or out around the pointer. Manual zoom and panning stay in place across frames.

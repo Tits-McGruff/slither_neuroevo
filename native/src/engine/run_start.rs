@@ -629,6 +629,22 @@ impl PendingRunStartTransition {
         self.authority.state().generation.completed_step
     }
 
+    /// Require an explicit startup request to agree with retained arithmetic.
+    /// This never changes the recorded identity or reconstructs the population.
+    pub(crate) fn require_math_backend(
+        &self,
+        requested: super::inference::InferenceMathBackend,
+    ) -> Result<(), String> {
+        let recorded = &self.authority.state().identity.math_backend;
+        if recorded != requested.label() {
+            return Err(format!(
+                "explicit inference backend mismatch: requested {}, recorded {}; use a fresh run to select different arithmetic",
+                requested.label(), recorded
+            ));
+        }
+        Ok(())
+    }
+
     /// Whether the immutable descriptor has published.
     #[must_use]
     pub const fn checkpoint_published(&self) -> bool {

@@ -1,3 +1,4 @@
+import { parseInferenceMathBackend, type InferenceMathBackend } from '../config.ts';
 import { parseRecoveryBranchResult, type RecoveryBranchResult } from './recoveryProtocol.ts';
 import { validateRustCalculationWorkers } from '../rustWorkers.ts';
 import { managedCheckpointDescriptorsEqual, parseManagedCheckpointDescriptor,
@@ -186,7 +187,8 @@ export interface ExperimentalFreshRunNativeBinding extends ExperimentalEngineNat
     runId: string,
     seedHex: string,
     memoryCeilingBytesHex: string,
-    calculationWorkers?: number
+    calculationWorkers?: number,
+    mathBackend?: InferenceMathBackend
   ) => ExperimentalFreshRunNativeHandle;
 }
 
@@ -194,6 +196,8 @@ export interface ExperimentalFreshRunNativeBinding extends ExperimentalEngineNat
 export interface CreateExperimentalFreshRunSessionOptions {
   /** Bounded persistent Rust calculation threads. */
   calculationWorkers?: number;
+  /** Optional stable arithmetic selection, checked by Rust against CPU and retained identity. */
+  mathBackend?: InferenceMathBackend;
   /** Loaded addon exports. */
   binding: unknown;
   /** Independently computed identity of the current native source tree. */
@@ -342,7 +346,8 @@ export class ExperimentalFreshRunSession {
       runId,
       seedHex,
       memoryCeilingBytesHex,
-      calculationWorkers
+      calculationWorkers,
+      options.mathBackend === undefined ? undefined : parseInferenceMathBackend(options.mathBackend)
     ));
     this.persistenceHandoff = new RunStartPersistenceHandoff({
       rust: this.native,

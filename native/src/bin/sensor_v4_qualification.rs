@@ -9,7 +9,7 @@ use slither_native::engine::sensor_qualification::{
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// One exclusively created scratch tree; only this exact resolved tree is removable.
@@ -73,6 +73,10 @@ struct Arguments {
     output: PathBuf,
     soak_shadow: Option<PathBuf>,
     cohort: Option<PathBuf>,
+    evolved_checkpoint: Option<PathBuf>,
+    evolve_generations: Option<u64>,
+    evolution_diagnostics: Option<PathBuf>,
+    production_source: bool,
 }
 
 fn parse() -> Result<Arguments, Box<dyn Error>> {
@@ -80,6 +84,13 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
     let mut values = BTreeMap::new();
     while let Some(flag) = arguments.next() {
         if ![
+            "--graph-json",
+            "--evolved-checkpoint",
+            "--evolve-generations",
+            "--evolution-diagnostics",
+            "--source-build-class",
+            "--population",
+            "--clock",
             "--soak-shadow-artifact",
             "--trained-cohort",
             "--capture",
@@ -226,14 +237,96 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         ),
         _ => return Err("--pellet-checks and --segment-checks must be supplied together".into()),
     };
-    let options = SensorQualificationOptions {
-        query_limits,
-        trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
-        population: match required("--scenario")? {
+    let source_graph = values
+        .get("--graph-json")
+        .map(|path| -> Result<_, Box<dyn Error>> {
+            if [
+                "--graph",
+                "--trained-artifact",
+                "--trained-cohort",
+                "--soak-shadow-artifact",
+            ]
+            .iter()
+            .any(|key| values.contains_key(*key))
+            {
+                return Err(
+                    "custom graph cannot be combined with canned, trained or shadow graph sources"
+                        .into(),
+                );
+            }
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)?
+                .take(1024 * 1024 + 1)
+                .read_to_end(&mut bytes)?;
+            slither_native::engine::graph_json::decode_graph_json(&bytes).map_err(Into::into)
+        })
+        .transpose()?;
+    let real_clock = match values
+        .get("--clock")
+        .map(String::as_str)
+        .unwrap_or("controlled")
+    {
+        "controlled" => false,
+        "real" => true,
+        _ => return Err("--clock must be controlled or real".into()),
+    };
+    if real_clock && values.contains_key("--soak-shadow-artifact") {
+        return Err("continuous capture soak uses its existing controlled-clock mode".into());
+    }
+    if values.contains_key("--evolve-generations") && !values.contains_key("--evolved-checkpoint") {
+        return Err("--evolve-generations requires --evolved-checkpoint".into());
+    }
+    let production_source = match values
+        .get("--source-build-class")
+        .map(String::as_str)
+        .unwrap_or("test-hooks")
+    {
+        "production" => true,
+        "test-hooks" => false,
+        _ => return Err("--source-build-class requires production or test-hooks".into()),
+    };
+    if values.contains_key("--source-build-class") && !values.contains_key("--evolved-checkpoint") {
+        return Err("source class applies only to explicit population transfer".into());
+    }
+    if values.contains_key("--evolved-checkpoint")
+        && [
+            "--graph-json",
+            "--graph",
+            "--trained-artifact",
+            "--trained-cohort",
+            "--soak-shadow-artifact",
+            "--capture",
+        ]
+        .iter()
+        .any(|key| values.contains_key(*key))
+    {
+        return Err("evolved checkpoint cannot be combined with other source/capture modes".into());
+    }
+    let population = match (values.get("--population"), values.get("--scenario")) {
+        (Some(value), None)
+            if source_graph.is_some() || values.contains_key("--evolved-checkpoint") =>
+        {
+            let count: usize = value.parse()?;
+            if !(1..=300).contains(&count) {
+                return Err("custom population must be 1..300".into());
+            }
+            count
+        }
+        (None, Some(value)) => match value.as_str() {
             "P0" => 55,
             "P1" => 300,
             _ => return Err("--scenario must be P0/P1".into()),
         },
+        _ => {
+            return Err("supply --scenario P0/P1, or --graph-json with --population 1..300".into())
+        }
+    };
+    let options = SensorQualificationOptions {
+        source_graph,
+        real_clock,
+        query_limits,
+        trained_artifact: values.get("--trained-artifact").map(PathBuf::from),
+        population,
         profile,
         bins: integer("--bins", "16")?,
         ray_limits,
@@ -271,6 +364,8 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         {
             "scalar" => InferenceMathBackend::Scalar,
             "sse2" => InferenceMathBackend::Sse2,
+            "i16-matrix-fma128" => InferenceMathBackend::I16MatrixFma128,
+            "i16-affine-fma128-sse2" => InferenceMathBackend::I16AffineFma128,
             _ => return Err("invalid arithmetic backend".into()),
         },
         warmup_steps: integer("--warmup", "3")?,
@@ -289,6 +384,13 @@ fn parse() -> Result<Arguments, Box<dyn Error>> {
         output: PathBuf::from(required("--output")?),
         soak_shadow: values.get("--soak-shadow-artifact").map(PathBuf::from),
         cohort: values.get("--trained-cohort").map(PathBuf::from),
+        evolved_checkpoint: values.get("--evolved-checkpoint").map(PathBuf::from),
+        evolve_generations: values
+            .get("--evolve-generations")
+            .map(|v| v.parse())
+            .transpose()?,
+        evolution_diagnostics: values.get("--evolution-diagnostics").map(PathBuf::from),
+        production_source,
     })
 }
 
@@ -299,7 +401,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         output,
         soak_shadow,
         cohort,
+        evolved_checkpoint,
+        evolve_generations,
+        evolution_diagnostics,
+        production_source,
     } = parse()?;
+    if evolution_diagnostics.is_some()
+        && (evolve_generations.is_none() || evolved_checkpoint.is_none())
+    {
+        return Err(
+            "--evolution-diagnostics requires evolved checkpoint and generation count".into(),
+        );
+    }
     let workspace = Workspace::create(&path)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
         let output_parent = output
@@ -342,6 +455,40 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
             )
             .map_err(std::io::Error::other)?
+        } else if let Some(checkpoint) = &evolved_checkpoint {
+            if let Some(generations) = evolve_generations {
+                let report = if let Some(directory) = &evolution_diagnostics {
+                    slither_native::engine::sensor_qualification::qualify_evolved_backend_evolution(
+                        &options,
+                        &workspace.path,
+                        checkpoint,
+                        generations,
+                        output_parent,
+                        production_source,
+                        directory,
+                    )
+                } else {
+                    slither_native::engine::sensor_qualification::mature_evolved_population(
+                        &options,
+                        &workspace.path,
+                        checkpoint,
+                        generations,
+                        output_parent,
+                        production_source,
+                    )
+                };
+                serde_json::to_value(report.map_err(std::io::Error::other)?)?
+            } else {
+                serde_json::to_value(
+                slither_native::engine::sensor_qualification::run_evolved_population_qualification(
+                    &options,
+                    &workspace.path,
+                    checkpoint,
+                            production_source,
+                )
+                .map_err(std::io::Error::other)?,
+            )?
+            }
         } else if let Some(index) = &cohort {
             serde_json::to_value(
                 slither_native::engine::sensor_qualification::run_sensor_cohort_qualification(

@@ -41,6 +41,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           import subprocess
           for name in subprocess.check_output(["git", "ls-files", "-z"], text=True).split("\0"):
               if not name:
@@ -48,8 +49,12 @@ jobs:
               path = Path(name)
               if name.endswith((".py.gz", ".rs.gz", ".ts.gz")) or path.stat().st_size > 2 * 1024**2:
                   raise SystemExit("Generated payload/source archive must stay outside Git: " + name)
-              if name.startswith("docs/performance/") and path.suffix not in (".md", ".json"):
+              if name.startswith("docs/performance/") and path.suffix not in (".md", ".json", ".sha256"):
                   raise SystemExit("Keep only compact performance metadata in Git: " + name)
+              if name.startswith("docs/performance/") and path.suffix == ".sha256":
+                  for line in path.read_text(encoding="utf-8").splitlines():
+                      if not re.fullmatch(r"[0-9a-f]{64}  [^\r\n]+", line):
+                          raise SystemExit("Malformed compact SHA-256 manifest: " + name)
           PY
 
       - name: Build and load production native addon
@@ -92,4 +97,4 @@ jobs:
         with:
           workspaces: native
       - run: cargo fmt --manifest-path native/Cargo.toml -- --check
-      - run: cargo clippy --manifest-path native/Cargo.toml --features engine-test-hooks,contract-schema -- -D warnings
+      - run: cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings

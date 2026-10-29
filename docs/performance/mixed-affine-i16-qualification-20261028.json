@@ -1,0 +1,436 @@
+{
+  "status": "complete; opt-in backend; SSE2 remains default",
+  "sourceCommit": "1679938909744bb63c11259c361cb6bc3fa0bf53",
+  "nativeSourceSha256": "4ea6c1308f933bf613b962d61e1fa00eb6dd69513ac9910d38b8a833b4f9ae9f",
+  "buildContractSha256": "sha256:033119a7009787468f6cc885add333b42396edc60fc10e1a0b4d347927e587f3",
+  "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+  "target": "x86_64-unknown-linux-gnu",
+  "compilerFlags": "-C target-cpu=native",
+  "backend": "rust-i16-affine-fma128-sse2-v1",
+  "defaultBackend": "rust-sse2-v1",
+  "productionConfigurationChanged": false,
+  "population": 85,
+  "workers": 7,
+  "sourceGeneration": 21,
+  "parametersPerGenome": 1397096,
+  "graphLayoutSha256": "87d6630df32fd9fea900835db0daee478f799507d3fedb242ad63680640fbfd0",
+  "checkpointSha256": "f2230b4147180cdb32366a283388eac40a1bd3cacf30ca313a5470685c6be935",
+  "observations": "Original 32 Motion/B16/body-ray/wall-ray rows per genome, 264 inputs, repeated identically",
+  "warmup": 50,
+  "passes": 500,
+  "repetitions": 8,
+  "benchmark": {
+    "rust-sse2-v1": {
+      "samplesMs": [
+        31.34130493,
+        29.834754776,
+        28.466289192,
+        30.073006938,
+        28.709725134,
+        28.92406067,
+        29.59047538,
+        31.09026592
+      ],
+      "medianMs": 29.712615078,
+      "minMs": 28.466289192,
+      "maxMs": 31.34130493,
+      "populationPassesPerSecond": 33.6557383917522,
+      "speedupVsSse2": 1.0
+    },
+    "benchmark-f32-fma128-v1": {
+      "samplesMs": [
+        30.910170074,
+        32.682042028,
+        29.006110546,
+        32.284777438,
+        29.288054186,
+        29.454295516,
+        30.931260598,
+        30.489474452
+      ],
+      "medianMs": 30.699822263,
+      "minMs": 29.006110546,
+      "maxMs": 32.682042028,
+      "populationPassesPerSecond": 32.573478485744154,
+      "speedupVsSse2": 0.9678432279984304
+    },
+    "rust-i16-matrix-fma128-v1": {
+      "samplesMs": [
+        21.323130504,
+        20.416008414,
+        17.090003108,
+        19.218763924,
+        17.644007078,
+        17.04380672,
+        17.155861052,
+        17.413375476
+      ],
+      "medianMs": 17.528691277,
+      "minMs": 17.04380672,
+      "maxMs": 21.323130504,
+      "populationPassesPerSecond": 57.04932468701382,
+      "speedupVsSse2": 1.6950846248850846
+    },
+    "rust-i16-affine-fma128-sse2-v1": {
+      "samplesMs": [
+        27.756285524,
+        26.773761016,
+        29.27010682,
+        25.45918354,
+        25.89791585,
+        25.886000590000002,
+        26.193943974,
+        26.658189344
+      ],
+      "medianMs": 26.426066659,
+      "minMs": 25.45918354,
+      "maxMs": 29.27010682,
+      "populationPassesPerSecond": 37.84142426127678,
+      "speedupVsSse2": 1.1243676730786074
+    }
+  },
+  "conversionMs": 181.36535,
+  "cacheBytes": 59513600,
+  "canonicalBytes": 475012640,
+  "deliveries": 10000,
+  "errors": {
+    "pairedController": {
+      "mae": 0.00011564707209436593,
+      "max": 0.003338046371936798,
+      "p50": {
+        "lower": 1.2874602361989673e-05,
+        "upperExclusive": 1.2904406503366772e-05
+      },
+      "p90": {
+        "lower": 0.00038719174335710704,
+        "upperExclusive": 0.0003881454758811742
+      },
+      "p99": {
+        "lower": 0.0010833739070221782,
+        "upperExclusive": 0.0010871888371184468
+      },
+      "p999": {
+        "lower": 0.0015029906062409282,
+        "upperExclusive": 0.0015068055363371968
+      },
+      "rmse": 0.0002526392803597079,
+      "samples": 1700000
+    },
+    "pairedRecurrent": {
+      "mae": 0.0,
+      "max": 0.0,
+      "p50": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "p90": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "p99": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "p999": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "rmse": 0.0,
+      "samples": 673200000
+    },
+    "feedbackController": {
+      "mae": 0.00011564707209436593,
+      "max": 0.003338046371936798,
+      "p50": {
+        "lower": 1.2874602361989673e-05,
+        "upperExclusive": 1.2904406503366772e-05
+      },
+      "p90": {
+        "lower": 0.00038719174335710704,
+        "upperExclusive": 0.0003881454758811742
+      },
+      "p99": {
+        "lower": 0.0010833739070221782,
+        "upperExclusive": 0.0010871888371184468
+      },
+      "p999": {
+        "lower": 0.0015029906062409282,
+        "upperExclusive": 0.0015068055363371968
+      },
+      "rmse": 0.0002526392803597079,
+      "samples": 1700000
+    },
+    "feedbackRecurrent": {
+      "mae": 0.0,
+      "max": 0.0,
+      "p50": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "p90": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "p99": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "p999": {
+        "lower": 0.0,
+        "upperExclusive": 4.591914937745993e-41
+      },
+      "rmse": 0.0,
+      "samples": 673200000
+    }
+  },
+  "recurrentBitComparisonsPerTrajectory": 673200000,
+  "recurrentBitsEqualEveryDelivery": true,
+  "previousAffineAblationPerGenomeMomentsMatch": true,
+  "controllerMaxByGenome": [
+    0.0012580007314682007,
+    0.0017459988594055176,
+    0.0015211701393127441,
+    0.0018687546253204346,
+    0.002377748489379883,
+    0.0016487129032611847,
+    0.0003044009208679199,
+    0.0018086433410644531,
+    0.0008355835452675819,
+    0.0009521842002868652,
+    0.0014383196830749512,
+    0.003338046371936798,
+    0.0011711381375789642,
+    0.0025119036436080933,
+    0.0018509328365325928,
+    0.0016013756394386292,
+    0.0010981261730194092,
+    0.0016505420207977295,
+    0.0013784803450107574,
+    0.0013718903064727783,
+    0.0002231597900390625,
+    0.0015545263886451721,
+    0.0017385148094035685,
+    0.0010235309600830078,
+    0.0015871226787567139,
+    0.0016316622495651245,
+    5.02467155456543e-05,
+    0.001846611499786377,
+    0.0017845332622528076,
+    0.0007574856281280518,
+    0.001089051365852356,
+    0.0015626847743988037,
+    0.0013957023620605469,
+    0.0007316768169403076,
+    0.0017211921513080597,
+    0.0014277100563049316,
+    0.002596292644739151,
+    0.0011901557445526123,
+    0.0009301602840423584,
+    0.0007905960083007812,
+    0.0016908273100852966,
+    0.002196282148361206,
+    0.0010779798030853271,
+    0.0013371109962463379,
+    0.0017317533493041992,
+    0.0008300375193357468,
+    0.0011207759380340576,
+    0.0013970434665679932,
+    0.0012583844363689423,
+    0.0012017786502838135,
+    0.0012701153755187988,
+    0.0015534460544586182,
+    0.0020779967308044434,
+    0.001325160264968872,
+    0.0010955333709716797,
+    0.0016047358512878418,
+    0.0012092292308807373,
+    0.0014810534194111824,
+    0.001702277921140194,
+    0.0013484209775924683,
+    0.0009867548942565918,
+    0.0004570484161376953,
+    0.0011043846607208252,
+    0.0012200772762298584,
+    0.0016906089149415493,
+    0.0013964399695396423,
+    0.0011640191078186035,
+    0.0005764961242675781,
+    0.0003059208393096924,
+    0.0012984201312065125,
+    0.0007767081260681152,
+    0.0007727001793682575,
+    0.0013736635446548462,
+    0.001568123698234558,
+    0.0011993944644927979,
+    0.001139022409915924,
+    0.0021869270130991936,
+    0.001164853572845459,
+    0.000858008861541748,
+    0.0012943148612976074,
+    0.0014610886573791504,
+    0.001251220703125,
+    0.0010505318641662598,
+    0.0014910399913787842,
+    0.0012994855642318726
+  ],
+  "sensitiveSlots": {
+    "24": {
+      "mae": 0.00014243115020362893,
+      "rmse": 0.000285299602151884,
+      "max": 0.0015871226787567139
+    },
+    "30": {
+      "mae": 9.415484151686542e-05,
+      "rmse": 0.00018870870072832603,
+      "max": 0.001089051365852356
+    },
+    "35": {
+      "mae": 9.289460736326874e-05,
+      "rmse": 0.0002297961074946014,
+      "max": 0.0014277100563049316
+    }
+  },
+  "artifactSubdirectory": "exact-396-motion-b16-v3/mixed-affine-20261028",
+  "benchmarkOrder": "Rotate/reverse order; eight repetitions balance all four backends across positions",
+  "pairedMixedSpeedupSamples": [
+    1.1291606329276354,
+    1.1143281199145219,
+    0.972537933225076,
+    1.1812243268033724,
+    1.108572801776248,
+    1.117363053803438,
+    1.1296685756589915,
+    1.1662557242282299
+  ],
+  "pairedMixedWins": 7,
+  "aggregateCpuStealFraction": 0.1905766504642366,
+  "cpuStealScope": "Entire combined isolated-timing and numerical process; not timing-only",
+  "closedLoop": {
+    "sse2": {
+      "measuredSimulationSeconds": 1000,
+      "measuredSteps": 60000,
+      "measuredWallSeconds": 1225.189338156,
+      "realTimeFactor": 0.8162003772454252,
+      "meanStepMs": 20.15995893616675,
+      "stepP50Ms": 17.619021,
+      "stepP99Ms": 43.341373000000004,
+      "meanInferenceMs": 13.168377516666666,
+      "peakRssMiB": 937.84765625,
+      "aggregateCpuStealFraction": 0.09348496810535646,
+      "observationsByClass": {
+        "neural": 1865556,
+        "baseline": 1459243,
+        "external": 0
+      },
+      "amortizedInferenceMicrosPerNeuralObservation": 423.5212724785533,
+      "incompleteObservations": 0,
+      "completedPopulationLives": 167,
+      "completedLifeMeans": {
+        "alive_seconds": 113.97315369261838,
+        "food": 9.105976800131193,
+        "kills": 0.19760479041916168,
+        "life_net_points": 1.4442703571073081,
+        "life_gross_earned": 14.804634484759095,
+        "life_boost_spent": 13.360364127654138,
+        "final_length": 11.520958083832335,
+        "peak_length": 11.820359281437126
+      },
+      "droppedWallSeconds": 1132.374666666724,
+      "historicalGameplayHashAndObservationCountersMatch": true
+    },
+    "mixed": {
+      "measuredSimulationSeconds": 1000,
+      "measuredSteps": 60000,
+      "measuredWallSeconds": 1079.184394498,
+      "realTimeFactor": 0.9266257046509332,
+      "meanStepMs": 17.73104356163342,
+      "stepP50Ms": 16.160809,
+      "stepP99Ms": 35.986718,
+      "meanInferenceMs": 10.9969107,
+      "peakRssMiB": 991.80078125,
+      "aggregateCpuStealFraction": 0.0884974958812755,
+      "observationsByClass": {
+        "neural": 1933713,
+        "baseline": 1457926,
+        "external": 0
+      },
+      "amortizedInferenceMicrosPerNeuralObservation": 341.2164276704971,
+      "incompleteObservations": 0,
+      "completedPopulationLives": 181,
+      "completedLifeMeans": {
+        "alive_seconds": 122.19990791897503,
+        "food": 9.685577707320904,
+        "kills": 0.22099447513812154,
+        "life_net_points": 1.4927663034751522,
+        "life_gross_earned": 15.795573103266001,
+        "life_boost_spent": 14.302806799793622,
+        "final_length": 11.94475138121547,
+        "peak_length": 12.259668508287293
+      },
+      "droppedWallSeconds": 986.2146666667505
+    },
+    "i16": {
+      "measuredSimulationSeconds": 1000,
+      "measuredSteps": 60000,
+      "measuredWallSeconds": 784.885190186,
+      "realTimeFactor": 1.2740716890874482,
+      "meanStepMs": 12.845665314200067,
+      "stepP50Ms": 11.82649,
+      "stepP99Ms": 25.790124000000002,
+      "meanInferenceMs": 6.708817,
+      "peakRssMiB": 1164.2578125,
+      "aggregateCpuStealFraction": 0.05495107209346633,
+      "observationsByClass": {
+        "neural": 1861262,
+        "baseline": 1460650,
+        "external": 0
+      },
+      "amortizedInferenceMicrosPerNeuralObservation": 216.26671580895112,
+      "incompleteObservations": 0,
+      "completedPopulationLives": 173,
+      "completedLifeMeans": {
+        "alive_seconds": 108.5603082851672,
+        "food": 8.407841984073045,
+        "kills": 0.18497109826589594,
+        "life_net_points": 1.3500141319863388,
+        "life_gross_earned": 13.835857398328278,
+        "life_boost_spent": 12.485843266344409,
+        "final_length": 10.965317919075144,
+        "peak_length": 11.254335260115607
+      },
+      "droppedWallSeconds": 692.4726666666876,
+      "historicalGameplayHashAndObservationCountersMatch": true
+    }
+  },
+  "laterDiagnosticValidationCommit": "c2315c5048e5d3a5ae138127e46bbcc62262a9ca",
+  "laterDiagnosticNativeSourceSha256": "9e54ebc21df34d0b9e65a07fb74b16627791d78e4acca00c4ea55b065d3bb494",
+  "laterDiagnosticChange": "Full-layout ablation helper rejects compact cache/plan before indexing; test added. Measured inference code unchanged.",
+  "analysisSourceCommit": "5b1d01e845b9ad110df7b63302de3da9baf22fee",
+  "compressedTraceSha256": "7459ec62be338a2d9d16cd6fa238f455396348d417e31ffeae0ece74d0658bd6",
+  "validation": {
+    "measurementSourceLinuxReleaseHooksLibraryPassed": 836,
+    "finalNativeSourceCommit": "c2315c5048e5d3a5ae138127e46bbcc62262a9ca",
+    "finalNativeSourceSha256": "9e54ebc21df34d0b9e65a07fb74b16627791d78e4acca00c4ea55b065d3bb494",
+    "windowsDefaultLibraryPassed": 745,
+    "windowsReleaseHooksLibraryPassed": 836,
+    "linuxDefaultLibraryPassed": 745,
+    "linuxReleaseHooksLibraryPassed": 837,
+    "binaryAndDocTests": "passed on both platforms",
+    "fmtCheck": "passed",
+    "cargoCheck": "passed",
+    "clippyAllTargetsAllFeaturesDenyWarnings": "passed",
+    "sourceIdentityUnitTests": {
+      "passed": 9,
+      "windowsSymlinkPrivilegeSkips": 3
+    },
+    "worker1And7ContinuationMatched": true,
+    "automaticBranchCiRuns": 0,
+    "ciNote": "Explicit local and Oxygen validation receipts retained",
+    "debugHooksAttempt": "Seven pre-existing release-profile guards failed in debug; required release suites passed"
+  },
+  "preservation": {
+    "existingQualificationArtifactsVerifiedBothHosts": 280,
+    "originalUnfinishedSourceFilesVerified": 22
+  },
+  "artifactManifest": "SHA256SUMS"
+}

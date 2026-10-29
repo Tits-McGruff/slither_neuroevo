@@ -69,7 +69,7 @@ export function createRustWelcome(
     settings: createRustSettings(metadata),
     sensorSpec: getSensorSpec(nativeSensorLayout(metadata), metadata.sensorContract),
     inferenceMode: {
-      requestedBackend: 'native', activeBackend: 'native', requestedMt: calculationWorkers > 1,
+      requestedBackend: 'native', activeBackend: 'native', mathBackend: metadata.mathBackend, requestedMt: calculationWorkers > 1,
       activeWorkerCount: calculationWorkers > 1 ? calculationWorkers : 0,
       poolEpoch: null, weightEpoch: null, graphKey: metadata.graphKey, parameterCount: metadata.parameterCount,
       seed: metadata.seed, nativeAddonStatus: 'ready', nativeAddonBuildIdentifier: nativeBuildIdentifier
