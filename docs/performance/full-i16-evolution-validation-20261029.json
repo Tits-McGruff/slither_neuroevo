@@ -507,10 +507,10 @@
   "retainedArtifactManifest": {
     "file": "full-i16-evolution-artifacts-20261029.sha256",
     "root": "data/benchmarks/matrix-i16-evolution-20261029",
-    "entries": 77,
-    "sha256": "cf7f8fa0783ecdb7731ac3774c933d5fcc074885b249594053e799454a335941",
-    "scope": "Eight completed runs, completed-pair analysis, initial bias-scale observation and platform validation receipts; ongoing native run payloads excluded.",
-    "artifactCopy": "four-pairs-SHA256SUMS"
+    "entries": 85,
+    "sha256": "809387eed2734692eff5b2858ec6db49432f1673943082370b68cca6d87c05b3",
+    "scope": "Nine completed runs, four-pair balanced analysis, initial bias-scale observation and platform validation receipts; final ongoing native run excluded.",
+    "artifactCopy": "nine-runs-SHA256SUMS"
   },
   "completedTwoPairs": {
     "status": "Interim: two of five seed pairs complete. No qualification or default-selection decision.",
@@ -1143,5 +1143,37 @@
       }
     },
     "analysisManifestSha256": "f474bce311f5f5fbe9fa72ca158aa31c88c95447613b372c6df1f08094f648fd"
+  },
+  "fifthCompletedSse2": {
+    "status": "Completed SSE2 run; final paired i16 run pending.",
+    "run": "seed-262147-sse2",
+    "generations": 20,
+    "completedSteps": 576020,
+    "firstMeanFitness": 1114.0301550101299,
+    "finalMeanFitness": 2622.3701952383044,
+    "lastFiveMeanFitness": 2137.9205405086404,
+    "normalEngineWallSeconds": 12075.564477202006,
+    "fullProcessWallSeconds": 12270.564148406032,
+    "neuralDeliveriesExcludingTerminal": 18714754,
+    "inferenceSeconds": 7746.471039,
+    "cpuStealFraction": 0.11060655473366408,
+    "osPeakRssBytes": 1004888064,
+    "clipping": 0,
+    "forbiddenMagnitudes": 0,
+    "minimumUniqueGenomes": 85,
+    "biasScaleSetters": [
+      {
+        "generation": 2,
+        "slot": 17,
+        "node": "mlp-b",
+        "inflation": 1.0105934143066406
+      }
+    ],
+    "manifestSha256": "d2de85186fa3a0fee224a1ba46dc62e5c487f36dc332ff6d9942b97196268dc5",
+    "finalCheckpoint": {
+      "file": "5a3830f40e9c30c56deed3a28fe49f868d44213e4f675ce304adcedfe4d10939.checkpoint-v3",
+      "sha256": "31380a6502e85766eb74e64936fb09432b9ccd9ad826717b051711cdb79a7f83",
+      "logicalRootSha256": "5a3830f40e9c30c56deed3a28fe49f868d44213e4f675ce304adcedfe4d10939"
+    }
   }
 }
