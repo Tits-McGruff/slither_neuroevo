@@ -250,8 +250,8 @@ pub fn prepare_configured_fresh_run_with_math(
 }
 
 /// Start a new lineage using an admitted checkpoint's unchanged F32 population.
-/// The source is charged while the ordinary new-run boundary is allocated. Its
-/// lives, recurrent state, fitness and RNG chronology do not cross this boundary.
+/// The source world retires before construction; retained genomes and metadata
+/// remain charged. Lives, recurrent state, fitness and RNG chronology do not cross.
 pub(crate) fn prepare_population_checkpoint_fork(
     mut request: Stage6aP0FreshRunRequest,
     source: PendingRunStartTransition,
@@ -262,38 +262,68 @@ pub(crate) fn prepare_population_checkpoint_fork(
         return Err(FreshRunError::InvalidRunId);
     }
     let full_ceiling = request.memory_ceiling_bytes;
-    request.memory_ceiling_bytes = full_ceiling
-        .checked_sub(source.memory_estimate().total_bytes)
-        .ok_or_else(|| {
-            FreshRunError::Settings("population fork source exceeds memory admission".into())
-        })?;
+    let memory = source.memory_estimate();
+    let checked = |value: Option<usize>| {
+        value.ok_or(FreshRunError::ArithmeticOverflow {
+            context: "population fork retained source memory",
+        })
+    };
+    // Two settings projections remain live while the fresh constructor runs.
+    // The admitted graph/text estimates conservatively cover their cloned strings
+    // and graph spec; population records have no additional heap-owned metadata.
+    let metadata_bytes = checked(memory.text_bytes.checked_mul(2))?;
+    let metadata_bytes = checked(metadata_bytes.checked_add(memory.graph_bytes))?;
+    let settings_bytes = checked(source.state().config.settings.capacity().checked_mul(
+        std::mem::size_of::<super::state::NormalizedSetting>()
+            + std::mem::size_of::<FreshRunSettingUpdate>(),
+    ))?;
+    let metadata_bytes = checked(metadata_bytes.checked_add(settings_bytes))?;
+    if checked(memory.total_bytes.checked_add(metadata_bytes))? > full_ceiling {
+        return Err(FreshRunError::Settings(
+            "population fork source exceeds memory admission".into(),
+        ));
+    }
+    let population_bytes = checked(
+        source
+            .state()
+            .population
+            .capacity()
+            .checked_mul(std::mem::size_of::<PopulationGenome>()),
+    )?;
+    let retained_bytes = checked(memory.weight_bytes.checked_add(population_bytes))?;
+    let retained_bytes = checked(retained_bytes.checked_add(metadata_bytes))?;
+    request.memory_ceiling_bytes = full_ceiling.checked_sub(retained_bytes).ok_or_else(|| {
+        FreshRunError::Settings("population fork source exceeds memory admission".into())
+    })?;
     request.seed = source.state().identity.seed;
-    let settings = numeric_fresh_settings(source.state().config.settings.clone());
-    let mut prepared =
-        prepare_configured_fresh_boundary(request, &settings, source.graph_spec().clone(), math)?;
-    if prepared.candidate.config.settings != source.state().config.settings
-        || prepared.graph.layout_digest_sha256 != source.graph().layout_digest_sha256
-        || prepared.candidate.population.len() != source.state().population.len()
+    let expected_settings = source.state().config.settings.clone();
+    let settings = numeric_fresh_settings(expected_settings.clone());
+    let graph_spec = source.graph_spec().clone();
+    let layout = source.graph().layout_digest_sha256;
+    // Consuming the private authority releases world, recurrence, validation and
+    // compiled graph owners. No second running-world budget is retained.
+    let population = source.into_population_for_new_run();
+    let mut prepared = prepare_configured_fresh_boundary(request, &settings, graph_spec, math)?;
+    if prepared.candidate.config.settings != expected_settings
+        || prepared.graph.layout_digest_sha256 != layout
+        || prepared.candidate.population.len() != population.len()
         || prepared
             .candidate
             .population
             .iter()
-            .zip(&source.state().population)
+            .zip(&population)
             .any(|(target, original)| target.weights.len() != original.weights.len())
     {
         return Err(FreshRunError::Settings(
             "population fork must preserve source settings, graph and population shape".into(),
         ));
     }
-    for (target, original) in prepared
-        .candidate
-        .population
-        .iter_mut()
-        .zip(source.into_population_for_new_run())
-    {
+    for (target, original) in prepared.candidate.population.iter_mut().zip(population) {
         target.weights = original.weights;
     }
-    // The private source and the temporary initialized weights have now retired.
+    drop(settings);
+    drop(expected_settings);
+    // Retained input metadata and temporary initialized weights have now retired.
     prepared.admission_policy.memory_ceiling_bytes = full_ceiling;
     PendingRunStartTransition::admit(
         prepared.candidate,
@@ -3051,9 +3081,8 @@ mod tests {
             .unwrap()
         };
         let mut target_request = request(999);
-        // Unlike a single-owner fixture, construction charges both admitted
-        // populations until the source buffers have moved to the new boundary.
-        target_request.memory_ceiling_bytes = 4 * 1024 * MIB;
+        // The private source world retires before allocating the new boundary,
+        // so the ordinary 2 GiB fixture ceiling still admits this transfer.
         target_request.run_id = "population-fork-test".into();
         let mut fork =
             prepare_population_checkpoint_fork(target_request.clone(), restore(), math).unwrap();
