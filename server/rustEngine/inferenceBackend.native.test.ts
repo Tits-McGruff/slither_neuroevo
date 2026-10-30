@@ -82,6 +82,36 @@ it.each([undefined, 'rust-i16-matrix-fma128-v1'] as const)('passes normal server
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
 
+it('passes an explicit native memory budget through normal server startup and preserves checkpoint arithmetic on resume', async () => {
+  const backend = 'rust-i16-matrix-fma128-v1';
+  if (!admitted(backend)) return;
+  const root = mkdtempSync(join(tmpdir(), 'slither-native-memory-'));
+  const config = { ...RUST_TEST_CONFIG, port: 0, dbPath: join(root, 'owner.db'),
+    resume: 'fresh' as const, seed: 42, rustCalculationWorkers: 1, mathBackend: backend as InferenceMathBackend };
+  try {
+    // A rejected fresh initialization has no committed lineage. Keep that
+    // disposable store separate from the successful startup/resume fixture.
+    const rejected = await startRustServer({ ...config, dbPath: join(root, 'rejected.db'), nativeMemoryMiB: 256 });
+    try { expect(rejected.startupFault).toContain('268435456-byte ceiling'); } finally { await rejected.close(); }
+    const started = await startRustServer({ ...config, nativeMemoryMiB: 6144 });
+    let checkpoint: unknown;
+    try {
+      expect(started.startupFault).toBeUndefined();
+      const response = await fetch(`http://127.0.0.1:${started.port}/api/health`);
+      const health = await response.json() as Record<string, unknown>;
+      expect(health['mathBackend']).toBe(backend);
+      checkpoint = health['startupCheckpointId'];
+    } finally { await started.close(); }
+    const resumed = await createExperimentalServerRuntime({ databasePath: config.dbPath,
+      managedDirectory: `${config.dbPath}.checkpoints`, nativeMemoryMiB: 6144,
+      restoreLatest: true, mathBackend: backend, calculationWorkers: 1, onWake() {} });
+    try {
+      expect(resumed.metadata.mathBackend).toBe(backend);
+      expect(resumed.runStart.checkpointId).toBe(checkpoint);
+    } finally { await resumed.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 30_000);
+
 it('starts a population-only i16 lineage without rewriting its scalar source and resumes it normally', async () => {
   const backend = 'rust-i16-matrix-fma128-v1';
   if (!admitted(backend)) return;

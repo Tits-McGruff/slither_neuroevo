@@ -134,6 +134,15 @@ After successful startup, remove `SERVER_POPULATION_FROM` and return the
 launcher to its normal resume/auto mode; retain the explicit backend selection.
 Do not leave a fresh-start operation configured for automatic restarts.
 
+Native allocation admission retains a **4096 MiB** default. An explicit
+`--native-memory-mib N`, `NATIVE_MEMORY_MIB=N`, or TOML `nativeMemoryMiB = N`
+selects a per-authority budget from 256 to 65536 MiB. Admission includes held
+source state and successor/workspace allocations during generation transitions;
+passing initial startup admission does not guarantee that a later transition
+fits the same budget. This resource budget changes no game settings or backend
+identity and is not an operating-system RSS limit. An undersized budget faults
+the run without changing arithmetic or overwriting its last durable boundary.
+
 - Selecting a checkpoint other than the active current one creates a separate
   branch after validation. The source's later history is preserved.
 - After a rebuild, `--resume latest` can continue a checkpoint when its state

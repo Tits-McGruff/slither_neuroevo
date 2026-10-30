@@ -1,4 +1,4 @@
-import { parseInferenceMathBackend, type InferenceMathBackend } from '../config.ts';
+import { parseInferenceMathBackend, validateNativeMemoryMiB, type InferenceMathBackend } from '../config.ts';
 import Database from 'better-sqlite3';
 import { validateRustCalculationWorkers } from '../rustWorkers.ts';
 import { existsSync } from 'node:fs';
@@ -50,6 +50,8 @@ export interface ExperimentalStartupOptions {
   calculationWorkers?: number;
   /** Optional stable arithmetic selection, checked by Rust against CPU and retained identity. */
   mathBackend?: InferenceMathBackend;
+  /** Native allocation admission budget; absent retains the existing 4096 MiB. */
+  nativeMemoryMiB?: number;
   /** Owner-selected physical checkpoint budget in MiB. */
   checkpointBudgetMiB?: number;
   /** Selected metadata database; fresh startup appends a run to a compatible managed store. */
@@ -173,6 +175,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
   const seed = restoring ? 0 : (options.seed ?? randomBytes(4).readUInt32LE());
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) throw new RangeError('experimental seed must be a Uint32');
   const mathBackend = options.mathBackend === undefined ? undefined : parseInferenceMathBackend(options.mathBackend);
+  const memoryCeilingBytes = BigInt(validateNativeMemoryMiB(options.nativeMemoryMiB)) * 1024n * 1024n;
   const calculationWorkers = validateRustCalculationWorkers(options.calculationWorkers ?? 1);
   const checkpointBudgetMiB = options.checkpointBudgetMiB ??
     Number(OWNER_CHECKPOINT_RETENTION_DEFAULTS.automaticByteCap / (1024n * 1024n));
@@ -225,7 +228,7 @@ export async function createExperimentalServerRuntime(options: ExperimentalStart
     }
     /** Construct only a scalar native handle; initialization owns all population allocation. */
     const makeSession = (runId: string): ExperimentalFreshRunSession => createExperimentalFreshRunSession({
-      binding, sourceIdentity, runId, seed, memoryCeilingBytes: 4n * 1024n * 1024n * 1024n,
+      binding, sourceIdentity, runId, seed, memoryCeilingBytes,
       calculationWorkers,
       ...(mathBackend === undefined ? {} : { mathBackend }),
       persistence, managedDirectory, activateRunOnCommit: true,

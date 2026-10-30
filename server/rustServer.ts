@@ -380,6 +380,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       managedDirectory: `${resolve(config.dbPath)}.checkpoints`,
       calculationWorkers: config.rustCalculationWorkers,
       ...(config.mathBackend === undefined ? {} : { mathBackend: config.mathBackend }),
+      ...(config.nativeMemoryMiB === undefined ? {} : { nativeMemoryMiB: config.nativeMemoryMiB }),
       ...(config.populationFrom === undefined ? {} : { populationFromCheckpointId: config.populationFrom.slice(7) }),
       checkpointBudgetMiB: config.checkpointBudgetMiB,
       ...((config.resume === 'auto' || config.resume === 'latest') && databaseExists ? { restoreLatest: true } : {}),

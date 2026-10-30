@@ -36,6 +36,7 @@ const OPTIONS: Readonly<Record<string, ProductionOption>> = {
   '--log': { value: 'LEVEL', choices: ['debug', 'info', 'warn', 'error'], description: 'Logging level (LOG_LEVEL).' },
   '--seed': { value: 'N', integer: true, description: 'Run seed; requires --fresh when a database already exists (WORLD_SEED).' },
   '--rust-workers': { value: 'N', integer: true, description: 'Rust calculation workers (RUST_WORKERS).' },
+  '--native-memory-mib': { value: 'N', integer: true, description: 'Native allocation admission budget, 256..65536 MiB; default 4096 (NATIVE_MEMORY_MIB / nativeMemoryMiB). Includes held source and successor/workspace; does not limit process RSS.' },
   '--math-backend': { value: 'BACKEND', choices: INFERENCE_MATH_BACKEND_CHOICES,
     description: 'Explicit native arithmetic (MATH_BACKEND / mathBackend). Fresh default: SSE2; matrix-i16 requires SSE4.1/FMA; affine-i16 remains experimental.' },
   '--fresh': { description: 'Start a new generation-one run; conflicts with --resume.' },

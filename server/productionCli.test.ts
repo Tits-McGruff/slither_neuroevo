@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { parseProductionCli, productionCliHelp, PRODUCTION_CLI_HELP } from './productionCli.ts';
-import { DEFAULT_CONFIG, normalizeConfig, parseConfig } from './config.ts';
+import { DEFAULT_CONFIG, DEFAULT_NATIVE_MEMORY_MIB, normalizeConfig, parseConfig, validateNativeMemoryMiB } from './config.ts';
 import { RUST_CALCULATION_WORKER_MAX, validateRustCalculationWorkers } from './rustWorkers.ts';
 
 /** Task-owned configuration roots, removed after each test. */
@@ -220,6 +220,28 @@ it('leaves omitted arithmetic unchanged and resolves explicit backend choices th
   expect(readFileSync(database, 'utf8')).toBe('retained owner data');
   expect(PRODUCTION_CLI_HELP).toContain('--math-backend BACKEND');
   expect(PRODUCTION_CLI_HELP).toContain('Fresh default: SSE2');
+});
+
+it('preserves the 4096 MiB native admission default and accepts explicit resource-budget precedence', () => {
+  const { config, database } = fixture();
+  expect(DEFAULT_NATIVE_MEMORY_MIB).toBe(4096);
+  expect(validateNativeMemoryMiB()).toBe(4096);
+  expect(DEFAULT_CONFIG).not.toHaveProperty('nativeMemoryMiB');
+  const original = 'nativeMemoryMiB = 6144\n';
+  writeFileSync(config, original);
+  expect(parseProductionCli([], { SERVER_CONFIG: config })?.nativeMemoryMiB).toBe(6144);
+  expect(parseProductionCli([], { SERVER_CONFIG: config, NATIVE_MEMORY_MIB: '8192' })?.nativeMemoryMiB).toBe(8192);
+  expect(parseProductionCli(['--native-memory-mib', '4096'], { SERVER_CONFIG: config, NATIVE_MEMORY_MIB: '8192' })?.nativeMemoryMiB).toBe(4096);
+  expect(readFileSync(config, 'utf8')).toBe(original);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
+});
+
+it.each(['0', '255', '65537', '-1', '6144.5', 'NaN', 'Infinity', '6e3', '01', '6144junk', '9007199254740992', ''])('rejects invalid native memory budget %s before owner-file creation', value => {
+  const { root, config, database } = fixture();
+  expect(() => parseProductionCli([`--native-memory-mib=${value}`], { SERVER_CONFIG: config })).toThrow();
+  expect(() => parseConfig([], { SERVER_CONFIG: config, NATIVE_MEMORY_MIB: value })).toThrow(/nativeMemoryMiB/u);
+  expect(readdirSync(root)).toEqual(['owner.db']);
+  expect(readFileSync(database, 'utf8')).toBe('retained owner data');
 });
 
 it('admits one-shot population forks only with fresh startup, explicit arithmetic and the retained seed', () => {

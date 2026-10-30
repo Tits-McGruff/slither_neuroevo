@@ -6,6 +6,18 @@ import { DEFAULT_DISTILLATION_SPOOL_GIB, validateDistillationSpoolGiB } from './
 
 /** Allowed log levels for server output. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+/** Existing per-authority native allocation admission budget, in MiB. */
+export const DEFAULT_NATIVE_MEMORY_MIB = 4096;
+
+/** Validate an explicit resource budget without silently clamping or changing game settings. */
+export function validateNativeMemoryMiB(value: unknown = DEFAULT_NATIVE_MEMORY_MIB): number {
+  const parsed = typeof value === 'number' ? value :
+    typeof value === 'string' && /^[1-9][0-9]*$/u.test(value) ? Number(value) : NaN;
+  if (!Number.isSafeInteger(parsed) || parsed < 256 || parsed > 65536) {
+    throw new RangeError('nativeMemoryMiB requires an integer from 256 to 65536 MiB');
+  }
+  return parsed;
+}
 /** Stable arithmetic identities accepted by normal startup and checkpoint admission. */
 export const INFERENCE_MATH_BACKENDS = [
   'rust-scalar-v1', 'rust-sse2-v1', 'rust-i16-matrix-fma128-v1',
@@ -61,6 +73,8 @@ export interface ServerConfig {
   rustCalculationWorkers: number;
   /** Explicit native arithmetic; absent leaves fresh SSE2 and recorded checkpoint arithmetic intact. */
   mathBackend?: InferenceMathBackend;
+  /** Optional native source/successor/workspace admission budget; omission retains 4096 MiB. */
+  nativeMemoryMiB?: number;
   /** Automatic first startup, explicit fresh/latest startup, or one managed checkpoint identity. */
   resume: ResumeSelection;
   /** One-shot population-only source for an explicit fresh lineage, never a resume override. */
@@ -385,6 +399,7 @@ export function normalizeConfig(
     logLevel,
     rustCalculationWorkers,
     ...(input.mathBackend === undefined ? {} : { mathBackend: parseInferenceMathBackend(input.mathBackend) }),
+    ...(input.nativeMemoryMiB === undefined ? {} : { nativeMemoryMiB: validateNativeMemoryMiB(input.nativeMemoryMiB) }),
     ...(input.populationFrom === undefined ? {} : { populationFrom: input.populationFrom as string }),
     resume
   };
@@ -461,6 +476,7 @@ function parseConfigFile(raw: unknown, warn?: (msg: string) => void): RawConfigI
     seed: data['seed'],
     rustCalculationWorkers: data['rustCalculationWorkers'],
     mathBackend: data['mathBackend'],
+    nativeMemoryMiB: data['nativeMemoryMiB'],
     resume: data['resume']
   };
 }
@@ -506,6 +522,12 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   }
   const selectedMath = cliMath ?? env['MATH_BACKEND'];
   if (selectedMath !== undefined) parseInferenceMathBackend(selectedMath);
+  const cliNativeMemory = getArgValue(argv, '--native-memory-mib');
+  if (argv.some(arg => arg === '--native-memory-mib' || arg.startsWith('--native-memory-mib=')) && cliNativeMemory === undefined) {
+    throw new Error('--native-memory-mib requires a value');
+  }
+  const nativeMemoryMiB = cliNativeMemory ?? env['NATIVE_MEMORY_MIB'];
+  if (nativeMemoryMiB !== undefined) validateNativeMemoryMiB(nativeMemoryMiB);
   const populationFrom = getArgValue(argv, '--population-from') ?? env['SERVER_POPULATION_FROM'];
   if (populationFrom !== undefined && !/^sha256:[0-9a-f]{64}$/u.test(populationFrom)) {
     throw new Error('--population-from requires sha256:ID with a lowercase managed checkpoint digest');
@@ -593,6 +615,7 @@ export function parseConfig(argv: string[], env: Env, rustWorkerMaximum = RUST_C
   }
   if (selectedSpoolGiB !== undefined) input.distillationSpoolGiB = selectedSpoolGiB;
   if (selectedMath !== undefined) input.mathBackend = parseInferenceMathBackend(selectedMath);
+  if (nativeMemoryMiB !== undefined) input.nativeMemoryMiB = nativeMemoryMiB;
   if (populationFrom !== undefined) input.populationFrom = populationFrom;
   return normalizeConfig(input, warn, rustWorkerMaximum);
 }
