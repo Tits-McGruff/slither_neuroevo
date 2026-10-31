@@ -279,6 +279,13 @@ serializing the world or loading checkpoint populations into Node:
 | `outbound` | Reliable WebSocket queues, pending frames, connection peaks/limits, and lifetime frame-replacement/reliable-failure counts that survive disconnects. |
 | Storage | SQLite, WAL, free-page, temporary-file, free-disk, quota, and operating-reserve byte counts; retention and cleanup results. |
 
+`GET /api/history` also returns an optional `workload` summary for each newly
+completed generation: phase nanoseconds, neural/baseline delivery counts, alive
+snakes, body points/segments, evolved lengths, pellets and query candidates.
+It is committed with ordinary fitness history and is excluded from frame-cadence
+stats and checkpoint/replay state. See the [field definitions and timing scopes](docs/API-instructions.md#get-apihistory).
+Older rows omit the summary; unavailable measurements are `null`.
+
 Percentiles are conservative fixed-histogram upper bounds. Reporting does not
 retain a per-step series or authoritative game arrays. For the external-client
 contract, see [API instructions](docs/API-instructions.md).

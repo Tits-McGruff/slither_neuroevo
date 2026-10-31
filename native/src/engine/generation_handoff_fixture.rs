@@ -57,6 +57,7 @@ const FIXTURE_RESUME_WALL_MS: u64 = 1_000;
 /// Generation descriptor plus exact Rust-constructed SQLite metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PublishedGenerationHandoff {
+    pub workload: Option<super::generation_work::GenerationWork>,
     /// Immutable checkpoint descriptor produced by the retained coordinator.
     pub descriptor: CheckpointDescriptor,
     /// Independently retained elite object produced by the same Rust operation.
@@ -281,6 +282,7 @@ impl GenerationHandoffFixtureSession {
                 .ok_or_else(|| "generation checkpoint publication count overflowed".to_owned())?;
         }
         Ok(PublishedGenerationHandoff {
+            workload: publication.workload,
             descriptor: publication.descriptor,
             hall_of_fame_weights: publication.hall_of_fame_weights,
             commit_record: publication.commit_record,
@@ -1325,6 +1327,12 @@ mod tests {
             .publish_generation_checkpoint(managed.path(), operation)
             .expect("fixture checkpoint retry must be exact");
         assert_eq!(retry, publication);
+        let work: serde_json::Value =
+            serde_json::from_str(&publication.workload.unwrap().to_json()).unwrap();
+        assert_eq!(work["generation"], "0000000000000001");
+        assert_eq!(work["steps"], "0000000000000001");
+        assert_eq!(work["partial"], true);
+        assert!(work["timingsNs"]["bodyRayPrepare"].is_null());
         assert_eq!(fixture.snapshot().generation_checkpoint_publications, 1);
 
         let mut mismatch = publication.descriptor.clone();

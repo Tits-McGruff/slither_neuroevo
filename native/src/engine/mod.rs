@@ -86,6 +86,7 @@ pub mod generation;
 pub mod generation_handoff_fixture;
 /// Collision-safe running-world construction after a durable generation boundary.
 pub mod generation_start;
+pub mod generation_work;
 /// Versioned TypeScript-compatible random genome initialization.
 pub mod genome;
 /// Ordered God Mode mutations at clean authoritative boundaries.

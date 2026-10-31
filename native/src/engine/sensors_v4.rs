@@ -51,6 +51,8 @@ pub struct V4SensorSample {
 /// Retained worker-local query storage; fixed bin arrays avoid warm allocation.
 #[derive(Clone, Debug, Default)]
 pub struct V4SensorScratch {
+    pub(crate) body_query_ns: u64,
+    pub(crate) body_ray_query_ns: u64,
     pellets: PelletQueryScratch,
     body: BodySensorQueryScratch,
     rays: RayQueryScratch,
@@ -398,6 +400,7 @@ impl SensorV4Evaluator {
             }
         }
         output[22] = flag(pellets.candidate_limit_reached);
+        let body_started = std::time::Instant::now();
         let broad = radii.near
             + (snake.radius + indexed.body_index().maximum_owner_radius())
                 * cfg.collision_hit_scale;
@@ -436,6 +439,8 @@ impl SensorV4Evaluator {
                 }
             }
         }
+        scratch.body_query_ns = super::generation_work::nanos(body_started);
+        let ray_started = std::time::Instant::now();
         let first_ray = SensorRay::new(snake.position, snake.direction - PI, radii.near)
             .map_err(|_| V4SensorError::Geometry)?;
         let mut packet = [first_ray; MAX_SENSOR_BINS];
@@ -455,6 +460,7 @@ impl SensorV4Evaluator {
             ray_work,
             &mut scratch.rays,
         )?;
+        scratch.body_ray_query_ns = super::generation_work::nanos(ray_started);
         let mut incomplete_rays = 0;
         for bin in 0..bins {
             let angle = snake.direction - PI + bin as f64 * TAU / bins as f64;

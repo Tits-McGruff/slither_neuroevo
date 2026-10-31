@@ -11,7 +11,6 @@ use super::state::{SnakeState, WorldPoint, WorldState};
 use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-#[cfg(feature = "engine-test-hooks")]
 use std::time::Instant;
 
 const CONTACT_SPACE_TOLERANCE: f64 = 1.0e-9;
@@ -185,6 +184,7 @@ pub struct PreparedCollision<'collision, 'food, 'world> {
     deaths: &'collision [DeathProposal],
     awards: &'collision [KillAward],
     diagnostics: CollisionDiagnostics,
+    work_timings: super::generation_work::WorkTimings,
     #[cfg(feature = "engine-test-hooks")]
     phase_timings: CollisionPhaseTimings,
 }
@@ -233,6 +233,10 @@ impl<'collision, 'food, 'world> PreparedCollision<'collision, 'food, 'world> {
     #[must_use]
     pub const fn diagnostics(self) -> CollisionDiagnostics {
         self.diagnostics
+    }
+
+    pub(crate) const fn work_timings(self) -> super::generation_work::WorkTimings {
+        self.work_timings
     }
 
     #[cfg(feature = "engine-test-hooks")]
@@ -586,6 +590,7 @@ impl SweptHeadEnvelope {
 /// Reusable collision index, query, and deterministic outcome scratch.
 #[derive(Clone, Debug, Default)]
 pub struct CollisionWorkspace {
+    work_timings: super::generation_work::WorkTimings,
     order: Vec<usize>,
     head_envelopes: Vec<SweptHeadEnvelope>,
     index: SweptBodyIndex,
@@ -679,23 +684,23 @@ impl CollisionWorkspace {
             }
         }
 
-        #[cfg(feature = "engine-test-hooks")]
         let phase_started = Instant::now();
         self.index.rebuild(food, &self.order, config)?;
+        self.work_timings.collision_index = super::generation_work::nanos(phase_started);
         #[cfg(feature = "engine-test-hooks")]
         {
             self.phase_timings.index_ms = phase_started.elapsed().as_secs_f64() * 1_000.0;
         }
-        #[cfg(feature = "engine-test-hooks")]
         let phase_started = Instant::now();
         self.detect_head_head(food, config)?;
+        self.work_timings.collision_head_head = super::generation_work::nanos(phase_started);
         #[cfg(feature = "engine-test-hooks")]
         {
             self.phase_timings.head_head_ms = phase_started.elapsed().as_secs_f64() * 1_000.0;
         }
-        #[cfg(feature = "engine-test-hooks")]
         let phase_started = Instant::now();
         self.detect_head_body(food, config)?;
+        self.work_timings.collision_head_body = super::generation_work::nanos(phase_started);
         #[cfg(feature = "engine-test-hooks")]
         {
             self.phase_timings.head_body_ms = phase_started.elapsed().as_secs_f64() * 1_000.0;
@@ -731,6 +736,7 @@ impl CollisionWorkspace {
             deaths: &self.deaths,
             awards: &self.awards,
             diagnostics,
+            work_timings: self.work_timings,
             #[cfg(feature = "engine-test-hooks")]
             phase_timings: self.phase_timings,
         })

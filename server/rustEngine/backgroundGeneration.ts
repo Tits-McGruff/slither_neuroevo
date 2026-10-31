@@ -108,13 +108,14 @@ export class BackgroundGenerationRouter {
         const publication = event.checkpoint as {
           descriptor?: unknown;
           generationCommit?: unknown;
+          workloadJson?: unknown;
           hallOfFameWeights?: unknown;
         } | undefined;
         const descriptor = parseManagedCheckpointDescriptor(publication?.descriptor);
         if (descriptor.operationId !== this.operationId) throw new Error('generation publication operation mismatch');
         const rawRecord = publication?.generationCommit;
         const record = parseManagedGenerationCommit(rawRecord && typeof rawRecord === 'object' && !Array.isArray(rawRecord)
-          ? { ...rawRecord, hallOfFameWeights: publication?.hallOfFameWeights }
+          ? { ...rawRecord, ...(publication?.workloadJson == null ? {} : { workloadJson: publication.workloadJson }), hallOfFameWeights: publication?.hallOfFameWeights }
           : rawRecord, descriptor);
         if (!record) throw new Error('generation publication omitted history');
         this.phase = 'commit';

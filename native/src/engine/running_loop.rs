@@ -131,6 +131,7 @@ pub enum RunningAuthorityLoopProgress {
 /// generation statistics, identities, slots, or Hall-of-Fame values.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunningGenerationCheckpointPublication {
+    pub workload: Option<super::generation_work::GenerationWork>,
     /// Descriptor for the immutable managed checkpoint file.
     pub descriptor: CheckpointDescriptor,
     /// Independently retained content-addressed elite weights.
@@ -1589,6 +1590,7 @@ impl RunningAuthorityLoop {
             .commit_record()
             .to_owned();
         Ok(RunningGenerationCheckpointPublication {
+            workload: self.coordinator.pending_generation_workload().copied(),
             descriptor,
             hall_of_fame_weights,
             commit_record,

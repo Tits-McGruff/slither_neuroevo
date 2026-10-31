@@ -400,7 +400,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
   /** Refresh compact stats once per history change, keeping sidecars out of the frame cadence. */
   const setHistory = (history: ManagedBrowserHistoryEntry[]): void => {
     experimentHistory = history;
-    fitnessHistory = history.map(({ experiment: _experiment, ...entry }) => entry);
+    fitnessHistory = history.map(({ experiment: _experiment, workload: _workload, ...entry }) => entry);
   };
   let hallOfFame: ManagedBrowserHallOfFameEntry[];
   let storage: ManagedStorageDiagnostics;

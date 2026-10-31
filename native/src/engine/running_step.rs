@@ -547,6 +547,8 @@ pub struct RunningStepCoordinator {
     last_teacher_publication_key: Option<PhysicsStepKey>,
     staged_teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes,
     last_step_cost: RunningStepCostMicros,
+    generation_work: super::generation_work::GenerationWork,
+    staged_work: super::generation_work::StepWork,
     pending_events: Vec<ExternalObservationEvent>,
     pending_statuses: Vec<ExternalDeliveryStatus>,
     pending_sources: Vec<PendingExternalSource>,
@@ -566,6 +568,11 @@ pub struct RunningStepCoordinator {
 }
 
 impl RunningStepCoordinator {
+    #[cfg(all(test, feature = "engine-test-hooks"))]
+    pub(crate) fn take_work_for_test(&mut self) -> super::generation_work::GenerationWork {
+        std::mem::take(&mut self.generation_work)
+    }
+
     /// Arm the next real parallel calculation in an explicit test build.
     #[cfg(feature = "engine-test-hooks")]
     pub(crate) fn arm_calculation_panic_for_test(&mut self) -> Result<(), &'static str> {
@@ -664,6 +671,8 @@ impl RunningStepCoordinator {
             last_teacher_publication_key: None,
             staged_teacher_outcomes: super::teacher_capture::TeacherPhysicalOutcomes::default(),
             last_step_cost: RunningStepCostMicros::default(),
+            generation_work: Default::default(),
+            staged_work: Default::default(),
             pending_events: Vec::new(),
             pending_statuses: Vec::new(),
             pending_sources: Vec::new(),
@@ -702,6 +711,7 @@ impl RunningStepCoordinator {
         replacement.next_external_event_sequence = self.next_external_event_sequence;
         replacement.last_published_diagnostics = self.last_published_diagnostics;
         replacement.last_step_cost = self.last_step_cost;
+        replacement.generation_work = self.generation_work;
         replacement
             .control
             .set_visualization_enabled(self.control.visualization_enabled());
@@ -983,7 +993,6 @@ impl RunningStepCoordinator {
             self.last_phase_allocations = RunningStepPhaseAllocations::default();
             self.allocation_cursor = self.allocation_snapshot.map(|snapshot| snapshot());
         }
-        #[cfg(feature = "engine-test-hooks")]
         let authority_started = Instant::now();
         self.validate_authority(authority)?;
         if self.pending_key.is_some() {
@@ -1014,6 +1023,8 @@ impl RunningStepCoordinator {
         }
 
         let key = authority.begin_running_step()?;
+        self.staged_work = Default::default();
+        self.staged_work.timings.authority_begin = super::generation_work::nanos(authority_started);
         self.last_wall_now_ms = Some(inputs.wall_now_ms);
         #[cfg(feature = "engine-test-hooks")]
         {
@@ -1053,7 +1064,6 @@ impl RunningStepCoordinator {
                             .points_per_second_alive,
                 )
                 .map_err(evolved_accounting_error)?;
-            #[cfg(feature = "engine-test-hooks")]
             let prefix_started = Instant::now();
             let prefix = self.prefix.prepare_with_evolved(
                 FixedStepPrefixInputs {
@@ -1073,6 +1083,7 @@ impl RunningStepCoordinator {
                     .control
                     .initial_neural_accumulator_seconds(),
             )?;
+            self.staged_work.timings.prefix = super::generation_work::nanos(prefix_started);
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.prefix_ms = elapsed_ms(prefix_started);
@@ -1140,6 +1151,10 @@ impl RunningStepCoordinator {
                     policy: self.projection.evolved,
                 }),
             )?;
+            let prelude = self.staged_work.timings;
+            self.staged_work = selected.cost_micros().work;
+            self.staged_work.timings.merge(prelude);
+            self.staged_work.timings.control_total = super::generation_work::nanos(control_started);
             self.last_step_cost.control_selection =
                 u64::try_from(control_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.last_step_cost.control_index = selected.cost_micros().spatial_index;
@@ -1152,7 +1167,6 @@ impl RunningStepCoordinator {
                 self.last_phase_allocations.control_selection =
                     allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
             }
-            #[cfg(feature = "engine-test-hooks")]
             let commit_started = Instant::now();
             let evaluated_controls = selected.control_updates();
             let committed = self.control_commit.prepare(selected)?;
@@ -1170,6 +1184,7 @@ impl RunningStepCoordinator {
                     }
                 }
             }
+            self.staged_work.timings.control_commit = super::generation_work::nanos(commit_started);
             #[cfg(feature = "engine-test-hooks")]
             {
                 self.last_phase_timings.control_commit_ms = elapsed_ms(commit_started);
@@ -1183,6 +1198,11 @@ impl RunningStepCoordinator {
                 &mut self.staged_evolved_generation,
                 self.projection.evolved,
             )?;
+            self.staged_work
+                .timings
+                .merge(prepared.production_work_timings());
+            self.staged_work.timings.world_total =
+                super::generation_work::nanos(world_step_started);
             self.staged_teacher_outcomes = prepared.teacher_outcomes();
             self.last_step_cost.world_step =
                 u64::try_from(world_step_started.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -1243,6 +1263,16 @@ impl RunningStepCoordinator {
                     prepared.allocators(),
                     self.prefix.evolved_proof(),
                 )?;
+                self.staged_work.observe_world(prepared.world());
+                let mut work = self.generation_work;
+                work.record(
+                    key.world_epoch(),
+                    key.generation(),
+                    key.source_completed_step() + 1,
+                    elapsed_seconds - authority.state().config.fixed_step_seconds,
+                    self.staged_work,
+                );
+                boundary.record_workload(work);
                 boundary.record_completion(
                     reason,
                     elapsed_seconds,
@@ -1563,6 +1593,12 @@ impl RunningStepCoordinator {
 
     /// Inspect the retained terminal boundary without rerunning evolution.
     #[must_use]
+    pub(crate) fn pending_generation_workload(
+        &self,
+    ) -> Option<&super::generation_work::GenerationWork> {
+        self.pending_generation.as_ref()?.boundary.workload()
+    }
+
     pub fn pending_generation_transition(&self) -> Option<GenerationTransitionBatch<'_>> {
         self.pending_generation
             .as_ref()
@@ -2640,7 +2676,6 @@ impl RunningStepCoordinator {
         inputs: RunningStepInputs,
         diagnostics: WorldStepDiagnostics,
     ) -> Result<RunningStepOutcome<'workspace>, RunningStepError> {
-        #[cfg(feature = "engine-test-hooks")]
         let publication_started = Instant::now();
         let publication = (|| -> Result<RunningStepPublication, RunningStepError> {
             let v2_proof = self.control_commit.baseline_v2_proof();
@@ -2674,6 +2709,17 @@ impl RunningStepCoordinator {
         self.clear_pending_metadata();
         self.last_published_diagnostics = diagnostics;
         if publication.is_ok() {
+            self.staged_work.timings.publication =
+                super::generation_work::nanos(publication_started);
+            self.staged_work.observe_world(&authority.state().world);
+            let elapsed = authority.state().generation.elapsed_seconds;
+            self.generation_work.record(
+                key.world_epoch(),
+                key.generation(),
+                key.source_completed_step() + 1,
+                elapsed - authority.state().config.fixed_step_seconds,
+                self.staged_work,
+            );
             self.last_teacher_publication_key = Some(key);
         }
         #[cfg(feature = "engine-test-hooks")]

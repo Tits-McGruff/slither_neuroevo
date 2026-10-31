@@ -296,6 +296,7 @@ pub struct Stage6GenerationCommitRecord {
 /// Real retained generation publication returned to the persistence client.
 #[napi(object)]
 pub struct Stage6GenerationCheckpointPublication {
+    pub workload_json: Option<String>,
     pub descriptor: ManagedCheckpointDescriptor,
     pub hall_of_fame_weights: ManagedHallOfFameWeightsDescriptor,
     pub generation_commit: Stage6GenerationCommitRecord,
@@ -3195,6 +3196,7 @@ impl Task for PublishStage6GenerationTask {
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(Stage6GenerationCheckpointPublication {
+            workload_json: output.workload.map(|work| work.to_json()),
             descriptor: checkpoint_descriptor_to_napi(output.descriptor),
             hall_of_fame_weights: hall_of_fame_weights_descriptor_to_napi(
                 output.hall_of_fame_weights,
@@ -4423,6 +4425,7 @@ fn running_authority_event_to_napi(
             });
         }
         RunningAuthorityEvent::GenerationCheckpointPublished {
+            workload,
             command_sequence,
             descriptor,
             hall_of_fame_weights,
@@ -4431,6 +4434,7 @@ fn running_authority_event_to_napi(
             output.kind = "generationCheckpointPublished".to_owned();
             output.command_sequence = Some(u64_hex(command_sequence));
             output.checkpoint = Some(Stage6GenerationCheckpointPublication {
+                workload_json: workload.map(|work| work.to_json()),
                 descriptor: checkpoint_descriptor_to_napi(*descriptor),
                 hall_of_fame_weights: hall_of_fame_weights_descriptor_to_napi(
                     *hall_of_fame_weights,

@@ -59,6 +59,7 @@ const MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS: f64 = 0.06;
 /// Coarse control-selection costs retained without per-step allocations.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ControlPhaseCostMicros {
+    pub work: super::generation_work::StepWork,
     pub spatial_index: u64,
     pub neural_batch: u64,
     pub neural_sensing: u64,
@@ -1878,11 +1879,18 @@ impl ControlPhaseWorkspace {
             inputs.config.sensor_index.body_cell_size,
             inputs.config.sensor_index.maximum_body_entries,
         )?;
+        self.last_cost.work.timings.control_body_index =
+            super::generation_work::nanos(index_started);
+        let pellet_index_started = Instant::now();
         self.pellet_index.rebuild(
             world,
             inputs.config.sensor_index.pellet_cell_size,
             inputs.config.sensor_index.maximum_pellet_entries,
         )?;
+        self.last_cost.work.timings.control_pellet_index =
+            super::generation_work::nanos(pellet_index_started);
+        self.last_cost.work.timings.control_spatial_index =
+            super::generation_work::nanos(index_started);
         self.last_cost.spatial_index =
             u64::try_from(index_started.elapsed().as_micros()).unwrap_or(u64::MAX);
         let indexed = IndexedSensorWorld::from_indexes(
@@ -2018,9 +2026,14 @@ impl ControlPhaseWorkspace {
                     ray_grants[*index] = *grant;
                 }
                 self.ray_proposal = Some(proposal);
+                let ray_prepare_started = Instant::now();
                 let body_rays = ray_index
                     .prepare(indexed.body_index())
                     .map_err(ControlPhaseError::Rays)?;
+                self.last_cost.work.timings.body_ray_prepare =
+                    super::generation_work::nanos(ray_prepare_started);
+                self.last_cost.work.ray_preparations = 1;
+                let heads_started = Instant::now();
                 let prepared_heads = if self.ray_keys.is_empty() {
                     None
                 } else {
@@ -2028,6 +2041,8 @@ impl ControlPhaseWorkspace {
                         .prepare(world, self.neural.sensor().layout().profile)
                         .map_err(SensorError::V4)?
                 };
+                self.last_cost.work.timings.sensor_head_prepare =
+                    super::generation_work::nanos(heads_started);
                 Some(super::sensors_v4::PreparedV4Sensing {
                     body_rays,
                     heads: prepared_heads,
@@ -2048,6 +2063,7 @@ impl ControlPhaseWorkspace {
             }
             for event in &mut self.external_events {
                 let end = event.observation_start + event.observation_len;
+                self.sensor_scratch.work = Default::default();
                 let sample = self.neural.sensor().sample_prepared_with_trace(
                     indexed,
                     inputs.generation,
@@ -2062,6 +2078,7 @@ impl ControlPhaseWorkspace {
                 )?;
                 event.delivery = sample.delivery;
                 event.diagnostics = sample.diagnostics;
+                self.last_cost.work.sensors.merge(self.sensor_scratch.work);
                 if let Some(capture) = &mut self.inspector {
                     capture.stage(
                         inputs.prefix.key(),
@@ -2102,6 +2119,14 @@ impl ControlPhaseWorkspace {
                     .filter(|capture| capture.delivered_enabled())
                     .map(|capture| capture.trace_request()),
             )?;
+            let work = batch.cost_micros().work;
+            self.last_cost.work.timings.merge(work.timings);
+            self.last_cost.work.sensors.merge(work.sensors);
+            self.last_cost.work.neural_deliveries = work.neural_deliveries;
+            let batch_ns = super::generation_work::nanos(neural_started);
+            self.last_cost.work.timings.neural_batch_preparation = batch_ns
+                .saturating_sub(work.timings.neural_sensing)
+                .saturating_sub(work.timings.neural_inference);
             self.last_cost.neural_batch =
                 u64::try_from(neural_started.elapsed().as_micros()).unwrap_or(u64::MAX);
             self.last_cost.neural_sensing = batch.cost_micros().sensing;
@@ -2516,6 +2541,8 @@ impl ControlPhaseWorkspace {
                 snake_id: snake.id,
                 field: "v2 behavior RNG",
             })?;
+        self.sensor_scratch.work = Default::default();
+        let sensing_started = Instant::now();
         let sample = self.neural.sensor().sample_prepared_with_trace(
             indexed,
             inputs.generation,
@@ -2528,6 +2555,15 @@ impl ControlPhaseWorkspace {
                 .as_mut()
                 .and_then(|capture| capture.trace_for(snake.id)),
         )?;
+        self.last_cost.work.timings.baseline_sensing = self
+            .last_cost
+            .work
+            .timings
+            .baseline_sensing
+            .saturating_add(super::generation_work::nanos(sensing_started));
+        self.last_cost.work.sensors.merge(self.sensor_scratch.work);
+        self.last_cost.work.baseline_deliveries += 1;
+        let policy_started = Instant::now();
         let step = key.step();
         let elapsed = match source_slot.v2_last_control_step {
             Some(previous) => {
@@ -2552,6 +2588,12 @@ impl ControlPhaseWorkspace {
             .map_err(|_| ControlPhaseError::InvalidConfig {
                 field: "v2 policy evaluation",
             })?;
+        self.last_cost.work.timings.baseline_policy = self
+            .last_cost
+            .work
+            .timings
+            .baseline_policy
+            .saturating_add(super::generation_work::nanos(policy_started));
         if let Some(capture) = &mut self.inspector {
             capture.stage(
                 inputs.prefix.key(),

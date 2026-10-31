@@ -29,7 +29,6 @@ use super::state::{
 };
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-#[cfg(feature = "engine-test-hooks")]
 use std::time::Instant;
 
 /// Full identity of one in-process fixed-step proposal.
@@ -491,6 +490,7 @@ impl<'step> PreparedPhysicsStep<'step> {
 /// allocator continuation, delta, capacities, and phase configuration.
 #[derive(Debug)]
 pub struct PhysicsPipelineWorkspace {
+    pub(crate) work_timings: super::generation_work::WorkTimings,
     pellet_index: PelletSpatialIndex,
     movement: MovementWorkspace,
     food: FoodWorkspace,
@@ -510,6 +510,7 @@ pub struct PhysicsPipelineWorkspace {
 impl Default for PhysicsPipelineWorkspace {
     fn default() -> Self {
         Self {
+            work_timings: Default::default(),
             pellet_index: PelletSpatialIndex::empty(),
             movement: MovementWorkspace::default(),
             food: FoodWorkspace::default(),
@@ -1031,6 +1032,7 @@ impl PhysicsStepWorkspace {
                 .as_ref()
                 .ok_or(PhysicsError::StepNotStarted)?;
             let PhysicsPipelineWorkspace {
+                work_timings,
                 pellet_index,
                 movement,
                 food,
@@ -1046,13 +1048,15 @@ impl PhysicsStepWorkspace {
                 #[cfg(feature = "engine-test-hooks")]
                 phase_timings,
             } = pipeline;
-            #[cfg(feature = "engine-test-hooks")]
             let phase_started = Instant::now();
             pellet_index.rebuild(
                 world,
                 config.pellet_index_cell_size,
                 config.maximum_pellet_index_entries,
             )?;
+            work_timings.physics_pellet_index = work_timings
+                .physics_pellet_index
+                .saturating_add(super::generation_work::nanos(phase_started));
             #[cfg(feature = "engine-test-hooks")]
             {
                 phase_timings.pellet_index_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
@@ -1060,7 +1064,6 @@ impl PhysicsStepWorkspace {
                     .pellet_index
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
-            #[cfg(feature = "engine-test-hooks")]
             let phase_started = Instant::now();
             let movement = movement.prepare(
                 world,
@@ -1069,6 +1072,9 @@ impl PhysicsStepWorkspace {
                 config.maximum_body_points,
                 attempt_limit,
             )?;
+            work_timings.movement = work_timings
+                .movement
+                .saturating_add(super::generation_work::nanos(phase_started));
             #[cfg(feature = "engine-test-hooks")]
             {
                 phase_timings.movement_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
@@ -1080,7 +1086,6 @@ impl PhysicsStepWorkspace {
                 world,
                 std::mem::replace(pellet_index, PelletSpatialIndex::empty()),
             );
-            #[cfg(feature = "engine-test-hooks")]
             let phase_started = Instant::now();
             let food_result = food.prepare(
                 &indexed,
@@ -1092,6 +1097,9 @@ impl PhysicsStepWorkspace {
             );
             *pellet_index = indexed.into_index();
             let food = food_result?;
+            work_timings.food = work_timings
+                .food
+                .saturating_add(super::generation_work::nanos(phase_started));
             #[cfg(feature = "engine-test-hooks")]
             {
                 phase_timings.food_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;
@@ -1099,9 +1107,12 @@ impl PhysicsStepWorkspace {
                     .food
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
-            #[cfg(feature = "engine-test-hooks")]
             let phase_started = Instant::now();
             let collision = collision.prepare(food, config.collision)?;
+            work_timings.merge(collision.work_timings());
+            work_timings.collision = work_timings
+                .collision
+                .saturating_add(super::generation_work::nanos(phase_started));
             #[cfg(feature = "engine-test-hooks")]
             {
                 let collision_detail = collision.phase_timings();
@@ -1113,7 +1124,6 @@ impl PhysicsStepWorkspace {
                     .collision
                     .saturating_add(allocation_delta(*allocation_snapshot, allocation_cursor));
             }
-            #[cfg(feature = "engine-test-hooks")]
             let phase_started = Instant::now();
             let effects = effects.prepare_with_lifecycle(
                 collision,
@@ -1125,6 +1135,9 @@ impl PhysicsStepWorkspace {
                 config.maximum_pellets,
                 lifecycle,
             )?;
+            work_timings.effects = work_timings
+                .effects
+                .saturating_add(super::generation_work::nanos(phase_started));
             #[cfg(feature = "engine-test-hooks")]
             {
                 phase_timings.effects_ms += phase_started.elapsed().as_secs_f64() * 1_000.0;

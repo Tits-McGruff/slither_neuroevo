@@ -1342,6 +1342,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn operational_telemetry_cannot_change_authoritative_results() {
+        let mut retained = build_fixture(
+            Stage4InferenceScenarioName::P0,
+            InferenceMathBackend::Scalar,
+            1,
+            false,
+        )
+        .unwrap();
+        let mut discarded = build_fixture(
+            Stage4InferenceScenarioName::P0,
+            InferenceMathBackend::Scalar,
+            1,
+            false,
+        )
+        .unwrap();
+        for _ in 0..3 {
+            execute_step(&mut retained, || 0).unwrap();
+            execute_step(&mut discarded, || 0).unwrap();
+            discarded.coordinator.take_work_for_test();
+            assert_eq!(retained.authority.state(), discarded.authority.state());
+        }
+        let work: serde_json::Value =
+            serde_json::from_str(&retained.coordinator.take_work_for_test().to_json()).unwrap();
+        assert_eq!(work["steps"], "0000000000000003");
+        assert!(!work["workload"]["bodyPoints"].is_null());
+        assert!(work["timingsNs"]["movement"].as_str().is_some());
+    }
+
+    #[test]
     fn dense_first_step_preserves_real_collision_deaths_and_profiles_full_source() {
         let options = Stage5StepEvidenceOptions {
             scenario: Stage4InferenceScenarioName::P1,

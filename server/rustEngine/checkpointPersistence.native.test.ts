@@ -1,3 +1,4 @@
+import { parseGenerationWorkJson } from './generationWork.ts';
 import type { RustBackgroundJoinRequest } from '../../src/protocol/rustBackground.ts';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, truncateSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -567,7 +568,7 @@ function parseGenerationPublication(value: unknown): {
     throw new TypeError('native generation publication must be an object');
   }
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).length !== 3 || !Object.hasOwn(record, 'descriptor') ||
+  if (Object.keys(record).length !== (Object.hasOwn(record, 'workloadJson') ? 4 : 3) || !Object.hasOwn(record, 'descriptor') ||
     !Object.hasOwn(record, 'generationCommit') ||
     !Object.hasOwn(record, 'hallOfFameWeights')) {
     throw new TypeError('native generation publication has unknown or missing fields');
@@ -576,7 +577,7 @@ function parseGenerationPublication(value: unknown): {
   const rawCommit = record['generationCommit'];
   const generationCommit = parseManagedGenerationCommit(
     rawCommit !== null && typeof rawCommit === 'object' && !Array.isArray(rawCommit)
-      ? { ...rawCommit, hallOfFameWeights: record['hallOfFameWeights'] }
+      ? { ...rawCommit, ...(record['workloadJson'] == null ? {} : { workloadJson: record['workloadJson'] }), hallOfFameWeights: record['hallOfFameWeights'] }
       : rawCommit,
     descriptor
   );
@@ -1016,6 +1017,13 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
       if (!generationCommit) throw new Error('injected post-reply commit did not finish');
       expect(generationCommit.descriptor).toEqual(firstPublication.descriptor);
       expect(countMetadataRows(paths.databasePath)).toBe(2);
+      const diagnostic = parseGenerationWorkJson(firstPublication.generationCommit.workloadJson);
+      expect(diagnostic.steps).toBe('0000000000000001');
+      expect(diagnostic.partial).toBe(true); // Fixture attaches immediately before its terminal step.
+      expect(diagnostic.timingsNs.bodyRayQueryWorker).toBeNull(); // V3 fixture.
+      expect((await client.readBrowserHistory(runStart.runId))[0]?.workload).toEqual(diagnostic);
+      await expect(client.commit(firstPublication.descriptor, { ...firstPublication.generationCommit,
+        workloadJson: JSON.stringify({...diagnostic, partial: false}) })).rejects.toThrow(/workload summary/u);
       expect(readCurrentPointer(paths.databasePath, runStart.runId)).toEqual({
         checkpoint_id: firstPublication.descriptor.logicalRootSha256,
         transition_epoch: firstPublication.descriptor.transitionEpoch,

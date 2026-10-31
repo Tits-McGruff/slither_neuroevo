@@ -159,6 +159,7 @@ impl PreparedGenerationBoundary {
 /// Fully admitted boundary held beside the still-current terminal source world.
 #[derive(Debug)]
 pub struct AdmittedGenerationBoundary {
+    workload: Option<super::generation_work::GenerationWork>,
     successor: AdmittedGenerationSuccessor,
     metadata: PreparedGenerationMetadata,
     commit_record: GenerationCommitRecord,
@@ -190,6 +191,14 @@ impl AdmittedGenerationBoundary {
     }
 
     /// Attach terminal chronology before exposing the admitted checkpoint handoff.
+    pub(crate) const fn workload(&self) -> Option<&super::generation_work::GenerationWork> {
+        self.workload.as_ref()
+    }
+
+    pub(crate) fn record_workload(&mut self, record: super::generation_work::GenerationWork) {
+        self.workload = Some(record);
+    }
+
     pub(crate) fn record_completion(
         &mut self,
         reason: super::running_step::GenerationTransitionReason,
@@ -420,6 +429,7 @@ fn admit_generation_boundary_internal(
         evolved,
     )?;
     Ok(AdmittedGenerationBoundary {
+        workload: None,
         successor,
         metadata,
         commit_record,

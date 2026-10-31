@@ -1,3 +1,4 @@
+import { parseGenerationWorkJson } from './generationWork.ts';
 import { parseSavedBrainOperation } from './savedBrainProtocol.ts';
 import type { SavedBrainCatalogResult } from '../protocol.ts';
 import { SavedBrainCatalog } from './savedBrainCatalog.ts';
@@ -598,6 +599,13 @@ function initializeSchema(database: ReturnType<typeof Database>): void {
       generation_hex TEXT NOT NULL,
       checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
       record_blob BLOB NOT NULL CHECK(length(record_blob) = 32),
+      PRIMARY KEY (run_id, generation_hex)
+    );
+    CREATE TABLE IF NOT EXISTS rust_generation_work_v1 (
+      run_id TEXT NOT NULL,
+      generation_hex TEXT NOT NULL,
+      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
+      record_json TEXT NOT NULL CHECK(length(record_json) <= 8192),
       PRIMARY KEY (run_id, generation_hex)
     );
     CREATE TABLE IF NOT EXISTS rust_generation_experiment_v1 (
@@ -1641,8 +1649,8 @@ function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistory
     if (!current) throw new Error('browser history requires a current managed run');
     const descriptor = validateCurrentPointerIdentity(runId, current);
     const filter = exportLineageFilter(runId, descriptor.generation, 'history');
-    const rows = db.prepare(`SELECT history.generation_hex, history.record_version, history.record_blob, experiment.record_blob AS experiment_blob
-      FROM rust_generation_history_v1 AS history LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex) WHERE ${filter.sql}
+    const rows = db.prepare(`SELECT history.generation_hex, history.record_version, history.record_blob, experiment.record_blob AS experiment_blob, work.record_json AS work_json
+      FROM rust_generation_history_v1 AS history LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex) LEFT JOIN rust_generation_work_v1 AS work USING(run_id, generation_hex) WHERE ${filter.sql}
       ORDER BY history.generation_hex DESC LIMIT ?`).all(...filter.parameters, limit) as Array<{
         generation_hex: string;
         record_version: number;
@@ -1662,7 +1670,9 @@ function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistory
       if (experimentRow.experiment_blob !== null && (!Buffer.isBuffer(experimentRow.experiment_blob) || experimentRow.experiment_blob.length !== 768 || experimentRow.experiment_blob.readBigUInt64LE(16) !== generation)) {
         throw new Error('browser history experiment generation mismatch');
       }
+      const workRow = row as typeof row & { work_json: string | null };
       const entry: ManagedBrowserHistoryEntry = {
+        ...(workRow.work_json === null ? {} : { workload: parseGenerationWorkJson(workRow.work_json, row.generation_hex) }),
         ...(experimentRow.experiment_blob === null ? {} : { experiment: decodeExperimentSummary(experimentRow.experiment_blob) }),
         gen: Number(generation),
         best: row.record_blob.readDoubleLE(8),
@@ -2836,6 +2846,7 @@ function commitManagedCheckpoint(
   const hallOfFameRecord = generationCommit === null
     ? null
     : encodeHallOfFameReference(generationCommit.hallOfFame);
+  const workloadJson = generationCommit?.workloadJson ?? null;
   const experimentRecord = generationCommit?.experiment ? encodeExperimentRecord(generationCommit.experiment) : null;
   const completion = generationCommit?.completion;
   const completionRecord = completion ? Buffer.alloc(32) : null;
@@ -2905,6 +2916,11 @@ function commitManagedCheckpoint(
           (!existingExperiment || !Buffer.isBuffer(existingExperiment.record_blob) || !existingExperiment.record_blob.equals(experimentRecord)))) {
         throw new Error('operationId conflicts with generation experiment summary');
       }
+      const existingWork = db.prepare('SELECT record_json FROM rust_generation_work_v1 WHERE run_id = ? AND generation_hex = ?')
+        .get(candidate.runId, generationCommit?.summary.completedGeneration ?? '') as { record_json: string } | undefined;
+      if ((existingWork?.record_json ?? null) !== workloadJson) {
+        throw new Error('operationId conflicts with generation workload summary');
+      }
       if (generationCommit !== null) assertStoredHallOfFameWeights(generationCommit.hallOfFameWeights);
       if (candidate.boundaryKind === 'run-start') {
         const existingLegacyConversion = readLegacyConversion(candidate.runId) ?? null;
@@ -2941,6 +2957,10 @@ function commitManagedCheckpoint(
     if (hallOfFameWeightsFile) recheckManagedFile(hallOfFameWeightsFile);
     insertCheckpointMetadata(candidate);
     if (generationCommit !== null && summaryRecord !== null && hallOfFameRecord !== null) {
+      if (workloadJson !== null) {
+        db.prepare('INSERT INTO rust_generation_work_v1 (run_id, generation_hex, checkpoint_id, record_json) VALUES (?, ?, ?, ?)')
+          .run(candidate.runId, generationCommit.summary.completedGeneration, candidate.logicalRootSha256, workloadJson);
+      }
       if (completionRecord) {
         db.prepare('INSERT INTO rust_generation_completion_v1 (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, ?, ?)')
           .run(candidate.runId, generationCommit.summary.completedGeneration, candidate.logicalRootSha256, completionRecord);

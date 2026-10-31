@@ -338,6 +338,8 @@ pub struct SensorSampleDiagnostics {
 /// Reusable per-worker scratch for one observation at a time.
 #[derive(Clone, Debug, Default)]
 pub struct SensorScratch {
+    pub(crate) work: super::generation_work::SensorWork,
+    body_query_ns: u64,
     /// Reused candidate v4 storage, with no allocation on a warmed sample.
     pub(crate) v4: super::sensors_v4::V4SensorScratch,
     food_bins: Vec<f32>,
@@ -552,7 +554,7 @@ impl SensorEvaluator {
         trace: Option<&mut super::sensor_trace::SensorTrace>,
     ) -> Result<SensorSample, SensorError> {
         let Some(evaluator) = &self.v4 else {
-            return self.sample_with_assessment_traced(
+            let sample = self.sample_with_assessment_traced(
                 indexed,
                 generation,
                 snake_index,
@@ -560,7 +562,11 @@ impl SensorEvaluator {
                 scratch,
                 assessment,
                 trace,
-            );
+            )?;
+            scratch
+                .work
+                .sample(sample.diagnostics, scratch.body_query_ns, None);
+            return Ok(sample);
         };
         let prepared = prepared_v4.ok_or(SensorError::MissingV4Context)?;
         if prepared.grants_by_snake.len() != indexed.world().snakes.len() {
@@ -585,7 +591,7 @@ impl SensorEvaluator {
             )
             .map_err(SensorError::V4)?;
         let capped = sample.diagnostics.body.candidate_limit_reached;
-        Ok(SensorSample {
+        let result = SensorSample {
             delivery: sample.delivery,
             radii: sample.radii,
             diagnostics: SensorSampleDiagnostics {
@@ -611,7 +617,13 @@ impl SensorEvaluator {
                     .hypot(indexed.world().snakes[snake_index].position.y)
                     > self.config.world_radius,
             },
-        })
+        };
+        scratch.work.sample(
+            result.diagnostics,
+            scratch.v4.body_query_ns,
+            Some(scratch.v4.body_ray_query_ns),
+        );
+        Ok(result)
     }
 
     /// Explicit sensor-only query with an independent per-observation meter.
@@ -980,6 +992,7 @@ impl SensorEvaluator {
             + (snake.radius + indexed_world.body_index().maximum_owner_radius())
                 * self.config.collision_hit_scale.max(1.0);
         let effective_segment_limit = self.effective_segment_limit();
+        let body_started = std::time::Instant::now();
         let body_query = indexed_world.body_index().collect_sensor_candidates(
             snake.position,
             broad_body_radius,
@@ -1038,6 +1051,7 @@ impl SensorEvaluator {
             output[self.layout.offsets.hazard + index] =
                 ratio_to_bipolar(f64::from(clearance) / radii.near) as f32;
         }
+        scratch.body_query_ns = super::generation_work::nanos(body_started);
         #[cfg(feature = "engine-test-hooks")]
         scratch.record_phase(&mut phase_started, SensorPhase::Body);
 

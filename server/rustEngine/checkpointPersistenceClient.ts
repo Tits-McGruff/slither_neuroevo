@@ -1,3 +1,4 @@
+import { parseGenerationWorkJson } from './generationWork.ts';
 import { parseSavedBrainOperation, parseSavedBrainResult } from './savedBrainProtocol.ts';
 import type { SavedBrainCatalogOperation, SavedBrainCatalogResult } from '../protocol.ts';
 import { parseExperimentSummary, parseHallOfFameAssessment } from './experimentRecords.ts';
@@ -1348,7 +1349,7 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
       }
       const entry = value as Record<string, unknown>;
       requireExactKeys(entry, [
-        'gen', 'best', 'avg', 'min', 'speciesCount', 'topSpeciesSize', 'avgWeight', 'weightVariance', ...(Object.hasOwn(entry, 'experiment') ? ['experiment'] : [])
+        'gen', 'best', 'avg', 'min', 'speciesCount', 'topSpeciesSize', 'avgWeight', 'weightVariance', ...(Object.hasOwn(entry, 'experiment') ? ['experiment'] : []), ...(Object.hasOwn(entry, 'workload') ? ['workload'] : [])
       ]);
       if (Object.hasOwn(entry, 'experiment')) parseExperimentSummary(entry['experiment']);
       if (!Number.isSafeInteger(entry['gen']) || (entry['gen'] as number) < 1 ||
@@ -1358,6 +1359,8 @@ function parseWorkerResponse(value: unknown): CheckpointPersistenceWorkerRespons
             typeof entry[key] === 'number' && Number.isFinite(entry[key]))) {
         throw new TypeError('invalid browser history entry values');
       }
+      if (Object.hasOwn(entry, 'workload')) parseGenerationWorkJson(JSON.stringify(entry['workload']),
+        BigInt(entry['gen'] as number).toString(16).padStart(16, '0'));
       const parsed = entry as unknown as ManagedBrowserHistoryEntry;
       if (parsed.gen <= previousGeneration) throw new TypeError('unordered browser history response');
       previousGeneration = parsed.gen;

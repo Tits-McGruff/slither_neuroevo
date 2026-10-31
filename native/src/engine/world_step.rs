@@ -224,6 +224,7 @@ pub struct WorldStepDiagnostics {
 /// One complete post-control fixed step that remains non-authoritative.
 #[derive(Clone, Copy, Debug)]
 pub struct PreparedWorldStep<'workspace, 'control> {
+    work_timings: super::generation_work::WorkTimings,
     key: PhysicsStepKey,
     config: WorldStepConfig,
     control: PreparedControlCommit<'control>,
@@ -269,6 +270,10 @@ struct ExternalObservationResolution {
 
 impl<'workspace, 'control> PreparedWorldStep<'workspace, 'control> {
     /// Non-authoritative physical outcomes retained until complete publication.
+    pub(crate) const fn production_work_timings(self) -> super::generation_work::WorkTimings {
+        self.work_timings
+    }
+
     pub(crate) fn teacher_outcomes(self) -> super::teacher_capture::TeacherPhysicalOutcomes {
         *self.teacher_outcomes
     }
@@ -475,6 +480,7 @@ impl WorldStepWorkspace {
         #[cfg(feature = "engine-test-hooks")]
         self.phases
             .reset_allocation_tracking(self.allocation_snapshot);
+        self.phases.work_timings = Default::default();
         config.validate_against(control)?;
         let key = control.key();
         self.physics.begin(
@@ -1291,6 +1297,7 @@ impl WorldStepWorkspace {
             sensor_generation: self.sensor_generation,
             diagnostics: self.diagnostics,
             teacher_outcomes: &self.teacher_outcomes,
+            work_timings: self.phases.work_timings,
         })
     }
 }

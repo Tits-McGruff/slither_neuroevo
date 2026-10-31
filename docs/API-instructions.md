@@ -831,6 +831,66 @@ These are generation-boundary summaries, not a durable mid-round journal.
 Experiment summaries are served on demand; frame-cadence stats retain compact
 fitness history.
 
+New production generations also carry an optional `workload` object, schema
+`version: 1`, persisted atomically in `rust_generation_work_v1` with the existing
+fitness/current-checkpoint transaction. No checkpoint format or simulation
+setting changes. This operational sidecar is not checkpoint/replay state or a
+portable archive role; older/imported history may omit it.
+
+Coverage fields `generation`, `firstStep`, `lastStep`, `steps`,
+`neuralDeliveries`, `baselineDeliveries`, and `rayPreparations` are exact u64
+lowercase sixteen-digit hex. `partial` marks coverage beginning after generation
+time zero (for example an attached/resumed world). Successful ordinary
+publications and the terminal physical step are counted once; held retries and
+rejected steps are excluded. A generation/config rebind preserves the accumulator
+only for the same world/generation. All steps are sampled, with no slow-step gate.
+
+`timingsNs` contains accumulated monotonic elapsed nanoseconds:
+
+- `authorityBegin`, `prefix`, `controlTotal`, `controlCommit`, `worldTotal`,
+  `publication` give coarse phase totals, including world-copy/validation work.
+  `publication` excludes generation checkpoint waiting; the terminal step has
+  no ordinary publication. Fine control/physics timers nest inside their totals.
+- `movement`, `food`, `collision`, `effects`, `physicsPelletIndex` cover all
+  physics substeps. `collisionIndex`, `collisionHeadHead`, `collisionHeadBody`
+  are nested inside `collision`.
+- `controlSpatialIndex` contains `controlBodyIndex` and `controlPelletIndex`.
+- `bodyRayPrepare` measures the body-ray hierarchy build; `sensorHeadPrepare`
+  measures shared v4 head preparation.
+- `neuralSensing` and `neuralInference` are parallel batch **wall** times;
+  `neuralBatchPreparation` is the remaining neural-batch wall time, including
+  cache preparation where required.
+- `baselineSensing` and `baselinePolicy` measure delivered baseline-v2 samples
+  and policy evaluation separately. No v2 samples means `null`; the legacy-v1
+  combined baseline evaluator is not represented by invented separate timings.
+- `bodyQueryWorker` measures body candidate collection and sector processing;
+  `bodyRayQueryWorker` measures ray packet construction/traversal. These are
+  **sums of worker-local elapsed time** across delivered neural, external and
+  baseline-v2 observations, nested inside their sensing times. They must not be
+  added to parallel batch wall times. Diagnostic probes are excluded.
+
+`workload` has distributions `aliveEvolved`, `aliveTotal`, `bodyPoints`,
+`bodySegments`, `evolvedBodyLength`, `pellets`, `bodyQueryCandidates`, and
+`rayQueryCandidates`. Each available distribution is `{ samples, total, maximum }`
+with exact u64 hex fields; mean is `total / samples`. Alive/body/pellet counts
+sample committed end-of-step geometry. Body points include only alive bodies;
+segments sum `max(length - 1, 0)`. Evolved length pools alive evolved-snake
+samples (not a mean of per-step means). Candidate distributions sample delivered
+observations and report existing bounded query counters, not hypothetical work
+beyond query caps. Body-query collection includes its existing candidate-limit
+semantics; ray candidates are charged traversal visits, including broad-phase
+rejections, and are not interchangeable with exact intersections.
+
+A distribution with no samples is `null`. V3 has no body-ray measurements, so ray
+preparation/query timing and candidate distributions are `null`. Measured zero
+remains zero. Counters saturate at u64 maximum; any maximum-valued total should
+be treated as saturated rather than as an exact mean. Timings are operational
+and nondeterministic, never inputs to simulation decisions. Fixed-size structs,
+worker-owned scratch and existing candidate receipts avoid hot-path allocations,
+new locks, logging or extra geometry queries. JSON is constructed only at the
+generation handoff, bounded to 8 KiB. The on-demand history endpoint returns at
+most 120 rows; frame-cadence history omits the workload sidecar.
+
 #### `GET /api/hof`
 
 Modern entries include `assessment.version: 2`, the actual point/bundle methods,

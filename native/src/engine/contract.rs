@@ -864,6 +864,7 @@ pub enum RunningAuthorityEvent {
     },
     /// Rust published the immutable file and its authoritative compact metadata.
     GenerationCheckpointPublished {
+        workload: Option<Box<super::generation_work::GenerationWork>>,
         /// Inbound command sequence.
         command_sequence: u64,
         /// Exact immutable descriptor and Rust-constructed commit record.
@@ -960,6 +961,7 @@ impl RunningAuthorityEvent {
             Self::GenerationTransitionPending { .. }
             | Self::GenerationAssignmentReceiptsApplied { .. } => 0,
             Self::GenerationCheckpointPublished {
+                workload,
                 descriptor,
                 hall_of_fame_weights,
                 ..
@@ -967,7 +969,12 @@ impl RunningAuthorityEvent {
                 .saturating_add(descriptor.owned_bytes())
                 .saturating_add(size_of::<HallOfFameWeightsDescriptor>())
                 .saturating_add(hall_of_fame_weights.owned_bytes())
-                .saturating_add(size_of::<GenerationCommitRecord>()),
+                .saturating_add(size_of::<GenerationCommitRecord>())
+                .saturating_add(
+                    workload
+                        .as_ref()
+                        .map_or(0, |_| size_of::<super::generation_work::GenerationWork>()),
+                ),
             Self::GenerationPersistenceAcknowledged { operation_id, .. } => {
                 operation_id.owned_bytes()
             }

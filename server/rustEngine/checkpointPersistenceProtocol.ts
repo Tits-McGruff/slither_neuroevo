@@ -1,3 +1,5 @@
+import type { GenerationWorkSummary } from '../../src/protocol/generationWork.ts';
+import { parseGenerationWorkJson } from './generationWork.ts';
 import type { SavedBrainCatalogOperation, SavedBrainCatalogResult } from '../protocol.ts';
 import type { GenerationExperimentSummary, HallOfFameAssessment } from '../../src/protocol/experimentRecords.ts';
 import type { GenerationExperimentRecord } from '../../src/protocol/experimentRecords.ts';
@@ -227,6 +229,8 @@ export interface ManagedGenerationCompletion {
 
 /** Complete small metadata that must commit with one generation checkpoint pointer. */
 export interface ManagedGenerationCommit {
+  /** Bounded operational sidecar from native; never checkpoint state. */
+  workloadJson?: string;
   /** Native fixed-size history/assessment extension, absent on recorded legacy runs. */
   experiment?: GenerationExperimentRecord;
   /** Absent on pre-completion-contract generation handoffs. */
@@ -255,6 +259,8 @@ export interface CommitManagedCheckpointRequest {
 
 /** Bounded browser-chart projection decoded by the SQLite worker from compact history. */
 export interface ManagedBrowserHistoryEntry {
+  /** Optional process-local operational summary, absent on older generations. */
+  workload?: GenerationWorkSummary;
   /** Optional native experiment summary; absent for preserved legacy history. */
   experiment?: GenerationExperimentSummary;
   /** Completed generation, narrowed only within the browser-safe range. */
@@ -1192,7 +1198,8 @@ export function parseManagedGenerationCommit(
   const commit = asRecord(value, 'generationCommit');
   requireOnlyKeys(commit, ['summary', 'hallOfFame', 'hallOfFameWeights',
     ...(Object.hasOwn(commit, 'completion') ? ['completion'] : []),
-    ...(Object.hasOwn(commit, 'experiment') ? ['experiment'] : [])]);
+    ...(Object.hasOwn(commit, 'experiment') ? ['experiment'] : []),
+    ...(Object.hasOwn(commit, 'workloadJson') ? ['workloadJson'] : [])]);
   let completion: ManagedGenerationCompletion | undefined;
   if (commit['completion'] !== undefined && commit['completion'] !== null) {
     const record = asRecord(commit['completion'], 'completion');
@@ -1213,6 +1220,8 @@ export function parseManagedGenerationCommit(
   const summary = parseManagedGenerationSummary(commit['summary'], descriptor);
   if (summary === null) reject('generation checkpoint is missing compact history');
   const hallOfFame = parseManagedHallOfFameReference(commit['hallOfFame'], descriptor, summary);
+  const workloadJson = commit['workloadJson'] == null ? undefined : JSON.stringify(
+    parseGenerationWorkJson(commit['workloadJson'], summary.completedGeneration, descriptor.completedStep));
   const experiment = commit['experiment'] != null ? parseGenerationExperimentRecord(commit['experiment']) : undefined;
   if (experiment) {
     if (!completion) reject('experiment record requires terminal chronology');
@@ -1233,6 +1242,7 @@ export function parseManagedGenerationCommit(
   return {
     summary,
     hallOfFame,
+    ...(workloadJson === undefined ? {} : { workloadJson }),
     ...(experiment ? { experiment } : {}),
     ...(completion ? { completion } : {}),
     hallOfFameWeights: parseManagedHallOfFameWeightsDescriptor(commit['hallOfFameWeights'], descriptor)

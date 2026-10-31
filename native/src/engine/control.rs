@@ -36,6 +36,7 @@ const CONTROLLER_OUTPUT_SIZE: usize = 2;
 /// Wall time around the two worker-pool phases in one neural batch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct NeuralBatchCostMicros {
+    pub work: super::generation_work::StepWork,
     pub sensing: u64,
     pub inference: u64,
 }
@@ -573,6 +574,10 @@ impl NeuralControlPipeline {
         let CalculationExecutionBuffers {
             work, scratches, ..
         } = self.workspace.execution_buffers()?;
+        sensor_scratch.work = Default::default();
+        for scratch in &mut self.parallel_sensor_scratch {
+            scratch.work = Default::default();
+        }
         let sensing_started = Instant::now();
         if let Some(pool) = self
             .calculation_pool
@@ -593,7 +598,7 @@ impl NeuralControlPipeline {
                     .zip(self.deliveries[..active].chunks_mut(chunk_work))
                     .zip(self.diagnostics[..active].chunks_mut(chunk_work))
                     .zip(
-                        std::iter::once(sensor_scratch)
+                        std::iter::once(&mut *sensor_scratch)
                             .chain(self.parallel_sensor_scratch.iter_mut()),
                     )
                     .zip(self.parallel_sensor_errors.iter_mut())
@@ -666,6 +671,12 @@ impl NeuralControlPipeline {
                 self.diagnostics[ordinal] = sample.diagnostics;
             }
         }
+        self.last_cost.work.timings.neural_sensing = super::generation_work::nanos(sensing_started);
+        self.last_cost.work.sensors = sensor_scratch.work;
+        for scratch in &self.parallel_sensor_scratch {
+            self.last_cost.work.sensors.merge(scratch.work);
+        }
+        self.last_cost.work.neural_deliveries = active as u64;
         self.last_cost.sensing =
             u64::try_from(sensing_started.elapsed().as_micros()).unwrap_or(u64::MAX);
         let inference_started = Instant::now();
@@ -757,6 +768,8 @@ impl NeuralControlPipeline {
             )?;
         }
 
+        self.last_cost.work.timings.neural_inference =
+            super::generation_work::nanos(inference_started);
         self.last_cost.inference =
             u64::try_from(inference_started.elapsed().as_micros()).unwrap_or(u64::MAX);
         self.ready = Some(ReadyBatch { key, active });

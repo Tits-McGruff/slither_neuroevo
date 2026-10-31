@@ -1199,6 +1199,7 @@ fn execute_running_authority_command(
             .map_err(running_control_error)
             .map(
                 |publication| RunningAuthorityEvent::GenerationCheckpointPublished {
+                    workload: publication.workload.map(Box::new),
                     command_sequence,
                     descriptor: Box::new(publication.descriptor),
                     hall_of_fame_weights: Box::new(publication.hall_of_fame_weights),
