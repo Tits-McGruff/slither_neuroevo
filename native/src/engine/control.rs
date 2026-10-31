@@ -2256,6 +2256,36 @@ mod tests {
                             )
                             .unwrap();
                         assert_eq!(batch.work().len(), 12);
+                        let work = batch.cost_micros().work;
+                        assert_eq!(work.neural_deliveries, 12);
+                        assert_eq!(work.sensors.body_candidates.samples, 12);
+                        assert_eq!(work.sensors.ray_candidates.samples, 12);
+                        assert_eq!(
+                            work.sensors.body_candidates.total,
+                            batch
+                                .diagnostics()
+                                .iter()
+                                .map(|d| d.body_query.candidates as u64)
+                                .sum::<u64>()
+                        );
+                        assert_eq!(
+                            work.sensors.ray_candidates.total,
+                            batch
+                                .diagnostics()
+                                .iter()
+                                .map(|d| d.ray_work.candidates as u64)
+                                .sum::<u64>()
+                        );
+                        assert_eq!(
+                            work.sensors.body_candidates.maximum,
+                            batch
+                                .diagnostics()
+                                .iter()
+                                .map(|d| d.body_query.candidates as u64)
+                                .max()
+                                .unwrap()
+                        );
+
                         for (index, diagnostics) in batch.diagnostics().iter().enumerate() {
                             assert!(diagnostics.ray_work.charged() <= u64::from(grants[index]));
                         }

@@ -4351,6 +4351,8 @@ mod tests {
                         })
                         .unwrap();
                     let due = phase.baseline_controls().len() == 1;
+                    assert_eq!(phase.cost_micros().work.baseline_deliveries, u64::from(due));
+                    assert_eq!(phase.cost_micros().work.ray_preparations, 1);
                     assert_eq!(phase.control_updates(), expected_controls);
                     assert_eq!(phase.baseline_controls(), expected_baselines);
                     let pending = phase.teacher_samples();
