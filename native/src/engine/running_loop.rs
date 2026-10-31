@@ -1356,6 +1356,13 @@ impl RunningAuthorityLoop {
         self.coordinator.pending_external_delivery()
     }
 
+    /// Fixed-size operational payload charged before generation publication.
+    pub(crate) fn pending_generation_workload(
+        &self,
+    ) -> Option<&super::generation_work::GenerationWork> {
+        self.coordinator.pending_generation_workload()
+    }
+
     /// Borrow the exact retained terminal transition for persistence handoff.
     #[must_use]
     pub fn pending_generation_transition(&self) -> Option<GenerationTransitionBatch<'_>> {

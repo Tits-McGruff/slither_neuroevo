@@ -1345,6 +1345,12 @@ fn running_response_owned_byte_bound(
                     };
                     size_of::<super::checkpoint::CheckpointDescriptor>()
                         .checked_add(size_of::<super::generation::GenerationCommitRecord>())
+                        .and_then(|bytes| {
+                            let diagnostics = running.pending_generation_workload().map_or(0, |_| {
+                                size_of::<super::generation_work::GenerationWork>()
+                            });
+                            bytes.checked_add(diagnostics)
+                        })
                         .and_then(|bytes| bytes.checked_add(descriptor_bytes))
                         .and_then(|bytes| {
                             bytes.checked_add(size_of::<
