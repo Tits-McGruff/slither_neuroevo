@@ -528,6 +528,14 @@ and `welcome.sensorSpec.order`; do not hard-code the default length. `meta` is
 optional in the type but the current server includes the controlled snake's
 pose.
 
+Ordinary sensor packets form an ordered asynchronous stream. Rust commits the
+fixed step only after the complete observation batch has been admitted to its
+bounded output queue, then continues simulation without waiting for Node, the
+WebSocket, or a client action to acknowledge that observation. `tick` identifies
+the committed source boundary. The latest accepted action remains held under the
+normal input timeout. Fresh/replacement assignments, reconnects and generation
+reassignments retain their reliable transactional delivery rules.
+
 ### `stats`
 
 Replaceable stats follow the committed display cadence, bounded by the configured

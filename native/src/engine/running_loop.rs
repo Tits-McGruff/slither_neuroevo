@@ -1631,6 +1631,65 @@ impl RunningAuthorityLoop {
             .prepare_acknowledged_generation_reassignments(&self.authority)?)
     }
 
+    /// Publish a retained observation-only step after the background output
+    /// queue has reserved and fully owned its sensor batch. This deliberately
+    /// cannot resolve replacement assignments or generation handoffs.
+    pub(crate) fn publish_pending_observations(
+        &mut self,
+        frame: Option<RunningFramePublication<'_>>,
+    ) -> Result<RunningAuthorityLoopProgress, RunningAuthorityLoopError> {
+        self.require_action_state(
+            "publish pending controller observations",
+            RunningAuthorityLoopState::ExternalDeliveryPending,
+        )?;
+        let step = self.validate_retained_step()?;
+        let due_steps = self
+            .pending_due_steps
+            .expect("validated retained step must include due-step count");
+        let outcome = match self
+            .coordinator
+            .publish_pending_observations(&mut self.authority)
+        {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.state = RunningAuthorityLoopState::Faulted;
+                return Err(error.into());
+            }
+        };
+        let publication = outcome.publication;
+        self.capture_teacher_publication(false);
+        if let Err(error) = self
+            .scheduler
+            .commit_step(&self.authority, step, publication)
+        {
+            self.state = RunningAuthorityLoopState::Faulted;
+            return Err(error.into());
+        }
+        self.pending_step = None;
+        self.pending_due_steps = None;
+        let frame = match frame {
+            Some(publication_request) => match pack_authoritative_frame_v1_into(
+                &self.authority,
+                publication_request.view,
+                publication_request.output,
+            ) {
+                Ok(metadata) => Some(metadata),
+                Err(error) => {
+                    self.state = RunningAuthorityLoopState::Faulted;
+                    return Err(error.into());
+                }
+            },
+            None => None,
+        };
+        self.state = RunningAuthorityLoopState::Ready;
+        Ok(RunningAuthorityLoopProgress::Published {
+            ticket_sequence: step.sequence(),
+            due_steps,
+            publication,
+            frame,
+        })
+    }
+
     /// Apply exact local-send results to the one retained ordinary-step or
     /// generation-assignment batch.
     ///

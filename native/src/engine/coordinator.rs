@@ -811,7 +811,7 @@ pub(crate) fn run_running_coordinator(
             None
         };
         let service_started = Instant::now();
-        let progress = match running.service_after_command_drain(
+        let mut progress = match running.service_after_command_drain(
             monotonic_elapsed_ms(wall_origin)?,
             SchedulerServiceMode::Background,
             None,
@@ -825,6 +825,43 @@ pub(crate) fn run_running_coordinator(
                 ));
             }
         };
+        let mut asynchronous_observations = None;
+        if let RunningAuthorityLoopProgress::ExternalDeliveryPending {
+            ticket_sequence, ..
+        } = progress
+        {
+            let observation_only = running.pending_external_delivery().is_some_and(|batch| {
+                !batch.events().is_empty()
+                    && batch.events().iter().all(|event| {
+                        matches!(event.delivery_kind, ExternalDeliveryEventKind::Observation)
+                    })
+            });
+            if observation_only {
+                if service_reservation.is_none() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::Faulted,
+                        "ordinary controller observations lost their admitted output reservation",
+                    ));
+                }
+                let messages = super::controller_output::own_pending_messages(running)?;
+                let event = RunningAuthorityEvent::ControllerObservations {
+                    ticket_sequence,
+                    messages,
+                };
+                if event.owned_bytes() > service_reply_bytes {
+                    return Err(EngineError::new(
+                        EngineErrorCode::QueueByteLimit,
+                        "controller observation output exceeded its pre-step reservation",
+                    ));
+                }
+                progress = running
+                    .publish_pending_observations(None)
+                    .map_err(|error| {
+                        EngineError::new(EngineErrorCode::Faulted, error.to_string())
+                    })?;
+                asynchronous_observations = Some(event);
+            }
+        }
         if was_ready
             && matches!(
                 progress,
@@ -856,6 +893,15 @@ pub(crate) fn run_running_coordinator(
                 RunningWait::Timed(positive_wait_duration(wall_seconds_until_step)?)
             }
             RunningAuthorityLoopProgress::Published { .. } => {
+                if let Some(event) = asynchronous_observations.take() {
+                    let reservation = service_reservation.ok_or_else(|| {
+                        EngineError::new(
+                            EngineErrorCode::Faulted,
+                            "published controller observations lost their admitted output reservation",
+                        )
+                    })?;
+                    reservation.publish(ReliableEvent::RunningAuthority(Box::new(event)))?;
+                }
                 announced_generation_source = None;
                 announced_delivery_ticket = None;
                 RunningWait::Immediate

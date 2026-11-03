@@ -101,6 +101,50 @@ function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?:
   } };
 }
 
+/** Transport for ordered observations whose authoritative step is already committed. */
+export interface ControllerObservationPorts {
+  /** Current Rust-admitted sensor width. */
+  sensorCount?(): number;
+  /** Route to the exact socket epoch; false means local transport rejected it. */
+  send(connectionId: RustBackgroundIdentity, message: SensorsMsg): boolean;
+  /** Report only an exact failed lease/connection so Rust can disconnect asynchronously. */
+  failed(connectionId: RustBackgroundIdentity, leaseId: RustBackgroundIdentity): void;
+}
+
+/** Send already-published observation batches without manufacturing native receipts. */
+export class ControllerObservationRouter {
+  constructor(private readonly maxMessages: number, private readonly ports: ControllerObservationPorts) {
+    if (!Number.isSafeInteger(maxMessages) || maxMessages <= 0) {
+      throw new RangeError('controller observation capacity must be a positive safe integer');
+    }
+  }
+
+  /** Validate the complete batch before the first externally visible send. */
+  deliver(messages: readonly RustBackgroundControllerMessage[]): void {
+    if (messages.length === 0 || messages.length > this.maxMessages) {
+      throw new RangeError('controller observation batch exceeds admitted message capacity');
+    }
+    if (messages.some(message => message.kind !== 'observation')) {
+      throw new TypeError('asynchronous controller output may contain observations only');
+    }
+    const sensorCount = this.ports.sensorCount?.();
+    const prepared = messages.map(message => prepare(message, sensorCount));
+    for (const item of prepared) {
+      if (item.message.type !== 'sensors') {
+        throw new TypeError('asynchronous controller output prepared a non-observation');
+      }
+    }
+    for (let index = 0; index < prepared.length; index++) {
+      const item = prepared[index]!;
+      const source = messages[index]!;
+      let accepted = false;
+      try { accepted = this.ports.send(source.connectionId, item.message as SensorsMsg); }
+      catch { accepted = false; }
+      if (!accepted) this.ports.failed(source.connectionId, source.leaseId);
+    }
+  }
+}
+
 /**
  * Bounded adapter for one reliable ordinary-step batch. The event pump must stop
  * draining controller batches while this adapter retains send completions.

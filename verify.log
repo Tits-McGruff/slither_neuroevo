@@ -1,0 +1,1597 @@
+=== Rust tests ===
+[1m[92m    Updating[0m crates.io index
+[1m[92m Downloading[0m crates ...
+[1m[92m  Downloaded[0m adler2 v2.0.1
+[1m[92m  Downloaded[0m smallvec v1.16.1
+[1m[92m  Downloaded[0m block-buffer v0.10.4
+[1m[92m  Downloaded[0m cfg-if v1.0.4
+[1m[92m  Downloaded[0m napi-sys v3.2.3
+[1m[92m  Downloaded[0m either v1.18.0
+[1m[92m  Downloaded[0m find-msvc-tools v0.1.10
+[1m[92m  Downloaded[0m futures-util v0.3.33
+[1m[92m  Downloaded[0m shlex v2.0.1
+[1m[92m  Downloaded[0m cpufeatures v0.2.17
+[1m[92m  Downloaded[0m digest v0.10.7
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m crossbeam-deque v0.8.8
+[1m[92m  Downloaded[0m napi-derive-backend v5.1.2
+[1m[92m  Downloaded[0m cc v1.4.2
+[1m[92m  Downloaded[0m zmij v1.0.23
+[1m[92m  Downloaded[0m crossbeam-epoch v0.9.21
+[1m[92m  Downloaded[0m ctor v1.0.9
+[1m[92m  Downloaded[0m filetime v0.2.29
+[1m[92m  Downloaded[0m generic-array v0.14.7
+[1m[92m  Downloaded[0m rusqlite v0.40.2
+[1m[92m  Downloaded[0m errno v0.3.14
+[1m[92m  Downloaded[0m napi-derive v3.5.10
+[1m[92m  Downloaded[0m serde v1.0.229
+[1m[92m  Downloaded[0m xattr v1.6.1
+[1m[92m  Downloaded[0m nohash-hasher v0.2.0
+[1m[92m  Downloaded[0m libloading v0.9.0
+[1m[92m  Downloaded[0m crossbeam-utils v0.8.23
+[1m[92m  Downloaded[0m napi-build v2.3.2
+[1m[92m  Downloaded[0m version_check v0.9.5
+[1m[92m  Downloaded[0m futures-io v0.3.33
+[1m[92m  Downloaded[0m rayon-core v1.13.0
+[1m[92m  Downloaded[0m rustc-hash v2.1.3
+[1m[92m  Downloaded[0m crypto-common v0.1.7
+[1m[92m  Downloaded[0m foldhash v0.2.0
+[1m[92m  Downloaded[0m hashlink v0.12.2
+[1m[92m  Downloaded[0m proc-macro2 v1.0.107
+[1m[92m  Downloaded[0m simd-adler32 v0.3.10
+[1m[92m  Downloaded[0m slab v0.4.12
+[1m[92m  Downloaded[0m bitflags v2.13.1
+[1m[92m  Downloaded[0m serde_json v1.0.151
+[1m[92m  Downloaded[0m zstd-safe v7.2.4
+[1m[92m  Downloaded[0m rayon v1.12.0
+[1m[92m  Downloaded[0m flate2 v1.1.10
+[1m[92m  Downloaded[0m futures-macro v0.3.33
+[1m[92m  Downloaded[0m napi v3.10.5
+[1m[92m  Downloaded[0m zstd-sys v2.0.16+zstd.1.5.7
+[1m[92m  Downloaded[0m fallible-streaming-iterator v0.1.9
+[1m[92m  Downloaded[0m futures-core v0.3.33
+[1m[92m  Downloaded[0m futures-task v0.3.33
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m pkg-config v0.3.33
+[1m[92m  Downloaded[0m pin-project-lite v0.2.17
+[1m[92m  Downloaded[0m crc32fast v1.5.2
+[1m[92m  Downloaded[0m semver v1.0.28
+[1m[92m  Downloaded[0m serde_derive v1.0.229
+[1m[92m  Downloaded[0m syn v2.0.119
+[1m[92m  Downloaded[0m jobserver v0.1.35
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m serde_core v1.0.229
+[1m[92m  Downloaded[0m sha2 v0.10.9
+[1m[92m  Downloaded[0m zstd v0.13.3
+[1m[92m  Downloaded[0m fallible-iterator v0.3.0
+[1m[92m  Downloaded[0m futures v0.3.33
+[1m[92m  Downloaded[0m convert_case v0.11.0
+[1m[92m  Downloaded[0m miniz_oxide v0.9.1
+[1m[92m  Downloaded[0m tar v0.4.46
+[1m[92m  Downloaded[0m futures-channel v0.3.33
+[1m[92m  Downloaded[0m getrandom v0.4.3
+[1m[92m  Downloaded[0m hashbrown v0.17.1
+[1m[92m  Downloaded[0m typenum v1.20.1
+[1m[92m  Downloaded[0m unicode-segmentation v1.13.3
+[1m[92m  Downloaded[0m futures-executor v0.3.33
+[1m[92m  Downloaded[0m zlib-rs v0.6.7
+[1m[92m  Downloaded[0m vcpkg v0.2.15
+[1m[92m  Downloaded[0m syn v3.0.3
+[1m[92m  Downloaded[0m rustix v1.1.4
+[1m[92m  Downloaded[0m libc v0.2.189
+[1m[92m  Downloaded[0m linux-raw-sys v0.12.1
+[1m[92m  Downloaded[0m libsqlite3-sys v0.38.2
+[1m[92m  Downloaded[0m futures-sink v0.3.33
+[1m[92m  Downloaded[0m memchr v2.8.3
+[1m[92m   Compiling[0m libc v0.2.189
+[1m[92m   Compiling[0m version_check v0.9.5
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m find-msvc-tools v0.1.10
+[1m[92m   Compiling[0m shlex v2.0.1
+[1m[92m   Compiling[0m pkg-config v0.3.33
+[1m[92m   Compiling[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m typenum v1.20.1
+[1m[92m   Compiling[0m crossbeam-utils v0.8.23
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m jobserver v0.1.35
+[1m[92m   Compiling[0m syn v2.0.119
+[1m[92m   Compiling[0m cc v1.4.2
+[1m[92m   Compiling[0m napi-build v2.3.2
+[1m[92m   Compiling[0m futures-core v0.3.33
+[1m[92m   Compiling[0m zstd-sys v2.0.16+zstd.1.5.7
+[1m[92m   Compiling[0m bitflags v2.13.1
+[1m[92m   Compiling[0m futures-sink v0.3.33
+[1m[92m   Compiling[0m crossbeam-epoch v0.9.21
+[1m[92m   Compiling[0m futures-channel v0.3.33
+[1m[92m   Compiling[0m block-buffer v0.10.4
+[1m[92m   Compiling[0m crypto-common v0.1.7
+[1m[92m   Compiling[0m slab v0.4.12
+[1m[92m   Compiling[0m futures-io v0.3.33
+[1m[92m   Compiling[0m futures-task v0.3.33
+[1m[92m   Compiling[0m crossbeam-deque v0.8.8
+[1m[92m   Compiling[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m vcpkg v0.2.15
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m libsqlite3-sys v0.38.2
+[1m[92m   Compiling[0m digest v0.10.7
+[1m[92m   Compiling[0m linux-raw-sys v0.12.1
+[1m[92m   Compiling[0m zstd-safe v7.2.4
+[1m[92m   Compiling[0m foldhash v0.2.0
+[1m[92m   Compiling[0m unicode-segmentation v1.13.3
+[1m[92m   Compiling[0m futures-macro v0.3.33
+[1m[92m   Compiling[0m rayon-core v1.13.0
+[1m[92m   Compiling[0m crc32fast v1.5.2
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m sha2 v0.10.9
+[1m[92m   Compiling[0m convert_case v0.11.0
+[1m[92m   Compiling[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m futures-util v0.3.33
+[1m[92m   Compiling[0m futures-executor v0.3.33
+[1m[92m   Compiling[0m napi v3.10.5
+[1m[92m   Compiling[0m syn v3.0.3
+[1m[92m   Compiling[0m libloading v0.9.0
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m   Compiling[0m semver v1.0.28
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m simd-adler32 v0.3.10
+[1m[92m   Compiling[0m adler2 v2.0.1
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m   Compiling[0m miniz_oxide v0.9.1
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m   Compiling[0m napi-derive-backend v5.1.2
+[1m[92m   Compiling[0m napi-sys v3.2.3
+[1m[92m   Compiling[0m futures v0.3.33
+[1m[92m   Compiling[0m xattr v1.6.1
+[1m[92m   Compiling[0m hashlink v0.12.2
+[1m[92m   Compiling[0m slither_native v0.1.0 (/home/runner/work/slither_neuroevo/slither_neuroevo/native)
+[1m[92m   Compiling[0m filetime v0.2.29
+[1m[92m   Compiling[0m fallible-streaming-iterator v0.1.9
+[1m[92m   Compiling[0m fallible-iterator v0.3.0
+[1m[92m   Compiling[0m smallvec v1.16.1
+[1m[92m   Compiling[0m nohash-hasher v0.2.0
+[1m[92m   Compiling[0m rustc-hash v2.1.3
+[1m[92m   Compiling[0m either v1.18.0
+[1m[92m   Compiling[0m ctor v1.0.9
+[1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m napi-derive v3.5.10
+[1m[92m   Compiling[0m rayon v1.12.0
+[1m[92m   Compiling[0m tar v0.4.46
+[1m[92m   Compiling[0m flate2 v1.1.10
+[1m[92m   Compiling[0m zstd v0.13.3
+[1m[92m   Compiling[0m rusqlite v0.40.2
+[1m[92m    Finished[0m `release` profile [optimized + debuginfo] target(s) in 3m 42s
+[1m[92m     Running[0m unittests src/lib.rs (native/target/release/deps/slither_native-967db8fda9b2ad8a)
+
+running 841 tests
+test build_metadata_tests::build_contract_is_a_versioned_sha256_identity ... ok
+test engine::accounting::tests::current_typescript_formula_updates_only_live_snakes_once_in_stable_id_order ... ok
+test engine::accounting::tests::malformed_or_overflowing_boundaries_never_become_ready ... ok
+test engine::accounting::tests::newborn_helper_uses_the_same_survival_formula ... ok
+test engine::accounting::tests::reversed_container_order_preserves_per_id_results ... ok
+test engine::accounting::tests::stale_source_or_working_copy_rejects_before_any_write ... ok
+test engine::accounting::tests::warmed_preparation_reuses_order_and_update_capacity ... ok
+test engine::ambient::tests::accumulator_fixture_uses_generation_time_for_density_and_delta_only_for_credit ... ok
+test engine::ambient::tests::capacity_and_rng_failures_leave_no_publishable_result ... ok
+test engine::ambient::tests::complete_source_provenance_rejects_stale_join_inputs ... ok
+test engine::ambient::tests::current_typescript_sampler_fixture_matches_position_attempts_and_uniform_continuation ... ok
+test engine::ambient::tests::fractional_accumulator_realizes_only_complete_due_pellets ... ok
+test engine::ambient::tests::gaussian_spare_toggles_reuse_storage_on_idle_and_generated_paths ... ok
+test engine::ambient::tests::initial_fill_uses_zero_generation_time_and_ignores_live_spawn_rate ... ok
+test engine::ambient::tests::retained_eight_rejection_fixture_uses_the_first_exact_probability_tie ... ok
+test engine::ambient::tests::target_saturation_retains_backlog_without_rng_or_id_draws ... ok
+test engine::ambient::tests::warm_generation_reuses_retained_pellet_capacity ... ok
+test engine::baseline::tests::committed_death_starts_full_delay_and_duplicate_does_not_restart_it ... ok
+test engine::baseline::tests::death_proposal_rejects_a_stale_world_epoch_with_reused_slot_and_snake_id ... ok
+test engine::baseline::tests::exact_deadline_requires_explicit_respawn_resolution ... ok
+test engine::baseline::tests::failed_preparation_is_unready_and_a_valid_retry_clears_partial_staging ... ok
+test engine::baseline::tests::generation_initialization_rejects_missing_or_out_of_range_slots ... ok
+test engine::baseline::tests::generation_initialization_uses_dense_slots_independent_of_world_order ... ok
+test engine::baseline::tests::invalid_later_death_event_rejects_before_any_timer_write ... ok
+test engine::baseline::tests::lowering_delay_caps_then_subtracts_while_raising_never_extends ... ok
+test engine::baseline::tests::no_due_timer_result_applies_once_after_complete_source_validation ... ok
+test engine::baseline::tests::notified_and_missed_deaths_have_the_current_distinct_first_tick_timing ... ok
+test engine::baseline::tests::prepared_timer_result_rejects_every_stale_provenance_input_without_writes ... ok
+test engine::baseline::tests::timer_staging_is_independent_of_world_container_order ... ok
+test engine::baseline::tests::v2_respawn_resets_physical_policy_and_consumed_step_without_touching_v1 ... ok
+test engine::baseline::tests::warm_timer_preparation_reuses_every_owned_vector ... ok
+test engine::baseline_control::tests::all_vetoed_bins_use_best_clearance_and_small_policy_never_attack_boosts ... ok
+test engine::baseline_control::tests::exact_life_stage_edges_and_random_boost_output_policies_are_explicit ... ok
+test engine::baseline_control::tests::finite_extreme_distance_and_centroid_math_fails_closed ... ok
+test engine::baseline_control::tests::impossible_strategy_timer_and_wander_states_are_rejected ... ok
+test engine::baseline_control::tests::large_centroid_is_container_order_independent ... ok
+test engine::baseline_control::tests::matches_retained_typescript_life_stage_state_action_and_uniform_fixtures ... ok
+test engine::baseline_control::tests::medium_target_scan_is_stable_id_ordered_and_does_not_rewrite_durable_roam ... ok
+test engine::baseline_control::tests::repeated_evaluations_reuse_canonical_order_capacity ... ok
+test engine::baseline_control::tests::timed_states_and_failed_boost_chance_preserve_typescript_draw_boundaries ... ok
+test engine::baseline_control::tests::validation_fails_without_mutating_sources_or_exposing_ready_output ... ok
+test engine::baseline_qualification::tests::actual_wall_and_urgent_crossing_first_actions_keep_qualitative_expectations ... ok
+test engine::baseline_qualification::tests::avoidance_turning_clears_real_walls_and_food_traps_at_both_admitted_cadences ... ok
+test engine::baseline_qualification::tests::committed_corpus_preserves_trajectories_and_exact_delivered_rows ... ok
+test engine::baseline_qualification::tests::complete_tactical_matrix_is_repeatable_and_parallel_continuations_match ... ok
+test engine::baseline_qualification::tests::corpus_bound_rejects_before_creating_output_and_partial_matrix_cannot_publish ... ok
+test engine::baseline_qualification::tests::corpus_width_admission_is_priced_before_creation_and_rejects_layout_changes ... ok
+test engine::baseline_qualification::tests::geometric_rear_escape_spends_real_boost_budget_and_survives_at_both_cadences ... ok
+test engine::baseline_qualification::tests::motion_crossing_escape_changes_the_colliding_velocity_and_survives_mirrored_physics ... ok
+test engine::baseline_qualification::tests::paired_initial_geometry_is_identical_and_starts_without_foreign_body_contact ... ok
+test engine::baseline_qualification::tests::profiled_corpora_keep_exact_trials_and_bind_dynamic_row_bytes ... ok
+test engine::baseline_qualification::tests::student_opponents_keep_constant_outputs_across_different_graph_layouts ... ok
+test engine::baseline_qualification::tests::student_profiles_and_widths_bind_actual_sensing_and_reject_mismatches ... ok
+test engine::baseline_qualification::tests::student_uses_actual_cadence_physics_and_exact_multiworker_continuation ... ok
+test engine::baseline_v2::tests::basic_geometric_escape_uses_declared_body_or_head_channels_and_preserves_economy ... ok
+test engine::baseline_v2::tests::basic_lateral_escape_boosts_only_when_the_selected_heading_moves_away ... ok
+test engine::baseline_v2::tests::boost_checks_current_forward_runway_even_when_committed_target_ray_is_clear ... ok
+test engine::baseline_v2::tests::boost_requires_economy_eligibility_safe_route_and_complete_geometry ... ok
+test engine::baseline_v2::tests::capsule_food_trap_is_vetoed_and_a_safe_food_opening_is_selected ... ok
+test engine::baseline_v2::tests::closing_head_on_risk_differs_from_receding_and_basic_omits_motion ... ok
+test engine::baseline_v2::tests::commitment_holds_world_heading_and_unsafe_or_new_life_breaks_it ... ok
+test engine::baseline_v2::tests::complete_v2_setting_extension_requires_v4_and_rejects_partial_or_revised_identity ... ok
+test engine::baseline_v2::tests::deterministic_ties_use_exact_smallest_turn_then_index_and_no_draws ... ok
+test engine::baseline_v2::tests::half_second_budget_boundary_uses_the_actual_float32_encoding ... ok
+test engine::baseline_v2::tests::life_stage_thresholds_use_declared_float32_tactical_size ... ok
+test engine::baseline_v2::tests::odd_bin_forward_safety_reads_both_neighbouring_wall_sectors ... ok
+test engine::baseline_v2::tests::safe_commitment_then_normalized_improvement_controls_switching ... ok
+test engine::baseline_v2::tests::stochastic_stream_is_isolated_reproducible_and_validation_is_atomic ... ok
+test engine::baseline_v2::tests::structural_and_absence_malformed_samples_are_rejected ... ok
+test engine::baseline_v2::tests::unknown_routes_do_not_override_known_urgent_crossing_in_emergency_fallback ... ok
+test engine::brain_artifact::tests::admits_raw_weights_and_independently_compiles_every_descriptor ... ok
+test engine::brain_artifact::tests::bounds_provenance_and_rejects_unknown_manifest_fields ... ok
+test engine::brain_artifact::tests::rejects_changed_metadata_width_views_ports_equations_and_sensor_digest ... ok
+test engine::brain_artifact::tests::rejects_truncation_trailing_versions_reserved_flags_nonfinite_and_digest_damage ... ok
+test engine::brain_artifact::tests::reuses_checkpoint_shuffled_zstandard_validation_without_losing_float_bits ... ok
+test engine::brain_library::tests::existing_portable_original_is_immutable_even_when_length_matches ... ok
+test engine::brain_library::tests::inspector_pure_probe_is_one_shot_on_a_held_control_and_preserves_continuation ... ok
+test engine::brain_library::tests::inspector_runtime_caches_due_rows_holds_their_age_and_stops_on_close ... ok
+test engine::brain_library::tests::library_reuses_older_raw_hof_bytes_when_the_adaptive_codec_prefers_compression ... ok
+test engine::brain_library::tests::saved_deployment_is_native_and_continues_after_its_catalog_files_are_deleted ... ok
+test engine::brain_library::tests::saved_deployment_rejects_equal_width_structural_sensor_and_graph_mismatches ... ok
+test engine::brain_library::tests::saved_deployment_rejects_stale_scope_cadence_and_corrupt_shared_weights ... ok
+test engine::brain_library::tests::saved_publication_preserves_original_bytes_and_reuses_shared_weight_objects ... ok
+test engine::brain_library::tests::source_identity_and_stored_quota_reject_before_final_objects_are_published ... ok
+test engine::calculation::tests::allocation_free_ranges_cover_zero_one_and_many ... ok
+test engine::calculation::tests::complete_cycles_reuse_all_capacities_across_active_count_changes ... ok
+test engine::calculation::tests::duplicate_due_records_are_rejected_before_execution ... ok
+test engine::calculation::tests::failed_partition_cannot_seal_or_expose_partial_values ... ok
+test engine::calculation::tests::population_slot_record_and_handle_are_resolved_not_trusted ... ok
+test engine::calculation::tests::preparation_rejects_oob_and_incoherent_state_resolution ... ok
+test engine::calculation::tests::scoped_one_two_four_seven_worker_results_are_bit_identical ... ok
+test engine::calculation::tests::shuffled_candidates_resolve_to_one_exact_order_and_u64_identity ... ok
+test engine::calculation::tests::unsealed_proposal_debug_output_redacts_its_value ... ok
+test engine::calculation::tests::workspace_budget_and_arithmetic_fail_before_use ... ok
+test engine::calculation_workers::tests::detected_limit_is_positive_and_stable_across_threads ... ok
+test engine::calculation_workers::tests::manual_range_tracks_supplied_cpu_counts ... ok
+test engine::capture_qualification::tests::explicit_capture_pressure_rejects_outside_the_bounded_envelope ... ok
+test engine::checkpoint::tests::adaptive_numeric_stream_round_trips_compressed_bytes ... ok
+test engine::checkpoint::tests::committed_restore_binds_all_content_to_the_selected_metadata ... ok
+test engine::checkpoint::tests::compressed_segmented_decode_preserves_bits_and_requires_digest ... ok
+test engine::checkpoint::tests::concurrent_same_root_publication_is_no_replace_and_idempotent ... ok
+test engine::checkpoint::tests::corrupt_existing_digest_file_is_left_untouched ... ok
+test engine::checkpoint::tests::corrupted_numeric_payload_is_rejected ... ok
+test engine::checkpoint::tests::evolved_export_preserves_preexisting_scratch_and_ready_files ... ok
+test engine::checkpoint::tests::float_byte_reader_bulk_and_partial_reads_preserve_exact_bytes ... ok
+test engine::checkpoint::tests::float_byte_reader_empty_sources_leave_output_untouched ... ok
+test engine::checkpoint::tests::hall_of_fame_weights_publish_once_and_validate_before_reuse ... ok
+test engine::checkpoint::tests::legacy_json_import_uses_remaining_admission_before_decode_or_publication ... ok
+test engine::checkpoint::tests::legacy_origin_state_encoding_preserves_facts_and_reads_previous_encoding ... ok
+test engine::checkpoint::tests::logical_root_matches_retained_typescript_fixture ... ok
+test engine::checkpoint::tests::malformed_sfz1_envelope_is_rejected ... ok
+test engine::checkpoint::tests::manifest_mirror_tampering_is_rejected ... ok
+test engine::checkpoint::tests::memory_ceiling_is_enforced_before_numeric_decode_allocation ... ok
+test engine::checkpoint::tests::multi_block_codec_reuses_bounded_scratch ... ok
+test engine::checkpoint::tests::no_replace_rename_has_one_winner_for_different_concurrent_candidates ... ok
+test engine::checkpoint::tests::no_replace_rename_preserves_existing_destination_and_source ... ok
+test engine::checkpoint::tests::oversized_zstandard_window_is_rejected_before_numeric_allocation ... ok
+test engine::checkpoint::tests::partial_import_publication_preserves_shared_files_and_retries_exactly ... ok
+test engine::checkpoint::tests::partial_is_rejected_and_complete_orphan_is_restorable ... ok
+test engine::checkpoint::tests::population_workspace_ceiling_is_enforced_before_index_decode ... ok
+test engine::checkpoint::tests::publication_charges_actual_checkpoint_workspace_against_memory_ceiling ... ok
+test engine::checkpoint::tests::raw_at_selected_entry_limit_succeeds_when_sfz1_candidate_expands ... ok
+test engine::checkpoint::tests::rejected_import_with_hall_of_fame_cleans_only_its_private_stage ... ok
+test engine::checkpoint::tests::representative_checkpoint_round_trips_multi_block_weights_bit_exactly ... ok
+test engine::checkpoint::tests::restore_rejects_non_regular_target ... ok
+test engine::checkpoint::tests::restore_rejects_symlink_target ... ok
+test engine::checkpoint::tests::rng_bundle_v2_rejects_oversized_truncated_and_invalid_packed_records ... ok
+test engine::checkpoint::tests::rng_bundle_v2_roundtrips_dense_evolved_continuation_without_changing_v1_encoding ... ok
+test engine::checkpoint::tests::rng_bundle_v3_rejects_count_slot_zero_truncation_and_frozen_stream_elision ... ok
+test engine::checkpoint::tests::rng_bundle_v3_roundtrips_behavior_words_and_preserves_v1_v2_bytes ... ok
+test engine::checkpoint::tests::save_import_rejects_noncanonical_padding_trailer_and_hidden_name_bytes ... ok
+test engine::checkpoint::tests::segmented_packed_appends_check_empty_incomplete_and_overflow_shapes ... ok
+test engine::checkpoint::tests::segmented_packed_appends_preserve_bits_and_reserved_owners ... ok
+test engine::checkpoint::tests::small_feed_forward_checkpoint_round_trips_bit_exactly ... ok
+test engine::checkpoint::tests::small_recurrent_checkpoint_round_trips_bit_exactly_and_idempotently ... ok
+test engine::checkpoint::tests::streamed_existing_verification_rejects_each_corrupt_role_and_manifest_mirror ... ok
+test engine::checkpoint::tests::strict_ustar_fault_matrix_is_rejected ... ok
+test engine::checkpoint::tests::undersized_archive_limit_leaves_no_partial_or_candidate ... ok
+test engine::checkpoint::tests::unshuffle_reuses_bounded_scratch_and_checks_shape ... ok
+test engine::checkpoint::tests::zero_transition_epoch_is_rejected_before_publication ... ok
+test engine::checkpoint_capacity::tests::live_capacity_neural_and_teacher_cadences_match_the_declared_interval ... ok
+test engine::checkpoint_capacity::tests::live_capacity_rejects_inadmissible_envelope_or_successor_before_numeric_allocation ... ok
+test engine::checkpoint_capacity::tests::p3_resource_audit_uses_metadata_only_and_preserves_production_limits ... ok
+test engine::checkpoint_fixture::tests::admitted_generation_boundary_reaches_real_checkpoint_publication ... ok
+test engine::checkpoint_fixture::tests::source_matched_round_trip_evidence_is_exact_and_does_not_claim_a_world_step ... ok
+test engine::coexistence_capacity::tests::fixture_uses_canonical_native_layout_and_distinct_valid_float_weights ... ok
+test engine::coexistence_capacity::tests::full_catalog_reserve_prices_originals_and_all_staging_copies ... ok
+test engine::collision::tests::body_of_simultaneously_killed_owner_remains_an_obstacle ... ok
+test engine::collision::tests::cached_head_bound_preserves_exact_rejections_and_extreme_radius_errors ... ok
+test engine::collision::tests::configured_head_segment_skip_is_honored ... ok
+test engine::collision::tests::conservative_contact_respects_the_documented_spatial_gap ... ok
+test engine::collision::tests::contact_search_work_exhaustion_rejects_instead_of_inventing_a_death ... ok
+test engine::collision::tests::diagnostic_struct_remains_plain_bounded_metadata ... ok
+test engine::collision::tests::earlier_contact_precedes_owner_id_and_exact_time_uses_stable_owner ... ok
+test engine::collision::tests::earlier_world_contact_beats_a_later_lower_owner_id ... ok
+test engine::collision::tests::equal_cell_entry_order_keeps_every_large_query_candidate_canonical ... ok
+test engine::collision::tests::exact_multi_body_contact_uses_lower_stable_owner_id ... ok
+test engine::collision::tests::immutable_head_head_snapshot_kills_both_without_neck_credit ... ok
+test engine::collision::tests::index_capacity_rejects_complete_snapshot_without_authority_write ... ok
+test engine::collision::tests::newly_grown_segment_participates_only_at_the_final_boundary ... ok
+test engine::collision::tests::ordinary_shrink_tail_sweeps_before_disappearing_at_final_boundary ... ok
+test engine::collision::tests::oversized_head_query_rejects_the_snapshot_instead_of_truncating_truth ... ok
+test engine::collision::tests::point_point_sweep_detects_crossing_without_final_overlap ... ok
+test engine::collision::tests::point_segment_sweep_detects_crossing_and_rejects_clear_near_miss ... ok
+test engine::collision::tests::same_owner_exact_time_uses_lower_stable_segment_offset ... ok
+test engine::collision::tests::self_body_is_never_a_collision_target ... ok
+test engine::collision::tests::simultaneous_wall_and_head_contact_kills_both_without_credit ... ok
+test engine::collision::tests::swept_bounds_count_every_crossed_cell ... ok
+test engine::collision::tests::swept_head_crosses_body_even_when_both_endpoints_are_clear ... ok
+test engine::collision::tests::swept_head_envelope_keeps_every_exact_contact_candidate ... ok
+test engine::collision::tests::swept_solver_never_misses_a_dense_deterministic_reference_sample ... ok
+test engine::collision::tests::temporal_body_radii_preserve_shrink_contacts_and_delay_growth_to_final ... ok
+test engine::collision::tests::temporal_head_radii_preserve_shrink_contacts_and_delay_growth_to_final ... ok
+test engine::collision::tests::unambiguous_body_owner_credit_is_array_order_invariant ... ok
+test engine::collision::tests::wall_death_is_carried_without_corpse_drop_or_award ... ok
+test engine::collision::tests::wall_killed_body_owner_remains_an_obstacle_for_the_same_snapshot ... ok
+test engine::collision::tests::warmed_detection_reuses_every_owned_capacity ... ok
+test engine::contract::tests::command_storage_has_no_hidden_spare_capacity ... ok
+test engine::contract::tests::empty_population_slot_admits_reservation_and_cancellation_before_allocation ... ok
+test engine::contract::tests::exact_u64_sequences_are_not_narrowed ... ok
+test engine::contract::tests::fault_diagnostics_are_utf8_bounded_at_construction ... ok
+test engine::contract::tests::response_shape_rejects_per_event_and_batch_overflow_before_queueing ... ok
+test engine::contract::tests::unsupported_command_is_rejected_not_ignored ... ok
+test engine::control::tests::complete_batch_stages_observations_outputs_and_commits_both_boundaries ... ok
+test engine::control::tests::explicit_takeover_reset_matches_a_zero_state_brain_without_touching_others ... ok
+test engine::control::tests::independent_sensor_batch_matches_scalar_across_worker_counts ... ok
+test engine::control::tests::invalid_reset_sets_reject_without_ready_batch_or_authoritative_writes ... ok
+test engine::control::tests::late_delivery_failure_prevents_every_delivery_and_recurrent_write ... ok
+test engine::control::tests::malformed_late_genome_leaves_no_ready_batch_or_authoritative_write ... ok
+test engine::control::tests::population_replacement_rejects_old_epoch_then_accepts_zeroed_new_epoch ... ok
+test engine::control::tests::release_calculation_worker_panic_preserves_uncommitted_world_and_names_partition ... ok
+test engine::control::tests::selected_life_scores_match_across_real_sensing_workers_and_keep_wallet_delivery ... ok
+test engine::control::tests::shared_head_storage_is_charged_only_for_v4_and_rejects_an_insufficient_budget ... ok
+test engine::control::tests::sixteen_worker_fixed_staging_fits_the_declared_worker_scratch_budget ... ok
+test engine::control::tests::sixteen_worker_pipeline_constructs_when_the_host_admits_sixteen_workers ... ok
+test engine::control::tests::v4_actual_parallel_sensing_and_inference_match_scalar_with_fixed_grants_and_warm_capacity ... ok
+test engine::control::tests::warmed_repeated_batches_reuse_pipeline_and_sensor_capacities ... ok
+test engine::control_fixture::tests::combined_scenario_shapes_match_sensor_and_graph_contracts ... ok
+test engine::control_fixture::tests::p0_combined_boundary_uses_real_corrected_stateful_path ... ok
+test engine::control_phase::tests::baseline_v2_due_quota_commit_holds_and_late_failures_preserve_source ... ok
+test engine::control_phase::tests::cadence_and_takeover_force_have_exact_distinct_boundaries ... ok
+test engine::control_phase::tests::committed_takeover_holds_neural_action_without_reapplying_external_neutral ... ok
+test engine::control_phase::tests::complete_control_boundary_advances_through_every_physics_substep ... ok
+test engine::control_phase::tests::complete_control_commit_updates_internal_state_and_retains_external_delivery ... ok
+test engine::control_phase::tests::controller_results_are_independent_of_world_lease_and_brain_storage_order ... ok
+test engine::control_phase::tests::due_baseline_respawn_is_sampled_by_the_same_shared_control_boundary ... ok
+test engine::control_phase::tests::external_observation_capacity_failure_leaves_every_source_unchanged_and_unready ... ok
+test engine::control_phase::tests::joined_takeover_resets_only_the_expired_controller_recurrent_state ... ok
+test engine::control_phase::tests::low_level_world_step_requires_replacement_context_for_controlled_death ... ok
+test engine::control_phase::tests::malformed_control_commit_is_rejected_without_touching_sources ... ok
+test engine::control_phase::tests::newly_created_neural_snake_stays_due_after_live_control_interval_increase ... ok
+test engine::control_phase::tests::one_indexed_boundary_selects_baseline_external_neural_and_takeover_exclusively ... ok
+test engine::control_phase::tests::post_physics_baseline_death_starts_full_delay_in_the_same_working_step ... ok
+test engine::control_phase::tests::v4_failed_late_control_and_physics_discard_cursor_and_delivery_publication ... ok
+test engine::control_phase::tests::v4_profiles_share_neural_external_boundary_and_preserve_v1_baseline_across_workers ... ok
+test engine::control_phase::tests::warmed_control_commit_reuses_every_reported_capacity ... ok
+test engine::control_phase::tests::warmed_shared_boundary_reuses_every_reported_capacity ... ok
+test engine::controllers::tests::connected_action_holds_for_exactly_500_ms_then_becomes_neutral ... ok
+test engine::controllers::tests::delayed_disconnect_keeps_original_grace_and_does_not_revive_held_boost ... ok
+test engine::controllers::tests::delayed_reclaim_preserves_newer_queued_action_receive_time ... ok
+test engine::controllers::tests::disconnect_holds_then_neutralizes_then_takes_over_once ... ok
+test engine::controllers::tests::disconnect_revalidates_snake_control_state_before_any_write ... ok
+test engine::controllers::tests::equal_millisecond_action_sequence_invalidates_an_older_boundary ... ok
+test engine::controllers::tests::every_committed_boundary_advances_the_lease_wall_clock ... ok
+test engine::controllers::tests::grace_never_runs_a_brain_and_missing_takeover_brain_is_explicit ... ok
+test engine::controllers::tests::invalid_timing_deadline_overflow_and_non_external_targets_fail ... ok
+test engine::controllers::tests::latest_value_replaces_old_action_and_rejects_stale_assignment ... ok
+test engine::controllers::tests::legacy_reclaim_requires_one_live_reserved_name_in_the_same_scope_and_kind ... ok
+test engine::controllers::tests::proposals_are_atomic_against_intervening_actions ... ok
+test engine::controllers::tests::queued_action_keeps_receive_time_and_cannot_refresh_expired_input ... ok
+test engine::controllers::tests::reclaim_checks_scope_kind_expiry_and_stale_preparation_without_mutation ... ok
+test engine::controllers::tests::reclaim_keeps_source_until_delivery_then_invalidates_old_connection ... ok
+test engine::controllers::tests::stale_action_at_disconnect_enters_neutral_grace_immediately ... ok
+test engine::controllers::tests::takeover_revalidates_alive_snake_and_brain_before_any_write ... ok
+test engine::coordinator::archive_continuation_tests::archive_import_replays_ordered_player_and_trainer_input_across_worker_counts ... ok
+test engine::coordinator::archive_continuation_tests::archive_v3_retains_experiment_records_and_replays_real_multiworker_continuation ... ok
+test engine::coordinator::archive_continuation_tests::archive_v4_roundtrips_selected_heterogeneous_originals_with_all_record_versions ... ok
+test engine::coordinator::tests::action_output_capacity_precedes_lease_mutation_and_exact_retry ... ok
+test engine::coordinator::tests::background_queue_drain_retries_retained_publication_after_count_or_byte_pressure ... ok
+test engine::coordinator::tests::disconnect_output_capacity_preserves_lease_and_original_close_time ... ok
+test engine::coordinator::tests::fresh_join_capacity_and_receipts_preserve_source_and_retry_once ... ok
+test engine::coordinator::tests::generation_announcement_reserves_count_before_scheduler_or_evolution_mutates ... ok
+test engine::coordinator::tests::generation_assignment_limit_rejects_before_staging_and_accepts_exact_sized_output ... ok
+test engine::coordinator::tests::generation_checkpoint_and_ack_byte_limits_reject_before_mutation_and_allow_exact_retry ... ok
+test engine::coordinator::tests::generation_final_reply_limit_preserves_old_authority_and_retained_unavailable_token ... ok
+test engine::coordinator::tests::observation_quality_counts_only_ordinary_publication_and_never_changes_continuation ... ok
+test engine::coordinator::tests::ordinary_controller_capacity_rejects_before_preparation_and_retries_once ... ok
+test engine::coordinator::tests::production_step_histogram_consistent_reads_are_complete_concurrent_prefixes ... ok
+test engine::coordinator::tests::production_step_histogram_distinguishes_the_realtime_gate ... ok
+test engine::coordinator::tests::production_step_histogram_rejects_a_partial_or_saturated_prefix ... ok
+test engine::coordinator::tests::production_step_histogram_reports_bounded_conservative_percentiles ... ok
+test engine::coordinator::tests::reclaim_capacity_and_receipts_preserve_source_and_retry_once ... ok
+test engine::coordinator::tests::running_runtime_rejects_undersized_scalar_event_limit_without_consuming_authority ... ok
+test engine::coordinator::tests::slow_step_costs_exclude_fast_and_generation_steps_and_bound_the_remainder ... ok
+test engine::coordinator::tests::stopping_a_full_background_output_queue_unblocks_join_without_publication ... ok
+test engine::coordinator::tests::terminal_step_costs_partition_successful_service_without_changing_step_metrics ... ok
+test engine::crowded_sensor_qualification::tests::geometry_audit_rejects_off_arena_and_invalid_body_ranges ... ok
+test engine::crowded_sensor_qualification::tests::in_arena_dense_geometry_and_saturation_are_identical_across_workers ... ok
+test engine::crowded_sensor_qualification::tests::ordinary_short_bodies_and_unbounded_passes_cannot_claim_crowded_evidence ... ok
+test engine::display::tests::cache_cannot_advance_between_priority_admission_and_copy ... ok
+test engine::display::tests::committed_frame_remains_readable_while_next_step_reserves_its_reply ... ok
+test engine::display::tests::copy_is_atomic_retryable_and_never_borrows_send_storage ... ok
+test engine::display::tests::display_metadata_coalesces_and_restores_behind_reliable_output ... ok
+test engine::display::tests::physical_visualization_clear_is_a_single_sequenced_tombstone ... ok
+test engine::effects::tests::boost_request_uses_two_owner_stream_draws_and_preserves_other_streams ... ok
+test engine::effects::tests::checked_reservation_and_effect_buffers_reuse_warmed_capacity ... ok
+test engine::effects::tests::compensated_corpse_allows_zero_and_caps_actual_randomized_value ... ok
+test engine::effects::tests::discard_cold_corpse_consumes_all_draws_and_allocates_only_retained_ids ... ok
+test engine::effects::tests::empty_effect_boundary_preserves_rng_and_allocator_exactly ... ok
+test engine::effects::tests::gameplay_rng_streams_are_isolated_and_evolution_never_advances ... ok
+test engine::effects::tests::generated_effects_reuse_rng_scratch_after_baseline_count_shrinks ... ok
+test engine::effects::tests::malformed_baseline_stream_is_rejected_without_ready_output ... ok
+test engine::effects::tests::matches_retained_typescript_death_formula_rng_and_ordering ... ok
+test engine::effects::tests::pellet_capacity_and_allocator_exhaustion_reject_before_publication ... ok
+test engine::effects::tests::post_draw_failure_leaves_inputs_unchanged_and_next_prepare_clears_scratch ... ok
+test engine::effects::tests::stable_snake_order_makes_container_order_irrelevant ... ok
+test engine::effects::tests::two_same_stream_deaths_use_stable_id_draw_and_pellet_order ... ok
+test engine::effects::tests::wall_killed_baseline_notifies_without_drops_or_rng_draws ... ok
+test engine::error::tests::truncation_preserves_utf8_boundaries ... ok
+test engine::evolution::tests::current_typescript_generation_fixture_matches_fitness_breeding_rng_and_hof ... ok
+test engine::evolution::tests::draw_free_equal_genomes_form_separate_typescript_diagnostic_species ... ok
+test engine::evolution::tests::equal_fitness_uses_stable_source_slot_order ... ok
+test engine::evolution::tests::evolved_objective_scales_only_extensive_terms_and_allows_negative_penalties ... ok
+test engine::evolution::tests::explicit_one_life_assessments_preserve_legacy_evolution_and_rng ... ok
+test engine::evolution::tests::integer_mutation_selection_preserves_weight_bits_and_gaussian_state ... ok
+test engine::evolution::tests::invalid_work_or_fitness_fails_without_source_mutation ... ok
+test engine::evolution::tests::mutation_cutoffs_match_float_decisions_at_probability_boundaries ... ok
+test engine::evolution::tests::recurrent_unit_crossover_selects_one_parent_for_every_gate_row_and_bias ... ok
+test engine::evolution::tests::source_container_order_cannot_change_evolution_results ... ok
+test engine::evolution::tests::species_early_rejection_preserves_complete_distance_decisions ... ok
+test engine::evolution::tests::species_norm_acceptance_preserves_scalar_boundary_decisions ... ok
+test engine::evolution::tests::species_simd_probe_preserves_scalar_decisions_for_diverse_and_clustered_owners ... ok
+test engine::evolution::tests::summary_span_counts_preserve_scalar_statistics_and_species ... ok
+test engine::evolved_lives::tests::a_long_accumulation_history_does_not_increase_overdraw_allowance ... ok
+test engine::evolved_lives::tests::all_point_and_nonpoint_bundles_include_unfinished_lives_and_earliest_best_tie ... ok
+test engine::evolved_lives::tests::committed_lifecycle_telemetry_preserves_state_partition_work_and_exact_counters ... ok
+test engine::evolved_lives::tests::finite_exhaustion_does_not_sample_a_delay_and_world_uniform_preserves_evolution ... ok
+test engine::evolved_lives::tests::inherited_burn_before_credit_preserves_life_net ... ok
+test engine::evolved_lives::tests::invalid_overflow_and_overdraw_leave_the_ledger_unchanged ... ok
+test engine::evolved_lives::tests::life_credits_spend_first_and_gross_is_never_capital ... ok
+test engine::evolved_lives::tests::life_end_capture_keeps_simultaneous_contacts_and_actual_economics ... ok
+test engine::evolved_lives::tests::long_life_history_reuses_storage_and_rejects_unrecorded_deaths ... ok
+test engine::evolved_lives::tests::peak_growth_is_separate_from_retained_growth_and_death_finalizes_once ... ok
+test engine::evolved_lives::tests::pending_time_excludes_participating_newborns_and_deadline_overflow_rejects ... ok
+test engine::evolved_lives::tests::population_sized_transaction_retains_only_the_latest_256_ends ... ok
+test engine::evolved_lives::tests::repeated_fractional_credit_and_full_burn_remain_coherent ... ok
+test engine::evolved_lives::tests::successive_substeps_attribute_spend_before_new_food_and_simultaneous_death_credit ... ok
+test engine::evolved_lives::tests::three_hundred_due_slots_get_bounded_ordered_attempts_without_consuming_lives ... ok
+test engine::evolved_lives::tests::zero_delay_waits_for_next_boundary_and_uniform_zero_draws_exactly_once ... ok
+test engine::experiment_records::tests::fixed_records_roundtrip_and_reject_truncation_unknown_versions_and_invalid_identities ... ok
+test engine::export_archive::experiment_archive_tests::experiment_archive_binds_completion_and_physical_hof_and_allows_explicit_legacy_absence ... ok
+test engine::external_replacement::tests::connected_death_stages_fresh_external_only_state_and_waits_for_delivery ... ok
+test engine::external_replacement::tests::disconnected_dead_lease_is_removed_without_rng_or_allocator_use ... ok
+test engine::external_replacement::tests::entropy_and_aggregate_work_failures_expose_no_result_and_retry_cleanly ... ok
+test engine::external_replacement::tests::failed_assignment_invalidates_the_old_snake_token_and_enters_exact_grace ... ok
+test engine::external_replacement::tests::fresh_external_capacity_and_exhausted_ids_reject_before_publication ... ok
+test engine::external_replacement::tests::fresh_external_retry_preserves_source_and_isolates_rng_and_ids ... ok
+test engine::external_replacement::tests::generation_reassignment_preserves_the_base_and_replaces_only_connected_owners ... ok
+test engine::external_replacement::tests::generation_reassignment_without_connected_owners_consumes_no_rng_or_ids ... ok
+test engine::external_replacement::tests::invalid_generation_controller_source_is_atomic ... ok
+test engine::external_replacement::tests::opaque_authority_proof_rejects_any_post_validation_buffer_substitution ... ok
+test engine::external_replacement::tests::stale_or_duplicate_assignment_results_cannot_resolve_the_batch ... ok
+test engine::fixed_step::tests::complete_source_provenance_rejects_every_stale_join_input ... ok
+test engine::fixed_step::tests::dense_v2_behavior_rng_copy_reuses_capacity_and_preserves_lifecycle_rng ... ok
+test engine::fixed_step::tests::due_baseline_respawn_completes_before_the_shared_control_boundary ... ok
+test engine::fixed_step::tests::gaussian_spare_toggles_reuse_retained_string_storage ... ok
+test engine::fixed_step::tests::impossible_due_respawn_is_explicit_atomic_and_retryable_from_the_same_source ... ok
+test engine::fixed_step::tests::prefix_joins_accounting_ambient_and_timers_without_authority_write ... ok
+test engine::fixed_step::tests::simultaneous_due_slots_use_stable_slot_order_and_independent_rng_streams ... ok
+test engine::fixed_step::tests::warmed_due_respawn_reuses_every_reported_prefix_capacity ... ok
+test engine::fixed_step::tests::warmed_prefix_reuses_every_reported_capacity_with_controller_text ... ok
+test engine::food::tests::body_capacity_failure_leaves_authority_untouched_and_staging_unready ... ok
+test engine::food::tests::boost_shrink_food_eligibility_uses_the_pre_finalization_radius ... ok
+test engine::food::tests::consumed_food_frees_capacity_for_a_staged_boost_drop_atomically ... ok
+test engine::food::tests::contested_food_uses_nearest_then_stable_id_independent_of_container_order ... ok
+test engine::food::tests::finite_extreme_food_values_cannot_publish_non_finite_staging ... ok
+test engine::food::tests::food_updates_score_target_radius_and_body_after_movement ... ok
+test engine::food::tests::no_food_finishes_the_retained_typescript_boost_fixture ... ok
+test engine::food::tests::same_substep_food_prevents_premature_ordinary_shrink ... ok
+test engine::food::tests::source_world_identity_is_required ... ok
+test engine::food::tests::wall_dead_snake_cannot_claim_food ... ok
+test engine::food::tests::warmed_preparation_reuses_all_food_and_body_capacities ... ok
+test engine::frame_v1::tests::current_typescript_fixture_matches_every_float32_bit ... ok
+test engine::frame_v1::tests::every_late_failure_leaves_the_existing_output_unchanged ... ok
+test engine::frame_v1::tests::frame_v1_rejects_inexact_identity_and_invalid_body_without_writing ... ok
+test engine::frame_v1::tests::view_defaults_are_neutral_and_success_reuses_the_caller_buffer ... ok
+test engine::fresh_run::tests::background_runtime_catches_panic_and_restores_faulted_owner_once ... ok
+test engine::fresh_run::tests::background_runtime_owns_steps_waits_and_restores_one_loop ... ok
+test engine::fresh_run::tests::baseline_v2_cold_constructor_restores_both_profiles_and_modes_with_exact_metadata ... ok
+test engine::fresh_run::tests::baseline_v2_rng_boundary_roundtrips_managed_checkpoint_and_rejects_mixed_contracts ... ok
+test engine::fresh_run::tests::configured_fresh_life_contract_is_complete_and_preserves_frozen_numeric_initialization ... ok
+test engine::fresh_run::tests::default_population_and_rngs_match_selected_typescript_source_exactly ... ok
+test engine::fresh_run::tests::default_population_checkpoint_retry_then_exact_ack_activates_once ... ok
+test engine::fresh_run::tests::fresh_replacement_applies_reset_only_and_live_settings_before_hashing ... ok
+test engine::fresh_run::tests::fresh_replacement_compiles_and_initializes_a_supplied_graph ... ok
+test engine::fresh_run::tests::imported_loop_reclaims_retired_population_budget_for_generation_handoffs ... ok
+test engine::fresh_run::tests::invalid_identity_or_memory_fails_before_a_pending_transition_exists ... ok
+test engine::fresh_run::tests::live_import_replacement_reclaims_budget_with_and_without_recovery_branch ... ok
+test engine::fresh_run::tests::matrix_i16_backend_checkpoint_preserves_f32_and_exact_worker_replay ... ok
+test engine::fresh_run::tests::maximum_ambient_target_preserves_complete_death_effects_and_next_step ... ok
+test engine::fresh_run::tests::metadata_only_checkpoint_size_matches_published_recurrent_population ... ok
+test engine::fresh_run::tests::oversized_population_rejects_before_numeric_initialization ... ok
+test engine::fresh_run::tests::population_checkpoint_fork_preserves_f32_settings_seed_and_durability ... ok
+test engine::fresh_run::tests::population_work_holds_complete_steps_before_allocation_and_resumes_without_debt ... ok
+test engine::fresh_run::tests::production_checkpoint_limits_admit_approved_p3_raw_weight_envelope ... ok
+test engine::fresh_run::tests::production_fresh_math_selection_is_explicit_and_rejects_retained_mismatch ... ok
+test engine::fresh_run::tests::production_restore_roundtrips_the_selected_life_contract_and_rejects_unknown_schemas ... ok
+test engine::fresh_run::tests::production_v4_admits_wide_hidden_layers_within_parameter_limit ... ok
+test engine::fresh_run::tests::qualified_checkpoint_restore_preserves_exact_sse2_contract_and_worker_continuation ... ok
+test engine::fresh_run::tests::qualified_fresh_defaults_restore_with_the_recorded_sse2_backend ... ok
+test engine::fresh_run::tests::recovery_branch_changes_only_lineage_before_activation ... ok
+test engine::fresh_run::tests::recovery_rebinding_preserves_every_state_field_and_moves_population_storage ... ok
+test engine::fresh_run::tests::restored_generation_activates_without_resetting_its_chronology ... ok
+test engine::fresh_run::tests::retained_loop_holds_one_terminal_candidate_without_duplicate_evolution ... ok
+test engine::fresh_run::tests::retained_loop_post_publication_frame_failure_faults_without_retry ... ok
+test engine::fresh_run::tests::retained_loop_services_one_backlogged_step_per_boundary_and_faults_once ... ok
+test engine::fresh_run::tests::rust_allocates_dense_population_identity_and_returns_only_a_pending_boundary ... ok
+test engine::fresh_run::tests::startup_metadata_preserves_the_unpublished_run_boundary ... ok
+test engine::fresh_run::tests::trained_qualification_values_reuse_admitted_boxes_and_preserve_initialization_rng ... ok
+test engine::fresh_run::tests::v4_durable_metadata_restores_recorded_ray_limits_and_runs_equivalent_fixed_steps ... ok
+test engine::fresh_run::tests::v4_state_admission_rejects_missing_digest_and_graph_mismatch_without_reinterpreting_numeric_environment ... ok
+test engine::generation::tests::admitted_boundary_refuses_checkpoint_after_source_attempt_changes ... ok
+test engine::generation::tests::baseline_generation_seed_composition_matches_current_typescript_vectors ... ok
+test engine::generation::tests::baseline_successor_streams_preserve_v1_v2_and_separate_v3_full_generation_scope ... ok
+test engine::generation::tests::complete_start_keeps_baseline_streams_separate_and_initializes_every_slot ... ok
+test engine::generation::tests::completed_generation_prepares_one_admissible_zero_state_boundary ... ok
+test engine::generation::tests::elapsed_and_allocator_regressions_fail_before_evolution_output ... ok
+test engine::generation::tests::generation_commit_rejects_a_forged_successor_elite_slot ... ok
+test engine::generation::tests::generation_commit_requires_bit_exact_successor_elite_weights ... ok
+test engine::generation::tests::generation_start_recycles_checkpoint_frame_cursor_without_mutating_the_boundary ... ok
+test engine::generation::tests::generation_start_revalidates_source_and_reuses_warmed_storage ... ok
+test engine::generation::tests::impossible_complete_body_start_is_atomic_and_reports_the_failed_work ... ok
+test engine::generation::tests::stale_or_exhausted_continuations_leave_every_source_unchanged ... ok
+test engine::generation::tests::successor_admission_charges_both_states_and_rejects_a_stale_attempt ... ok
+test engine::generation_handoff_fixture::tests::background_runtime_routes_one_exact_generation_barrier_without_duplicate_publication ... ok
+test engine::generation_handoff_fixture::tests::retained_fixture_finishes_one_connected_generation_barrier_and_rebinds ... ok
+test engine::generation_handoff_fixture::tests::retained_fixture_starts_with_one_real_unpublished_terminal_transition ... ok
+test engine::genome::tests::canonical_source_array_order_produces_the_same_weights_and_continuation ... ok
+test engine::genome::tests::invalid_bias_rng_or_layout_returns_no_partial_result ... ok
+test engine::genome::tests::matches_retained_typescript_genome_random_fixture_bit_exactly ... ok
+test engine::genome::tests::uniform_initialization_preserves_a_cached_gaussian_spare ... ok
+test engine::god_mode::tests::translates_head_previous_position_and_complete_body_together ... ok
+test engine::graph::tests::canonicalization_ignores_node_and_edge_array_order ... ok
+test engine::graph::tests::default_counts_order_offsets_and_state_are_exact ... ok
+test engine::graph::tests::graph_bundle_retains_noncanonical_source_and_exact_derived_layout ... ok
+test engine::graph::tests::legacy_layout_evidence_preserves_exact_fields_and_order ... ok
+test engine::graph::tests::raw_utf8_order_is_total_and_does_not_normalize_unicode ... ok
+test engine::graph::tests::recurrent_state_blocks_are_checked_and_isolated ... ok
+test engine::graph::tests::rejects_canonical_layout_and_architecture_key_ceilings ... ok
+test engine::graph::tests::rejects_malformed_cycles_ports_dimensions_and_output_contracts ... ok
+test engine::graph::tests::rejects_non_overflowing_parameter_and_state_limits ... ok
+test engine::graph::tests::rejects_parameter_and_state_arithmetic_overflow ... ok
+test engine::graph::tests::rejects_request_shape_and_identifier_limits_directly ... ok
+test engine::graph::tests::retained_large_mlp_has_exact_single_node_layout ... ok
+test engine::graph::tests::split_and_concat_preserve_implicit_and_explicit_input_order ... ok
+test engine::graph_json::tests::shared_decoder_roundtrip_and_strict_admission ... ok
+test engine::inference::feedback_diagnostics::tests::traced_endpoints_match_all_existing_backends_and_ablations_isolate_recurrence ... ok
+test engine::inference::matrix_i16::tests::fma128_sign_extension_unaligned_vectors_short_rows_and_tails ... ok
+test engine::inference::matrix_i16::tests::matrix_diagnostics_measure_interleaved_bias_outlier_without_changing_cache ... ok
+test engine::inference::matrix_i16::tests::symmetric_quantization_zero_sign_extrema_ties_and_subnormals ... ok
+test engine::inference::mixed_tests::mixed_compact_cache_has_only_affine_values_and_a_distinct_identity ... ok
+test engine::inference::mixed_tests::mixed_diagnostic_rejects_compact_cache_or_plan_before_writes ... ok
+test engine::inference::mixed_tests::mixed_exact_graph_matches_the_affine_ablation_and_bit_exact_sse2_recurrence ... ok
+test engine::inference::mixed_tests::mixed_recurrent_only_graphs_use_sse2_without_any_i16_values ... ok
+test engine::inference::mixed_tests::mixed_upstream_affine_changes_inputs_but_lstm_uses_canonical_sse2_math ... ok
+test engine::inference::tests::batch_weight_resolution_matches_55_direct_brains_with_equal_inputs_and_state ... ok
+test engine::inference::tests::complete_scalar_graph_matches_current_typescript_for_two_recurrent_steps ... ok
+test engine::inference::tests::entity_owned_resurrected_brain_uses_its_own_weights_and_exact_owner ... ok
+test engine::inference::tests::exact_lengths_and_admitted_scratch_are_enforced ... ok
+test engine::inference::tests::execution_planning_rejects_tampered_parameter_and_recurrent_ranges ... ok
+test engine::inference::tests::focused_activation_capture_is_explicit_layout_bound_and_exact ... ok
+test engine::inference::tests::hidden_width_two_recurrent_indexing_matches_current_typescript_for_two_steps ... ok
+test engine::inference::tests::long_simd_rows_match_scalar_through_large_mixed_recurrence_and_reset ... ok
+test engine::inference::tests::malformed_late_genome_fails_preflight_without_staging_or_authoritative_mutation ... ok
+test engine::inference::tests::matrix_i16_binding_reuses_caches_and_refreshes_changed_ownership ... ok
+test engine::inference::tests::matrix_i16_complete_dense_mlp_and_recurrent_sequences_match_f32 ... ok
+test engine::inference::tests::matrix_i16_domains_preserve_zero_graph_and_distinct_matrix_scales ... ok
+test engine::inference::tests::nonfinite_late_observation_fails_before_any_staging_write ... ok
+test engine::inference::tests::one_operation_evaluates_55_distinct_genomes_without_mutating_state_before_commit ... ok
+test engine::inference::tests::runtime_detected_sse2_matches_scalar_across_complete_recurrent_graphs ... ok
+test engine::inference::tests::scalar_compensation_preserves_nonfinite_partial_sum_propagation ... ok
+test engine::inference::tests::scalar_long_rows_recover_cancellation_without_widening_products ... ok
+test engine::inference::tests::shrinking_due_lists_keep_recurrent_state_attached_to_stable_brain_handles ... ok
+test engine::inference_fixture::tests::approved_scenario_shapes_compile_to_exact_counts ... ok
+test engine::inference_fixture::tests::p0_and_p2_whole_population_sse2_results_match_scalar_reference ... ok
+test engine::inference_fixture::tests::p0_evidence_runs_synthetic_heterogeneous_stateful_population ... ok
+test engine::inference_fixture::tests::reads_a_nonempty_system_hostname_without_requiring_hostname_environment ... ok
+test engine::legacy_json_resources::tests::numeric_weight_path_is_priced_as_f32_but_settings_cannot_spoof_it ... ok
+test engine::legacy_json_resources::tests::oversized_escaped_strings_and_trailing_data_reject_before_materialization ... ok
+test engine::legacy_origin::tests::legacy_origin_rejects_invalid_claims_and_oversized_records ... ok
+test engine::legacy_origin::tests::legacy_origin_round_trips_browser_and_database_facts ... ok
+test engine::live_settings::tests::prepares_atomic_typed_values_and_new_identity ... ok
+test engine::live_settings::tests::rejects_the_complete_batch_before_changing_the_source ... ok
+test engine::movement::tests::body_following_uses_epsilon_only_for_exact_zero_distance ... ok
+test engine::movement::tests::boost_burn_shrink_and_body_match_pre_food_typescript_order ... ok
+test engine::movement::tests::boost_eligibility_uses_exact_length_and_points_boundaries ... ok
+test engine::movement::tests::capacity_and_malformed_state_fail_without_authoritative_writes ... ok
+test engine::movement::tests::finite_extreme_inputs_cannot_publish_non_finite_staging ... ok
+test engine::movement::tests::multiple_boost_drops_follow_typescript_tail_pop_order ... ok
+test engine::movement::tests::ordinary_target_shrink_waits_for_food_without_creating_boost_pellets ... ok
+test engine::movement::tests::ordinary_turn_and_body_match_retained_typescript_substep ... ok
+test engine::movement::tests::stable_id_order_makes_reversed_source_containers_equivalent ... ok
+test engine::movement::tests::wall_contact_is_staged_as_death_without_mutating_authority ... ok
+test engine::movement::tests::warmed_preparation_reuses_every_capacity ... ok
+test engine::observation_quality::tests::diagnostic_overflow_saturates_instead_of_wrapping_or_panicking ... ok
+test engine::observation_quality::tests::repeated_reads_do_not_count_twice_but_new_runs_and_batches_do ... ok
+test engine::observation_quality::tests::unions_count_each_v4_observation_once_and_exclude_legacy_quality_denominators ... ok
+test engine::physics::tests::accepted_substep_deltas_match_actual_boost_food_kill_and_death_chronology ... ok
+test engine::physics::tests::baseline_wall_death_accumulates_one_respawn_event_without_rng_draw ... ok
+test engine::physics::tests::body_death_and_owner_credit_commit_only_to_the_working_transaction ... ok
+test engine::physics::tests::body_owner_receives_one_credit_even_when_the_same_snapshot_kills_it ... ok
+test engine::physics::tests::controlled_death_remains_a_complete_intermediate_physics_result ... ok
+test engine::physics::tests::ecology_modes_apply_only_to_replaceable_deaths_and_wall_deaths_still_emit_none ... ok
+test engine::physics::tests::failure_after_one_substep_cannot_expose_a_partial_fixed_step ... ok
+test engine::physics::tests::kill_overflow_failure_keeps_step_unmodified_and_valid_retry_clears_scratch ... ok
+test engine::physics::tests::multi_substep_step_carries_rng_allocator_and_awards_only_once ... ok
+test engine::physics::tests::normal_baseline_death_uses_its_stream_and_emits_one_respawn_event ... ok
+test engine::physics::tests::repeated_steps_reuse_all_reported_physics_capacities ... ok
+test engine::physics::tests::reversing_container_order_preserves_per_id_state_bodies_pellets_rng_and_ids ... ok
+test engine::physics::tests::saturated_corpse_and_boost_effects_keep_existing_pellets_and_full_rng_continuation ... ok
+test engine::physics::tests::simultaneous_heads_die_without_any_kill_credit ... ok
+test engine::physics::tests::stale_key_components_cannot_advance_or_finish_a_working_step ... ok
+test engine::physics::tests::teacher_outcomes_retain_early_boost_after_exhaustion_and_actual_death ... ok
+test engine::population_work::tests::lease_keeps_source_held_until_all_background_work_is_released ... ok
+test engine::population_work::tests::publication_blocks_new_jobs_until_success_or_candidate_rollback ... ok
+test engine::population_work::tests::unfit_and_mismatched_admission_fail_without_owning_work ... ok
+test engine::population_work::tests::unstarted_readonly_lease_releases_its_temporary_admission ... ok
+test engine::population_work::tests::worker_lease_can_cross_threads_without_releasing_source_admission ... ok
+test engine::queues::tests::authority_reply_reservation_orders_completion_before_racing_fault_visibility ... ok
+test engine::queues::tests::deferred_actions_leave_receipt_capacity_and_do_not_wake_a_blocked_step ... ok
+test engine::queues::tests::diagnostic_wake_is_coalesced_and_consumes_no_command_or_reserved_bytes ... ok
+test engine::queues::tests::dropping_an_unused_authority_reservation_releases_a_deferred_fault ... ok
+test engine::queues::tests::equal_sequence_frame_refreshes_rotate_across_connections ... ok
+test engine::queues::tests::failed_fault_claim_restores_orderly_drain_and_allows_one_retry ... ok
+test engine::queues::tests::failed_or_panicking_wake_is_retryable_and_never_unwinds ... ok
+test engine::queues::tests::fault_commit_waits_for_preheld_queue_mutex_then_accounts_work ... ok
+test engine::queues::tests::fault_stop_discards_accepted_work_and_closes_admission ... ok
+test engine::queues::tests::fault_terminal_gate_precedes_racing_orderly_stop ... ok
+test engine::queues::tests::full_queue_does_not_block_stop ... ok
+test engine::queues::tests::inbound_batch_is_atomic_and_fifo ... ok
+test engine::queues::tests::inbound_enforces_byte_and_sequence_limits ... ok
+test engine::queues::tests::oldest_frame_publication_prevents_low_id_starvation ... ok
+test engine::queues::tests::orderly_stop_wake_failure_rolls_back_before_reserved_fault ... ok
+test engine::queues::tests::output_mutex_linearizes_orderly_stop_against_reserved_fault ... ok
+test engine::queues::tests::output_priority_replacement_and_reserved_fault_are_observable ... ok
+test engine::queues::tests::producer_racing_rearm_cannot_strand_output ... ok
+test engine::queues::tests::reclaim_drain_retains_following_controls_until_its_receipt ... ok
+test engine::queues::tests::rejected_priority_output_does_not_evict_replaceable_state ... ok
+test engine::queues::tests::reliable_batch_publication_is_all_or_nothing ... ok
+test engine::queues::tests::reliable_overflow_never_uses_reserved_fault_capacity ... ok
+test engine::queues::tests::reliable_preflight_rejects_count_and_bytes_without_enqueuing ... ok
+test engine::queues::tests::separate_output_class_peaks_survive_drain_and_different_peak_boundaries ... ok
+test engine::queues::tests::stale_replaceable_publications_cannot_regress_retained_state ... ok
+test engine::queues::tests::terminal_outcome_rejects_every_later_output_publication ... ok
+test engine::queues::tests::timed_wait_and_atomic_step_boundary_drain_preserve_queue_order ... ok
+test engine::queues::tests::wake_is_coalesced_and_rearmed_after_empty_drain ... ok
+test engine::ray_work::tests::admission_accounts_for_every_simultaneously_due_observation ... ok
+test engine::ray_work::tests::all_due_sizes_obey_batch_cap_and_equal_grants ... ok
+test engine::ray_work::tests::capped_unused_budget_is_not_redistributed_and_idle_does_not_rotate ... ok
+test engine::ray_work::tests::continuous_saturation_keeps_all_classes_within_one_quantum ... ok
+test engine::ray_work::tests::disappearing_next_owner_resumes_at_its_canonical_successor ... ok
+test engine::ray_work::tests::every_operation_is_charged_before_execution ... ok
+test engine::ray_work::tests::failed_or_stale_transactions_preserve_the_cursor_and_output ... ok
+test engine::ray_work::tests::physical_respawn_ids_do_not_change_canonical_observation_ownership ... ok
+test engine::ray_work::tests::recorded_budgets_reject_partial_wrongly_typed_and_unadmittable_settings ... ok
+test engine::retained_origin::tests::origins_bind_identity_source_kind_and_exact_parameter_bits ... ok
+test engine::rng::tests::baseline_v2_labels_separate_lifecycle_behavior_slots_and_full_generation ... ok
+test engine::rng::tests::compares_uncached_gaussian_to_current_typescript_with_one_ulp_tolerance ... ok
+test engine::rng::tests::derives_typescript_labelled_stream_seeds_with_utf16 ... ok
+test engine::rng::tests::evolved_labels_mix_full_generation_identity_and_reset_repeats ... ok
+test engine::rng::tests::export_restore_continues_exactly ... ok
+test engine::rng::tests::imports_typescript_gaussian_spare_with_exact_bits ... ok
+test engine::rng::tests::labelled_streams_are_independent ... ok
+test engine::rng::tests::matches_retained_xorshift32_v1_fixture ... ok
+test engine::rng::tests::matches_typescript_hash_seed_contract ... ok
+test engine::rng::tests::normalizes_zero_nonfinite_and_wrapped_seeds ... ok
+test engine::rng::tests::raw_uniform_draws_preserve_float_and_gaussian_continuation ... ok
+test engine::rng::tests::rejects_invalid_bounds_and_state_atomically ... ok
+test engine::rng::tests::repeated_serialized_export_reuses_uniform_string_capacities ... ok
+test engine::rng::tests::reusable_export_retains_gaussian_spare_storage_across_logical_absence ... ok
+test engine::run_start_handoff_fixture::tests::exact_descriptor_acknowledgement_is_the_only_path_to_one_running_authority ... ok
+test engine::run_start_handoff_fixture::tests::retained_run_start_begins_as_an_unpublished_empty_boundary ... ok
+test engine::runtime::tests::bridge_fault_racing_started_wake_suppresses_orderly_stop ... ok
+test engine::runtime::tests::concurrent_joiners_wait_for_the_same_coordinator_completion ... ok
+test engine::runtime::tests::drop_only_signals_and_does_not_wait_for_join ... ok
+test engine::runtime::tests::drop_wakes_output_capacity_wait_and_releases_retained_authority ... ok
+test engine::runtime::tests::first_bridge_fault_remains_consistent_after_drain ... ok
+test engine::runtime::tests::invalid_limits_fail_before_runtime_creation ... ok
+test engine::runtime::tests::lifecycle_is_one_shot_and_probe_is_correlated ... ok
+test engine::runtime::tests::panic_becomes_fault_and_joins_cleanly ... ok
+test engine::runtime::tests::probe_runtime_rejects_running_authority_control_before_queueing ... ok
+test engine::saved_brain_archive::tests::original_validation_requires_exact_bytes_and_native_contracts ... ok
+test engine::saved_brain_archive::tests::selection_rejects_identity_duplicates_labels_counts_and_total_bytes ... ok
+test engine::scheduler::tests::a_low_rate_step_can_mature_even_when_it_exceeds_the_catch_up_horizon ... ok
+test engine::scheduler::tests::catch_up_horizon_drops_only_excess_scheduling_debt ... ok
+test engine::scheduler::tests::first_wall_observation_does_not_turn_startup_time_into_debt ... ok
+test engine::scheduler::tests::multiplier_changes_requested_step_count_but_never_fixed_delta ... ok
+test engine::scheduler::tests::regressing_wall_time_and_invalid_policy_are_rejected_atomically ... ok
+test engine::sensing_fixture::tests::approved_scenario_shapes_are_exact ... ok
+test engine::sensing_fixture::tests::cpu_usage_reports_process_time_and_one_core_percentage ... ok
+test engine::sensing_fixture::tests::p0_evidence_runs_corrected_real_sensor_path ... ok
+test engine::sensor_contract::tests::equal_width_profiles_have_different_structural_identity ... ok
+test engine::sensor_contract::tests::layouts_have_exact_labels_offsets_and_ceiling_widths ... ok
+test engine::sensor_contract::tests::persisted_settings_bind_profiles_revisions_and_same_width_meanings ... ok
+test engine::sensor_contract::tests::shared_wire_fixtures_are_exact_native_canonical_contracts ... ok
+test engine::sensor_contract::tests::strict_ingress_rejects_meaning_geometry_revision_and_same_width_reinterpretation ... ok
+test engine::sensor_contract::tests::v3_identity_preserves_every_existing_native_layout ... ok
+test engine::sensor_geometry::tests::approaching_receding_stationary_and_overlap_heads_have_distinct_encounters ... ok
+test engine::sensor_geometry::tests::capsule_side_endpoint_degenerate_and_initial_overlap_are_exact ... ok
+test engine::sensor_geometry::tests::closed_capsules_include_tangency_and_range_endpoint_without_false_clearance ... ok
+test engine::sensor_geometry::tests::crossing_threat_is_projected_at_contact_and_not_hidden_by_current_bearing ... ok
+test engine::sensor_geometry::tests::exhausted_work_remains_unknown_instead_of_a_false_clear_route ... ok
+test engine::sensor_geometry::tests::malformed_and_arithmetic_hostile_inputs_reject_before_geometry ... ok
+test engine::sensor_geometry::tests::rotated_long_body_route_uses_capsule_geometry_not_midpoint_distance ... ok
+test engine::sensor_geometry::tests::shared_head_distance_preserves_numeric_edges_and_geometry_rejections ... ok
+test engine::sensor_geometry::tests::wall_uses_observer_disc_and_reports_outside_and_bounded_routes ... ok
+test engine::sensor_layout::tests::bins_outside_the_owner_supported_range_fail_clearly ... ok
+test engine::sensor_layout::tests::every_owner_supported_bin_count_has_the_expected_length ... ok
+test engine::sensor_layout::tests::layout_matches_the_typescript_v3_contract ... ok
+test engine::sensor_qualification::tests::actual_capture_bytes_and_authority_match_across_fast_slow_and_parallel_runs ... ok
+test engine::sensor_qualification::tests::committed_observer_does_not_change_world_rng_lives_weights_or_recurrence_across_workers ... ok
+test engine::sensor_qualification::tests::cost_distribution_reports_nearest_rank_p99_without_a_deadline_gate ... ok
+test engine::sensor_qualification::tests::custom_graph_population_is_bounded_and_real_clock_uses_native_scheduler ... ok
+test engine::sensor_qualification::tests::evolved_population_selection_and_ordinary_generation_handoff ... ok
+test engine::sensor_qualification::tests::graph_counts_match_the_named_modest_and_large_profiles ... ok
+test engine::sensor_qualification::tests::histogram_preserves_extrema_overflow_nonfinite_and_exact_boundaries ... ok
+test engine::sensor_qualification::tests::native_phase_attribution_partitions_nested_and_inconsistent_timer_values ... ok
+test engine::sensor_qualification::tests::query_detail_admission_preserves_defaults_and_projects_both_settings ... ok
+test engine::sensor_qualification::tests::trained_cohort_uses_artifact_graph_and_deployment_with_exact_worker_continuation ... ok
+test engine::sensor_rays::tests::every_small_grant_is_bounded_and_incomplete_results_are_conservative ... ok
+test engine::sensor_rays::tests::indexed_rays_match_complete_capsule_oracle_and_world_reordering ... ok
+test engine::sensor_rays::tests::long_segments_are_unique_and_own_body_subtrees_do_not_consume_candidate_work ... ok
+test engine::sensor_rays::tests::packet_results_match_complete_oracles_under_every_exhaustion_boundary ... ok
+test engine::sensor_rays::tests::separated_long_body_clusters_reject_a_gap_with_only_three_cell_visits ... ok
+test engine::sensor_rays::tests::sparse_direction_packet_shares_one_bound_visit_and_reuses_frontier ... ok
+test engine::sensor_rays::tests::sparse_miss_and_initial_overlap_terminate_without_full_world_scans ... ok
+test engine::sensor_rays::tests::spatial_partitions_preserve_unique_records_depth_and_existing_capacity_bounds ... ok
+test engine::sensor_rays::tests::warm_queries_and_rebuilds_reuse_capacity_and_empty_world_is_clear ... ok
+test engine::sensors::tests::all_supported_bin_counts_produce_finite_exact_length_observations ... ok
+test engine::sensors::tests::corrected_typescript_and_rust_vectors_match_shared_reference_cases ... ok
+test engine::sensors::tests::default_layout_produces_all_scalars_and_clear_channels ... ok
+test engine::sensors::tests::first_life_delivery_flag_changes_only_for_matching_consumption_even_without_score_delta ... ok
+test engine::sensors::tests::generation_best_is_initialized_and_excludes_non_population_snakes ... ok
+test engine::sensors::tests::life_assessments_change_only_v3_relative_scores_and_preserve_delivered_wallet_delta ... ok
+test engine::sensors::tests::long_body_segment_is_visible_near_an_endpoint_not_its_midpoint ... ok
+test engine::sensors::tests::pellet_cap_is_measured_after_nearest_first_ordering ... ok
+test engine::sensors::tests::pellet_direction_classifier_matches_original_bins_across_supported_layouts ... ok
+test engine::sensors::tests::pure_probes_accumulate_until_a_matching_delivery_commits ... ok
+test engine::sensors::tests::segment_cap_reports_and_saturates_conservatively ... ok
+test engine::sensors_v4::tests::all_profiles_bins_and_kind_sentinels_have_finite_exact_widths_and_absence ... ok
+test engine::sensors_v4::tests::approaching_receding_and_tied_nearest_heads_share_exact_ordered_motion_channels ... ok
+test engine::sensors_v4::tests::baseline_v2_actual_crossing_and_wall_samples_avoid_known_routes_without_probes ... ok
+test engine::sensors_v4::tests::baseline_v2_actual_head_on_differs_from_receding_without_privileged_target_identity ... ok
+test engine::sensors_v4::tests::baseline_v2_actual_saturated_capsules_disable_boost_and_remain_finite_for_both_profiles ... ok
+test engine::sensors_v4::tests::baseline_v2_actual_smaller_pursuit_and_larger_threat_use_visible_size_and_economy ... ok
+test engine::sensors_v4::tests::body_head_and_projected_sectors_match_original_scan_across_profiles_and_bins ... ok
+test engine::sensors_v4::tests::crossing_urgency_includes_nonrepresentative_heads_and_predicted_contact_sector ... ok
+test engine::sensors_v4::tests::evolved_carried_wallet_and_finite_unlimited_budgets_use_actual_owner_ledger ... ok
+test engine::sensors_v4::tests::exact_scalar_prefix_uses_local_economics_whole_step_motion_and_actual_cost ... ok
+test engine::sensors_v4::tests::failed_ray_and_detail_queries_are_visible_and_do_not_consume_life_delivery ... ok
+test engine::sensors_v4::tests::food_channels_and_raw_traces_match_reference_accumulation_for_sparse_and_dense_queries ... ok
+test engine::sensors_v4::tests::food_rings_have_exact_near_boundary_and_coincident_food_has_finite_declared_sector ... ok
+test engine::sensors_v4::tests::malformed_shapes_and_mixed_source_indexes_reject_before_output_or_delivery_changes ... ok
+test engine::sensors_v4::tests::prototype_budget_quality_reports_all_candidates_on_existing_native_source_shapes ... ok
+test engine::sensors_v4::tests::raw_trace_preserves_quota_results_and_distinguishes_incomplete_rays ... ok
+test engine::sensors_v4::tests::sector_bin_matches_original_v4_formula_for_dense_boundary_and_extreme_vectors ... ok
+test engine::sensors_v4::tests::serial_and_parallel_workers_receive_identical_complete_candidate_observations ... ok
+test engine::sensors_v4::tests::shared_head_facts_preserve_every_vector_receipt_and_trace_across_profiles_bins_and_grants ... ok
+test engine::sensors_v4::tests::shared_head_facts_reject_wrong_world_profile_and_invalid_alive_heads_without_growth ... ok
+test engine::sensors_v4::tests::zero_cost_has_unbounded_budget_and_retains_actual_no_positive_spend_eligibility ... ok
+test engine::shadows::tests::exact_native_recurrence_advances_only_on_delivered_rows_and_retains_buffers ... ok
+test engine::shadows::tests::held_step_death_seals_only_latest_32_rows_and_deduplicates ... ok
+test engine::shadows::tests::nonfinite_inference_disables_only_affected_slot_without_recurrent_publication ... ok
+test engine::shadows::tests::physical_birth_obeys_candidate_life_rule_and_generation_always_resets ... ok
+test engine::shadows::tests::registry_never_evicts_pinned_commands_and_admits_again_after_release ... ok
+test engine::shadows::tests::rejected_activation_preserves_segment_and_explicit_version_resets_it ... ok
+test engine::soak_qualification::tests::refuses_incomplete_duration_overflow_and_foreign_workspace_before_construction ... ok
+test engine::soak_qualification::tests::slow_consumer_and_four_shadows_preserve_single_multiworker_authority ... ok
+test engine::soak_qualification::tests::timing_storage_is_constant_and_open_bucket_keeps_long_stalls ... ok
+test engine::spatial::tests::bounded_body_query_keeps_exact_uncapped_order_and_reuses_capacity ... ok
+test engine::spatial::tests::bounded_dense_cell_lookup_matches_sorted_fallback ... ok
+test engine::spatial::tests::bounded_pellet_query_keeps_exact_nearest_prefix_and_reuses_capacity ... ok
+test engine::spatial::tests::bounded_pellet_query_matches_complete_prefix_across_rings_and_ties ... ok
+test engine::spatial::tests::cached_distance_order_preserves_ieee_bits_and_legacy_sort_without_growing_candidates ... ok
+test engine::spatial::tests::complete_body_admission_fails_instead_of_truncating ... ok
+test engine::spatial::tests::dead_snakes_contribute_no_collision_or_sensor_truth ... ok
+test engine::spatial::tests::duplicate_cell_hits_yield_one_deterministically_ordered_segment ... ok
+test engine::spatial::tests::long_segments_cover_every_cell_in_their_bounds ... ok
+test engine::spatial::tests::pellet_admission_is_checked_before_index_construction ... ok
+test engine::spatial::tests::pellet_cell_order_retains_full_width_ids_source_ties_and_rebuild_capacity ... ok
+test engine::spatial::tests::pellet_ring_stop_does_not_skip_equal_distance_smaller_id ... ok
+test engine::spatial::tests::pellets_are_nearest_first_with_stable_id_ties ... ok
+test engine::spatial::tests::retained_rebuild_matches_fresh_indexes_and_stabilizes_capacities ... ok
+test engine::spatial::tests::sparse_body_and_pellet_indexes_query_through_automatic_fallback ... ok
+test engine::spatial::tests::warmed_pellet_grouping_matches_cold_sort_through_grid_changes ... ok
+test engine::spawn::tests::aggregate_candidate_budget_fails_promptly_and_atomically ... ok
+test engine::spawn::tests::aggregate_geometry_budget_fails_promptly_and_atomically ... ok
+test engine::spawn::tests::blocked_candidate_and_tight_budget_remain_source_order_invariant ... ok
+test engine::spawn::tests::cached_bounds_include_bent_obstacles_and_keep_threshold_tangencies_exact ... ok
+test engine::spawn::tests::complete_body_crossing_is_rejected_even_when_heads_are_clear ... ok
+test engine::spawn::tests::deterministic_fallback_is_used_after_a_blocked_random_candidate ... ok
+test engine::spawn::tests::duplicate_and_capacity_failures_happen_before_any_rng_result ... ok
+test engine::spawn::tests::evolved_geometry_exhaustion_is_pending_and_generic_spawn_still_errors ... ok
+test engine::spawn::tests::evolved_impossible_placement_preserves_failure_draws_and_continues_fallback ... ok
+test engine::spawn::tests::evolved_placement_is_safe_and_invalid_source_is_never_pending ... ok
+test engine::spawn::tests::exact_wall_tangency_is_rejected_before_the_first_movement_boundary ... ok
+test engine::spawn::tests::first_random_candidate_matches_the_typescript_three_draw_formula ... ok
+test engine::spawn::tests::impossible_request_fails_without_world_or_source_rng_mutation ... ok
+test engine::spawn::tests::invalid_source_geometry_and_rng_fail_closed ... ok
+test engine::spawn::tests::long_body_prefix_matches_unfiltered_placements_and_rng_continuation ... ok
+test engine::spawn::tests::repeated_batches_reuse_every_reported_capacity ... ok
+test engine::spawn::tests::separated_bounds_never_skip_a_hit_found_by_the_unfiltered_segment_oracle ... ok
+test engine::spawn::tests::sixty_four_snakes_are_complete_body_safe_or_the_batch_fails ... ok
+test engine::spawn::tests::source_snake_container_order_cannot_change_placement ... ok
+test engine::spawn::tests::stable_request_order_owns_the_same_locations_and_rng_continuation ... ok
+test engine::spawn::tests::supported_long_initial_population_fits_the_existing_geometry_budget ... ok
+test engine::state::entity_selection::tests::canonical_tokens_preserve_full_width_ids_and_reject_malformed_inputs ... ok
+test engine::state::tests::allocator_lineage_domains_and_exhaustion_are_checked ... ok
+test engine::state::tests::already_disconnected_controlled_death_removes_only_the_dead_lease ... ok
+test engine::state::tests::arithmetic_admission_accepts_mixed_but_rejects_unknown_or_duplicate_labels ... ok
+test engine::state::tests::authoritative_runtime_owns_the_validated_state_before_start ... ok
+test engine::state::tests::baseline_slots_require_matching_unique_rng_state ... ok
+test engine::state::tests::checked_memory_overflow_and_ceiling_fail_before_authority ... ok
+test engine::state::tests::checkpoint_view_rejects_running_state_and_frame_reservation_is_atomic ... ok
+test engine::state::tests::compatible_build_admission_rebinds_only_after_a_distinct_recovery_branch ... ok
+test engine::state::tests::complete_nonterminal_coordinator_publishes_every_step_continuation_once ... ok
+test engine::state::tests::controlled_wall_death_waits_for_reliable_replacement_assignment_before_publication ... ok
+test engine::state::tests::controller_lease_status_tokens_connections_and_grace_are_consistent ... ok
+test engine::state::tests::controller_leases_reject_non_external_snake_kinds ... ok
+test engine::state::tests::default_population_owns_distinct_genomes_and_stable_brain_state ... ok
+test engine::state::tests::durable_generation_boundary_reassigns_connected_controller_before_authority_swap ... ok
+test engine::state::tests::durable_generation_boundary_retains_disconnected_token_without_hidden_reassignment ... ok
+test engine::state::tests::entity_selection_rejects_restarted_worlds_and_reused_frame_ids_without_rng_draws ... ok
+test engine::state::tests::evolved_cold_god_death_samples_once_before_prefix_and_final_exhaustion_uses_normal_corpse ... ok
+test engine::state::tests::evolved_cold_god_overflow_fail_is_atomic_and_discard_counts_actual_values ... ok
+test engine::state::tests::evolved_collision_death_respawns_only_at_the_next_newborn_boundary ... ok
+test engine::state::tests::evolved_identity_exhaustion_rolls_back_life_rng_ledger_and_recurrence ... ok
+test engine::state::tests::evolved_newborn_manual_terminal_step_admits_new_identity_and_negative_life_fitness ... ok
+test engine::state::tests::evolved_newborn_replaces_in_place_preserves_brain_owner_and_receives_one_award ... ok
+test engine::state::tests::evolved_newborn_reset_uses_zero_source_while_preserve_retains_cross_life_memory ... ok
+test engine::state::tests::evolved_replacement_reopens_first_delivery_under_both_recurrent_life_modes ... ok
+test engine::state::tests::evolved_running_overflow_publishes_whole_death_or_rolls_back_the_whole_step ... ok
+test engine::state::tests::evolved_waiting_unlimited_is_not_extinction_and_finite_exhaustion_can_end ... ok
+test engine::state::tests::evolved_wallet_choice_is_independent_of_terminal_point_assessment ... ok
+test engine::state::tests::exact_boundary_requires_zero_state_and_no_spawned_world ... ok
+test engine::state::tests::exact_contract_identity_config_projection_and_hash_are_required ... ok
+test engine::state::tests::exact_persistence_acknowledgement_precedes_next_world_construction ... ok
+test engine::state::tests::external_delivery_acceptance_publishes_once_and_stale_results_are_ignored ... ok
+test engine::state::tests::failed_external_delivery_publishes_the_step_with_a_disconnected_controller ... ok
+test engine::state::tests::failed_replacement_assignment_invalidates_the_old_snake_token_and_keeps_grace ... ok
+test engine::state::tests::fixed_step_continuation_is_owned_live_and_reset_at_checkpoint_boundaries ... ok
+test engine::state::tests::frame_id_wrap_can_reserve_a_gap_crossing_the_original_cursor ... ok
+test engine::state::tests::frame_id_wrap_skips_occupied_ranges_without_changing_durable_ids ... ok
+test engine::state::tests::fresh_join_budget_failure_and_changed_source_preserve_authority ... ok
+test engine::state::tests::fresh_join_preserves_source_until_delivery_and_rejects_duplicate_commit ... ok
+test engine::state::tests::generation_guards_refuse_nonterminal_publication_without_mutation ... ok
+test engine::state::tests::hall_of_fame_resurrection_adds_one_owned_brain_and_preserves_population ... ok
+test engine::state::tests::inspector_cache_is_publication_gated_bounded_and_keeps_last_delivered_age ... ok
+test engine::state::tests::inspector_does_not_raise_the_existing_worker_scratch_admission ... ok
+test engine::state::tests::inspector_probe_waits_for_publication_and_never_consumes_external_delivery ... ok
+test engine::state::tests::inspector_shadow_join_rejects_other_lives_generations_steps_and_activations ... ok
+test engine::state::tests::invalid_life_ledger_rolls_back_world_and_continuation_in_publication_and_preflight ... ok
+test engine::state::tests::invalid_scheduler_accumulator_never_starts_or_changes_a_step ... ok
+test engine::state::tests::live_fixed_step_continuation_survives_ownership_and_charges_retained_capacity ... ok
+test engine::state::tests::malformed_rng_is_rejected_without_partial_state ... ok
+test engine::state::tests::manual_finish_scope_is_idempotent_and_rejects_stale_or_competing_requests ... ok
+test engine::state::tests::mixed_external_results_advance_only_accepted_markers_and_disconnect_failures ... ok
+test engine::state::tests::multiple_external_observations_publish_only_after_every_matching_acceptance ... ok
+test engine::state::tests::neural_takeover_rejects_a_brainless_external_snake ... ok
+test engine::state::tests::normalized_wall_death_movement_is_admitted_as_authoritative_state ... ok
+test engine::state::tests::reclaim_rejects_collisions_budget_and_changed_source_before_any_write ... ok
+test engine::state::tests::reclaim_transaction_preserves_authority_until_exact_commit ... ok
+test engine::state::tests::regressing_controller_wall_clock_never_starts_a_new_attempt ... ok
+test engine::state::tests::rejects_invalid_lengths_nonfinite_values_and_duplicate_slots_or_ids ... ok
+test engine::state::tests::repeated_external_delivery_reuses_every_reported_bridge_capacity ... ok
+test engine::state::tests::requested_capacity_and_scratch_are_charged_before_authority ... ok
+test engine::state::tests::retained_origin_admission_and_failed_publication_preserve_native_ownership ... ok
+test engine::state::tests::retained_origin_survives_catalog_release_and_reused_brain_copies ... ok
+test engine::state::tests::retained_reuse_failure_restores_body_owners_brain_origin_rng_and_allocators ... ok
+test engine::state::tests::retained_reuse_releases_old_origin_compacts_body_and_clears_owner_at_full_capacity ... ok
+test engine::state::tests::retained_source_graph_capacity_is_charged_before_state_publication ... ok
+test engine::state::tests::retired_budget_reclamation_preserves_state_and_rejects_invalid_context ... ok
+test engine::state::tests::running_step_accepts_external_gameplay_rng_continuation ... ok
+test engine::state::tests::running_step_cannot_begin_from_a_generation_boundary ... ok
+test engine::state::tests::running_step_publication_swaps_every_mutable_continuation_atomically ... ok
+test engine::state::tests::running_step_rejects_every_stale_identity_before_any_swap ... ok
+test engine::state::tests::running_step_rejects_immutable_or_regressing_continuations_before_swap ... ok
+test engine::state::tests::running_step_validation_and_memory_failure_restore_authority_and_scratch ... ok
+test engine::state::tests::running_world_rejects_duplicate_slots_brains_and_incoherent_bodies ... ok
+test engine::state::tests::scheduler_holds_debt_while_external_delivery_blocks_publication ... ok
+test engine::state::tests::scheduler_holds_terminal_ticket_and_debt_until_explicit_transition_discard ... ok
+test engine::state::tests::scheduler_rebind_excludes_generation_persistence_wait_from_wall_debt ... ok
+test engine::state::tests::scheduler_requires_a_fresh_command_service_boundary_before_each_overdue_step ... ok
+test engine::state::tests::selected_retained_origins_are_native_owned_fixed_width_and_do_not_advance_rng ... ok
+test engine::state::tests::settings_schema_rejects_omissions_unknown_paths_and_type_changes ... ok
+test engine::state::tests::seven_day_accumulated_clock_and_actual_native_terminal_step_are_qualified ... ok
+test engine::state::tests::superseded_operation_ignores_its_old_external_result_without_publication ... ok
+test engine::state::tests::terminal_guard_runs_before_old_generation_external_replacement ... ok
+test engine::state::tests::terminal_memory_rejection_precedes_evolution_and_preserves_authority ... ok
+test engine::state::tests::terminal_or_failed_admission_never_exposes_an_external_delivery_batch ... ok
+test engine::state::tests::validating_connected_controller_state_is_rng_pure ... ok
+test engine::state::tests::warmed_coordinator_rejects_a_different_authority_with_matching_epochs_and_graph ... ok
+test engine::state::tests::whole_step_motion_proprioception_uses_all_substeps_and_held_actions_across_wrap ... ok
+test engine::step_config::tests::baseline_generation_seed_values_are_required_and_exact ... ok
+test engine::step_config::tests::default_projection_matches_every_running_typescript_formula ... ok
+test engine::step_config::tests::duplicated_top_level_values_and_work_limits_are_revalidated ... ok
+test engine::step_config::tests::evolution_values_are_required_and_never_fall_back_to_rust_defaults ... ok
+test engine::step_config::tests::evolved_policy_dispatch_preserves_legacy_and_requires_every_modern_field ... ok
+test engine::step_config::tests::evolved_policy_projects_independent_score_wallet_objective_and_ecology_codes ... ok
+test engine::step_config::tests::live_values_and_types_project_without_silent_defaults ... ok
+test engine::step_config::tests::missing_out_of_range_and_unsupported_values_fail_closed ... ok
+test engine::step_fixture::tests::dense_first_step_preserves_real_collision_deaths_and_profiles_full_source ... ok
+test engine::step_fixture::tests::excessive_stateful_window_is_rejected ... ok
+test engine::step_fixture::tests::fixture_recurrent_digest_and_math_identity_match_the_admitted_source ... ok
+test engine::step_fixture::tests::p0_fixture_publishes_real_complete_steps ... ok
+test engine::step_fixture::tests::parallel_calculation_keeps_the_complete_step_and_recurrent_identity ... ok
+test engine::teacher_capture::tests::malformed_selection_cannot_replace_old_capture_and_duplicates_reject ... ok
+test engine::teacher_capture::tests::selected_exact_rows_reuse_capacity_and_preserve_signed_zero ... ok
+test engine::teacher_mailbox::tests::authority_owner_yields_immediately_to_a_held_consumer_mutex ... ok
+test engine::teacher_mailbox::tests::malformed_limits_cannot_take_ownership ... ok
+test engine::teacher_mailbox::tests::partial_drain_does_not_release_untransferred_objects_or_split_bytes ... ok
+test engine::teacher_queue::tests::assigns_before_whole_chunk_drop_and_releases_visible_gaps ... ok
+test engine::teacher_queue::tests::full_sized_motion_chunks_reach_sixteen_mib_byte_pressure_before_count_pressure ... ok
+test engine::teacher_queue::tests::invalid_input_does_not_consume_sequence_and_payload_ceiling_drops_whole ... ok
+test engine::teacher_samples::tests::capture_start_never_implies_a_physical_first_delivery ... ok
+test engine::teacher_samples::tests::cold_life_end_does_not_rewrite_a_previous_post_step_outcome ... ok
+test engine::teacher_samples::tests::every_truncated_prefix_and_appended_bytes_reject ... ok
+test engine::teacher_samples::tests::exact_float_bits_identity_and_request_outcome_roundtrip ... ok
+test engine::teacher_samples::tests::finite_bounded_data_and_dense_baseline_owner_limits_reject ... ok
+test engine::teacher_samples::tests::sampled_cadence_chronology_and_physical_death_end_are_explicit ... ok
+test engine::teacher_samples::tests::unsupported_revisions_dimensions_flags_and_reason_bytes_reject ... ok
+test engine::teacher_stream::tests::held_control_death_seals_without_fabricated_sample_and_birth_generation_are_explicit ... ok
+test engine::teacher_stream::tests::malformed_contract_budget_duplicate_and_missing_step_reject ... ok
+test engine::teacher_stream::tests::one_second_seals_on_held_steps_and_chunk_continuity_does_not_reset ... ok
+test engine::teacher_stream::tests::overflow_consumes_chunk_and_sample_sequences_then_labels_gap ... ok
+test engine::trained_cohort::tests::admits_distinct_compatible_sources_with_explicit_accounting_and_slot_counts ... ok
+test engine::trained_cohort::tests::rejects_aliases_duplicate_weights_digest_damage_contract_mismatch_and_bounds ... ok
+test engine::trained_cohort::tests::rejects_symbolic_link_sources ... ok
+test engine::training_graph::tests::deterministic_equations_and_sensor_identity_are_separate_from_deployment ... ok
+test engine::training_graph::tests::invalid_sensor_cadence_bias_and_oversized_transport_reject ... ok
+test engine::training_graph::tests::named_views_cover_every_parameter_and_state_exactly_once ... ok
+test engine::training_graph::tests::recurrent_gate_names_and_offsets_match_deployed_packing ... ok
+test engine::training_runner::tests::invalid_lengths_nonfinite_and_sequence_bounds_reject ... ok
+test engine::training_runner::tests::long_recurrence_matches_scalar_and_sse2_and_preserves_input_bytes ... ok
+test engine::work_progress::tests::archive_phase_overflow_is_bounded_and_does_not_interrupt_work ... ok
+test engine::work_progress::tests::archive_phase_unwind_closes_intervals_and_clears_the_thread_context ... ok
+test engine::work_progress::tests::completed_reads_and_blocks_advance_only_the_active_job ... ok
+test engine::work_progress::tests::finished_phases_do_not_receive_later_process_samples ... ok
+test engine::work_progress::tests::nested_archive_phases_close_in_order_without_changing_byte_progress ... ok
+test engine::work_progress::tests::rejected_nested_job_preserves_the_owner_and_stops_all_observers ... ok
+test engine::world_step::tests::default_substeps_cover_exactly_one_fixed_step ... ok
+test napi_engine::tests::bigint_conversion_preserves_maximum_u64 ... ok
+test napi_engine::tests::bridge_safety_rejects_count_and_byte_ceiling_plus_one ... ok
+test napi_engine::tests::closing_wake_faults_runtime_once_without_recursive_notification ... ok
+test napi_engine::tests::command_metadata_and_payload_copy_are_concretely_bounded ... ok
+test napi_engine::tests::drain_guard_enforces_one_consumer_and_recovers_after_drop ... ok
+test napi_engine::tests::explicit_inference_selection_rejects_unavailable_cpu_and_unknown_identity ... ok
+test napi_engine::tests::fresh_run_exact_hex_inputs_never_accept_number_shaped_shortcuts ... ok
+test napi_engine::tests::fresh_run_session_exposes_one_nonblocking_operation_owner ... ok
+test napi_engine::tests::fresh_run_worker_panic_permanently_faults_with_bounded_first_detail ... ok
+test napi_engine::tests::numeric_limits_reject_fractional_nonfinite_zero_and_oversized_values ... ok
+test napi_engine::tests::queue_full_is_a_coalesced_wake_and_closing_is_terminal ... ok
+test napi_engine::tests::retained_origin_wire_metadata_preserves_full_width_ids_and_source_classes ... ok
+test napi_engine::tests::test_hook_epoch_requires_canonical_positive_lowercase_hex ... ok
+test napi_queue_diagnostics::tests::diagnostics_preserve_real_queue_saturation_and_peaks_after_drain ... ok
+test napi_running_engine::inventory_wire_tests::qualification_and_production_inventory_include_library_membership_and_omit_absence ... ok
+test napi_running_engine::task_panic_tests::entity_selector_arguments_reject_coercion ... ok
+test napi_running_engine::task_panic_tests::export_task_panic_removes_written_archive_and_preserves_leased_inputs ... ok
+test napi_running_engine::task_panic_tests::fresh_run_task_panic_removes_written_checkpoint_and_keeps_candidate_private ... ok
+test napi_running_engine::task_panic_tests::import_preparation_task_panic_removes_inventory_and_keeps_candidate_private ... ok
+test napi_running_engine::task_panic_tests::import_preparation_task_partial_publication_rejects_and_retries ... ok
+test napi_running_engine::task_panic_tests::import_validation_task_panic_removes_extracted_checkpoint_and_preserves_upload ... ok
+test napi_running_engine::task_panic_tests::libuv_task_panic_faults_the_retained_engine ... ok
+test napi_running_engine::task_panic_tests::libuv_task_root_contains_panics_and_preserves_ordinary_errors ... ok
+test napi_running_engine::task_panic_tests::synchronous_napi_root_panic_faults_the_retained_engine ... ok
+test napi_running_engine::task_panic_tests::unstarted_archive_admission_counts_source_and_prevents_concurrent_start ... ok
+test napi_teacher_capture::tests::epoch_parser_rejects_zero_unicode_uppercase_and_wrong_width ... ok
+test simd_kernels::distance_tests::distance_rejects_unequal_lengths_before_loading - should panic ... ok
+test simd_kernels::distance_tests::positive_distance_reduction_covers_tails_aliases_and_float32_extremes ... ok
+test simd_kernels::dot_tests::independent_accumulators_cover_every_tail_and_admitted_long_row ... ok
+test simd_kernels::dot_tests::independent_accumulators_reject_mismatch_before_raw_reads - should panic ... ok
+
+test result: ok. 841 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 43.29s
+
+=== Rust fmt ===
+=== Rust clippy ===
+[1m[92m Downloading[0m crates ...
+[1m[92m  Downloaded[0m schemars v1.2.3
+[1m[92m  Downloaded[0m serde_derive_internals v0.30.0
+[1m[92m  Downloaded[0m ref-cast v1.0.27
+[1m[92m  Downloaded[0m dyn-clone v1.0.20
+[1m[92m  Downloaded[0m schemars_derive v1.2.3
+[1m[92m  Downloaded[0m ref-cast-impl v1.0.27
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m libc v0.2.189
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m version_check v0.9.5
+[1m[92m   Compiling[0m find-msvc-tools v0.1.10
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m shlex v2.0.1
+[1m[92m   Compiling[0m pkg-config v0.3.33
+[1m[92m    Checking[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m typenum v1.20.1
+[1m[92m    Checking[0m memchr v2.8.3
+[1m[92m   Compiling[0m syn v2.0.119
+[1m[92m   Compiling[0m syn v3.0.3
+[1m[92m   Compiling[0m jobserver v0.1.35
+[1m[92m   Compiling[0m cc v1.4.2
+[1m[92m   Compiling[0m crossbeam-utils v0.8.23
+[1m[92m    Checking[0m futures-core v0.3.33
+[1m[92m   Compiling[0m napi-build v2.3.2
+[1m[92m    Checking[0m bitflags v2.13.1
+[1m[92m    Checking[0m futures-sink v0.3.33
+[1m[92m   Compiling[0m crossbeam-epoch v0.9.21
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m zstd-sys v2.0.16+zstd.1.5.7
+[1m[92m    Checking[0m futures-channel v0.3.33
+[1m[92m   Compiling[0m block-buffer v0.10.4
+[1m[92m   Compiling[0m crypto-common v0.1.7
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m    Checking[0m futures-io v0.3.33
+[1m[92m   Compiling[0m vcpkg v0.2.15
+[1m[92m    Checking[0m slab v0.4.12
+[1m[92m    Checking[0m futures-task v0.3.33
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m crossbeam-deque v0.8.8
+[1m[92m    Checking[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m libsqlite3-sys v0.38.2
+[1m[92m   Compiling[0m digest v0.10.7
+[1m[92m   Compiling[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m ref-cast v1.0.27
+[1m[92m   Compiling[0m rayon-core v1.13.0
+[1m[92m   Compiling[0m zstd-safe v7.2.4
+[1m[92m   Compiling[0m futures-macro v0.3.33
+[1m[92m    Checking[0m linux-raw-sys v0.12.1
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m   Compiling[0m crc32fast v1.5.2
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m    Checking[0m foldhash v0.2.0
+[1m[92m    Checking[0m futures-util v0.3.33
+[1m[92m   Compiling[0m unicode-segmentation v1.13.3
+[1m[92m    Checking[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m convert_case v0.11.0
+[1m[92m   Compiling[0m sha2 v0.10.9
+[1m[92m    Checking[0m futures-executor v0.3.33
+[1m[92m   Compiling[0m ref-cast-impl v1.0.27
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m   Compiling[0m serde_derive_internals v0.30.0
+[1m[92m   Compiling[0m napi v3.10.5
+[1m[92m    Checking[0m libloading v0.9.0
+[1m[92m   Compiling[0m semver v1.0.28
+[1m[92m    Checking[0m adler2 v2.0.1
+[1m[92m    Checking[0m itoa v1.0.18
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m    Checking[0m simd-adler32 v0.3.10
+[1m[92m    Checking[0m miniz_oxide v0.9.1
+[1m[92m   Compiling[0m napi-derive-backend v5.1.2
+[1m[92m    Checking[0m napi-sys v3.2.3
+[1m[92m   Compiling[0m schemars_derive v1.2.3
+[1m[92m    Checking[0m futures v0.3.33
+[1m[92m    Checking[0m xattr v1.6.1
+[1m[92m   Compiling[0m slither_native v0.1.0 (/home/runner/work/slither_neuroevo/slither_neuroevo/native)
+[1m[92m    Checking[0m hashlink v0.12.2
+[1m[92m    Checking[0m filetime v0.2.29
+[1m[92m    Checking[0m fallible-streaming-iterator v0.1.9
+[1m[92m    Checking[0m fallible-iterator v0.3.0
+[1m[92m    Checking[0m nohash-hasher v0.2.0
+[1m[92m    Checking[0m rustc-hash v2.1.3
+[1m[92m    Checking[0m either v1.18.0
+[1m[92m    Checking[0m dyn-clone v1.0.20
+[1m[92m    Checking[0m ctor v1.0.9
+[1m[92m    Checking[0m smallvec v1.16.1
+[1m[92m   Compiling[0m napi-derive v3.5.10
+[1m[92m    Checking[0m schemars v1.2.3
+[1m[92m    Checking[0m rusqlite v0.40.2
+[1m[92m    Checking[0m rayon v1.12.0
+[1m[92m    Checking[0m tar v0.4.46
+[1m[92m    Checking[0m flate2 v1.1.10
+[1m[92m    Checking[0m zstd v0.13.3
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 25.14s
+=== Native addon ===
+
+> slither-native@0.1.0 build
+> napi build --platform --release
+
+[1m[92m   Compiling[0m libc v0.2.189
+[1m[92m   Compiling[0m version_check v0.9.5
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m find-msvc-tools v0.1.10
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m shlex v2.0.1
+[1m[92m   Compiling[0m pkg-config v0.3.33
+[1m[92m   Compiling[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m typenum v1.20.1
+[1m[92m   Compiling[0m crossbeam-utils v0.8.23
+[1m[92m   Compiling[0m syn v2.0.119
+[1m[92m   Compiling[0m jobserver v0.1.35
+[1m[92m   Compiling[0m crossbeam-epoch v0.9.21
+[1m[92m   Compiling[0m cc v1.4.2
+[1m[92m   Compiling[0m futures-core v0.3.33
+[1m[92m   Compiling[0m bitflags v2.13.1
+[1m[92m   Compiling[0m futures-sink v0.3.33
+[1m[92m   Compiling[0m napi-build v2.3.2
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m futures-channel v0.3.33
+[1m[92m   Compiling[0m block-buffer v0.10.4
+[1m[92m   Compiling[0m crypto-common v0.1.7
+[1m[92m   Compiling[0m zstd-sys v2.0.16+zstd.1.5.7
+[1m[92m   Compiling[0m futures-io v0.3.33
+[1m[92m   Compiling[0m futures-task v0.3.33
+[1m[92m   Compiling[0m slab v0.4.12
+[1m[92m   Compiling[0m crossbeam-deque v0.8.8
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m vcpkg v0.2.15
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m libsqlite3-sys v0.38.2
+[1m[92m   Compiling[0m digest v0.10.7
+[1m[92m   Compiling[0m foldhash v0.2.0
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m rayon-core v1.13.0
+[1m[92m   Compiling[0m zstd-safe v7.2.4
+[1m[92m   Compiling[0m linux-raw-sys v0.12.1
+[1m[92m   Compiling[0m unicode-segmentation v1.13.3
+[1m[92m   Compiling[0m crc32fast v1.5.2
+[1m[92m   Compiling[0m convert_case v0.11.0
+[1m[92m   Compiling[0m futures-macro v0.3.33
+[1m[92m   Compiling[0m sha2 v0.10.9
+[1m[92m   Compiling[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m futures-util v0.3.33
+[1m[92m   Compiling[0m futures-executor v0.3.33
+[1m[92m   Compiling[0m napi v3.10.5
+[1m[92m   Compiling[0m syn v3.0.3
+[1m[92m   Compiling[0m libloading v0.9.0
+[1m[92m   Compiling[0m simd-adler32 v0.3.10
+[1m[92m   Compiling[0m semver v1.0.28
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m   Compiling[0m adler2 v2.0.1
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m   Compiling[0m miniz_oxide v0.9.1
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m   Compiling[0m napi-derive-backend v5.1.2
+[1m[92m   Compiling[0m napi-sys v3.2.3
+[1m[92m   Compiling[0m futures v0.3.33
+[1m[92m   Compiling[0m xattr v1.6.1
+[1m[92m   Compiling[0m hashlink v0.12.2
+[1m[92m   Compiling[0m slither_native v0.1.0 (/home/runner/work/slither_neuroevo/slither_neuroevo/native)
+[1m[92m   Compiling[0m filetime v0.2.29
+[1m[92m   Compiling[0m either v1.18.0
+[1m[92m   Compiling[0m smallvec v1.16.1
+[1m[92m   Compiling[0m fallible-streaming-iterator v0.1.9
+[1m[92m   Compiling[0m fallible-iterator v0.3.0
+[1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m nohash-hasher v0.2.0
+[1m[92m   Compiling[0m ctor v1.0.9
+[1m[92m   Compiling[0m rustc-hash v2.1.3
+[1m[92m   Compiling[0m napi-derive v3.5.10
+[1m[92m   Compiling[0m rayon v1.12.0
+[1m[92m   Compiling[0m tar v0.4.46
+[1m[92m   Compiling[0m flate2 v1.1.10
+[1m[92m   Compiling[0m zstd v0.13.3
+[1m[92m   Compiling[0m rusqlite v0.40.2
+[1m[92m    Finished[0m `release` profile [optimized + debuginfo] target(s) in 2m 45s
+=== Browser build ===
+
+> slither-neuroevo@1.0.0 build:client
+> vite build
+
+[36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 41 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m 19.73 kB[22m[1m[22m[2m │ gzip:  5.12 kB[22m
+[2mdist/[22m[2massets/[22m[35mindex-gRvvv7nX.css  [39m[1m[2m 15.63 kB[22m[1m[22m[2m │ gzip:  3.92 kB[22m
+[2mdist/[22m[2massets/[22m[36mindex-DbhO3Op_.js   [39m[1m[2m212.67 kB[22m[1m[22m[2m │ gzip: 62.34 kB[22m
+[32m✓ built in 468ms[39m
+=== Vitest ===
+
+> slither-neuroevo@1.0.0 test
+> vitest run --reporter=dot
+
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90m/home/runner/work/slither_neuroevo/slither_neuroevo[39m
+
+[tests.panic-addon] building isolated release test hooks
+[1m[92m   Compiling[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m futures-core v0.3.33
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m bitflags v2.13.1
+[1m[92m   Compiling[0m futures-sink v0.3.33
+[1m[92m   Compiling[0m typenum v1.20.1
+[1m[92m   Compiling[0m futures-channel v0.3.33
+[1m[92m   Compiling[0m crossbeam-utils v0.8.23
+[1m[92m   Compiling[0m futures-task v0.3.33
+[1m[92m   Compiling[0m slab v0.4.12
+[1m[92m   Compiling[0m generic-array v0.14.7
+[1m[92m   Compiling[0m pin-project-lite v0.2.17
+[1m[92m   Compiling[0m futures-io v0.3.33
+[1m[92m   Compiling[0m futures-util v0.3.33
+[1m[92m   Compiling[0m crossbeam-epoch v0.9.21
+[1m[92m   Compiling[0m libc v0.2.189
+[1m[92m   Compiling[0m foldhash v0.2.0
+[1m[92m   Compiling[0m linux-raw-sys v0.12.1
+[1m[92m   Compiling[0m hashbrown v0.17.1
+[1m[92m   Compiling[0m rustix v1.1.4
+[1m[92m   Compiling[0m crossbeam-deque v0.8.8
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m block-buffer v0.10.4
+[1m[92m   Compiling[0m crypto-common v0.1.7
+[1m[92m   Compiling[0m zstd-sys v2.0.16+zstd.1.5.7
+[1m[92m   Compiling[0m libloading v0.9.0
+[1m[92m   Compiling[0m simd-adler32 v0.3.10
+[1m[92m   Compiling[0m futures-executor v0.3.33
+[1m[92m   Compiling[0m adler2 v2.0.1
+[1m[92m   Compiling[0m miniz_oxide v0.9.1
+[1m[92m   Compiling[0m futures v0.3.33
+[1m[92m   Compiling[0m xattr v1.6.1
+[1m[92m   Compiling[0m napi-sys v3.2.3
+[1m[92m   Compiling[0m zstd-safe v7.2.4
+[1m[92m   Compiling[0m digest v0.10.7
+[1m[92m   Compiling[0m libsqlite3-sys v0.38.2
+[1m[92m   Compiling[0m rayon-core v1.13.0
+[1m[92m   Compiling[0m hashlink v0.12.2
+[1m[92m   Compiling[0m crc32fast v1.5.2
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m filetime v0.2.29
+[1m[92m   Compiling[0m fallible-streaming-iterator v0.1.9
+[1m[92m   Compiling[0m fallible-iterator v0.3.0
+[1m[92m   Compiling[0m smallvec v1.16.1
+[1m[92m   Compiling[0m nohash-hasher v0.2.0
+[1m[92m   Compiling[0m cpufeatures v0.2.17
+[1m[92m   Compiling[0m rustc-hash v2.1.3
+[1m[92m   Compiling[0m either v1.18.0
+[1m[92m   Compiling[0m ctor v1.0.9
+[1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m rayon v1.12.0
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m   Compiling[0m napi v3.10.5
+[1m[92m   Compiling[0m rusqlite v0.40.2
+[1m[92m   Compiling[0m sha2 v0.10.9
+[1m[92m   Compiling[0m tar v0.4.46
+[1m[92m   Compiling[0m flate2 v1.1.10
+[1m[92m   Compiling[0m zstd v0.13.3
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m getrandom v0.4.3
+[1m[92m   Compiling[0m slither_native v0.1.0 (/home/runner/work/slither_neuroevo/slither_neuroevo/native)
+[1m[92m    Finished[0m `release` profile [optimized + debuginfo] target(s) in 1m 39s
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[rust.persistence] removed unreferenced managed files {
+  checkpointFiles: 1,
+  hallOfFameFiles: 71,
+  savedBrainFiles: 0,
+  storedBytes: '1150'
+}
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[rust.persistence] removed unreferenced managed files {
+  checkpointFiles: 1,
+  hallOfFameFiles: 0,
+  savedBrainFiles: 0,
+  storedBytes: '17'
+}
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mshows committed lifecycle work and clears unsupported or absent telemetry
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mzooms around the cursor and preserves the manual camera across rendering frames
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mpans to an outside release point and stops dragging after release or focus loss
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mbounds zoom and returns to automatic overview or follow with Home, Fit arena, and V
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mpans even with a selected snake and reserves Shift-drag for God Mode movement
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mpans even with a selected snake and reserves Shift-drag for God Mode movement
+[22m[39mSelected snake #7 (skin: 0)
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mfollows the selected population owner and holds the camera during a life boundary
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mfollows the selected population owner and holds the camera during a life boundary
+[22m[39mSelected snake #8 (skin: 0)
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2menables selected decision inspection explicitly and clears delivered data on close and disconnect
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2menables selected decision inspection explicitly and clears delivered data on close and disconnect
+[22m[39mSelected snake #7 (skin: 0)
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mshows native retained provenance for the selected snake and clears it on disconnect
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mshows native retained provenance for the selected snake and clears it on disconnect
+[22m[39mSelected snake #7 (skin: 0)
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mkeeps camera sliders local and submits the full authoritative panel through Apply and reset
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2msubmits explicit v4/v2 choices with a matching graph and blocks incompatible custom graph reset
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2msubmits explicit v4/v2 choices with a matching graph and blocks incompatible custom graph reset
+[22m[39m[import] activated cccccccccccc from run basic-run
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mshows rejected resets beside Apply and acknowledges a successful retry
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstderr[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mshows rejected resets beside Apply and acknowledges a successful retry
+[22m[39m[ws] reset failed: proposed population checkpoint needs 674.26 MiB; limit is 512.00 MiB. Reduce NPC snakes or brain size.
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mshows rejected resets beside Apply and acknowledges a successful retry
+[22m[39m[import] activated cccccccccccc from run retry-run
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mrestores an explicitly selected spectator session after reconnect
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mdownloads the Rust archive through one direct link without fetching population JSON
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mreplaces the Hall of Fame view after reset
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mreplaces the Hall of Fame view after reset
+[22m[39m[import] activated cccccccccccc from run new-run
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mreplaces the Hall of Fame view after newRun
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mreplaces the Hall of Fame view after newRun
+[22m[39m[import] activated cccccccccccc from run new-run
+
+[33m[39m[32m·[39m[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mreplaces the Hall of Fame view after import
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mreplaces the Hall of Fame view after import
+[22m[39m[import] activated cccccccccccc from run new-run
+
+[33m[39m[32m·[39m[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mrefreshes compact production Hall of Fame records once when a generation advances
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[33m[39m[32m·[39m[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2muploads the selected Rust archive File unchanged
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mconfirms the observed generation and holds manual completion until native durability
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2msends New Run and refreshes the visible seed after acknowledgement
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+[new-run] started seed 99
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mmakes a recovered Rust lineage visible with exact provenance
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstderr[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mmakes a recovered Rust lineage visible with exact provenance
+[22m[39m[recovery] Recovered checkpoint aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa at generation 2 from failed run source-run into branch branch-run; failed checkpoint ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff; no completed generations were lost.
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mwarns visibly when an old SQLite save supplied only the population
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[90mstderr[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mwarns visibly when an old SQLite save supplied only the population
+[22m[39m[legacy-conversion] Started from legacy gzip snapshot 17. The population was converted, but this is a new run rather than an exact continuation.
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2mmakes an exact imported branch visible after live state replacement
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+[import] activated cccccccccccc from run branch-run
+
+[90mstdout[2m | src/main.integration.test.ts[2m > [22m[2mmain.ts startup smoke[2m > [22m[2msends canvas steering and boost release without another sensor or display frame
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2menforces browser origins on production HTTP, WebSockets and startup-fault health
+[22m[39m[rust.startup-fault] cannot resume: database does not exist at /tmp/slither-rust-browser-origin-XVMac5/missing.sqlite
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2mfaults explicit resume latest against a missing database without creating state
+[22m[39m[rust.startup-fault] cannot resume: database does not exist at /tmp/slither-rust-missing-resume-9QPWJL/missing.sqlite
+
+[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2mfaults explicit resume sha256:abababababababababababababababababababababababababababababababab against a missing database without creating state
+[22m[39m[rust.startup-fault] cannot resume: database does not exist at /tmp/slither-rust-missing-resume-HBRmjx/missing.sqlite
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2mrejects fresh startup of an existing legacy database without modifying it
+[22m[39m[rust.startup-fault] fresh startup requires a compatible managed checkpoint database; legacy stores require explicit resume/conversion
+
+[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2mrejects fresh startup of an existing unrelated database without modifying it
+[22m[39m[rust.startup-fault] resume requires a managed or TypeScript v2 checkpoint database
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2mresumes exact managed IDs and exposes recovery or health-only failure over real HTTP/WebSocket
+[22m[39m[rust.recovery] {
+  failedRunId: [32m'885ae6e7-f6b8-4a8b-ab14-49330729c1f8'[39m,
+  branchRunId: [32m'ac194a21-ed42-4c2e-8e56-cf20fa267505'[39m,
+  failedCheckpointId: [32m'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'[39m,
+  recoveredCheckpointId: [32m'59e15470b18c6660ba98850d1276cfaeaaec54d6958bfeb1129dbb01bc0e3170'[39m,
+  recoveredGeneration: [32m'0000000000000001'[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+[90mstderr[2m | server/rustServer.native.test.ts[2m > [22m[2mRust server real sockets[2m > [22m[2mresumes exact managed IDs and exposes recovery or health-only failure over real HTTP/WebSocket
+[22m[39m[rust.startup-fault] no valid retained managed checkpoint; startup remains faulted
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[2m[90m-[39m[22m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m
+thread 'slither-calc-0' (11876) panicked at src/engine/control.rs:878:33:
+test-only calculation worker panic
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'slither-calc-0' (11876) panicked at src/engine/control.rs:51:19:
+calculation inference worker partition 1 panicked
+[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 2, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'c49a3807-a0ef-4eda-8fb6-59622c24598d'[39m,
+  branchRunId: [32m'7f77010b-031b-4769-a74c-9cb29a265fd8'[39m,
+  failedCheckpointId: [32m'13f5879758f47b1d3e7ee3725dbb5d979b38a282fd9e821e242c1d5f23a96da3'[39m,
+  recoveredCheckpointId: [32m'0f622e88e9c04599f720a25229e1f3e7c3a2bb1db209c238a99825db924e121c'[39m,
+  recoveredGeneration: [32m'0000000000000002'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: { from: [32m'0000000000000002'[39m, through: [32m'0000000000000002'[39m }
+}
+
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 2, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'c49a3807-a0ef-4eda-8fb6-59622c24598d'[39m,
+  branchRunId: [32m'7f77010b-031b-4769-a74c-9cb29a265fd8'[39m,
+  failedCheckpointId: [32m'13f5879758f47b1d3e7ee3725dbb5d979b38a282fd9e821e242c1d5f23a96da3'[39m,
+  recoveredCheckpointId: [32m'0f622e88e9c04599f720a25229e1f3e7c3a2bb1db209c238a99825db924e121c'[39m,
+  recoveredGeneration: [32m'0000000000000002'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: { from: [32m'0000000000000002'[39m, through: [32m'0000000000000002'[39m }
+}
+
+[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'410b732c-54de-4ab6-ac48-c110a4d6be4b'[39m,
+  branchRunId: [32m'14895297-7d8f-43c4-ab41-2e8f399c5be2'[39m,
+  failedCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredGeneration: [32m'0000000000000003'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'410b732c-54de-4ab6-ac48-c110a4d6be4b'[39m,
+  branchRunId: [32m'14895297-7d8f-43c4-ab41-2e8f399c5be2'[39m,
+  failedCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredGeneration: [32m'0000000000000003'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'410b732c-54de-4ab6-ac48-c110a4d6be4b'[39m,
+  branchRunId: [32m'14895297-7d8f-43c4-ab41-2e8f399c5be2'[39m,
+  failedCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredGeneration: [32m'0000000000000003'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+verified=1/6 generation=4 bytes=1126912
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'e2fdbed7-9278-4382-a0ef-2411b808689d'[39m,
+  branchRunId: [32m'a32eb5a8-2ffc-48aa-963f-5f5ba9fcafbf'[39m,
+  failedCheckpointId: [32m'5c278674f8b50d90b9b71fd35139f7189176061a9b4e7cdeeffade2e5dc8a31d'[39m,
+  recoveredCheckpointId: [32m'5c278674f8b50d90b9b71fd35139f7189176061a9b4e7cdeeffade2e5dc8a31d'[39m,
+  recoveredGeneration: [32m'0000000000000001'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+verified=2/6 generation=1 bytes=4670464
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'410b732c-54de-4ab6-ac48-c110a4d6be4b'[39m,
+  branchRunId: [32m'07f986e3-04d8-4b8b-ba57-724f88983c74'[39m,
+  failedCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredCheckpointId: [32m'084cfd59adf74f19d1fba6f513a68de308b315178119e8201e052b4ae56f52aa'[39m,
+  recoveredGeneration: [32m'0000000000000001'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: { from: [32m'0000000000000001'[39m, through: [32m'0000000000000002'[39m }
+}
+
+verified=3/6 generation=1 bytes=1040384
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'410b732c-54de-4ab6-ac48-c110a4d6be4b'[39m,
+  branchRunId: [32m'391e9109-bf8e-45d3-8dd4-703101361e90'[39m,
+  failedCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredCheckpointId: [32m'6af48d2766212df556e92a23b1b325a4883f3a3a41f9a32fb238388a1737de1d'[39m,
+  recoveredGeneration: [32m'0000000000000002'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: { from: [32m'0000000000000002'[39m, through: [32m'0000000000000002'[39m }
+}
+
+verified=4/6 generation=2 bytes=1035776
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'410b732c-54de-4ab6-ac48-c110a4d6be4b'[39m,
+  branchRunId: [32m'91981c62-4ff1-4b5c-8036-2e1e530cfee1'[39m,
+  failedCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredCheckpointId: [32m'91ae746d43d0a0795f13956bd335434b27c8a446692feaef365627056e4d4727'[39m,
+  recoveredGeneration: [32m'0000000000000003'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+verified=5/6 generation=3 bytes=1008128
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mrestores prior-run generation 3, exports it, and advances without replacing either source
+[22m[39m[rust.resume] {
+  failedRunId: [32m'c5991580-e5e3-47bd-bd37-584c4e13cf90'[39m,
+  branchRunId: [32m'c52b62bf-cf3f-4870-b338-b488b905b2d8'[39m,
+  failedCheckpointId: [32m'3a0c99d2ccfc3ba817411f55680f19044ba370711815b7da47bf8639422f02f1'[39m,
+  recoveredCheckpointId: [32m'3a0c99d2ccfc3ba817411f55680f19044ba370711815b7da47bf8639422f02f1'[39m,
+  recoveredGeneration: [32m'0000000000000001'[39m,
+  explicitResume: [33mtrue[39m,
+  lostCompletedGenerations: [1mnull[22m
+}
+
+verified=6/6 generation=1 bytes=1040384
+[33m[39m[32m·[39m[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mfails exact selection for corrupt, missing and unknown roots without switching to another valid anchor
+[22m[39m[rust.startup-fault] fresh-run barrier failed: run-start checkpoint failed: checkpoint USTAR_CHECKSUM: USTAR header checksum mismatch
+
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mfails exact selection for corrupt, missing and unknown roots without switching to another valid anchor
+[22m[39m[rust.startup-fault] fresh-run barrier failed: run-start checkpoint failed: checkpoint I/O failed: No such file or directory (os error 2)
+
+[90mstderr[2m | server/rustServer.retainedResume.native.test.ts[2m > [22m[2mRust retained exact-ID resume[2m > [22m[2mfails exact selection for corrupt, missing and unknown roots without switching to another valid anchor
+[22m[39m[rust.startup-fault] requested exact checkpoint is not retained
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstderr[2m | server/rustEngine/inferenceBackend.native.test.ts[2m > [22m[2mpasses an explicit native memory budget through normal server startup and preserves checkpoint arithmetic on resume
+[22m[39m[rust.startup-fault] fresh-run state failed: state requires an estimated 1421444330 bytes, exceeding the 268435456-byte ceiling
+
+[33m[39m[32m·[39m[90mstdout[2m | server/rustEngine/inferenceBackend.native.test.ts[2m > [22m[2mstarts a population-only i16 lineage without rewriting its scalar source and resumes it normally
+[22m[39m[rust.startup] population fork source=3e257a21574a0d2dddac2fa8a00bdb4a6e8b2864c43e2310ed1a612764239fbb run=population-fork-3e257a21574a0d2dddac2fa8a00bdb4a6e8b2864c43e2310ed1a612764239fbb-963a40a2-918e-427a-b36c-f7262c561491 backend=rust-i16-matrix-fma128-v1
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstdout[2m | src/settings.test.ts[2m > [22m[2msettings.ts[2m > [22m[2mstages explicit v4/v2 choices, preserves zero profile codes and omits inactive settings
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m16[39m, scalarCount: [33m19[39m, inputSize: [33m83[39m }
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstdout[2m | src/config.test.ts[2m > [22m[2mconfig.ts[2m > [22m[2msizes stack/editor drafts from exact authoritative v4 profiles and resets to v3
+[22m[39m[sensors.layout.v3_enabled] { bins: [33m8[39m, scalarCount: [33m19[39m, inputSize: [33m51[39m }
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[90mstderr[2m | src/storage.test.ts[2m > [22m[2mstorage.ts[2m > [22m[2mloadBaselineBotSettings clamps negative values and clears invalid payloads
+[22m[39mBaseline bot settings payload invalid; clearing.
+
+[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m[33m[39m[32m·[39m
+
+[2m Test Files [22m [1m[32m118 passed[39m[22m[90m (118)[39m
+[2m      Tests [22m [1m[32m1058 passed[39m[22m[2m | [22m[33m15 skipped[39m[90m (1073)[39m
+[2m   Start at [22m 03:34:59
+[2m   Duration [22m 462.08s[2m (transform 2.70s, setup 327ms, import 5.38s, tests 346.08s, environment 7ms)[22m
+
+=== TypeScript ===
+
+> slither-neuroevo@1.0.0 typecheck
+> tsc -p tsconfig.json
+
+=== ESLint ===
+
+> slither-neuroevo@1.0.0 lint
+> eslint .
+
