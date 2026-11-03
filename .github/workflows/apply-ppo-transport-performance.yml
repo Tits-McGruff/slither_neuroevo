@@ -1,0 +1,65 @@
+name: Apply PPO transport performance fix
+
+on:
+  push:
+    branches:
+      - fix/ppo-transport-performance
+    paths:
+      - .github/workflows/apply-ppo-transport-performance.yml
+      - .github/scripts/apply_ppo_transport_performance.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Apply performance correction
+        run: python .github/scripts/apply_ppo_transport_performance.py
+
+      - name: Format Rust
+        run: cargo fmt --manifest-path native/Cargo.toml
+
+      - name: Rust library tests
+        run: cargo test --manifest-path native/Cargo.toml --lib
+
+      - name: Rust lint
+        run: cargo clippy --manifest-path native/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Focused transport tests
+        run: npx vitest run server/binarySensors.test.ts server/wsHub.priority.integration.test.ts server/rustEngine/controllerDelivery.test.ts
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Commit verified fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-ppo-transport-performance.yml .github/scripts/apply_ppo_transport_performance.py
+          git add native/src/engine/control_phase.rs server/protocol.ts server/wsHub.ts server/wsHub.priority.integration.test.ts server/binarySensors.ts server/binarySensors.test.ts
+          git commit -m "Use binary sensor transport for PPO bots"
+          git push origin HEAD:fix/ppo-transport-performance
