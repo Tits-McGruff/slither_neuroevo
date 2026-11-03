@@ -222,8 +222,14 @@ canvas {
   border-radius: 10px;
   width: var(--panel-width);
   max-height: calc(100vh - 20px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   user-select: none;
+}
+.panel *,
+.panel *::before,
+.panel *::after {
+  box-sizing: border-box;
 }
 .panel .title {
   display: flex;
@@ -783,26 +789,29 @@ summary {
 /* Tab System */
 .tab-header {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   padding-bottom: 8px;
 }
-.tab-btn {
-  flex: 1;
+.panel .tab-btn {
+  flex: 1 1 22%;
+  min-width: 0;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: #aab3c5;
   cursor: pointer;
   padding: 6px 4px;
   font-weight: 600;
   transition: all 0.2s;
 }
-.tab-btn:hover {
+.panel .tab-btn:hover {
   color: #e6e6e6;
 }
-.tab-btn.active {
+.panel .tab-btn.active {
   color: #4fceffee; /* Neon blueish */
   border-bottom-color: #4fcfffe3;
 }
