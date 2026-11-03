@@ -2046,7 +2046,7 @@ impl ControlPhaseWorkspace {
                     calculation_key,
                 )?;
             }
-            {
+            if !self.external_events.is_empty() {
                 let trace_request = self
                     .inspector
                     .as_mut()

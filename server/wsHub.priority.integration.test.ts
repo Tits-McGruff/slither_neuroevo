@@ -54,6 +54,7 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
     id: 1,
     socket: socket as unknown as WebSocket,
     clientType: 'ui',
+    binarySensors: false,
     joined: true,
     hasJoined: true,
     awaitingRejoin: false,
@@ -91,6 +92,24 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
 }
 
 describe('WsHub lifecycle priority', () => {
+  it('sends negotiated bot observations as compact binary reliable payloads', () => {
+    const { hub, state, socket } = buildFakeHub();
+    state.clientType = 'bot';
+    state.binarySensors = true;
+    expect(hub.sendJsonTo(1, {
+      type: 'sensors', tick: 42, snakeId: 7, sensors: [1.25, -2.5],
+      meta: { x: 3, y: 4, dir: 0.5 }
+    })).toBe(true);
+    expect(socket.sent[0]!.binary).toBe(true);
+    expect(Buffer.isBuffer(socket.sent[0]!.payload)).toBe(true);
+    expect((socket.sent[0]!.payload as Buffer).subarray(0, 4).toString('ascii')).toBe('SNS2');
+    socket.sent[0]!.complete();
+    state.binarySensors = false;
+    expect(hub.sendJsonTo(1, { type: 'sensors', tick: 43, snakeId: 7, sensors: [0] })).toBe(true);
+    expect(socket.sent[1]!.binary).toBe(false);
+    expect(JSON.parse(String(socket.sent[1]!.payload)).type).toBe('sensors');
+  });
+
   it('admits inspector commands only from joined UI clients', () => {
     const {hub, state} = buildFakeHub();
     const handler = vi.fn(); hub.setHandlers({onInspectEntity: handler});
