@@ -167,6 +167,18 @@ export class ExternalControllerRouting {
     this.flush();
   }
 
+  /** Disconnect only if an asynchronous observation failure still names the current lease. */
+  observationDeliveryFailed(connectionId: RustBackgroundIdentity, leaseId: RustBackgroundIdentity): void {
+    if (!/^[0-9a-f]{16}$/u.test(connectionId) || !/^[0-9a-f]{16}$/u.test(leaseId)) return;
+    const numeric = Number(BigInt(`0x${connectionId}`));
+    const route = this.routes.get(numeric);
+    if (!route || route.closed || route.id !== connectionId || route.lease !== leaseId) return;
+    route.closed = true;
+    delete route.action;
+    route.pending = 'close';
+    this.flush();
+  }
+
   /** Update socket routing tags solely from native envelopes and correlated results. */
   event(event: RustBackgroundEvent): void {
     const assignment = event.controllerJoinAssignment ?? event.controllerReclaimAssignment;

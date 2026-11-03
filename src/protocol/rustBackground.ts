@@ -218,7 +218,7 @@ export interface RustBackgroundHealth {
   generationCheckpointPublished: boolean;
   /** Whether the worker's exact descriptor has been acknowledged. */
   generationPersistenceAcknowledged: boolean;
-  /** Outstanding local controller sends. */
+  /** Outstanding receipt-driven controller assignment sends; ordinary observations are asynchronous. */
   pendingExternalDeliveries: RustBackgroundIdentity;
   /** Retired scheduler tickets. */
   schedulerCompletedSteps: RustBackgroundIdentity;
@@ -404,7 +404,7 @@ export interface RustBackgroundControllerMessage {
   sourceCompletedStep: RustBackgroundIdentity;
   /** Reliable event discriminator. */
   kind: 'observation' | 'replacementAssignment';
-  /** Rust-delivered sensor-v3 vector for observations. */
+  /** Rust-delivered canonical sensor vector for observations. */
   sensors?: number[];
   /** Pre-movement pose, present on observations. */
   x?: number;
@@ -474,7 +474,9 @@ export interface RustBackgroundEvent {
   importPublication?: unknown;
   /** Replaceable basic stats and cached frame metadata, after priority events. */
   display?: RustBackgroundDisplay;
-  /** Full reliable ordinary-step batch, delivered before its step is published. */
+  /** Ordered ordinary observations from an already-published authoritative step. */
+  controllerObservations?: RustBackgroundControllerMessage[];
+  /** Receipt-driven ordinary-step batch containing a controller replacement. */
   controllerMessages?: RustBackgroundControllerMessage[];
   /** Exact ordinary receipt result, separate from generation assignments. */
   controllerReceiptResolution?: RustControllerReceiptResolution;

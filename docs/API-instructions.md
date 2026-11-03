@@ -528,6 +528,14 @@ and `welcome.sensorSpec.order`; do not hard-code the default length. `meta` is
 optional in the type but the current server includes the controlled snake's
 pose.
 
+Ordinary sensor packets form an ordered asynchronous stream. Rust commits the
+fixed step only after the complete observation batch has been admitted to its
+bounded output queue, then continues simulation without waiting for Node, the
+WebSocket, or a client action to acknowledge that observation. `tick` identifies
+the committed source boundary. The latest accepted action remains held under the
+normal input timeout. Fresh/replacement assignments, reconnects and generation
+reassignments retain their reliable transactional delivery rules.
+
 ### `stats`
 
 Replaceable stats follow the committed display cadence, bounded by the configured
@@ -611,12 +619,12 @@ the socket.
 
 ## Sensor contract
 
-The ordinary production default is the frozen `v3` layout, described below.
-Explicitly admitted candidate v4 profiles use `24 + 6 * bubbleBins` inputs for
-Basic and `24 + 15 * bubbleBins` for Motion, with 8..32 bins. They require the
-exact Rust canonical sensor contract carried in welcome metadata; equal widths
-do not imply equal meanings. Their workload/ablation and production-default
-qualification remains open.
+Fresh current runs use the Rust v4 Motion/B16 sensor contract by default.
+V4 Basic uses `24 + 6 * bubbleBins` inputs and v4 Motion uses
+`24 + 15 * bubbleBins`, with 8..32 bins; Motion/B16 therefore has 264 inputs.
+Clients must use the exact canonical contract in `welcome.sensorSpec`, because
+equal widths do not imply equal meanings. The frozen v3 layout remains a
+compatibility contract for retained runs that explicitly carry it.
 
 The frozen `v3` size is:
 

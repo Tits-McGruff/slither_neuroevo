@@ -216,7 +216,7 @@ pub struct ExternalObservationEvent {
     token_index: Option<usize>,
 }
 
-/// Borrowed bridge batch retained until every exact local send result resolves.
+/// Borrowed staged external batch retained through output admission or transactional delivery.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExternalObservationBatch<'workspace> {
     events: &'workspace [ExternalObservationEvent],
@@ -968,8 +968,9 @@ impl RunningStepCoordinator {
     /// Any failure changes reusable scratch and the process-local attempt epoch,
     /// but not the authoritative [`StateCandidate`](super::state::StateCandidate).
     /// External observations become visible only after every physics substep and
-    /// the nonterminal guard succeed. Their score markers and the complete world
-    /// then publish together after matching local Node send acceptance.
+    /// the nonterminal guard succeed. Observation-only score markers and the complete
+    /// world then publish after bounded Rust output admission; replacement assignments
+    /// retain exact local Node send acceptance before publication.
     pub fn advance_nonterminal<'workspace>(
         &'workspace mut self,
         authority: &mut AuthoritativeState,
@@ -1380,6 +1381,64 @@ impl RunningStepCoordinator {
             inputs,
             diagnostics,
         )?))
+    }
+
+    /// Publish one retained observation-only batch after its complete output has
+    /// already been admitted by the background reliable queue. Controller
+    /// ownership-changing replacement assignments are deliberately excluded.
+    pub(crate) fn publish_pending_observations<'workspace>(
+        &'workspace mut self,
+        authority: &mut AuthoritativeState,
+    ) -> Result<RunningStepOutcome<'workspace>, RunningStepError> {
+        self.validate_authority(authority)?;
+        let key = self
+            .pending_key
+            .ok_or(RunningStepError::PendingDeliveryStateMismatch { field: "step key" })?;
+        if self.pending_delivery_context != Some(PendingDeliveryContext::RunningStep) {
+            return Err(RunningStepError::PendingDeliveryStateMismatch {
+                field: "observation-only delivery context",
+            });
+        }
+        self.validate_pending_batch(key)?;
+        if self.pending_events.is_empty()
+            || self.pending_events.len() != self.pending_observations.len()
+            || self.pending_observation_statuses.len() != self.pending_observations.len()
+        {
+            return Err(RunningStepError::PendingDeliveryStateMismatch {
+                field: "observation-only retained counts",
+            });
+        }
+        for (index, event) in self.pending_events.iter().enumerate() {
+            if !matches!(event.delivery_kind, ExternalDeliveryEventKind::Observation)
+                || !matches!(
+                    self.pending_sources.get(index),
+                    Some(PendingExternalSource::Observation { retained_index }) if *retained_index == index
+                )
+                || self.pending_statuses[index] != ExternalDeliveryStatus::Pending
+                || self.pending_observation_statuses[index] != ExternalDeliveryStatus::Pending
+            {
+                return Err(RunningStepError::PendingDeliveryStateMismatch {
+                    field: "observation-only event state",
+                });
+            }
+        }
+        self.validate_pending_publication(authority, key)?;
+        self.pending_statuses.fill(ExternalDeliveryStatus::Accepted);
+        self.pending_observation_statuses
+            .fill(ExternalDeliveryStatus::Accepted);
+        let inputs = self
+            .pending_inputs
+            .expect("prevalidated pending observation delivery must retain step inputs");
+        let preflight = self
+            .pending_preflight
+            .expect("prevalidated pending observation delivery must retain state proof");
+        self.world_step.commit_prevalidated_external_deliveries(
+            key,
+            &self.pending_observations,
+            &self.pending_observation_statuses,
+        );
+        let diagnostics = self.world_step.diagnostics();
+        self.publish_prevalidated_staged(authority, key, inputs, preflight, diagnostics)
     }
 
     /// Apply local Node send results to the one retained external event batch.

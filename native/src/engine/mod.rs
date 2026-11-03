@@ -42,7 +42,7 @@ pub mod control;
 pub mod control_fixture;
 /// Shared corrected observation boundary and exclusive controller selection.
 pub mod control_phase;
-/// Bounded reliable ordinary-step observations and exact local-send receipts.
+/// Bounded external-controller output and transactional local-send receipts.
 mod controller_output;
 /// Wall-time external-controller leases and staged control-source decisions.
 pub mod controllers;

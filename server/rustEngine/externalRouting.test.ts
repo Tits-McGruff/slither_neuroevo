@@ -76,6 +76,35 @@ describe('bounded external socket routing', () => {
     expect(disconnects).toEqual(['player']);
   });
 
+  it('disconnects only the exact current lease after asynchronous observation failure', () => {
+    const { routing, commands } = fixture();
+    routing.join(1, { type: 'join', mode: 'player', name: 'player' }, 'ui');
+    routing.event({ kind: 'commandRejected', commandSequence: '0000000000000001',
+      rejectionCode: 'InvalidCommand',
+      rejectionDetail: 'InvalidCommand: no reserved legacy identity match' });
+    routing.event({ kind: 'controllerJoinAssignment', controllerJoinAssignment: {
+      requestSequence: '0000000000000002', connectionId: '0000000000000001',
+      leaseId: '0000000000000009', snakeId: 12, controllerKind: 'player',
+      resumeToken: 'a'.repeat(32), completedStep: '0000000000000000'
+    } });
+    routing.event({ kind: 'controllerJoinResolved', controllerJoinResolution: {
+      requestSequence: '0000000000000002', matched: true, accepted: true
+    } });
+
+    const before = commands.length;
+    routing.observationDeliveryFailed('0000000000000001', '0000000000000008');
+    expect(commands).toHaveLength(before);
+
+    routing.observationDeliveryFailed('0000000000000001', '0000000000000009');
+    expect(commands.filter(command => command.kind === 'close')).toHaveLength(1);
+    expect(commands.find(command => command.kind === 'close')).toMatchObject({
+      value: { connectionId: '0000000000000001', leaseId: '0000000000000009' }
+    });
+
+    routing.observationDeliveryFailed('0000000000000001', '0000000000000009');
+    expect(commands.filter(command => command.kind === 'close')).toHaveLength(1);
+  });
+
   it('bounds unresolved routes and never converts an explicit invalid token to a fresh join', () => {
     const { routing, commands, packets } = fixture();
     routing.join(1, { type: 'join', mode: 'player', name: 'bot', resumeToken: 'a'.repeat(32) }, 'bot');

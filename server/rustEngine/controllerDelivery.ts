@@ -51,15 +51,15 @@ function identity(value: string): RustBackgroundIdentity {
   return value;
 }
 
-/** Translate a complete Rust envelope without calculating sensors or looking up game state. */
-function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?: number): PendingDelivery {
-  const receipt: RustGenerationAssignmentReceipt = {
-    operationEpoch: identity(message.operationEpoch),
-    eventSequence: identity(message.eventSequence),
-    connectionId: identity(message.connectionId),
-    leaseId: identity(message.leaseId),
-    accepted: false
-  };
+/** Translate one Rust envelope without calculating sensors or looking up game state. */
+function prepareMessage(
+  message: RustBackgroundControllerMessage,
+  expectedSensorCount?: number
+): AssignMsg | SensorsMsg {
+  identity(message.operationEpoch);
+  identity(message.eventSequence);
+  identity(message.connectionId);
+  identity(message.leaseId);
   if (!Number.isInteger(message.snakeId) || message.snakeId <= 0 || message.snakeId > 16_777_216) {
     throw new RangeError('controller snake ID exceeds the frame-v1 identity range');
   }
@@ -80,7 +80,7 @@ function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?:
       resumeToken: message.resumeToken
     };
     if (replacementReason !== undefined) assignment.replacementReason = replacementReason;
-    return { receipt, message: assignment };
+    return assignment;
   }
   if (message.kind !== 'observation' || !/^[0-9a-f]{16}$/u.test(message.sourceCompletedStep)) {
     throw new TypeError('invalid Rust controller observation');
@@ -95,10 +95,68 @@ function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?:
       typeof direction !== 'number' || !Number.isFinite(direction)) {
     throw new TypeError('controller observation omits the admitted sensor values or pose');
   }
-  return { receipt, message: {
+  return {
     type: 'sensors', tick: Number(tick), snakeId: message.snakeId,
     sensors, meta: { x, y, dir: direction }
-  } };
+  };
+}
+
+/** Add a retained receipt only for delivery paths whose success changes authority state. */
+function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?: number): PendingDelivery {
+  return {
+    receipt: {
+      operationEpoch: identity(message.operationEpoch),
+      eventSequence: identity(message.eventSequence),
+      connectionId: identity(message.connectionId),
+      leaseId: identity(message.leaseId),
+      accepted: false
+    },
+    message: prepareMessage(message, expectedSensorCount)
+  };
+}
+
+/** Transport for ordered observations whose authoritative step is already committed. */
+export interface ControllerObservationPorts {
+  /** Current Rust-admitted sensor width. */
+  sensorCount?(): number;
+  /** Route to the exact socket epoch; false means local transport rejected it. */
+  send(connectionId: RustBackgroundIdentity, message: SensorsMsg): boolean;
+  /** Report only an exact failed lease/connection so Rust can disconnect asynchronously. */
+  failed(connectionId: RustBackgroundIdentity, leaseId: RustBackgroundIdentity): void;
+}
+
+/** Send already-published observation batches without manufacturing native receipts. */
+export class ControllerObservationRouter {
+  constructor(private readonly maxMessages: number, private readonly ports: ControllerObservationPorts) {
+    if (!Number.isSafeInteger(maxMessages) || maxMessages <= 0) {
+      throw new RangeError('controller observation capacity must be a positive safe integer');
+    }
+  }
+
+  /** Validate the complete batch before the first externally visible send. */
+  deliver(messages: readonly RustBackgroundControllerMessage[]): void {
+    if (messages.length === 0 || messages.length > this.maxMessages) {
+      throw new RangeError('controller observation batch exceeds admitted message capacity');
+    }
+    if (messages.some(message => message.kind !== 'observation')) {
+      throw new TypeError('asynchronous controller output may contain observations only');
+    }
+    const sensorCount = this.ports.sensorCount?.();
+    const prepared = messages.map(message => prepareMessage(message, sensorCount));
+    for (const item of prepared) {
+      if (item.type !== 'sensors') {
+        throw new TypeError('asynchronous controller output prepared a non-observation');
+      }
+    }
+    for (let index = 0; index < prepared.length; index++) {
+      const item = prepared[index]! as SensorsMsg;
+      const source = messages[index]!;
+      let accepted = false;
+      try { accepted = this.ports.send(source.connectionId, item); }
+      catch { accepted = false; }
+      if (!accepted) this.ports.failed(source.connectionId, source.leaseId);
+    }
+  }
 }
 
 /**

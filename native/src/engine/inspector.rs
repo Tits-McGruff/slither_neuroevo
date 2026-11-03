@@ -544,7 +544,7 @@ impl InspectorCapture {
         }
     }
 
-    /// Join only the exact successful step and, for external rows, its accepted socket delivery.
+    /// Join only the exact successful step and, for external rows, its accepted authoritative observation boundary.
     pub fn publish(
         &mut self,
         key: PhysicsStepKey,
