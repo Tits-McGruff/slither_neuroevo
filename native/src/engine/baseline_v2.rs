@@ -456,13 +456,12 @@ impl BaselineV2Policy {
         if let Some(committed) = state.committed_heading {
             let committed_angle = wrap(committed - heading);
             let old = sector(committed_angle, self.bins);
-            let switch_improvement = if wrap(angle(best, self.bins) - committed_angle).abs()
-                > FRAC_PI_2
-            {
-                REVERSAL_SWITCH_IMPROVEMENT
-            } else {
-                SWITCH_IMPROVEMENT
-            };
+            let switch_improvement =
+                if wrap(angle(best, self.bins) - committed_angle).abs() > FRAC_PI_2 {
+                    REVERSAL_SWITCH_IMPROVEMENT
+                } else {
+                    SWITCH_IMPROVEMENT
+                };
             if safe[old]
                 && (state.commitment_remaining_seconds > 0.0
                     || scores[best] - scores[old] < switch_improvement)
