@@ -22,7 +22,7 @@ import { CheckpointPersistenceClient } from '../../server/rustEngine/checkpointP
 import { parseManagedCheckpointDescriptor } from '../../server/rustEngine/checkpointPersistenceProtocol.ts';
 import { BackgroundCommandAdmission } from '../../server/rustEngine/commandAdmission.ts';
 import { BackgroundGenerationRouter } from '../../server/rustEngine/backgroundGeneration.ts';
-import { ControllerDeliveryRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from '../../server/rustEngine/controllerDelivery.ts';
+import { ControllerDeliveryRouter, ControllerObservationRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from '../../server/rustEngine/controllerDelivery.ts';
 import { ExternalControllerRouting } from '../../server/rustEngine/externalRouting.ts';
 import type { ActionMsg, ServerMessage } from '../../server/protocol.ts';
 import { DistillationSpoolClient } from '../../server/rustEngine/distillationSpoolClient.ts';
@@ -194,6 +194,9 @@ async function run(): Promise<void> {
     const ports = {sensorCount: () => layout.inputSize,
       send: (connection: string, message: ServerMessage) => send(Number(BigInt('0x' + connection)), message),
       nextSequence: () => admission.nextSequence()};
+    const observations = new ControllerObservationRouter(Math.max(1, externalCount), {
+      sensorCount: () => layout.inputSize, send: ports.send,
+      failed: (connectionId, leaseId) => external.observationDeliveryFailed(connectionId, leaseId)});
     const ordinary = new ControllerDeliveryRouter(Math.max(1, externalCount), {...ports,
       trySubmitReceipt: (sequence, receipt) => admission.trySubmitReceipt(sequence, receipt)});
     const reclaim = new ReclaimDeliveryRouter({...ports,
@@ -212,7 +215,8 @@ async function run(): Promise<void> {
           if (event.kind === 'fault') throw new Error(event.faultDetail ?? 'native fault');
           external.event(event); diagnostics.event(event);
           if (await generation.handle(event)) continue;
-          if (event.controllerMessages) assert(ordinary.deliver(event.controllerMessages), 'overlapping observation delivery');
+          if (event.controllerObservations) observations.deliver(event.controllerObservations);
+          if (event.controllerMessages) assert(ordinary.deliver(event.controllerMessages), 'overlapping transactional controller delivery');
           if (event.controllerReclaimAssignment) assert(reclaim.deliver(event.controllerReclaimAssignment), 'overlapping reclaim');
           if (event.controllerJoinAssignment) assert(joinDelivery.deliver(event.controllerJoinAssignment), 'overlapping join');
         }

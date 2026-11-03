@@ -216,7 +216,7 @@ pub struct ExternalObservationEvent {
     token_index: Option<usize>,
 }
 
-/// Borrowed bridge batch retained until every exact local send result resolves.
+/// Borrowed staged external batch retained through output admission or transactional delivery.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExternalObservationBatch<'workspace> {
     events: &'workspace [ExternalObservationEvent],
@@ -968,8 +968,9 @@ impl RunningStepCoordinator {
     /// Any failure changes reusable scratch and the process-local attempt epoch,
     /// but not the authoritative [`StateCandidate`](super::state::StateCandidate).
     /// External observations become visible only after every physics substep and
-    /// the nonterminal guard succeed. Their score markers and the complete world
-    /// then publish together after matching local Node send acceptance.
+    /// the nonterminal guard succeed. Observation-only score markers and the complete
+    /// world then publish after bounded Rust output admission; replacement assignments
+    /// retain exact local Node send acceptance before publication.
     pub fn advance_nonterminal<'workspace>(
         &'workspace mut self,
         authority: &mut AuthoritativeState,

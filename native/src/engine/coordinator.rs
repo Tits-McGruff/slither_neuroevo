@@ -844,10 +844,12 @@ pub(crate) fn run_running_coordinator(
                     ));
                 }
                 let messages = super::controller_output::own_pending_messages(running)?;
-                let event = RunningAuthorityEvent::ControllerObservations {
-                    ticket_sequence,
-                    messages,
-                };
+                let event = ReliableEvent::RunningAuthority(Box::new(
+                    RunningAuthorityEvent::ControllerObservations {
+                        ticket_sequence,
+                        messages,
+                    },
+                ));
                 if event.owned_bytes() > service_reply_bytes {
                     return Err(EngineError::new(
                         EngineErrorCode::QueueByteLimit,
@@ -900,7 +902,7 @@ pub(crate) fn run_running_coordinator(
                             "published controller observations lost their admitted output reservation",
                         )
                     })?;
-                    reservation.publish(ReliableEvent::RunningAuthority(Box::new(event)))?;
+                    reservation.publish(event)?;
                 }
                 announced_generation_source = None;
                 announced_delivery_ticket = None;
@@ -2034,6 +2036,58 @@ mod tests {
         );
         assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
         running
+    }
+
+    #[test]
+    fn observation_only_step_publishes_after_bounded_output_admission_without_receipts() {
+        let mut running = ordinary_controller_loop();
+        let before_step = running.completed_step();
+        let bound = super::super::controller_output::service_reply_bound(&running).unwrap();
+        let output = output_with_cap(bound);
+        let reservation = output.reserve_authority_reply(bound).unwrap();
+
+        let progress = running
+            .service_after_command_drain(1200, SchedulerServiceMode::Background, None)
+            .unwrap();
+        let ticket_sequence = match progress {
+            RunningAuthorityLoopProgress::ExternalDeliveryPending {
+                ticket_sequence, ..
+            } => ticket_sequence,
+            other => panic!("expected retained external observations: {other:?}"),
+        };
+        let batch = running.pending_external_delivery().unwrap();
+        assert!(!batch.events().is_empty());
+        assert!(batch
+            .events()
+            .iter()
+            .all(|event| matches!(event.delivery_kind, ExternalDeliveryEventKind::Observation)));
+
+        let messages = super::super::controller_output::own_pending_messages(&running).unwrap();
+        assert_eq!(messages.len(), batch.events().len());
+        let event = ReliableEvent::RunningAuthority(Box::new(
+            RunningAuthorityEvent::ControllerObservations {
+                ticket_sequence,
+                messages,
+            },
+        ));
+        assert!(event.owned_bytes() <= bound);
+
+        let publication = running.publish_pending_observations(None).unwrap();
+        assert!(matches!(
+            publication,
+            RunningAuthorityLoopProgress::Published { .. }
+        ));
+        assert_eq!(running.state(), RunningAuthorityLoopState::Ready);
+        assert_eq!(running.completed_step(), before_step + 1);
+        assert!(running.pending_external_delivery().is_none());
+
+        reservation.publish(event).unwrap();
+        let drained = output.drain(8, bound);
+        assert!(drained.events.iter().any(|event| matches!(
+            event,
+            CompletedEvent::Reliable(ReliableEvent::RunningAuthority(inner))
+                if matches!(inner.as_ref(), RunningAuthorityEvent::ControllerObservations { .. })
+        )));
     }
 
     /// Pending vectors, rejected queue admission and terminal batches cannot enter the cached prefix.

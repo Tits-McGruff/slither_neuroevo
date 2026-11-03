@@ -56,7 +56,7 @@ export interface BackgroundOutputOptions {
   maintainCheckpointRetention?(): Promise<void>;
 }
 
-/** One bounded output consumer shared by generation and ordinary delivery barriers. */
+/** One bounded output consumer for asynchronous observations and transactional lifecycle barriers. */
 export class BackgroundOutputPump {
   /** The server's incoming control pump must use this same sequence owner. */
   readonly admission: BackgroundCommandAdmission;

@@ -218,7 +218,7 @@ export interface RustBackgroundHealth {
   generationCheckpointPublished: boolean;
   /** Whether the worker's exact descriptor has been acknowledged. */
   generationPersistenceAcknowledged: boolean;
-  /** Outstanding local controller sends. */
+  /** Outstanding receipt-driven controller assignment sends; ordinary observations are asynchronous. */
   pendingExternalDeliveries: RustBackgroundIdentity;
   /** Retired scheduler tickets. */
   schedulerCompletedSteps: RustBackgroundIdentity;
@@ -404,7 +404,7 @@ export interface RustBackgroundControllerMessage {
   sourceCompletedStep: RustBackgroundIdentity;
   /** Reliable event discriminator. */
   kind: 'observation' | 'replacementAssignment';
-  /** Rust-delivered sensor-v3 vector for observations. */
+  /** Rust-delivered canonical sensor vector for observations. */
   sensors?: number[];
   /** Pre-movement pose, present on observations. */
   x?: number;

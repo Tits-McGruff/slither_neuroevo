@@ -619,12 +619,12 @@ the socket.
 
 ## Sensor contract
 
-The ordinary production default is the frozen `v3` layout, described below.
-Explicitly admitted candidate v4 profiles use `24 + 6 * bubbleBins` inputs for
-Basic and `24 + 15 * bubbleBins` for Motion, with 8..32 bins. They require the
-exact Rust canonical sensor contract carried in welcome metadata; equal widths
-do not imply equal meanings. Their workload/ablation and production-default
-qualification remains open.
+Fresh current runs use the Rust v4 Motion/B16 sensor contract by default.
+V4 Basic uses `24 + 6 * bubbleBins` inputs and v4 Motion uses
+`24 + 15 * bubbleBins`, with 8..32 bins; Motion/B16 therefore has 264 inputs.
+Clients must use the exact canonical contract in `welcome.sensorSpec`, because
+equal widths do not imply equal meanings. The frozen v3 layout remains a
+compatibility contract for retained runs that explicitly carry it.
 
 The frozen `v3` size is:
 

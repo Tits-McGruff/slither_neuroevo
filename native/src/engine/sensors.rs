@@ -281,7 +281,7 @@ impl ObservationDeliveryMarker {
     }
 
     /// Commit the sampled score boundary after real internal consumption or
-    /// successful Node acceptance for the matching external assignment.
+    /// bounded authoritative-output admission for the matching external observation.
     pub fn commit(self, snake: &mut SnakeState) -> Result<(), SensorError> {
         self.validate(snake)?;
         self.commit_prevalidated(snake);
