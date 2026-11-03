@@ -17,8 +17,17 @@ def replace_once(path: str, old: str, new: str) -> None:
     write(path, text.replace(old, new, 1))
 
 
-# Exact output-size proof must cover the full ReliableEvent before authority
-# publication, not just the inner RunningAuthorityEvent payload.
+def replace_optional(path: str, old: str, new: str) -> None:
+    text = read(path)
+    count = text.count(old)
+    if count > 1:
+        raise RuntimeError(f"{path}: expected at most one match, found {count}: {old[:120]!r}")
+    if count == 1:
+        write(path, text.replace(old, new, 1))
+
+
+# The pre-publication proof must cover the full ReliableEvent, including its
+# outer running-authority allocation, because that is what the reservation owns.
 path = "native/src/engine/coordinator.rs"
 replace_once(path,
 '''                let event = RunningAuthorityEvent::ControllerObservations {
@@ -63,9 +72,9 @@ replace_once(path,
 '''                    reservation.publish(event)?;
 ''')
 
-# Native regression for the exact invariant: complete owned observation output
-# fits the reservation before the step can publish, and no Node receipt is
-# needed to retire the scheduler ticket.
+# Native regression for the new transaction boundary. The complete observation
+# event is owned and proven to fit first, then the authoritative step can retire
+# with no Node receipt and the already-owned event is published into the reserve.
 needle = '''    /// Pending vectors, rejected queue admission and terminal batches cannot enter the cached prefix.
     #[test]
     fn observation_quality_counts_only_ordinary_publication_and_never_changes_continuation() {
@@ -131,7 +140,8 @@ if needle not in text:
     raise RuntimeError("coordinator regression insertion point missing")
 write(path, text.replace(needle, test, 1))
 
-# Avoid manufacturing receipt objects on the hot asynchronous observation path.
+# The hot asynchronous path should not manufacture receipt objects that can
+# never be returned. Transactional replacement batches still use prepare().
 path = "server/rustEngine/controllerDelivery.ts"
 old = '''/** Translate a complete Rust envelope without calculating sensors or looking up game state. */
 function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?: number): PendingDelivery {
@@ -282,96 +292,323 @@ replace_once(path,
     }
 ''')
 
-# Exact stale-failure routing regression: an old observation failure must never
-# close a newer or differently leased route.
+# Stale transport failure must never disconnect a newer/different lease.
 path = "server/rustEngine/externalRouting.test.ts"
-needle = '''  it('queues action/close once and never retries after accepted admission', () => {
+needle = '''  it('bounds unresolved routes and never converts an explicit invalid token to a fresh join', () => {
 '''
 test = '''  it('disconnects only the exact current lease after asynchronous observation failure', () => {
     const { routing, commands } = fixture();
     routing.join(1, { type: 'join', mode: 'player', name: 'player' }, 'ui');
-    routing.event({
-      kind: 'commandRejected', commandSequence: '0000000000000001',
-      rejectionCode: 'invalid_command', rejectionDetail: 'no reserved legacy identity match'
-    });
-    routing.event({
-      kind: 'controllerJoinAssignment',
-      controllerJoinAssignment: {
-        requestSequence: '0000000000000002', controllerKind: 'player',
-        connectionId: '0000000000000001', leaseId: '0000000000000009', snakeId: 12,
-        completedStep: '0000000000000000', resumeToken: 'abcdefghijklmnopqrstuvwxyzABCDEF',
-        identityKey: 'player:player'
-      }
-    });
-    routing.event({
-      kind: 'controllerJoinResolved',
-      controllerJoinResolution: {
-        requestSequence: '0000000000000002', matched: true, accepted: true
-      }
-    });
+    routing.event({ kind: 'commandRejected', commandSequence: '0000000000000001',
+      rejectionCode: 'InvalidCommand',
+      rejectionDetail: 'InvalidCommand: no reserved legacy identity match' });
+    routing.event({ kind: 'controllerJoinAssignment', controllerJoinAssignment: {
+      requestSequence: '0000000000000002', connectionId: '0000000000000001',
+      leaseId: '0000000000000009', snakeId: 12, controllerKind: 'player',
+      resumeToken: 'a'.repeat(32), completedStep: '0000000000000000'
+    } });
+    routing.event({ kind: 'controllerJoinResolved', controllerJoinResolution: {
+      requestSequence: '0000000000000002', matched: true, accepted: true
+    } });
 
     const before = commands.length;
     routing.observationDeliveryFailed('0000000000000001', '0000000000000008');
     expect(commands).toHaveLength(before);
 
     routing.observationDeliveryFailed('0000000000000001', '0000000000000009');
-    const closes = commands.filter(command => command.kind === 'close');
-    expect(closes).toHaveLength(1);
-    expect(closes[0]).toMatchObject({
-      kind: 'close',
-      value: {
-        connectionId: '0000000000000001',
-        leaseId: '0000000000000009'
-      }
+    expect(commands.filter(command => command.kind === 'close')).toHaveLength(1);
+    expect(commands.find(command => command.kind === 'close')).toMatchObject({
+      value: { connectionId: '0000000000000001', leaseId: '0000000000000009' }
     });
 
     routing.observationDeliveryFailed('0000000000000001', '0000000000000009');
     expect(commands.filter(command => command.kind === 'close')).toHaveLength(1);
   });
 
-  it('queues action/close once and never retries after accepted admission', () => {
+  it('bounds unresolved routes and never converts an explicit invalid token to a fresh join', () => {
 '''
 text = read(path)
 if needle not in text:
     raise RuntimeError("external routing test insertion point missing")
 write(path, text.replace(needle, test, 1))
 
-# Source comments must match the new authoritative observation boundary.
-replace_once(
-    "native/src/engine/sensors.rs",
-    "    /// Commit the sampled score boundary after real internal consumption or\n    /// successful Node acceptance for the matching external assignment.\n",
-    "    /// Commit the sampled score boundary after real internal consumption or\n    /// bounded authoritative-output admission for the matching external observation.\n",
+# Keep the mixed-consumer qualification harness on the same event contract used
+# by the production server. Transactional replacement batches retain receipts.
+path = "scripts/qualification/sensor-wall.ts"
+replace_once(path,
+'''import { ControllerDeliveryRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from '../../server/rustEngine/controllerDelivery.ts';
+''',
+'''import { ControllerDeliveryRouter, ControllerObservationRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from '../../server/rustEngine/controllerDelivery.ts';
+''')
+replace_once(path,
+'''    const ordinary = new ControllerDeliveryRouter(Math.max(1, externalCount), {...ports,
+      trySubmitReceipt: (sequence, receipt) => admission.trySubmitReceipt(sequence, receipt)});
+''',
+'''    const observations = new ControllerObservationRouter(Math.max(1, externalCount), {
+      sensorCount: () => layout.inputSize, send: ports.send,
+      failed: (connectionId, leaseId) => external.observationDeliveryFailed(connectionId, leaseId)});
+    const ordinary = new ControllerDeliveryRouter(Math.max(1, externalCount), {...ports,
+      trySubmitReceipt: (sequence, receipt) => admission.trySubmitReceipt(sequence, receipt)});
+''')
+replace_once(path,
+'''          if (await generation.handle(event)) continue;
+          if (event.controllerMessages) assert(ordinary.deliver(event.controllerMessages), 'overlapping observation delivery');
+''',
+'''          if (await generation.handle(event)) continue;
+          if (event.controllerObservations) observations.deliver(event.controllerObservations);
+          if (event.controllerMessages) assert(ordinary.deliver(event.controllerMessages), 'overlapping transactional controller delivery');
+''')
+
+# Update the real isolated Stage 3/6 integration fixture. It previously encoded
+# the old invariant that each ordinary observation held completedStep until a
+# local-send receipt arrived.
+path = "server/rustEngine/checkpointPersistence.native.test.ts"
+text = read(path)
+text = text.replace(
+    "import { ControllerDeliveryRouter, ReclaimDeliveryRouter, JoinDeliveryRouter } from './controllerDelivery.ts';",
+    "import { ControllerObservationRouter, ReclaimDeliveryRouter, JoinDeliveryRouter } from './controllerDelivery.ts';",
 )
-replace_once(
+old_interface = '''  /** Ordinary reliable messages preserved across command-result waits. */
+  controllerMessages?: RustBackgroundControllerMessage[];
+  /** Exact ordinary-step receipt completion. */
+  controllerReceiptResolution?: RustControllerReceiptResolution;
+'''
+new_interface = '''  /** Ordered ordinary observations emitted after their authoritative step publishes. */
+  controllerObservations?: RustBackgroundControllerMessage[];
+  /** Receipt-driven mixed/replacement controller output, if a lifecycle transition requires it. */
+  controllerMessages?: RustBackgroundControllerMessage[];
+  /** Exact transactional ordinary-step receipt completion. */
+  controllerReceiptResolution?: RustControllerReceiptResolution;
+'''
+if text.count(old_interface) != 1:
+    raise RuntimeError("checkpoint event interface insertion point missing")
+text = text.replace(old_interface, new_interface, 1)
+
+start_marker = "        const ordinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');\n"
+end_marker = "        const timedHealth = await waitForBackgroundHealth(\n"
+start = text.find(start_marker)
+if start < 0:
+    raise RuntimeError("checkpoint ordinary observation block start missing")
+end = text.find(end_marker, start)
+if end < 0:
+    raise RuntimeError("checkpoint ordinary observation block end missing")
+replacement = '''        const ordinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations');
+        const messages = ordinary.controllerObservations;
+        expect(messages).toHaveLength(1);
+        const observation = messages![0]!;
+        expect(observation).toMatchObject({ kind: 'observation', snakeId: Number(BigInt(`0x${assignment.frameV1Id}`)) });
+        expect(observation.sensors).toHaveLength(83);
+        expect(observation.sensors!.every(Number.isFinite)).toBe(true);
+        expect(observation.sourceCompletedStep).toBe('0000000000000001');
+        expect(BigInt(`0x${session.health().completedStep}`)).toBeGreaterThanOrEqual(1n);
+        expect(session.health().loopState).not.toBe('externalDeliveryPending');
+        expect(session.health().pendingExternalDeliveries).toBe('0000000000000000');
+        const receipt: RustGenerationAssignmentReceipt = {
+          operationEpoch: observation.operationEpoch, eventSequence: observation.eventSequence,
+          connectionId: observation.connectionId, leaseId: observation.leaseId, accepted: true
+        };
+        // Generation and old ordinary-receipt commands cannot consume an already-published observation.
+        session.submitGenerationAssignmentReceipt('000000000000000d', receipt);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000d'))
+          .resolves.toMatchObject({ kind: 'commandRejected' });
+        session.submitControllerDeliveryReceipt('000000000000000e', receipt);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000e'))
+          .resolves.toMatchObject({ kind: 'commandRejected' });
+
+        const sent: unknown[] = [];
+        const observationRouter = new ControllerObservationRouter(2, {
+          send(connectionId, message) { sent.push({ connectionId, message }); return true; },
+          failed() { throw new Error('accepted integration observation unexpectedly failed transport'); }
+        });
+        observationRouter.deliver(messages!);
+        expect(sent).toEqual([{ connectionId: observation.connectionId, message: {
+          type: 'sensors', tick: 1, snakeId: observation.snakeId, sensors: observation.sensors,
+          meta: { x: observation.x, y: observation.y, dir: observation.direction }
+        } }]);
+
+        let admitReceipt = false;
+        const admission = new BackgroundCommandAdmission({
+          submitGenerationAssignmentReceipt: (sequence, completion) => session.submitGenerationAssignmentReceipt(sequence, completion),
+          submitControllerJoinReceipt(sequence, completion) {
+            if (!admitReceipt) throw new Error('QueueCountLimit: injected join receipt backpressure');
+            session.submitControllerJoinReceipt(sequence, completion);
+          },
+          submitControllerReclaimReceipt(sequence, completion) {
+            if (!admitReceipt) throw new Error('QueueCountLimit: injected reclaim receipt backpressure');
+            session.submitControllerReclaimReceipt(sequence, completion);
+          },
+          submitControllerDeliveryReceipt(sequence, completion) {
+            session.submitControllerDeliveryReceipt(sequence, completion);
+          }
+        }, 15n);
+        const action: RustBackgroundControllerAction = {
+          leaseId: observation.leaseId, connectionId: observation.connectionId,
+          turn: 0.75, boost: false, clientTick: '000000000000002a'
+        };
+        expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
+        let actionSequence = '';
+        expect(admission.trySubmitControl(sequence => {
+          actionSequence = sequence;
+          session.submitControllerAction(sequence, action);
+        })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === actionSequence))
+          .resolves.toMatchObject({ kind: 'controllerActionApplied' });
+'''
+text = text[:start] + replacement + text[end:]
+
+# All later routine observations in this fixture use the post-publication event.
+text = text.replace("event => event.kind === 'controllerMessages'", "event => event.kind === 'controllerObservations'")
+text = text.replace(".controllerMessages!", ".controllerObservations!")
+text = text.replace(".controllerMessages;", ".controllerObservations;")
+
+# The next observation no longer needs a synthetic receipt before disconnect can apply.
+start_marker = "        const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations');\n"
+end_marker = "        const reclaimSequence = admission.nextSequence();\n"
+start = text.find(start_marker)
+if start < 0:
+    raise RuntimeError("checkpoint next observation block start missing")
+end = text.find(end_marker, start)
+if end < 0:
+    raise RuntimeError("checkpoint reclaim block anchor missing")
+replacement = '''        const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations');
+        const nextObservation = nextOrdinary.controllerObservations![0]!;
+        expect(BigInt(`0x${nextObservation.sourceCompletedStep}`)).toBeGreaterThanOrEqual(2n);
+        const close = { leaseId: nextObservation.leaseId, connectionId: nextObservation.connectionId };
+        let disconnectSequence = '';
+        expect(admission.trySubmitControl(sequence => {
+          disconnectSequence = sequence;
+          session.submitControllerDisconnect(sequence, close);
+        })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === disconnectSequence))
+          .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: {
+            leaseId: close.leaseId, applied: true
+          } });
+        let duplicateDisconnectSequence = '';
+        expect(admission.trySubmitControl(sequence => {
+          duplicateDisconnectSequence = sequence;
+          session.submitControllerDisconnect(sequence, close);
+        })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === duplicateDisconnectSequence))
+          .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: { applied: false } });
+        await waitForBackgroundHealth(session, health =>
+          BigInt(`0x${health.completedStep}`) >= BigInt(`0x${nextObservation.sourceCompletedStep}`));
+
+'''
+text = text[:start] + replacement + text[end:]
+
+text = text.replace(
+    "        expect(router.deliver([reclaimedObservation])).toBe(true);\n",
+    "        observationRouter.deliver([reclaimedObservation]);\n",
+)
+text = text.replace(
+    "        expect(router.deliver(beforeJoin)).toBe(true);\n",
+    "        observationRouter.deliver(beforeJoin);\n",
+)
+text = text.replace(
+    "        expect(session.health().completedStep).toBe(reclaimedObservation.sourceCompletedStep);\n",
+    "        expect(BigInt(`0x${session.health().completedStep}`)).toBeGreaterThanOrEqual(BigInt(`0x${reclaimedObservation.sourceCompletedStep}`));\n",
+)
+old_joined = '''        const joinedRouter = new ControllerDeliveryRouter(2, {
+          send() { return true; }, nextSequence() { return admission.nextSequence(); },
+          trySubmitReceipt(sequence, receipt) { return admission.trySubmitReceipt(sequence, receipt); }
+        });
+        expect(joinedRouter.deliver(freshMessages)).toBe(true);
+'''
+new_joined = '''        const joinedRouter = new ControllerObservationRouter(2, {
+          send() { return true; },
+          failed() { throw new Error('joined observation unexpectedly failed transport'); }
+        });
+        joinedRouter.deliver(freshMessages);
+'''
+if text.count(old_joined) != 1:
+    raise RuntimeError("checkpoint joined observation router block missing")
+text = text.replace(old_joined, new_joined, 1)
+write(path, text)
+
+# Source comments and durable developer contracts must describe admission to the
+# bounded Rust output stream, not a per-tick Node socket acknowledgement.
+replace_optional(
+    "native/src/engine/running_step.rs",
+    '''//! External observations are exposed only after a complete physical step has
+//! staged successfully, then the final swap waits for matching local Node send
+//! results. Connected controlled-snake deaths stage fresh collision-safe
+//! replacements and wait for the same reliable result boundary.
+''',
+    '''//! External observations are exposed only after a complete physical step has
+//! staged successfully. Observation-only batches publish once their complete
+//! owned output is admitted to the bounded Rust reliable queue; connected
+//! controlled-snake deaths still stage fresh collision-safe replacements and
+//! wait for matching local Node send results.
+''',
+)
+replace_optional(
+    "native/src/engine/running_step.rs",
+    '''/// Borrowed bridge batch retained until every exact local send result resolves.
+''',
+    '''/// Borrowed staged external batch retained through output admission or transactional delivery.
+''',
+)
+replace_optional(
+    "native/src/engine/running_step.rs",
+    '''    /// External observations become visible only after every physics substep and
+    /// the nonterminal guard succeed. Their score markers and the complete world
+    /// then publish together after matching local Node send acceptance.
+''',
+    '''    /// External observations become visible only after every physics substep and
+    /// the nonterminal guard succeed. Observation-only score markers and the complete
+    /// world then publish after bounded Rust output admission; replacement assignments
+    /// retain exact local Node send acceptance before publication.
+''',
+)
+replace_optional(
+    "native/src/engine/mod.rs",
+    "/// Bounded reliable ordinary-step observations and exact local-send receipts.\n",
+    "/// Bounded external-controller output and transactional local-send receipts.\n",
+)
+replace_optional(
+    "native/src/engine/sensors.rs",
+    '''    /// Commit the sampled score boundary after real internal consumption or
+    /// successful Node acceptance for the matching external assignment.
+''',
+    '''    /// Commit the sampled score boundary after real internal consumption or
+    /// bounded authoritative-output admission for the matching external observation.
+''',
+)
+replace_optional(
     "native/src/engine/world_step.rs",
     "    /// Packed external observations still awaiting matching Node acceptance.\n",
-    "    /// Packed external observations retained until their authoritative output or transactional delivery resolves.\n",
+    "    /// Packed external observations retained until authoritative output or transactional delivery resolves.\n",
 )
-replace_once(
+replace_optional(
     "native/src/engine/world_step.rs",
     "    /// Borrow publication buffers after all checks were completed before Node delivery.\n",
     "    /// Borrow publication buffers after all external-output checks were completed.\n",
 )
-replace_once(
+replace_optional(
     "native/src/engine/inspector.rs",
     "    /// Join only the exact successful step and, for external rows, its accepted socket delivery.\n",
     "    /// Join only the exact successful step and, for external rows, its accepted authoritative observation boundary.\n",
 )
-replace_once(
+replace_optional(
+    "server/rustEngine/backgroundOutput.ts",
+    "/** One bounded output consumer shared by generation and ordinary delivery barriers. */\n",
+    "/** One bounded output consumer for asynchronous observations and transactional lifecycle barriers. */\n",
+)
+replace_optional(
     "src/protocol/rustBackground.ts",
     "  /** Outstanding local controller sends. */\n  pendingExternalDeliveries: RustBackgroundIdentity;\n",
     "  /** Outstanding receipt-driven controller assignment sends; ordinary observations are asynchronous. */\n  pendingExternalDeliveries: RustBackgroundIdentity;\n",
 )
-replace_once(
+replace_optional(
     "src/protocol/rustBackground.ts",
     "  /** Rust-delivered sensor-v3 vector for observations. */\n  sensors?: number[];\n",
     "  /** Rust-delivered canonical sensor vector for observations. */\n  sensors?: number[];\n",
 )
 
-# Bring the Slither-local API sensor section in line with the current Rust v4
-# default instead of leaving the old v3-default text beside the new async rules.
+# Keep current API documentation aligned with the real v4 default beside the
+# new asynchronous observation semantics.
 path = "docs/API-instructions.md"
-replace_once(path,
+replace_optional(path,
 '''The ordinary production default is the frozen `v3` layout, described below.
 Explicitly admitted candidate v4 profiles use `24 + 6 * bubbleBins` inputs for
 Basic and `24 + 15 * bubbleBins` for Motion, with 8..32 bins. They require the
@@ -391,12 +628,12 @@ compatibility contract for retained runs that explicitly carry it.
 The frozen `v3` size is:
 ''')
 
-# Generated verification logs from the first one-shot workflow are artifacts,
-# not source-controlled project files.
+# Generated logs from the one-shot implementation workflow are CI artifacts,
+# not source files.
 for generated in ("patch.log", "verify.log"):
     try:
         Path(generated).unlink()
     except FileNotFoundError:
         pass
 
-print("final async observation regressions and documentation applied")
+print("final async observation regressions, qualification harness and documentation applied")
