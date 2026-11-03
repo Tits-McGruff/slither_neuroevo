@@ -30,6 +30,8 @@ jobs:
         with:
           workspaces: native
       - run: npm ci
+      - name: Repair patch matcher
+        run: python .github/scripts/repair_async_patcher.py
       - name: Apply patch
         id: patch
         continue-on-error: true
@@ -46,7 +48,7 @@ jobs:
         if: steps.patch.outcome != 'success'
         run: exit 1
       - name: Remove one-shot patch machinery
-        run: rm .github/scripts/apply_async_controller_observations.py .github/workflows/apply-async-controller-observations.yml
+        run: rm .github/scripts/apply_async_controller_observations.py .github/scripts/repair_async_patcher.py .github/workflows/apply-async-controller-observations.yml
       - name: Format Rust
         run: cargo fmt --manifest-path native/Cargo.toml
       - name: Verify
