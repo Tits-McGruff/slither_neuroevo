@@ -499,6 +499,171 @@ impl NeuralControlPipeline {
         &self.inference
     }
 
+    /// Sample a sensing-only batch through the existing persistent calculation pool.
+    ///
+    /// Results stay in caller-owned observation storage while delivery markers and diagnostics use
+    /// the pipeline's already-admitted staging slots. This lets external controllers share the same
+    /// bounded sensor workers without pretending to own local brains or recurrent state.
+    pub(crate) fn sample_independent_observations<'a, T, F>(
+        &'a mut self,
+        items: &[T],
+        snake_index: F,
+        indexed_world: &IndexedSensorWorld<'_>,
+        generation: &SensorGenerationState,
+        v4: Option<super::sensors_v4::PreparedV4Sensing<'_>>,
+        observations: &mut [f32],
+        sensor_scratch: &mut SensorScratch,
+        mut trace: Option<(u64, &mut super::sensor_trace::SensorTrace)>,
+    ) -> Result<
+        (
+            &'a [Option<ObservationDeliveryMarker>],
+            &'a [SensorSampleDiagnostics],
+        ),
+        NeuralControlError,
+    >
+    where
+        T: Sync,
+        F: Fn(&T) -> usize + Sync,
+    {
+        let active = items.len();
+        if active > self.deliveries.len() {
+            return Err(NeuralControlError::InternalLengthMismatch {
+                buffer: "independent sensor items",
+                actual: active,
+                expected: self.deliveries.len(),
+            });
+        }
+        let width = self.sensor.layout().input_size;
+        let expected_observations =
+            checked_product(active, width, "independent observation count")?;
+        if observations.len() != expected_observations {
+            return Err(NeuralControlError::InternalLengthMismatch {
+                buffer: "independent observations",
+                actual: observations.len(),
+                expected: expected_observations,
+            });
+        }
+        self.deliveries[..active].fill(None);
+        self.diagnostics[..active].fill(SensorSampleDiagnostics::default());
+        if let Some((_, value)) = trace.as_mut() {
+            value.valid = false;
+        }
+        if active == 0 {
+            return Ok((&self.deliveries[..0], &self.diagnostics[..0]));
+        }
+
+        let calculation_workers = self.workspace.worker_count();
+        if let Some(pool) = self.calculation_pool.as_ref().filter(|_| active >= 2) {
+            let partitions = active.min(calculation_workers);
+            let base = active / partitions;
+            let remainder = active % partitions;
+            let sensor = &self.sensor;
+            let world = indexed_world.world();
+            let snake_index = &snake_index;
+            self.parallel_sensor_errors[..partitions].fill(None);
+            pool.scope(|scope| {
+                let mut remaining_items = items;
+                let mut remaining_observations = &mut observations[..expected_observations];
+                let mut remaining_deliveries = &mut self.deliveries[..active];
+                let mut remaining_diagnostics = &mut self.diagnostics[..active];
+                let scratches =
+                    std::iter::once(sensor_scratch).chain(self.parallel_sensor_scratch.iter_mut());
+                let errors = self.parallel_sensor_errors[..partitions].iter_mut();
+                for (partition, (scratch, error)) in
+                    scratches.zip(errors).take(partitions).enumerate()
+                {
+                    let count = base + usize::from(partition < remainder);
+                    let (partition_items, rest_items) = remaining_items.split_at(count);
+                    remaining_items = rest_items;
+                    let (partition_observations, rest_observations) =
+                        remaining_observations.split_at_mut(count * width);
+                    remaining_observations = rest_observations;
+                    let (partition_deliveries, rest_deliveries) =
+                        remaining_deliveries.split_at_mut(count);
+                    remaining_deliveries = rest_deliveries;
+                    let (partition_diagnostics, rest_diagnostics) =
+                        remaining_diagnostics.split_at_mut(count);
+                    remaining_diagnostics = rest_diagnostics;
+                    let mut partition_trace = if trace.as_ref().is_some_and(|(id, _)| {
+                        partition_items.iter().any(|item| {
+                            world
+                                .snakes
+                                .get(snake_index(item))
+                                .is_some_and(|snake| snake.id == *id)
+                        })
+                    }) {
+                        trace.take()
+                    } else {
+                        None
+                    };
+                    scope.spawn(move |_| {
+                        run_calculation_worker("independent sensing", partition, || {
+                            for (ordinal, item) in partition_items.iter().enumerate() {
+                                let index = snake_index(item);
+                                let offset = ordinal * width;
+                                match sensor.sample_prepared_with_trace(
+                                    indexed_world,
+                                    generation,
+                                    index,
+                                    &mut partition_observations[offset..offset + width],
+                                    scratch,
+                                    None,
+                                    v4,
+                                    partition_trace.as_mut().and_then(|(id, value)| {
+                                        world
+                                            .snakes
+                                            .get(index)
+                                            .is_some_and(|snake| snake.id == *id)
+                                            .then_some(&mut **value)
+                                    }),
+                                ) {
+                                    Ok(sample) => {
+                                        partition_deliveries[ordinal] = Some(sample.delivery);
+                                        partition_diagnostics[ordinal] = sample.diagnostics;
+                                    }
+                                    Err(failure) => {
+                                        *error = Some(failure);
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+            for error in &mut self.parallel_sensor_errors[..partitions] {
+                if let Some(failure) = error.take() {
+                    return Err(failure.into());
+                }
+            }
+        } else {
+            let world = indexed_world.world();
+            for (ordinal, item) in items.iter().enumerate() {
+                let index = snake_index(item);
+                let offset = ordinal * width;
+                let sample = self.sensor.sample_prepared_with_trace(
+                    indexed_world,
+                    generation,
+                    index,
+                    &mut observations[offset..offset + width],
+                    sensor_scratch,
+                    None,
+                    v4,
+                    trace.as_mut().and_then(|(id, value)| {
+                        world
+                            .snakes
+                            .get(index)
+                            .is_some_and(|snake| snake.id == *id)
+                            .then_some(&mut **value)
+                    }),
+                )?;
+                self.deliveries[ordinal] = Some(sample.delivery);
+                self.diagnostics[ordinal] = sample.diagnostics;
+            }
+        }
+        Ok((&self.deliveries[..active], &self.diagnostics[..active]))
+    }
+
     /// Sample one stable world boundary and evaluate every due neural brain.
     ///
     /// Failure leaves authoritative world and brain state untouched. A later
@@ -1691,6 +1856,56 @@ mod tests {
     fn pipeline(plan: GraphExecutionPlan) -> NeuralControlPipeline {
         let sensor = SensorEvaluator::new(sensor_config()).unwrap();
         NeuralControlPipeline::try_new(3, sensor, plan, 1, usize::MAX).unwrap()
+    }
+
+    #[test]
+    fn independent_sensor_batch_matches_scalar_across_worker_counts() {
+        let plan = graph_plan(51);
+        let (world, _brains, _population) = fixture_with_count(&plan, EPOCH, 8);
+        let indexed_world = indexed(&world);
+        let mut generation = SensorGenerationState::new();
+        generation.update_after_step(&world).unwrap();
+        let items = (0..8).rev().collect::<Vec<_>>();
+        let available = super::super::calculation_workers::available_calculation_workers();
+        let mut expected = None;
+        for workers in [1, 2, 4, 7] {
+            if workers > available {
+                continue;
+            }
+            let sensor = SensorEvaluator::new(sensor_config()).unwrap();
+            let mut pipeline =
+                NeuralControlPipeline::try_new(8, sensor, plan.clone(), workers, usize::MAX)
+                    .unwrap();
+            let mut observations = vec![0.0; items.len() * 51];
+            let mut scratch = SensorScratch::default();
+            let (deliveries, diagnostics) = pipeline
+                .sample_independent_observations(
+                    &items,
+                    |index| *index,
+                    &indexed_world,
+                    &generation,
+                    None,
+                    &mut observations,
+                    &mut scratch,
+                    None,
+                )
+                .unwrap();
+            assert!(deliveries.iter().all(Option::is_some));
+            let result = (
+                observations
+                    .iter()
+                    .map(|value| value.to_bits())
+                    .collect::<Vec<_>>(),
+                deliveries.to_vec(),
+                diagnostics.to_vec(),
+            );
+            if let Some(expected) = &expected {
+                assert_eq!(&result, expected);
+            } else {
+                expected = Some(result);
+            }
+        }
+        assert!(expected.is_some());
     }
 
     #[test]

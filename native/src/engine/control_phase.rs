@@ -2046,22 +2046,32 @@ impl ControlPhaseWorkspace {
                     calculation_key,
                 )?;
             }
-            for event in &mut self.external_events {
-                let end = event.observation_start + event.observation_len;
-                let sample = self.neural.sensor().sample_prepared_with_trace(
+            {
+                let trace_request = self
+                    .inspector
+                    .as_mut()
+                    .filter(|capture| capture.delivered_enabled())
+                    .map(|capture| capture.trace_request());
+                let (deliveries, diagnostics) = self.neural.sample_independent_observations(
+                    &self.external_events,
+                    |event| event.snake_index,
                     indexed,
                     inputs.generation,
-                    event.snake_index,
-                    &mut self.external_observations[event.observation_start..end],
-                    &mut self.sensor_scratch,
-                    None,
                     prepared_v4,
-                    self.inspector
-                        .as_mut()
-                        .and_then(|capture| capture.trace_for(world.snakes[event.snake_index].id)),
+                    &mut self.external_observations,
+                    &mut self.sensor_scratch,
+                    trace_request,
                 )?;
-                event.delivery = sample.delivery;
-                event.diagnostics = sample.diagnostics;
+                for (ordinal, event) in self.external_events.iter_mut().enumerate() {
+                    event.delivery =
+                        deliveries[ordinal].ok_or(ControlPhaseError::InternalShapeMismatch {
+                            field: "external sensor delivery",
+                        })?;
+                    event.diagnostics = diagnostics[ordinal];
+                }
+            }
+            for event in &self.external_events {
+                let end = event.observation_start + event.observation_len;
                 if let Some(capture) = &mut self.inspector {
                     capture.stage(
                         inputs.prefix.key(),
@@ -2074,7 +2084,7 @@ impl ControlPhaseWorkspace {
                         &self.external_observations[event.observation_start..end],
                         None,
                         None,
-                        sample.diagnostics,
+                        event.diagnostics,
                     );
                 }
             }
