@@ -94,7 +94,8 @@ describe('Rust generation assignment transport', () => {
     capacity = true;
     expect(router.flushReceipts()).toBe(true);
     expect(sent).toEqual([{ connectionId: assignment.connectionId, message: {
-      type: 'assign', controller: 'player', snakeId: 6, resumeToken: assignment.resumeToken
+      type: 'assign', controller: 'player', snakeId: 6, resumeToken: assignment.resumeToken,
+      replacementReason: 'generation'
     } }]);
     expect(receipts).toHaveLength(2);
     expect(receipts[0]).toEqual(receipts[1]);
