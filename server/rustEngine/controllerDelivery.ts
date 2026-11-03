@@ -31,6 +31,15 @@ interface PendingDelivery {
   sequence?: RustBackgroundIdentity;
 }
 
+/** Why an externally controlled snake was replaced without dying. */
+type ReplacementReason = 'generation';
+/** Internal delivery message carrying transport-only replacement context. */
+type ReplacementControllerMessage = RustBackgroundControllerMessage & {
+  replacementReason?: ReplacementReason;
+};
+/** Assignment packet with optional additive replacement context for newer clients. */
+type ReplacementAssignMsg = AssignMsg & { replacementReason?: ReplacementReason };
+
 /** Exact positive Rust identity accepted at this internal routing boundary. */
 const POSITIVE_ID = /^(?!0{16}$)[0-9a-f]{16}$/u;
 /** Largest integer that Protocol 2 can represent without narrowing. */
@@ -61,11 +70,17 @@ function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?:
     if (typeof message.resumeToken !== 'string' || message.resumeToken.length === 0) {
       throw new TypeError('controller assignment omits its resume token');
     }
-    return { receipt, message: {
+    const replacementReason = (message as ReplacementControllerMessage).replacementReason;
+    if (replacementReason !== undefined && replacementReason !== 'generation') {
+      throw new TypeError('invalid controller replacement reason');
+    }
+    const assignment: ReplacementAssignMsg = {
       type: 'assign', snakeId: message.snakeId,
       controller: message.controllerKind === 'player' ? 'player' : 'bot',
       resumeToken: message.resumeToken
-    } };
+    };
+    if (replacementReason !== undefined) assignment.replacementReason = replacementReason;
+    return { receipt, message: assignment };
   }
   if (message.kind !== 'observation' || !/^[0-9a-f]{16}$/u.test(message.sourceCompletedStep)) {
     throw new TypeError('invalid Rust controller observation');
@@ -234,7 +249,8 @@ export class GenerationDeliveryRouter extends ControllerDeliveryRouter {
       }
       return {
         ...assignment, internalSnakeId: identity(assignment.snakeId), snakeId: Number(frameId),
-        sourceCompletedStep: '0000000000000000', kind: 'replacementAssignment' as const
+        sourceCompletedStep: '0000000000000000', kind: 'replacementAssignment' as const,
+        replacementReason: 'generation' as const
       };
     });
     return this.deliver(messages);
