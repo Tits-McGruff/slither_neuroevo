@@ -707,13 +707,14 @@ mod tests {
             fixture.expected.float_bits.len()
         );
         for (index, (actual, expected)) in output
-            .chunks_exact(size_of::<f32>())
+            .as_chunks::<{ size_of::<f32>() }>()
+            .0
+            .iter()
             .zip(&fixture.expected.float_bits)
             .enumerate()
         {
-            let bytes: [u8; 4] = actual.try_into().expect("one complete Float32 word");
             assert_eq!(
-                u32::from_le_bytes(bytes),
+                u32::from_le_bytes(*actual),
                 decode_float_bits(expected),
                 "Float32 word {index}"
             );

@@ -1238,8 +1238,10 @@ mod tests {
         assert_eq!(left.len() % 8, 0);
         for (index, (left_chunk, right_chunk)) in left
             .as_bytes()
-            .chunks_exact(8)
-            .zip(right.as_bytes().chunks_exact(8))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .zip(right.as_bytes().as_chunks::<8>().0.iter())
             .enumerate()
         {
             let decode = |chunk: &[u8]| {

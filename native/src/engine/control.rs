@@ -504,6 +504,9 @@ impl NeuralControlPipeline {
     /// Results stay in caller-owned observation storage while delivery markers and diagnostics use
     /// the pipeline's already-admitted staging slots. This lets external controllers share the same
     /// bounded sensor workers without pretending to own local brains or recurrent state.
+    // The separate borrowed world/generation/buffer inputs keep this hot-path helper
+    // allocation-free and make each ownership boundary explicit.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn sample_independent_observations<'a, T, F>(
         &'a mut self,
         items: &[T],
