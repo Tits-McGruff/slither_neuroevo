@@ -206,7 +206,10 @@ fn source_hashes(manifest_dir: &Path) -> (u64, String) {
     (diagnostic_hash, hexadecimal)
 }
 
-/// Read the containing repository revision without making Git a build requirement.
+/// Read the containing repository revision for diagnostics when an actual native
+/// build input has already caused this build script to rerun. Git metadata is
+/// deliberately not a Cargo rerun input, so unrelated repository commits do not
+/// invalidate an otherwise identical native addon.
 fn git_revision(manifest_dir: &Path) -> String {
     let repository = manifest_dir.parent().unwrap_or(manifest_dir);
     let output = Command::new("git")
@@ -219,45 +222,6 @@ fn git_revision(manifest_dir: &Path) -> String {
             String::from_utf8_lossy(&result.stdout).trim().to_owned()
         }
         _ => "unknown-revision".to_owned(),
-    }
-}
-
-/// Ask Cargo to rebuild when the containing checkout advances to another Git
-/// revision. The content SHA remains authoritative and works without Git;
-/// these paths only keep the legacy diagnostic revision fresh when available.
-fn emit_git_rerun_inputs(manifest_dir: &Path) {
-    let repository = manifest_dir.parent().unwrap_or(manifest_dir);
-    let dot_git = repository.join(".git");
-    let git_dir = match fs::symlink_metadata(&dot_git) {
-        Ok(metadata) if metadata.is_dir() => dot_git,
-        Ok(metadata) if metadata.is_file() => {
-            let marker = fs::read_to_string(&dot_git).unwrap_or_default();
-            let Some(path) = marker.trim().strip_prefix("gitdir:") else {
-                return;
-            };
-            let path = PathBuf::from(path.trim());
-            if path.is_absolute() {
-                path
-            } else {
-                repository.join(path)
-            }
-        }
-        _ => return,
-    };
-
-    let head = git_dir.join("HEAD");
-    println!("cargo:rerun-if-changed={}", head.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        git_dir.join("packed-refs").display()
-    );
-    if let Ok(contents) = fs::read_to_string(&head) {
-        if let Some(reference) = contents.trim().strip_prefix("ref:") {
-            println!(
-                "cargo:rerun-if-changed={}",
-                git_dir.join(reference.trim()).display()
-            );
-        }
     }
 }
 
@@ -446,7 +410,6 @@ fn main() {
     let rustc_verbose = rustc_output(&["--version", "--verbose"], "verbose rustc version");
     let build_contract_sha256 =
         build_contract_sha256(&target, &profile, build_class, &rustc_verbose);
-    emit_git_rerun_inputs(&manifest_dir);
     let revision = git_revision(&manifest_dir);
     let (diagnostic_hash, source_sha256) = source_hashes(&manifest_dir);
     let identifier = format!("slither_native/{crate_version}+{revision}.{diagnostic_hash:016x}");
