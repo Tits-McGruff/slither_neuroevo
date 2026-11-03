@@ -15,6 +15,7 @@ use std::fmt::{Display, Formatter};
 pub const BASELINE_V2_VERSION: u32 = 2;
 const COMMITMENT_SECONDS: f64 = 0.2;
 const SWITCH_IMPROVEMENT: f64 = 0.025;
+const REVERSAL_SWITCH_IMPROVEMENT: f64 = 0.15;
 const ROAM_FOOD_THRESHOLD: f64 = 0.25;
 const URGENT_URGENCY: f64 = 0.75; // TTC < 0.5 s in the declared two-second horizon.
                                   // Emergency proportional steering remains stable at the admitted 14 rad/s
@@ -453,10 +454,18 @@ impl BaselineV2Policy {
         }
         let mut held_heading = None;
         if let Some(committed) = state.committed_heading {
-            let old = sector(wrap(committed - heading), self.bins);
+            let committed_angle = wrap(committed - heading);
+            let old = sector(committed_angle, self.bins);
+            let switch_improvement = if wrap(angle(best, self.bins) - committed_angle).abs()
+                > FRAC_PI_2
+            {
+                REVERSAL_SWITCH_IMPROVEMENT
+            } else {
+                SWITCH_IMPROVEMENT
+            };
             if safe[old]
                 && (state.commitment_remaining_seconds > 0.0
-                    || scores[best] - scores[old] < SWITCH_IMPROVEMENT)
+                    || scores[best] - scores[old] < switch_improvement)
             {
                 best = old;
                 held_heading = Some(committed);
