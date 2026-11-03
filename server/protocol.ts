@@ -60,6 +60,8 @@ export interface HelloMsg {
   clientType: ClientType;
   /** Exact protocol version implemented by the client. */
   version: number;
+  /** Request compact binary sensor packets on bot connections. */
+  binarySensors?: boolean;
 }
 
 /** Join request from client to register as spectator or player. */
@@ -514,9 +516,10 @@ export function getProtocolVersionError(raw: unknown): string | null {
 export function isHello(msg: unknown): msg is HelloMsg {
   if (!isRecord(msg)) return false;
   return (
-    hasKeys(msg, ['type', 'clientType', 'version'], ['type', 'clientType', 'version']) &&
+    hasKeys(msg, ['type', 'clientType', 'version', 'binarySensors'], ['type', 'clientType', 'version']) &&
     msg['type'] === 'hello' &&
     msg['version'] === PROTOCOL_VERSION &&
+    (msg['binarySensors'] === undefined || typeof msg['binarySensors'] === 'boolean') &&
     (msg['clientType'] === 'ui' || msg['clientType'] === 'bot')
   );
 }
