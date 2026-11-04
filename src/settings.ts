@@ -75,6 +75,12 @@ function readInputValue(input: SettingInputElement): number | null {
   }
   const value = Number(input.value);
   if (!Number.isFinite(value)) return null;
+  if (input.dataset['fullPrecision'] === '1') {
+    const definition = SETTING_DEFINITION_BY_PATH.get(path ?? '');
+    if (!definition || input.value.trim() === '' ||
+        (definition.min !== undefined && value < definition.min) ||
+        (definition.max !== undefined && value > definition.max)) return null;
+  }
   return value;
 }
 
@@ -91,6 +97,7 @@ function formatInputValue(input: SettingInputElement, value: number): string {
   }
   if (input.type === 'checkbox') return value ? 'On' : 'Off';
   if (input.dataset['controlType'] === 'duration') return formatDuration(value);
+  if (input.dataset['fullPrecision'] === '1') return String(value);
   const decimalsRaw = input.dataset['decimals'];
   const decimals = decimalsRaw ? Number(decimalsRaw) : 0;
   return fmtNumber(value, Number.isFinite(decimals) ? decimals : 0);
@@ -137,6 +144,7 @@ export function createSettingControl(spec: SettingDefinition): SettingInputEleme
     if (spec.min != null) numeric.min = String(spec.min);
     if (spec.max != null) numeric.max = String(spec.max);
     if (spec.step != null) numeric.step = String(spec.step);
+    if (spec.step === 'any') numeric.dataset['fullPrecision'] = '1';
     input = numeric;
   }
   if (spec.path) input.dataset['path'] = spec.path;
@@ -209,6 +217,17 @@ export function buildSettingsUI(container: HTMLElement): void {
       } else {
         const input = createSettingControl(spec);
         wrap.appendChild(input);
+        for (const preset of spec.presets ?? []) {
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'btn small'; button.textContent = preset.label;
+          if (spec.path) button.dataset['settingPreset'] = spec.path;
+          button.addEventListener('click', () => {
+            if (input.disabled) return;
+            input.value = String(preset.value);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          });
+          wrap.appendChild(button);
+        }
         if (spec.requiresReset != null) {
           const foot = document.createElement("div");
           foot.className = "foot";
@@ -284,6 +303,9 @@ export function refreshSensorSettings(root: HTMLElement, locked = false): void {
     const inactive = inactiveSensorSetting(path, version, algorithm);
     input.disabled = locked || inactive;
     input.title = inactive ? (path.startsWith('sense.') ? 'Select v4 sensors to use this setting.' : 'Select v4 sensors and baseline v2 to use this setting.') : '';
+    for (const button of root.querySelectorAll<HTMLButtonElement>('button[data-setting-preset]')) {
+      if (button.dataset['settingPreset'] === path) button.disabled = input.disabled;
+    }
   }
 }
 
@@ -342,6 +364,10 @@ export function hookSliderEvents(
         input.setCustomValidity(value == null ? 'Enter a duration from 8 seconds to 7 days.' : '');
         input.setAttribute('aria-invalid', String(value == null));
       }
+      if (input.dataset['fullPrecision'] === '1') {
+        input.setCustomValidity(value == null ? 'Enter seconds within the displayed bounds.' : '');
+        input.setAttribute('aria-invalid', String(value == null));
+      }
       if (value != null) {
         const out = document.getElementById("val_" + input.dataset['path']!.replaceAll(".", "_"));
         if (out) out.textContent = formatInputValue(input, value);
@@ -390,7 +416,7 @@ export function validateSettingDrafts(root: HTMLElement): boolean {
     if (inactiveSensorSetting(path, version, algorithm)) return;
     let contractError = '';
     if (path === 'baselineBots.algorithm' && algorithm === 2 && version !== 4) contractError = 'Baseline v2 requires v4 sensors.';
-    if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt') {
+    if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt' || input.dataset['fullPrecision'] === '1') {
       const value = input.value.trim() === '' ? NaN : Number(input.value);
       const definition = SETTING_DEFINITION_BY_PATH.get(path)!;
       if (!Number.isFinite(value) || (definition.valueType === 'integer' && !Number.isSafeInteger(value)) ||
@@ -406,7 +432,7 @@ export function validateSettingDrafts(root: HTMLElement): boolean {
       input.setCustomValidity(contractError); input.setAttribute('aria-invalid', 'true');
       if (valid) input.reportValidity(); valid = false; return;
     }
-    if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt' || path === 'baselineBots.algorithm') {
+    if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt' || path === 'baselineBots.algorithm' || input.dataset['fullPrecision'] === '1') {
       input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
     }
     if (input.dataset['lifeContract'] === '1') {

@@ -932,7 +932,10 @@ end settings apply through the server.
 - **GRU hidden size**: Memory width; bigger = more capacity, more parameters.
 - **LSTM hidden size**: LSTM memory width.
 - **RRU hidden size**: RRU memory width.
-- **Brain control dt**: How often the brain updates relative to physics.
+- **Brain control dt**: Seconds between neural decisions. This live number input
+  preserves full precision. **60 Hz (1/60 s)** selects the exact interval required
+  by a brain trained at 60 Hz; typing `0.016` or `0.017` selects a different interval.
+  **V2 decision interval** has the same exact preset and applies on reset.
 - **Recurrent mutation rate (GRU/LSTM/RRU)**: Mutation rate applied to recurrent weights.
 - **Recurrent mutation std (GRU/LSTM/RRU)**: Mutation strength for recurrent weights.
 - **Recurrent crossover mode (0 block, 1 unit)**: 0 = block, 1 = unit-wise crossover.
