@@ -59,7 +59,7 @@ describe('validateCheckpointDatabaseSchema', () => {
       try {
         expect(validateCheckpointDatabaseSchema(readonly)).toBe('managed');
         expect(readonly.prepare(`SELECT name FROM sqlite_schema
-          WHERE type = 'table' AND name IN ('rust_generation_completion_v1', 'rust_generation_experiment_v1')
+          WHERE type = 'table' AND name IN ('rust_generation_completion_v1', 'rust_generation_experiment_v1', 'rust_generation_work_v1')
           ORDER BY name`).all()).toEqual([]);
       } finally {
         readonly.close();
@@ -69,10 +69,11 @@ describe('validateCheckpointDatabaseSchema', () => {
       try {
         expect(validateCheckpointDatabaseSchema(writable)).toBe('managed');
         expect(writable.prepare(`SELECT name FROM sqlite_schema
-          WHERE type = 'table' AND name IN ('rust_generation_completion_v1', 'rust_generation_experiment_v1')
+          WHERE type = 'table' AND name IN ('rust_generation_completion_v1', 'rust_generation_experiment_v1', 'rust_generation_work_v1')
           ORDER BY name`).all()).toEqual([
           { name: 'rust_generation_completion_v1' },
-          { name: 'rust_generation_experiment_v1' }
+          { name: 'rust_generation_experiment_v1' },
+          { name: 'rust_generation_work_v1' }
         ]);
         expect(() => writable.prepare(`INSERT INTO rust_generation_completion_v1
           (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, NULL, ?)`)
@@ -80,6 +81,10 @@ describe('validateCheckpointDatabaseSchema', () => {
         expect(() => writable.prepare(`INSERT INTO rust_generation_experiment_v1
           (run_id, generation_hex, checkpoint_id, record_blob) VALUES (?, ?, NULL, ?)`)
           .run('run', '0000000000000001', Buffer.alloc(767))).toThrow();
+        expect(() => writable.prepare(`INSERT INTO rust_generation_work_v1
+          (run_id, generation_hex, checkpoint_id, record_json) VALUES (?, ?, NULL, ?)`)
+          .run('run', '0000000000000001', ' '.repeat(8193))).toThrow();
+        expect(validateCheckpointDatabaseSchema(writable)).toBe('managed');
       } finally {
         writable.close();
       }
@@ -88,16 +93,17 @@ describe('validateCheckpointDatabaseSchema', () => {
     }
   });
 
-  it('rejects an incompatible pre-existing sidecar instead of hiding it behind IF NOT EXISTS', () => {
-    const database = new Database(':memory:');
-    try {
-      createOriginalManagedSchema(database);
-      database.exec('CREATE TABLE rust_generation_experiment_v1 (run_id TEXT NOT NULL)');
-      expect(() => validateCheckpointDatabaseSchema(database)).toThrow(/generation_hex|no such column/u);
-      expect(database.prepare(`SELECT count(*) AS count FROM sqlite_schema
-        WHERE type = 'table' AND name = 'rust_generation_completion_v1'`).get()).toEqual({ count: 0 });
-    } finally {
-      database.close();
-    }
-  });
+  it.each(['rust_generation_experiment_v1', 'rust_generation_work_v1'])(
+    'rejects incompatible %s instead of hiding it behind IF NOT EXISTS', table => {
+      const database = new Database(':memory:');
+      try {
+        createOriginalManagedSchema(database);
+        database.exec(`CREATE TABLE ${table} (run_id TEXT NOT NULL)`);
+        expect(() => validateCheckpointDatabaseSchema(database)).toThrow(/generation_hex|no such column/u);
+        expect(database.prepare(`SELECT count(*) AS count FROM sqlite_schema
+          WHERE type = 'table' AND name = 'rust_generation_completion_v1'`).get()).toEqual({ count: 0 });
+      } finally {
+        database.close();
+      }
+    });
 });

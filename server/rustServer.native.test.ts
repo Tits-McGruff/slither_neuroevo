@@ -1256,7 +1256,7 @@ describeNetworkSuite('Rust server real sockets', () => {
     }
   });
 
-  it('creates the first Rust run only under automatic startup and resumes its existing database', async () => {
+  it.each([false, true])('creates and resumes the automatic first run (pre-telemetry schema: %s)', async preTelemetry => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-first-run-'));
     const dbPath = join(root, 'slither.sqlite');
     let server = await startRustServer({
@@ -1269,10 +1269,22 @@ describeNetworkSuite('Rust server real sockets', () => {
       await healthUntil(server.port, sample =>
         BigInt(`0x${sample['commandServiceBoundaries'] as string}`) > firstBoundary);
       await server.close();
+      const database = new Database(dbPath);
+      let checkpoint: string;
+      try {
+        checkpoint = (database.prepare('SELECT checkpoint_id FROM rust_checkpoint_v3_current').get() as { checkpoint_id: string }).checkpoint_id;
+        if (preTelemetry) database.exec('DROP TABLE rust_generation_work_v1');
+      } finally { database.close(); }
       server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, dbPath, rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined();
       expect(await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json()).toMatchObject({
-        ok: true, runId: (health as { runId: string }).runId, seed: 91
+        ok: true, runId: (health as { runId: string }).runId, seed: 91, startupCheckpointId: checkpoint
       });
+      expect((await manualFixtureHttp(`http://127.0.0.1:${server.port}/`)).status).toBe(200);
+      const history = await manualFixtureHttp(`http://127.0.0.1:${server.port}/api/history`);
+      expect(history.status).toBe(200);
+      expect(JSON.parse(history.bytes.toString())).toEqual({ version: 1,
+        runId: (health as { runId: string }).runId, history: [] });
     } finally {
       await server.close();
       await rm(root, { recursive: true, force: true });

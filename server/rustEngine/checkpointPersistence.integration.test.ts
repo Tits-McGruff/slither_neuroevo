@@ -731,6 +731,42 @@ describe(SUITE, { timeout: 30_000 }, () => {
       checkpoint_id: descriptor.logicalRootSha256, operation_id: descriptor.operationId
     });
   });
+  it.each([true, 'managed'] as const)('upgrades a pre-telemetry save without changing its population/history (%s)', async existingOnly => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '22'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, createGenerationCommit(1n));
+    await fixture.client.close();
+    const database = new Database(fixture.databasePath);
+    let preserved: unknown[];
+    try {
+      database.exec('DROP TABLE rust_generation_work_v1');
+      preserved = ['rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
+        'rust_generation_history_v1', 'rust_hall_of_fame_v1']
+        .map(table => database.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+    } finally { database.close(); }
+    const checkpointBytes = readFileSync(join(fixture.managedRoot, second.relativeFilename));
+    const reopened = new CheckpointPersistenceClient({ databasePath: fixture.databasePath,
+      managedRootPath: fixture.managedRoot, existingOnly });
+    clients.push(reopened);
+    expect(await reopened.selectCurrent()).toEqual(second);
+    const history = await reopened.readBrowserHistory(second.runId);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ gen: 1, best: 12.5 });
+    expect(history[0]).not.toHaveProperty('workload');
+    await reopened.close();
+    const inspect = new Database(fixture.databasePath, { readonly: true });
+    try {
+      expect(['rust_checkpoint_v3_metadata', 'rust_checkpoint_v3_current',
+        'rust_generation_history_v1', 'rust_hall_of_fame_v1']
+        .map(table => inspect.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all())).toEqual(preserved);
+      expect(inspect.prepare('SELECT count(*) AS count FROM rust_generation_work_v1').get()).toEqual({ count: 0 });
+    } finally { inspect.close(); }
+    expect(readFileSync(join(fixture.managedRoot, second.relativeFilename))).toEqual(checkpointBytes);
+  });
+
   it('refuses missing and unrelated resume databases without creating or changing them', async () => {
     const fixture = createFixture();
     await fixture.client.close();

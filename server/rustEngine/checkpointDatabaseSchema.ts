@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const MANAGED_GENERATION_SIDECARS = ['rust_generation_completion_v1', 'rust_generation_experiment_v1'] as const;
+const MANAGED_GENERATION_SIDECARS = ['rust_generation_completion_v1', 'rust_generation_experiment_v1', 'rust_generation_work_v1'] as const;
 
 /** Validate any existing additive generation sidecars before a writable caller creates missing ones. */
 function validateManagedGenerationSidecars(database: ReturnType<typeof Database>, tables: ReadonlySet<string>): void {
@@ -11,6 +11,10 @@ function validateManagedGenerationSidecars(database: ReturnType<typeof Database>
   if (tables.has('rust_generation_experiment_v1')) {
     database.prepare(`SELECT run_id, generation_hex, checkpoint_id, record_blob
       FROM rust_generation_experiment_v1 LIMIT 0`).all();
+  }
+  if (tables.has('rust_generation_work_v1')) {
+    database.prepare(`SELECT run_id, generation_hex, checkpoint_id, record_json
+      FROM rust_generation_work_v1 LIMIT 0`).all();
   }
 }
 
@@ -29,6 +33,13 @@ function initializeManagedGenerationSidecars(database: ReturnType<typeof Databas
       generation_hex TEXT NOT NULL,
       checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
       record_blob BLOB NOT NULL CHECK(length(record_blob) = 768),
+      PRIMARY KEY (run_id, generation_hex)
+    );
+    CREATE TABLE IF NOT EXISTS rust_generation_work_v1 (
+      run_id TEXT NOT NULL,
+      generation_hex TEXT NOT NULL,
+      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
+      record_json TEXT NOT NULL CHECK(length(record_json) <= 8192),
       PRIMARY KEY (run_id, generation_hex)
     );
   `);
