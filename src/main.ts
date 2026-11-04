@@ -160,6 +160,8 @@ let serverImportBranch: RustImportBranchNotice | null = null;
 let serverLegacyConversion: RustLegacyConversionNotice | null = null;
 /** Correlation id of the currently pending New Run request. */
 let pendingNewRunRequestId: string | null = null;
+/** One explicit founder request awaits the ordinary durable New Run result. */
+let pendingFounderStart: {requestId: string; resolve(): void; reject(error: Error): void} | null = null;
 /** Backoff delay for reconnection attempts in ms. */
 let reconnectDelayMs = 1000;
 /** Last player nickname used for reconnecting control. */
@@ -439,6 +441,20 @@ const libraryEnvironment: LibraryEnvironment = {graphSourceJson: null, sensorSha
 const brainLibrary = new BrainLibraryView(new BrainLibraryClient(() => wsClient?.isConnected()
   ? resolveServerHttpBase(serverUrl || resolveServerUrl()) : null), () => libraryEnvironment, snakeId => {
   spectatorFollowSnakeId = snakeId; resetManualCamera(); proxyWorld.viewMode = 'follow';
+}, async selection => {
+  if (!wsClient?.isConnected() || pendingNewRunRequestId || pendingFounderStart) throw new Error('Connect and wait for the current New Run request.');
+  const requestId = createRequestId();
+  pendingNewRunRequestId = requestId;
+  btnNewRun.disabled = true;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingFounderStart = null;
+      reject(new Error('Founder start outcome is uncertain. Reconnect and inspect the current run before starting another.'));
+    }, 60_000);
+    pendingFounderStart = {requestId, resolve: () => {clearTimeout(timer); pendingFounderStart = null; resolve();},
+      reject: error => {clearTimeout(timer); pendingFounderStart = null; reject(error);}};
+    wsClient!.sendNewRun(requestId, selection);
+  });
 });
 /** Last advertised diagnostic controls, independent of editable settings drafts. */
 let distillationAvailable = false;
@@ -3702,7 +3718,8 @@ wsClient = createWsClient({
     applyAuthoritativeSensorSpec(info.sensorSpec);
     libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
     libraryEnvironment.configHash = info.configHash;
-    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
+    libraryEnvironment.founderBrainId = info.founder?.artifactSha256;
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true, info.capabilities?.savedBrainFounders === true);
     distillationAvailable = info.capabilities?.distillation === true;
     teacherCaptureReady = info.capabilities?.teacherCapture === true;
     distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
@@ -3739,6 +3756,7 @@ wsClient = createWsClient({
     refreshServerHallOfFame();
   },
   onDisconnected: () => {
+    pendingFounderStart?.reject(new Error('Connection lost during founder start. Reconnect and inspect the current run before starting another.'));
     decisionInspector.dispose();
     decisionInspectorView.supported(false);
     brainLibrary.contextChanged(false);
@@ -3936,6 +3954,10 @@ wsClient = createWsClient({
     }
   },
   onNewRunResult: (msg) => {
+    if (pendingFounderStart?.requestId === msg.requestId) {
+      if (msg.applied) pendingFounderStart.resolve();
+      else pendingFounderStart.reject(new Error(msg.reason ?? 'Founder run rejected.'));
+    }
     if (pendingNewRunRequestId === msg.requestId) {
       pendingNewRunRequestId = null;
       btnNewRun.disabled = false;
@@ -3995,7 +4017,8 @@ wsClient = createWsClient({
     applyAuthoritativeSensorSpec(info.sensorSpec);
     libraryEnvironment.sensorSha256 = info.sensorSpec.contract?.sha256 ?? null;
     libraryEnvironment.configHash = info.configHash;
-    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true);
+    libraryEnvironment.founderBrainId = info.founder?.artifactSha256;
+    brainLibrary.contextChanged(info.capabilities?.savedBrainLibrary === true, info.capabilities?.savedBrainArchive === true, info.capabilities?.savedBrainFounders === true);
     distillationAvailable = info.capabilities?.distillation === true;
     teacherCaptureReady = info.capabilities?.teacherCapture === true;
     distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);

@@ -249,6 +249,106 @@ pub fn prepare_configured_fresh_run_with_math(
     .map_err(FreshRunError::from)
 }
 
+/// Build a founder lineage from an explicitly leased saved portable artifact.
+/// Source bytes and decoder staging are charged alongside the held live authority.
+pub fn prepare_saved_brain_founder_run(
+    mut request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+    directory: &std::path::Path,
+    brain_id: &str,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let identity = super::founder::FounderOrigin {
+        schema_version: 1,
+        mode: super::founder::FounderMode::ExactFounderMutatedDescendantsV1,
+        artifact_sha256: brain_id.into(),
+        weights_sha256: "0".repeat(64),
+    };
+    identity
+        .validate()
+        .map_err(|error| FreshRunError::Settings(error.into()))?;
+    // Full portable bytes, decoded weights, manifest/graph and bounded codec scratch.
+    let staging_bytes = super::brain_artifact::MAX_BRAIN_ARTIFACT_BYTES
+        + crate::contracts::MAX_BRAIN_PARAMETERS * 4
+        + 16 * MIB;
+    let ceiling = request.memory_ceiling_bytes;
+    request.memory_ceiling_bytes = ceiling
+        .checked_sub(staging_bytes)
+        .ok_or_else(|| FreshRunError::Settings("founder source exceeds memory admission".into()))?;
+    let bytes = super::brain_library::read_artifact_file(
+        &directory.join(format!("{brain_id}.slither-brain")),
+    )
+    .map_err(FreshRunError::Settings)?;
+    let artifact =
+        super::brain_artifact::validate_brain_artifact(&bytes).map_err(FreshRunError::Settings)?;
+    if artifact.artifact_sha256 != brain_id {
+        return Err(FreshRunError::Settings(
+            "founder artifact identity mismatch".into(),
+        ));
+    }
+    let mut prepared =
+        prepare_configured_boundary_with_founder(request, settings, graph, math, Some(&artifact))?;
+    drop(artifact);
+    drop(bytes);
+    prepared.admission_policy.memory_ceiling_bytes = ceiling;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+fn validate_founder_contract(
+    candidate: &StateCandidate,
+    graph: &GraphBundle,
+    founder: &super::brain_artifact::ValidatedBrainArtifact,
+) -> Result<(), FreshRunError> {
+    if graph.architecture_key != founder.graph.architecture_key {
+        return Err(FreshRunError::Settings(
+            "founder graph does not match the selected graph".into(),
+        ));
+    }
+    let sensor =
+        super::sensor_contract::SensorContractIdentity::from_settings(&candidate.config.settings)
+            .and_then(|sensor| sensor.sha256_hex())
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    if sensor != founder.canonical_manifest.sensor_sha256 {
+        return Err(FreshRunError::Settings(
+            "founder structural sensors do not match".into(),
+        ));
+    }
+    let cadence = candidate
+        .config
+        .settings
+        .iter()
+        .find(|setting| setting.path == "brain.controlDt");
+    if !matches!(cadence.map(|entry| &entry.value), Some(NormalizedSettingValue::Float(value))
+        if value.to_bits() == founder.deployment.control_interval_seconds.to_bits())
+    {
+        return Err(FreshRunError::Settings(
+            "founder neural cadence does not match".into(),
+        ));
+    }
+    let preserve = candidate.config.settings.iter().any(|setting| {
+        setting.path == "evolvedRespawn.recurrentState"
+            && setting.value == NormalizedSettingValue::Integer(1)
+    });
+    if preserve
+        != (founder.deployment.life_state_rule
+            == super::training_graph::TrainingLifeStateRule::Preserve)
+    {
+        return Err(FreshRunError::Settings(
+            "founder memory across lives rule does not match".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Start a new lineage using an admitted checkpoint's unchanged F32 population.
 /// The source world retires before construction; retained genomes and metadata
 /// remain charged. Lives, recurrent state, fitness and RNG chronology do not cross.
@@ -342,6 +442,16 @@ fn prepare_configured_fresh_boundary(
     graph: GraphSpec,
     math: InferenceMathBackend,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    prepare_configured_boundary_with_founder(request, settings, graph, math, None)
+}
+
+fn prepare_configured_boundary_with_founder(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     if !math.is_available() {
         return Err(FreshRunError::Settings(format!(
             "inference backend {} is unavailable on this CPU",
@@ -363,9 +473,18 @@ fn prepare_configured_fresh_boundary(
         .iter()
         .any(|setting| setting.path == "sense.layoutVersion" && setting.value == 4.0)
     {
-        prepare_configured_v4_boundary(request, settings, graph, modern)?
+        prepare_configured_v4_boundary(request, settings, graph, modern, founder)?
     } else {
-        prepare_fresh_boundary(request, settings, graph, modern)?
+        prepare_boundary_with_founder(
+            request,
+            settings,
+            graph,
+            modern,
+            None,
+            RunningStepWorkLimits::provisional_defaults(),
+            None,
+            founder,
+        )?
     };
     prepared.candidate.identity.math_backend = math.label().into();
     prepared.admission_policy.expected_math_backend = math.label().into();
@@ -380,6 +499,7 @@ fn prepare_configured_v4_boundary(
     settings: &[FreshRunSettingUpdate],
     graph: GraphSpec,
     modern: bool,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     if settings.len() > 128 {
         return Err(FreshRunError::Settings(
@@ -486,7 +606,7 @@ fn prepare_configured_v4_boundary(
         })
         .cloned()
         .collect::<Vec<_>>();
-    prepare_fresh_boundary_with_sensor_and_baseline(
+    prepare_boundary_with_founder(
         request,
         &replacements,
         graph,
@@ -497,6 +617,7 @@ fn prepare_configured_v4_boundary(
             ..RunningStepWorkLimits::provisional_defaults()
         },
         baseline,
+        founder,
     )
 }
 
@@ -1006,7 +1127,7 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
     work_limits: RunningStepWorkLimits,
     baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
-    initialize_fresh_boundary(prepare_fresh_boundary_shell(
+    prepare_boundary_with_founder(
         request,
         replacement_settings,
         graph_spec,
@@ -1014,8 +1135,34 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
         sensor_contract,
         work_limits,
         baseline_v2,
-        production_checkpoint_limits(),
-    )?)
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_boundary_with_founder(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    sensor_contract: Option<super::sensor_contract::SensorContractIdentity>,
+    work_limits: RunningStepWorkLimits,
+    baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    initialize_boundary_with_founder(
+        prepare_fresh_boundary_shell(
+            request,
+            replacement_settings,
+            graph_spec,
+            modern,
+            sensor_contract,
+            work_limits,
+            baseline_v2,
+            production_checkpoint_limits(),
+        )?,
+        founder,
+    )
 }
 
 /// Metadata-only inputs; numeric boxes are initialized only after complete shape admission.
@@ -1186,8 +1333,16 @@ fn prepare_fresh_boundary_shell(
 }
 
 /// Enforce the existing production preflight before allocating a single numeric box.
+#[cfg(any(test, feature = "engine-test-hooks"))]
 fn initialize_fresh_boundary(
     shell: FreshBoundaryShell,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    initialize_boundary_with_founder(shell, None)
+}
+
+fn initialize_boundary_with_founder(
+    shell: FreshBoundaryShell,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     let FreshBoundaryShell {
         mut candidate,
@@ -1198,6 +1353,15 @@ fn initialize_fresh_boundary(
         work_limits,
         initialization,
     } = shell;
+    if let Some(founder) = founder {
+        validate_founder_contract(&candidate, &graph, founder)?;
+        candidate.identity.founder = Some(super::founder::FounderOrigin {
+            schema_version: 1,
+            mode: super::founder::FounderMode::ExactFounderMutatedDescendantsV1,
+            artifact_sha256: founder.artifact_sha256.clone(),
+            weights_sha256: founder.weights_sha256.clone(),
+        });
+    }
     let population_count = candidate.config.population_count;
     let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
         FreshRunError::ArithmeticOverflow {
@@ -1238,7 +1402,7 @@ fn initialize_fresh_boundary(
             parameters_per_genome: graph.total_parameters,
         });
     }
-    initialize_population_numeric(&mut candidate, graph.compiled(), initialization)?;
+    initialize_population_numeric(&mut candidate, graph.compiled(), initialization, founder)?;
 
     Ok(PreparedStage6aP0Boundary {
         candidate,
@@ -1710,6 +1874,7 @@ fn boundary_shell(
             build_contract_sha256: crate::native_addon_build_contract_sha256(),
             math_backend: InferenceMathBackend::Scalar.label().to_owned(),
             legacy_conversion: None,
+            founder: None,
         },
         config,
         phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),
@@ -1755,11 +1920,28 @@ fn initialize_population_numeric(
     candidate: &mut StateCandidate,
     graph: &super::graph::CompiledGraph,
     initialization: GenomeInitializationConfig,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<(), FreshRunError> {
     let mut continuation = candidate.rng.evolution.clone();
     for (genome, brain) in candidate.population.iter_mut().zip(&mut candidate.brains) {
-        let initialized = initialize_random_genome(graph, &continuation, initialization)?;
-        let (weights, next_rng) = initialized.into_parts();
+        let (weights, next_rng) = if let Some(founder) = founder {
+            let mut weights = reserve_vec(graph.total_parameters, "founder genome")?;
+            weights.extend_from_slice(&founder.weights);
+            let mut rng = super::rng::StatefulRng::from_state(&continuation)
+                .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+            if genome.slot != 0 {
+                let config = super::step_config::project_evolution_config(
+                    &candidate.config,
+                    graph.total_parameters,
+                )?;
+                super::evolution::mutate(&mut weights, graph, config, &mut rng)
+                    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+                genome.lineage.parent_a = Some(1);
+            }
+            (weights, rng.export_state())
+        } else {
+            initialize_random_genome(graph, &continuation, initialization)?.into_parts()
+        };
         genome.weights = weights.into_boxed_slice();
         brain.recurrent = zeroed_box(graph.total_state_size, "P0 recurrent state")?;
         continuation = next_rng;
@@ -2878,6 +3060,265 @@ mod tests {
             seed,
             memory_ceiling_bytes: TEST_MEMORY_CEILING,
         }
+    }
+
+    fn founder_settings() -> Vec<FreshRunSettingUpdate> {
+        let mut settings = numeric_fresh_settings(selected_fresh_default_settings().unwrap());
+        for (path, value) in [
+            ("snakeCount", 3.0),
+            ("baselineBots.count", 0.0),
+            ("brain.controlDt", 1.0 / 60.0),
+            ("evolvedRespawn.recurrentState", 0.0),
+        ] {
+            settings
+                .iter_mut()
+                .find(|setting| setting.path == path)
+                .unwrap()
+                .value = value;
+        }
+        settings
+    }
+
+    #[test]
+    fn founder_population_uses_exact_weights_and_ordinary_mutation_at_production_sizes() {
+        for upper in [false, true] {
+            let bytes = super::super::brain_artifact::tests::large_artifact(upper);
+            let artifact = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+            let prepared = prepare_configured_boundary_with_founder(
+                request(42),
+                &founder_settings(),
+                artifact.graph.spec().clone(),
+                InferenceMathBackend::Scalar,
+                Some(&artifact),
+            )
+            .unwrap();
+            let state = &prepared.candidate;
+            assert_eq!(&*state.population[0].weights, &artifact.weights);
+            assert_eq!(state.population[0].lineage.parent_a, None);
+            let config = super::super::step_config::project_evolution_config(
+                &state.config,
+                artifact.weights.len(),
+            )
+            .unwrap();
+            let mut rng = labelled_stream(42.0, "evolution");
+            for genome in &state.population[1..] {
+                let mut expected = artifact.weights.clone();
+                super::super::evolution::mutate(
+                    &mut expected,
+                    artifact.graph.compiled(),
+                    config,
+                    &mut rng,
+                )
+                .unwrap();
+                assert_eq!(&*genome.weights, &expected);
+                assert_ne!(&*genome.weights, &artifact.weights);
+                assert_eq!(
+                    genome.lineage.parent_a,
+                    Some(state.population[0].lineage.genome_id)
+                );
+            }
+            assert_eq!(state.rng.evolution, rng.export_state());
+            assert_eq!(
+                state.rng.world,
+                labelled_stream(42.0, "world").export_state()
+            );
+            assert!(state
+                .brains
+                .iter()
+                .all(|brain| brain.recurrent.iter().all(|value| value.to_bits() == 0)));
+            assert_eq!(
+                state.identity.founder.as_ref().unwrap().artifact_sha256,
+                artifact.artifact_sha256
+            );
+            let repeated = prepare_configured_boundary_with_founder(
+                request(42),
+                &founder_settings(),
+                artifact.graph.spec().clone(),
+                InferenceMathBackend::Scalar,
+                Some(&artifact),
+            )
+            .unwrap();
+            assert_eq!(state.population, repeated.candidate.population);
+            assert_eq!(state.rng, repeated.candidate.rng);
+        }
+    }
+
+    #[test]
+    fn founder_source_is_verified_and_checkpoint_restore_does_not_need_the_library() {
+        let directory = TestDirectory::create("founder-checkpoint");
+        let bytes = super::super::brain_artifact::tests::large_artifact(false);
+        let artifact = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        let path = directory
+            .path()
+            .join(format!("{}.slither-brain", artifact.artifact_sha256));
+        std::fs::write(&path, &bytes).unwrap();
+        let make = |input, id: &str| {
+            prepare_saved_brain_founder_run(
+                input,
+                &founder_settings(),
+                artifact.graph.spec().clone(),
+                InferenceMathBackend::Scalar,
+                directory.path(),
+                id,
+            )
+        };
+        let mut input = request(42);
+        // A running generation transition owns both complete source and successor.
+        input.memory_ceiling_bytes = 4 * 1024 * MIB;
+        let mut fresh = make(input.clone(), &artifact.artifact_sha256).unwrap();
+        assert!(fresh.publish_running_authority().is_err());
+        let descriptor = fresh
+            .publish_checkpoint(
+                directory.path(),
+                CheckpointOperationId::parse("12345678123456781234567812345678").unwrap(),
+            )
+            .unwrap();
+        let metadata = fresh.startup_metadata_json().unwrap();
+        let mut insufficient = request(42);
+        insufficient.memory_ceiling_bytes = 1;
+        assert!(make(insufficient, &artifact.artifact_sha256).is_err());
+        assert!(make(request(42), "../source").is_err());
+        std::fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+        assert!(make(request(42), &artifact.artifact_sha256).is_err());
+        let mut corrupt = bytes.clone();
+        *corrupt.last_mut().unwrap() ^= 1;
+        std::fs::write(&path, corrupt).unwrap();
+        assert!(make(request(42), &artifact.artifact_sha256).is_err());
+        std::fs::remove_file(&path).unwrap();
+        let restored = prepare_stage6a_p0_checkpoint_restore(
+            directory.path(),
+            &descriptor,
+            input.memory_ceiling_bytes,
+        )
+        .unwrap();
+        assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+        let source = restored.into_population_for_new_run().unwrap();
+        assert_eq!(&*source.state().population[0].weights, &artifact.weights);
+        assert_eq!(
+            source
+                .state()
+                .identity
+                .founder
+                .as_ref()
+                .unwrap()
+                .weights_sha256,
+            artifact.weights_sha256
+        );
+        fresh.acknowledge_persistence(&descriptor).unwrap();
+        fresh.publish_running_authority().unwrap();
+        assert_eq!(fresh.snake_count(), 3);
+        let mut running = fresh
+            .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+            .unwrap();
+        running
+            .request_finish_generation("finish-founder".into(), descriptor.run_id.clone(), 1)
+            .unwrap();
+        running
+            .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+            .unwrap();
+        assert!(running.pending_generation_transition().is_some());
+    }
+
+    #[test]
+    fn founder_rejects_incompatible_graph_sensors_cadence_and_life_rule() {
+        let bytes = super::super::brain_artifact::tests::large_artifact(false);
+        let artifact = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        for (path, value, reason) in [
+            ("brain.controlDt", 0.017, "cadence"),
+            ("evolvedRespawn.recurrentState", 1.0, "memory"),
+        ] {
+            let mut settings = founder_settings();
+            settings
+                .iter_mut()
+                .find(|setting| setting.path == path)
+                .unwrap()
+                .value = value;
+            let error = prepare_configured_boundary_with_founder(
+                request(42),
+                &settings,
+                artifact.graph.spec().clone(),
+                InferenceMathBackend::Scalar,
+                Some(&artifact),
+            )
+            .err()
+            .unwrap();
+            assert!(error.to_string().contains(reason), "{error}");
+        }
+        let mut wrong = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        wrong.canonical_manifest.sensor_sha256 = "00".repeat(32);
+        assert!(prepare_configured_boundary_with_founder(
+            request(42),
+            &founder_settings(),
+            artifact.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            Some(&wrong)
+        )
+        .is_err());
+        let other = super::super::brain_artifact::validate_brain_artifact(
+            &super::super::brain_artifact::tests::large_artifact(true),
+        )
+        .unwrap();
+        assert!(prepare_configured_boundary_with_founder(
+            request(42),
+            &founder_settings(),
+            other.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            Some(&artifact)
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn small_founder_respects_zero_mutation_settings_without_changing_the_saved_weights() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/portable-dense-basic8-v1.slither-brain"),
+        )
+        .unwrap();
+        let artifact = super::super::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        let mut settings = founder_settings();
+        for (path, value) in [
+            ("sense.profile", 0.0),
+            ("sense.bubbleBins", 8.0),
+            (
+                "brain.controlDt",
+                artifact.deployment.control_interval_seconds,
+            ),
+            (
+                "evolvedRespawn.recurrentState",
+                f64::from(
+                    artifact.deployment.life_state_rule
+                        == super::super::training_graph::TrainingLifeStateRule::Preserve,
+                ),
+            ),
+            ("mutationRate", 0.0),
+            ("brain.gruMutationRate", 0.0),
+        ] {
+            settings
+                .iter_mut()
+                .find(|entry| entry.path == path)
+                .unwrap()
+                .value = value;
+        }
+        let prepared = prepare_configured_boundary_with_founder(
+            request(42),
+            &settings,
+            artifact.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            Some(&artifact),
+        )
+        .unwrap();
+        assert!(prepared
+            .candidate
+            .population
+            .iter()
+            .all(|genome| &*genome.weights == artifact.weights.as_slice()));
+        assert_eq!(
+            super::super::brain_artifact::validate_brain_artifact(&bytes)
+                .unwrap()
+                .weights,
+            artifact.weights
+        );
     }
 
     fn numeric_settings(

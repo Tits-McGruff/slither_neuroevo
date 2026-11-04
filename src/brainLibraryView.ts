@@ -1,5 +1,5 @@
 import { BrainLibraryClient } from './net/brainLibrary.ts';
-import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1 } from '../server/protocol.ts';
+import type { SavedBrainRecordV1, SavedBrainSpawnReceiptV1, SavedBrainFounderSelectionV1 } from '../server/protocol.ts';
 
 /** Immutable applied facts, separate from graph/settings editor drafts. */
 export interface LibraryEnvironment {
@@ -11,6 +11,8 @@ export interface LibraryEnvironment {
   cadence: number;
   /** Current complete run configuration identity. */
   configHash: string;
+  /** Original source for the current evolving population, when explicitly seeded. */
+  founderBrainId?: string | undefined;
 }
 
 /** Cold user-driven library panel; no work is scheduled by animation frames. */
@@ -31,6 +33,8 @@ export class BrainLibraryView {
   private readonly archiveSelection = new Set<string>();
   /** An independent capability prevents old library servers silently dropping a selection. */
   private archiveEnabled = false;
+  /** Founder controls require a separate explicit server capability. */
+  private foundersEnabled = false;
   /** One selected full metadata record at most. */
   private selected: SavedBrainRecordV1 | undefined;
 
@@ -38,7 +42,8 @@ export class BrainLibraryView {
   constructor(
     private readonly client: BrainLibraryClient,
     private readonly environment: () => LibraryEnvironment,
-    private readonly spawned: (snakeId: number) => void
+    private readonly spawned: (snakeId: number) => void,
+    private readonly startFounder?: (selection: SavedBrainFounderSelectionV1) => Promise<void>
   ) {
     this.button('brainLibraryRefresh', () => this.refresh());
     this.button('brainLibraryArchive', () => {
@@ -84,14 +89,17 @@ export class BrainLibraryView {
   }
 
   /** Called for welcome/disconnect/replacement; pending retry bodies remain bound to their original process. */
-  contextChanged(enabled: boolean, archiveEnabled = false): void {
+  contextChanged(enabled: boolean, archiveEnabled = false, foundersEnabled = false): void {
+    this.foundersEnabled = enabled && foundersEnabled;
     this.archiveSelection.clear(); this.archiveEnabled = enabled && archiveEnabled;
     this.revision++; this.enabled = enabled; this.after = null; this.next = null; this.previous = []; this.selected = undefined;
     this.element('brainLibraryList').textContent = '';
     this.element('brainLibraryDetails').textContent = '';
     const tab = document.querySelector<HTMLButtonElement>('[data-tab="tab-library"]');
     if (tab) tab.hidden = !enabled;
-    this.message(enabled ? 'Refresh to browse saved brains.' : 'Connect to a server supporting the brain library.');
+    const founder = this.environment().founderBrainId;
+    this.message(enabled ? founder ? `Current population evolves from saved brain ${founder.slice(0, 12)}…. Refresh to browse saved brains.`
+      : 'Refresh to browse saved brains.' : 'Connect to a server supporting the brain library.');
     this.controls();
   }
 
@@ -127,6 +135,13 @@ export class BrainLibraryView {
         await this.client.delete(entry.brainId); this.archiveSelection.delete(entry.brainId); this.previous = []; await this.load(null, token);
         if (token === this.revision && this.selected?.brainId === entry.brainId) { this.selected = undefined; this.element('brainLibraryDetails').textContent = ''; }
         return `Deleted ${entry.name} from the library. Running snakes keep their brains.`;
+      })));
+      if (this.foundersEnabled && this.startFounder) actions.append(this.rowButton('Start evolution from this brain', () => this.action(async revision => {
+        if (!window.confirm(`Start a new evolving population from “${entry.name}”? Slot 0 keeps the exact trained weights; all other slots start as mutated descendants using the current mutation settings. This replaces the running world. Existing saved brains and retained checkpoints remain stored.`)) return 'Founder start cancelled.';
+        const status = await this.client.list();
+        if (revision !== this.revision || !this.enabled) throw new Error('Server context changed. Refresh the library.');
+        await this.startFounder!({brainId: entry.brainId, expectedProcessEpoch: status.processEpoch, ...status.scope});
+        return 'Started an evolving population from the saved brain.';
       })));
       if (this.archiveEnabled) {
         const label = document.createElement('label');

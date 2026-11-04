@@ -57,6 +57,7 @@ export function createRustWelcome(
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
     ...(metadata.legacyConversion ? { legacyConversion: metadata.legacyConversion } : {}),
+    ...(metadata.founder ? {founder: metadata.founder} : {}),
     sessionId, tickRate: 1 / metadata.fixedStepSeconds,
     worldSeed: metadata.seed, runId: metadata.runId, configHash: metadata.configHash,
     configRevision: wireInteger(metadata.configRevision), frameByteLength: 0,
@@ -65,7 +66,7 @@ export function createRustWelcome(
       teacherCapture: nativeSensorLayout(metadata).layoutVersion === 'v4' &&
         metadata.settings.some(setting => setting.path === 'baselineBots.controlVersion' && setting.value === 2) &&
         nativeSetting(metadata, 'baselineBots.count') > 0,
-      checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true, decisionInspector: true },
+      checkpointPinning: true, archiveExport: true, archiveImport: true, finishGeneration: true, savedBrainLibrary: true, savedBrainArchive: true, savedBrainFounders: true, decisionInspector: true },
     settings: createRustSettings(metadata),
     sensorSpec: getSensorSpec(nativeSensorLayout(metadata), metadata.sensorContract),
     inferenceMode: {

@@ -197,6 +197,17 @@ describe(SUITE, () => {
     expect(parseClientMessage({ type: 'newRun', requestId: 'run-1' })?.type).toBe('newRun');
   });
 
+  it('admits only bounded scoped founder selections on New Run', () => {
+    const founder = {brainId: 'ab'.repeat(32), expectedProcessEpoch: 'cd'.repeat(16), expectedRunId: 'observed-run',
+      expectedConfigRevision: '0000000000000001', expectedWorldEpoch: '0000000000000002'};
+    const message = {type: 'newRun', requestId: 'founder-start', founder};
+    expect(parseClientMessage(message)).toEqual(message);
+    for (const invalid of [null, {}, {...founder, brainId: '../file'}, {...founder, expectedConfigRevision: 1},
+      {...founder, expectedWorldEpoch: '2'}, {...founder, expectedProcessEpoch: ''}, {...founder, unexpected: true}]) {
+      expect(parseClientMessage({...message, founder: invalid})).toBeNull();
+    }
+  });
+
   it('rejects unknown fields and non-finite command coordinates', () => {
     expect(parseClientMessage({
       type: 'settings',

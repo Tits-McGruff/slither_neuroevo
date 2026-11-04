@@ -68,6 +68,7 @@ function fixture(environment: Partial<LibraryEnvironment> = {}) {
     list: vi.fn(async () => ({page: {entries: [RECORD], next: null}})), read: vi.fn(async () => RECORD),
     spawn: vi.fn(async () => ({snakeId: 41})), isCurrent: vi.fn(async () => true), exportUrl: vi.fn(() => 'http://server/export'), archiveUrl: vi.fn(() => 'http://server/archive')};
   const followed = vi.fn();
+  const founded = vi.fn(async () => {});
   const body = new Element();
   vi.stubGlobal('document', {getElementById: get, createElement: () => new Element(), createTextNode: (text: string) => Object.assign(new Element(), {textContent: text}), querySelector: () => null,
     querySelectorAll: (selector: string) => {
@@ -77,13 +78,38 @@ function fixture(environment: Partial<LibraryEnvironment> = {}) {
       return visit(get('brainLibraryList'));
     }, body});
   const view = new BrainLibraryView(client as unknown as BrainLibraryClient,
-    () => ({graphSourceJson: 'current', sensorSha256: 'other-sensors', cadence: 0.02, configHash: 'current-config', ...environment}), followed);
+    () => ({graphSourceJson: 'current', sensorSha256: 'other-sensors', cadence: 0.02, configHash: 'current-config', ...environment}), followed, founded);
   view.contextChanged(true);
-  return {client, view, get, followed, body};
+  return {client, view, get, followed, founded, body};
 }
 
 /** Restore the inert browser after each presentation boundary test. */
 afterEach(() => vi.unstubAllGlobals());
+
+it('starts founders only with capability, explicit confirmation and fresh applied scope', async () => {
+  const f = fixture();
+  vi.stubGlobal('window', {confirm: vi.fn(() => false)});
+  f.view.refresh();
+  await vi.waitFor(() => expect(f.get('brainLibraryList').children).toHaveLength(1));
+  expect(text(f.get('brainLibraryList'))).not.toContain('Start evolution');
+  f.view.contextChanged(true, false, true); f.view.refresh();
+  await vi.waitFor(() => expect(text(f.get('brainLibraryList'))).toContain('Start evolution'));
+  const actions = f.get('brainLibraryList').children[0]!.children[2]!;
+  actions.children.at(-1)!.click();
+  await vi.waitFor(() => expect(f.get('brainLibraryStatus').textContent).toContain('cancelled'));
+  expect(f.founded).not.toHaveBeenCalled();
+  const scope = {expectedRunId: 'observed-run', expectedConfigRevision: '0000000000000001', expectedWorldEpoch: '0000000000000002'};
+  f.client.list.mockResolvedValueOnce({page: {entries: [RECORD], next: null}, scope, processEpoch: '12'.repeat(16)} as never);
+  vi.stubGlobal('window', {confirm: vi.fn(() => true)});
+  actions.children.at(-1)!.click();
+  await vi.waitFor(() => expect(f.founded).toHaveBeenCalledWith({brainId: RECORD.brainId, expectedProcessEpoch: '12'.repeat(16), ...scope}));
+  expect(f.client.spawn).not.toHaveBeenCalled();
+});
+
+it('identifies a founder-derived evolving population from authoritative welcome facts', () => {
+  const f = fixture({founderBrainId: 'ab'.repeat(32)});
+  expect(f.get('brainLibraryStatus').textContent).toContain('Current population evolves from saved brain abababababab');
+});
 
 it('loads only on an explicit action and renders untrusted names/provenance as text', async () => {
   const f = fixture(); expect(f.client.list).not.toHaveBeenCalled(); f.view.refresh();

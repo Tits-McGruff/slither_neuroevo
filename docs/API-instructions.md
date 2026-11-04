@@ -411,6 +411,46 @@ The server preserves existing snapshots and returns `newRunResult` only after
 the new run-start checkpoint is durable. New Run is rejected when durable
 persistence is unavailable.
 
+When `capabilities.savedBrainFounders` is true, `newRun` also accepts an optional
+`founder` object. Populate it from a fresh `GET /api/distillation/v1/library` response:
+
+```json
+{
+  "type": "newRun",
+  "requestId": "founder-run-1",
+  "founder": {
+    "brainId": "<64 lowercase hex artifact digest>",
+    "expectedProcessEpoch": "<library processEpoch>",
+    "expectedRunId": "<scope.expectedRunId>",
+    "expectedConfigRevision": "<scope.expectedConfigRevision>",
+    "expectedWorldEpoch": "<scope.expectedWorldEpoch>"
+  }
+}
+```
+
+This requires saved library membership and an exclusive source lease. Rust checks
+the original portable file digest, graph layout, structural sensors, exact cadence
+and recurrent life-state rule before population allocation. Slot zero is copied
+exactly; slots 1..N-1 independently mutate source copies in ascending slot order
+using the existing mutation routine and the fresh run's evolution RNG. The exact
+founder consumes no mutation draws. There is no crossover, elite selection or
+random genome initialization in this initial population. Zero mutation settings
+can produce exact copies. Fitness, life counters and recurrent state start fresh.
+Subsequent generations use ordinary population evolution with no protected founder.
+
+`welcome.founder` and `/api/health.founder` expose `schemaVersion: 1`,
+`mode: "exact-founder-mutated-descendants-v1"`, `artifactSha256` and `weightsSha256`.
+The checkpoint state-role encoding extends to v5 only for founder lineages; the
+reader retains v3/v4 support and ordinary checkpoints retain v4 encoding. Founder
+provenance survives generation transition, archive import/export and restart.
+Continuing a checkpoint does not need the original library entry. Reset of a founder
+lineage reseeds from its saved source with the recorded seed and current mutation
+settings; missing/incompatible source membership rejects without replacing the world.
+An ordinary New Run without `founder` remains a random initialization. Stale scope,
+missing source, incompatibility, memory/checkpoint/disk admission or pre-commit
+failure leaves the old authority current. Never automatically retry an uncertain
+New Run: reconnect and inspect its run identity/provenance first.
+
 ## Server-to-client JSON messages
 
 ### `welcome`
