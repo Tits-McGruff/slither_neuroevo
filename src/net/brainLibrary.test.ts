@@ -21,6 +21,16 @@ function confirmation(body: string): object { return {schemaVersion: 1, ...JSON.
 /** Restore transport globals after each browser client test. */
 afterEach(() => vi.unstubAllGlobals());
 
+it('accepts the production ceiling and rejects one parameter above it', async () => {
+  const client = new BrainLibraryClient(() => 'http://localhost');
+  for (const count of [1_746_104, 2_000_000, 2_000_001]) {
+    const row = {...RECORD, artifact: {...RECORD.artifact, parameterCount: count}};
+    vi.stubGlobal('fetch', vi.fn(async () => response({...PAGE, page: {entries: [row], next: null}})));
+    if (count <= 2_000_000) expect((await client.list()).page.entries[0]?.artifact.parameterCount).toBe(count);
+    else await expect(client.list()).rejects.toThrow(/record/u);
+  }
+});
+
 it('reuses the exact request after an uncertain response and verifies the receipt scope', async () => {
   const bodies: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {

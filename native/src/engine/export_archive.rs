@@ -235,7 +235,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
         CheckpointError::format("IMPORT_DISK_ESTIMATE", "checkpoint allowance overflowed")
     })?;
     let saved_numeric_bytes = (manifest.saved_brains.len() as u64)
-        .checked_mul(4_000_000 + 4096)
+        .checked_mul(crate::contracts::MAX_BRAIN_WEIGHT_BYTES + 4096)
         .ok_or_else(|| saved_brain_archive::invalid("saved numeric allowance overflow"))?;
     let objects = hof_decoded
         .checked_add(saved_numeric_bytes)
@@ -255,7 +255,7 @@ pub fn estimate_import_disk_bytes(path: &Path) -> Result<ImportDiskEstimate, Che
             bytes.checked_add(if manifest.saved_brains.is_empty() {
                 0
             } else {
-                8_000_000
+                crate::contracts::MAX_BRAIN_NUMERIC_CANDIDATE_BYTES
             })
         })
         .ok_or_else(|| {

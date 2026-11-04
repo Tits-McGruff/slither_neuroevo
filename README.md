@@ -1147,6 +1147,10 @@ A timeout or lost reply exposes **Retry spawn**, which checks the original reque
 instead of creating another snake. A confirmed rejection clears that pending request.
 Dismissing an uncertain request does not cancel any spawn already admitted by Rust.
 The initial library quota is 100 records and 2 GiB of unique stored model objects.
+Production graphs and portable brains support up to 2,000,000 Float32 parameters
+(8,000,000 raw weight bytes), tensor widths of 4096 and 16,384 recurrent-state
+floats. Population, library, transient-candidate and native-memory budgets still
+apply independently. See [the portable size contract](docs/brain-artifact-v1.md#size-and-storage-budgets).
 To include saved brains in a checkpoint download, select **Include in checkpoint archive**
 on the desired library rows and click **Export checkpoint with selected brains**.
 Selection persists across library pages and clears when the server connection changes.

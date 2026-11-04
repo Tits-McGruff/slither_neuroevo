@@ -1,3 +1,4 @@
+import { maxBrainWeightBytes, maxBrainNumericCandidateBytes } from '../../contracts/types.ts';
 import { SENSOR_HASH_DOMAIN } from "../../contracts/types.ts";
 import type Database from 'better-sqlite3';
 import { lstatSync, realpathSync, statfsSync, unlinkSync } from 'node:fs';
@@ -120,7 +121,7 @@ export class SavedBrainCatalog {
     // One bounded original, raw/fallback numeric candidates and the existing
     // SQLite/WAL/OS reserves must fit before any immutable publication starts.
     if (filesystem.bavail * filesystem.bsize < OPERATING_DISK_RESERVE_BYTES +
-        SQLITE_WAL_ALLOWANCE_BYTES + 64n * 1024n * 1024n + 8_000_000n) {
+        SQLITE_WAL_ALLOWANCE_BYTES + 64n * 1024n * 1024n + BigInt(maxBrainWeightBytes + maxBrainNumericCandidateBytes)) {
       throw new Error('saved brain publication would consume the operating disk reserve');
     }
     const usage = this.usage();

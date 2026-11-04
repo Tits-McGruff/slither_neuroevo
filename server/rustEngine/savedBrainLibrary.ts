@@ -1,3 +1,4 @@
+import { maxBrainWeightBytes, maxBrainNumericCandidateBytes } from '../../contracts/types.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -148,7 +149,7 @@ export class SavedBrainLibrary {
   private publishSnapshot(load: () => Promise<Uint8Array>, name: string, expectedId?: string): Promise<SavedBrainRecordV1> {
     const operation = (async () => {
       await admitDiskOperation(this.directory, {operation: 'pin', sourceSpoolBytes: BigInt(MAX_BRAIN_ARTIFACT_BYTES),
-        candidateSpoolBytes: 8_000_000n, finalManagedBytes: BigInt(MAX_BRAIN_ARTIFACT_BYTES) + 4_000_000n});
+        candidateSpoolBytes: BigInt(maxBrainNumericCandidateBytes), finalManagedBytes: BigInt(MAX_BRAIN_ARTIFACT_BYTES) + BigInt(maxBrainWeightBytes)});
       const bytes = await load();
       if (bytes.byteLength < 88 || bytes.byteLength > MAX_BRAIN_ARTIFACT_BYTES) throw new Error('saved brain snapshot byte admission');
       const digest = createHash('sha256').update(bytes).digest('hex');

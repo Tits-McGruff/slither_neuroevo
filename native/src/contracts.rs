@@ -416,6 +416,14 @@ pub const AUTHORITATIVE_OUTPUT_SIZE: usize = 2;
 
 pub const MAX_BRAIN_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
 
+/// Production graph and portable artifact ceilings, independent of population budgets.
+pub const MAX_BRAIN_PARAMETERS: usize = 2_000_000;
+pub const MAX_BRAIN_TENSOR_WIDTH: usize = 4096;
+pub const MAX_BRAIN_STATE_FLOATS: usize = 16_384;
+pub const MAX_BRAIN_WEIGHT_BYTES: u64 = MAX_BRAIN_PARAMETERS as u64 * 4;
+/// Adaptive encoding can retain a rejected candidate alongside the raw fallback.
+pub const MAX_BRAIN_NUMERIC_CANDIDATE_BYTES: u64 = 2 * MAX_BRAIN_WEIGHT_BYTES;
+
 pub const BRAIN_ARTIFACT_HEADER_BYTES: usize = 88;
 
 pub const MAX_TEACHER_SAMPLES_PER_CHUNK: usize = 256;

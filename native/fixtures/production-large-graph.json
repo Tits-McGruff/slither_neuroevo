@@ -1,0 +1,76 @@
+{
+  "type": "graph",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "Input",
+      "outputSize": 264
+    },
+    {
+      "id": "dense",
+      "type": "Dense",
+      "inputSize": 264,
+      "outputSize": 396
+    },
+    {
+      "id": "lstm",
+      "type": "LSTM",
+      "inputSize": 264,
+      "hiddenSize": 396
+    },
+    {
+      "id": "concat",
+      "type": "Concat"
+    },
+    {
+      "id": "output",
+      "type": "MLP",
+      "inputSize": 792,
+      "hiddenSizes": [
+        528,
+        264,
+        134
+      ],
+      "outputSize": 2
+    }
+  ],
+  "edges": [
+    {
+      "from": "input",
+      "to": "dense",
+      "fromPort": 0,
+      "toPort": 0
+    },
+    {
+      "from": "input",
+      "to": "lstm",
+      "fromPort": 0,
+      "toPort": 0
+    },
+    {
+      "from": "dense",
+      "to": "concat",
+      "fromPort": 0,
+      "toPort": 0
+    },
+    {
+      "from": "lstm",
+      "to": "concat",
+      "fromPort": 0,
+      "toPort": 1
+    },
+    {
+      "from": "concat",
+      "to": "output",
+      "fromPort": 0,
+      "toPort": 0
+    }
+  ],
+  "outputs": [
+    {
+      "nodeId": "output",
+      "port": 0
+    }
+  ],
+  "outputSize": 2
+}

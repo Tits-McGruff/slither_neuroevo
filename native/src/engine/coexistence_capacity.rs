@@ -16,11 +16,13 @@ use std::path::Path;
 pub const LIBRARY_RECORDS: usize = super::saved_brain_archive::MAX_SAVED_BRAINS;
 
 /// Inputs, managed originals/shared weights, archive, and overlapping import staging.
-/// The fixture always writes raw originals; one million weights plus the admitted
+/// The fixture always writes raw originals; production weights plus the admitted
 /// manifest/header bounds each original and its shared weight object.
 pub fn additional_disk_reserve_bytes() -> u64 {
     8 * (LIBRARY_RECORDS as u64 + 1)
-        * (4_000_000 + 1024 * 1024 + BRAIN_ARTIFACT_HEADER_BYTES as u64)
+        * (crate::contracts::MAX_BRAIN_WEIGHT_BYTES
+            + 1024 * 1024
+            + BRAIN_ARTIFACT_HEADER_BYTES as u64)
 }
 
 #[derive(Serialize)]
@@ -238,7 +240,13 @@ mod tests {
     #[test]
     fn full_catalog_reserve_prices_originals_and_all_staging_copies() {
         assert_eq!(LIBRARY_RECORDS, 100);
-        assert!(additional_disk_reserve_bytes() > 4_000_000 * 101 * 8);
+        assert_eq!(
+            additional_disk_reserve_bytes(),
+            8 * 101
+                * (crate::contracts::MAX_BRAIN_WEIGHT_BYTES
+                    + 1024 * 1024
+                    + BRAIN_ARTIFACT_HEADER_BYTES as u64)
+        );
     }
 
     #[test]

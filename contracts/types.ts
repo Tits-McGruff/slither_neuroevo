@@ -155,3 +155,8 @@ export interface FreshRunGraphOutputWire {
 }
 
 export const SENSOR_HASH_DOMAIN = "slither.sensor-contract.v1\u0000";
+export const maxBrainParameters = 2000000;
+export const maxBrainTensorWidth = 4096;
+export const maxBrainStateFloats = 16384;
+export const maxBrainWeightBytes = 8000000;
+export const maxBrainNumericCandidateBytes = 16000000;

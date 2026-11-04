@@ -61,7 +61,7 @@ impl AuthoritativeState {
         if cadence.to_bits() != artifact.deployment.control_interval_seconds.to_bits() {
             return Err("saved brain cadence does not match the active neural cadence".into());
         }
-        // The portable graph is independently bounded to one million parameters.
+        // The portable graph is independently bounded by the production contract.
         // Bind the shared object's shape before its decoder reserves any storage.
         let parameter_count = artifact.weights.len();
         if request.weights.version != 1
@@ -71,7 +71,9 @@ impl AuthoritativeState {
             || request.weights.decoded_byte_count_hex != format!("{:016x}", parameter_count * 4)
             || request.weights.stored_byte_count_hex.len() != 16
             || u64::from_str_radix(&request.weights.stored_byte_count_hex, 16)
-                .map_or(true, |bytes| bytes > 4_000_000)
+                .map_or(true, |bytes| {
+                    bytes > crate::contracts::MAX_BRAIN_WEIGHT_BYTES
+                })
         {
             return Err(
                 "saved brain shared weight descriptor disagrees with admitted graph".into(),
