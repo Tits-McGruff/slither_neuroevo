@@ -604,6 +604,48 @@ describe(SUITE, { timeout: 30_000 }, () => {
     expect(readFileSync(join(fixture.managedRoot, third.relativeFilename))).toEqual(originalFile);
   });
 
+  it.each([10, 12.5, 20])('retains the boundary assessment when the same genome later scores %s', async laterFitness => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    const second = createDescriptor(fixture.managedRoot, { operationId: '22'.repeat(16),
+      generation: u64(2n), completedStep: u64(60n), boundaryKind: 'generation' });
+    const third = createDescriptor(fixture.managedRoot, { operationId: '33'.repeat(16),
+      generation: u64(3n), completedStep: u64(120n), boundaryKind: 'generation' });
+    const originalWinner = createGenerationCommit(1n);
+    await fixture.client.commit(first);
+    await fixture.client.commit(second, originalWinner);
+    const originalLease = await fixture.client.acquireCurrentExportLease();
+    const originalInventory = readFileSync(join(fixture.managedRoot, originalLease.inventory.relativeFilename));
+    await fixture.client.releaseExportLease(originalLease.operationId);
+
+    await fixture.client.commit(third, { ...createGenerationCommit(2n, { bestF64Hex: f64(laterFitness) }),
+      hallOfFameWeights: originalWinner.hallOfFameWeights });
+    const selectedGeneration = laterFitness > 12.5 ? 2 : 1;
+    expect(await fixture.client.readBrowserHallOfFame(first.runId)).toEqual([
+      { entryId: u64(BigInt(selectedGeneration)), gen: selectedGeneration,
+        fitness: Math.max(12.5, laterFitness), points: 6.25, length: 9, pinned: false }
+    ]);
+    const database = new Database(fixture.databasePath, { readonly: true });
+    const sourceRows = database.prepare('SELECT * FROM rust_hall_of_fame_v1 ORDER BY generation_hex').all();
+    try {
+      await fixture.client.commitRecoveryBranch({ operationId: '44'.repeat(16), branchRunId: 'prefix',
+        sourceRunId: first.runId, failedCheckpointId: third.logicalRootSha256, recoveredDescriptor: second });
+      expect(await fixture.client.readBrowserHallOfFame('prefix')).toEqual([
+        { entryId: u64(1n), gen: 1, fitness: 12.5, points: 6.25, length: 9, pinned: false }
+      ]);
+      await expect(fixture.client.selectHallOfFameEntry('prefix', u64(2n))).rejects.toThrow(/not retained/);
+      const selected = await fixture.client.selectHallOfFameEntry('prefix', u64(1n));
+      expect(selected).toMatchObject({ checkpoint: second, reference: originalWinner.hallOfFame,
+        weights: originalWinner.hallOfFameWeights });
+      await fixture.client.releaseHallOfFameEntry(selected.operationId);
+      const recoveredLease = await fixture.client.acquireCurrentExportLease();
+      expect(recoveredLease.inventory).toMatchObject({ historyCount: u64(1n), hallOfFameCount: u64(1n) });
+      expect(readFileSync(join(fixture.managedRoot, recoveredLease.inventory.relativeFilename))).toEqual(originalInventory);
+      await fixture.client.releaseExportLease(recoveredLease.operationId);
+      expect(database.prepare('SELECT * FROM rust_hall_of_fame_v1 ORDER BY generation_hex').all()).toEqual(sourceRows);
+    } finally { database.close(); }
+  });
+
   it('recovers an already-branched lineage only through its inherited prefix', async () => {
     const fixture = createFixture();
     const first = createDescriptor(fixture.managedRoot);

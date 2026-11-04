@@ -1639,6 +1639,39 @@ function exportLineageFilter(
   };
 }
 
+/**
+ * Project retained genomes onto this boundary's completed history. A later, better
+ * assessment can supersede an earlier row for the same genome without removing
+ * its packed object. Recovery must use the best assessment inside its prefix,
+ * rather than losing that genome because its currently selected row is later.
+ * Only currently retained genomes qualify; this does not resurrect pruned objects
+ * or rewrite source records. Pinned assessments remain individually selectable.
+ */
+function boundaryHallOfFameSelection(runId: string, checkpointGeneration: U64Hex): {
+  sql: string; parameters: string[];
+} {
+  const filter = exportLineageFilter(runId, checkpointGeneration, 'candidate');
+  return {
+    sql: `WITH ranked_hall AS (
+      SELECT candidate.*, row_number() OVER (
+        PARTITION BY candidate.run_id, candidate.genome_sha256
+        ORDER BY candidate.fitness_value DESC, candidate.generation_hex ASC
+      ) AS genome_rank
+      FROM rust_hall_of_fame_v1 AS candidate
+      WHERE candidate.weight_state != 'legacy' AND (${filter.sql})
+        AND EXISTS (SELECT 1 FROM rust_hall_of_fame_v1 AS retained
+          WHERE retained.run_id = candidate.run_id
+            AND retained.genome_sha256 = candidate.genome_sha256
+            AND retained.weight_state = 'selected')
+    ), boundary_hall AS (
+      SELECT run_id, generation_hex, record_version, record_blob, fitness_value, pinned,
+        CASE WHEN weight_state = 'unselected' THEN genome_sha256 ELSE weights_sha256 END AS weights_sha256
+      FROM ranked_hall WHERE genome_rank = 1 OR pinned = 1
+    )`,
+    parameters: filter.parameters
+  };
+}
+
 /** Decode the newest bounded compact history window for the current browser charts. */
 function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistoryEntry[] {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 120) {
@@ -1708,13 +1741,12 @@ function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHall
     const current = readCurrentPointer(runId);
     if (!current) throw new Error('browser Hall of Fame requires a current managed run');
     const descriptor = validateCurrentPointerIdentity(runId, current);
-    const filter = exportLineageFilter(runId, descriptor.generation, 'hall');
-    const rows = db.prepare(`SELECT hall.generation_hex, hall.record_version,
+    const selection = boundaryHallOfFameSelection(runId, descriptor.generation);
+    const rows = db.prepare(`${selection.sql} SELECT hall.generation_hex, hall.record_version,
       hall.record_blob, hall.fitness_value, hall.pinned, experiment.record_blob AS experiment_blob
-      FROM rust_hall_of_fame_v1 AS hall LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex)
-      WHERE hall.weight_state = 'selected' AND (${filter.sql})
+      FROM boundary_hall AS hall LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex)
       ORDER BY hall.fitness_value DESC, hall.generation_hex ASC LIMIT ?`)
-      .all(...filter.parameters, limit) as Array<{
+      .all(...selection.parameters, limit) as Array<{
         generation_hex: string;
         record_version: number;
         record_blob: Buffer;
@@ -1925,14 +1957,14 @@ function selectHallOfFameEntry(runId: string, entryId: U64Hex,
     const current = readCurrentPointer(runId);
     if (!current) throw new Error('Hall-of-Fame selection requires a current managed run');
     const checkpoint = validateCurrentPointerIdentity(runId, current);
-    const filter = exportLineageFilter(runId, checkpoint.generation, 'hall');
-    const row = db.prepare(`SELECT hall.record_version, hall.record_blob,
+    const selection = boundaryHallOfFameSelection(runId, checkpoint.generation);
+    const row = db.prepare(`${selection.sql} SELECT hall.record_version, hall.record_blob,
       weights.logical_sha256, weights.relative_filename, weights.encoding,
       weights.stored_byte_count_hex, weights.decoded_byte_count_hex, weights.weight_count_hex
-      FROM rust_hall_of_fame_v1 AS hall
+      FROM boundary_hall AS hall
       JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256
-      WHERE hall.weight_state = 'selected' AND (${filter.sql}) AND hall.generation_hex = ?`)
-      .get(...filter.parameters, entryId) as {
+      WHERE hall.generation_hex = ?`)
+      .get(...selection.parameters, entryId) as {
         record_version: number;
         record_blob: Buffer;
         logical_sha256: string;
@@ -2002,7 +2034,7 @@ function publishExportInventory(
   checkpoint: ManagedCheckpointDescriptor
 ): { descriptor: ManagedExportInventoryDescriptor; path: string } {
   const historyFilter = exportLineageFilter(runId, checkpoint.generation, 'history');
-  const hallFilter = exportLineageFilter(runId, checkpoint.generation, 'hall');
+  const hallSelection = boundaryHallOfFameSelection(runId, checkpoint.generation);
   const expectedCount = historyFilter.completedGenerationCount;
   if (expectedCount < 0n || expectedCount > MAX_EXPORT_GENERATIONS) {
     throw new RangeError('export generation count exceeds the bounded inventory limit');
@@ -2010,15 +2042,13 @@ function publishExportInventory(
   const historyCount = BigInt((db.prepare(`SELECT count(*) AS count
     FROM rust_generation_history_v1 AS history WHERE ${historyFilter.sql}`)
     .get(...historyFilter.parameters) as { count: number }).count);
-  const hallOfFameCount = BigInt((db.prepare(`SELECT count(*) AS count
-    FROM rust_hall_of_fame_v1 AS hall
-    WHERE hall.weight_state = 'selected' AND (${hallFilter.sql})`)
-    .get(...hallFilter.parameters) as { count: number }).count);
-  const linkedHallOfFameCount = BigInt((db.prepare(`SELECT count(*) AS count
-    FROM rust_hall_of_fame_v1 AS hall
-    JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256
-    WHERE hall.weight_state = 'selected' AND (${hallFilter.sql})`)
-    .get(...hallFilter.parameters) as { count: number }).count);
+  const hallOfFameCount = BigInt((db.prepare(`${hallSelection.sql} SELECT count(*) AS count
+    FROM boundary_hall`)
+    .get(...hallSelection.parameters) as { count: number }).count);
+  const linkedHallOfFameCount = BigInt((db.prepare(`${hallSelection.sql} SELECT count(*) AS count
+    FROM boundary_hall AS hall
+    JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256`)
+    .get(...hallSelection.parameters) as { count: number }).count);
   if (historyCount !== expectedCount || linkedHallOfFameCount !== hallOfFameCount) {
     throw new Error('export requires complete compact history and every selected Hall-of-Fame object');
   }
@@ -2070,13 +2100,12 @@ function publishExportInventory(
     }
 
     let previousHallOfFameGeneration = 0n;
-    const hallRows = db.prepare(`SELECT hall.generation_hex, hall.record_blob,
+    const hallRows = db.prepare(`${hallSelection.sql} SELECT hall.generation_hex, hall.record_blob,
       weights.logical_sha256, weights.relative_filename, weights.encoding,
       weights.stored_byte_count_hex, weights.decoded_byte_count_hex, weights.weight_count_hex
-      FROM rust_hall_of_fame_v1 AS hall
+      FROM boundary_hall AS hall
       JOIN rust_hall_of_fame_weights_v1 AS weights ON weights.logical_sha256 = hall.weights_sha256
-      WHERE hall.weight_state = 'selected' AND (${hallFilter.sql})
-      ORDER BY hall.generation_hex`).iterate(...hallFilter.parameters) as Iterable<{
+      ORDER BY hall.generation_hex`).iterate(...hallSelection.parameters) as Iterable<{
         generation_hex: string; record_blob: Buffer; logical_sha256: string; relative_filename: string;
         encoding: string; stored_byte_count_hex: string; decoded_byte_count_hex: string;
         weight_count_hex: string;
