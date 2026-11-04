@@ -1644,31 +1644,37 @@ function exportLineageFilter(
  * assessment can supersede an earlier row for the same genome without removing
  * its packed object. Recovery must use the best assessment inside its prefix,
  * rather than losing that genome because its currently selected row is later.
- * Only currently retained genomes qualify; this does not resurrect pruned objects
- * or rewrite source records. Pinned assessments remain individually selectable.
+ * Only representatives outside the prefix need projection; selected entries
+ * inside it, including pins, keep their existing retention semantics. This does
+ * not resurrect pruned objects or rewrite source records.
  */
 function boundaryHallOfFameSelection(runId: string, checkpointGeneration: U64Hex): {
   sql: string; parameters: string[];
 } {
   const filter = exportLineageFilter(runId, checkpointGeneration, 'candidate');
+  const retainedFilter = exportLineageFilter(runId, checkpointGeneration, 'retained');
   return {
-    sql: `WITH ranked_hall AS (
-      SELECT candidate.*, row_number() OVER (
-        PARTITION BY candidate.run_id, candidate.genome_sha256
-        ORDER BY candidate.fitness_value DESC, candidate.generation_hex ASC
-      ) AS genome_rank
+    sql: `WITH eligible_hall AS (
+      SELECT candidate.*
       FROM rust_hall_of_fame_v1 AS candidate
-      WHERE candidate.weight_state != 'legacy' AND (${filter.sql})
-        AND EXISTS (SELECT 1 FROM rust_hall_of_fame_v1 AS retained
-          WHERE retained.run_id = candidate.run_id
-            AND retained.genome_sha256 = candidate.genome_sha256
-            AND retained.weight_state = 'selected')
+      WHERE candidate.weight_state = 'selected' AND (${filter.sql})
+      UNION ALL
+      SELECT DISTINCT candidate.*
+      FROM rust_hall_of_fame_v1 AS retained
+      JOIN rust_hall_of_fame_v1 AS candidate
+        ON candidate.run_id = retained.run_id AND candidate.genome_sha256 = retained.genome_sha256
+      WHERE retained.weight_state = 'selected' AND NOT (${retainedFilter.sql})
+        AND candidate.weight_state = 'unselected' AND (${filter.sql})
+    ), ranked_hall AS (
+      SELECT eligible_hall.*, row_number() OVER (
+        PARTITION BY run_id, genome_sha256 ORDER BY fitness_value DESC, generation_hex ASC
+      ) AS genome_rank FROM eligible_hall
     ), boundary_hall AS (
       SELECT run_id, generation_hex, record_version, record_blob, fitness_value, pinned,
         CASE WHEN weight_state = 'unselected' THEN genome_sha256 ELSE weights_sha256 END AS weights_sha256
       FROM ranked_hall WHERE genome_rank = 1 OR pinned = 1
     )`,
-    parameters: filter.parameters
+    parameters: [...filter.parameters, ...retainedFilter.parameters, ...filter.parameters]
   };
 }
 

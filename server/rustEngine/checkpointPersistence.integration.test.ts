@@ -1516,6 +1516,36 @@ describe(SUITE, { timeout: 30_000 }, () => {
     });
   });
 
+  it('does not restore a pruned assessment merely because the same genome has a pinned assessment', async () => {
+    const fixture = createFixture();
+    const first = createDescriptor(fixture.managedRoot);
+    await fixture.client.commit(first);
+    const originalWinner = createGenerationCommit(1n, { bestF64Hex: f64(1) });
+    for (let generation = 1n; generation <= 53n; generation++) {
+      const commit = generation === 1n ? originalWinner
+        : createGenerationCommit(generation, { bestF64Hex: f64(Number(generation)) });
+      if (generation === 2n) commit.hallOfFameWeights = originalWinner.hallOfFameWeights;
+      await fixture.client.commit(createDescriptor(fixture.managedRoot, {
+        operationId: (generation + 200n).toString(16).padStart(32, '0'),
+        transitionEpoch: u64(generation + 1n), generation: u64(generation + 1n),
+        completedStep: u64(generation * 3_600n), boundaryKind: 'generation'
+      }), commit);
+      if (generation === 1n) {
+        const database = new Database(fixture.databasePath);
+        try { database.prepare('UPDATE rust_hall_of_fame_v1 SET pinned = 1 WHERE generation_hex = ?').run(u64(1n)); }
+        finally { database.close(); }
+      }
+    }
+    const hall = await fixture.client.readBrowserHallOfFame(first.runId);
+    expect(hall).toHaveLength(51);
+    expect(hall.at(-1)).toMatchObject({ entryId: u64(1n), pinned: true });
+    expect(hall.some(entry => entry.entryId === u64(2n))).toBe(false);
+    await expect(fixture.client.selectHallOfFameEntry(first.runId, u64(2n))).rejects.toThrow(/not retained/);
+    const lease = await fixture.client.acquireCurrentExportLease();
+    expect(lease.inventory).toMatchObject({ historyCount: u64(53n), hallOfFameCount: u64(51n) });
+    await fixture.client.releaseExportLease(lease.operationId);
+  });
+
   it('exports one weight segment when multiple generations select the same genome', async () => {
     const fixture = createFixture();
     await fixture.client.commit(createDescriptor(fixture.managedRoot));
