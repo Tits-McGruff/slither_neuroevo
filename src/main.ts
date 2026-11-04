@@ -5,6 +5,7 @@ import { DecisionInspectorView } from './decisionInspectorView.ts';
 /** Entry point for the simulation UI, canvas, and client networking. */
 
 import { BrainLibraryClient } from './net/brainLibrary.ts';
+import { createRequestId } from './net/requestId.ts';
 import { BrainLibraryView, type LibraryEnvironment } from './brainLibraryView.ts';
 import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
 import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize, applyAuthoritativeSensorSpec } from './config.ts';
@@ -4109,7 +4110,7 @@ btnFinishGeneration?.addEventListener('click', () => {
   const generation = currentStats.gen;
   const elapsed = currentStats.generationTime;
   if (!window.confirm('Finish generation ' + generation + ' now at ' + elapsed.toFixed(1) + ' simulated seconds?')) return;
-  pendingFinishRequestId = crypto.randomUUID();
+  pendingFinishRequestId = createRequestId();
   btnFinishGeneration.disabled = true;
   if (finishGenerationStatus) {
     finishGenerationStatus.hidden = false;

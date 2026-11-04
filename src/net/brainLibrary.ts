@@ -2,6 +2,7 @@ import { maxBrainParameters, maxBrainStateFloats } from '../../contracts/types.t
 import type { SavedBrainPageV1, SavedBrainRecordV1, SavedBrainSpawnReceiptV1,
   SavedBrainSpawnRequestV1, SavedBrainDeploymentScopeV1, SavedBrainSummaryV1 } from '../../server/protocol.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES } from '../protocol/brainArtifacts.ts';
+import { createRequestId } from './requestId.ts';
 
 /** Native scalar metadata needed for one new explicit deployment. */
 export interface BrainLibraryPage {
@@ -137,7 +138,7 @@ export class BrainLibraryClient {
     try {
       const base = this.currentBase(); const status = await this.list();
       if (this.currentBase() !== base) throw new Error('Server connection changed. Refresh the library.');
-      const body = {...status.scope, requestId: crypto.randomUUID().replaceAll('-', ''),
+      const body = {...status.scope, requestId: createRequestId(),
         expectedProcessEpoch: status.processEpoch, expectedDeploymentSequence: status.deploymentSequence};
       this.pending = {base, brainId, body};
       return await this.retrySpawn();
