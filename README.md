@@ -178,7 +178,10 @@ retain that population-only classification.
 The server defaults to five Rust calculation workers on new
 configurations. Use `--rust-workers N` (or `RUST_WORKERS=N`) to override its
 persistent worker pool. It parallelizes sensing and brain evaluation while
-keeping brain-state and physics commits ordered.
+keeping brain-state and physics commits ordered. Ordinary external-controller
+sensor observations are published through a bounded asynchronous output stream,
+so healthy Protocol 2 bots do not insert a Node delivery receipt barrier after
+every fixed step. Ownership-changing assignments remain reliable transactions.
 The manual range is 1 through the logical CPU/vCPU count available to the server
 process at startup: for example, 1–16 on a process with 16 available logical
 CPUs, or 1–32 with 32. The default remains five, bounded to the available count

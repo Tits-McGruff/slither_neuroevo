@@ -7,6 +7,7 @@ import type { Server } from 'node:http';
 import { getProtocolVersionError, parseClientMessage } from './protocol.ts';
 import { createBrowserOriginPolicy, type BrowserOriginPolicy } from './browserOrigins.ts';
 import { DEFAULT_CONFIG } from './config.ts';
+import { encodeBinarySensors } from './binarySensors.ts';
 import type {
   ActionMsg,
   ClientType,
@@ -42,6 +43,8 @@ export interface ConnectionState {
   id: number;
   socket: WebSocket;
   clientType: 'unknown' | ClientType;
+  /** Whether this bot opted into compact binary observation packets. */
+  binarySensors: boolean;
   joined: boolean;
   /** Whether the original hello/first-join admission completed at least once. */
   hasJoined: boolean;
@@ -52,9 +55,9 @@ export interface ConnectionState {
   mode?: JoinMode;
   /** Initial admission or replacement rejoin deadline; cleared by join, closure, or shutdown. */
   handshakeTimer?: NodeJS.Timeout;
-  /** Priority JSON payloads waiting behind the current WebSocket send. */
-  reliableQueue: string[];
-  /** UTF-8 byte total represented by `reliableQueue`. */
+  /** Priority text or binary payloads waiting behind the current WebSocket send. */
+  reliableQueue: Array<string | Buffer>;
+  /** Byte total represented by `reliableQueue`. */
   reliableQueueBytes: number;
   /** Latest replaceable stats payload. */
   pendingStats: string | null;
@@ -402,6 +405,9 @@ export class WsHub {
   sendJsonTo(connId: number, payload: ServerMessage): boolean {
     const state = this.connections.get(connId);
     if (!state || !state.joined) return false;
+    if (state.clientType === 'bot' && state.binarySensors && payload.type === 'sensors') {
+      return this.enqueueReliable(state, encodeBinarySensors(payload));
+    }
     return this.enqueueReliable(state, JSON.stringify(payload));
   }
 
@@ -435,12 +441,12 @@ export class WsHub {
   }
 
   /**
-   * Queue one priority JSON payload or report/close on bounded-queue failure.
+   * Queue one priority payload or report/close on bounded-queue failure.
    * @param state - Target connection.
-   * @param payload - Pre-serialized JSON text.
+   * @param payload - Pre-serialized JSON text or compact binary observation.
    * @returns True when the payload entered the reliable path.
    */
-  private enqueueReliable(state: ConnectionState, payload: string): boolean {
+  private enqueueReliable(state: ConnectionState, payload: string | Buffer): boolean {
     if (state.socket.readyState !== WebSocket.OPEN) {
       state.reliableFailures++;
       this.reliableFailures++;
@@ -450,7 +456,7 @@ export class WsHub {
       });
       return false;
     }
-    const bytes = Buffer.byteLength(payload);
+    const bytes = typeof payload === 'string' ? Buffer.byteLength(payload) : payload.byteLength;
     if (
       state.reliableQueue.length >= MAX_RELIABLE_QUEUE_MESSAGES ||
       state.reliableQueueBytes + bytes > MAX_RELIABLE_QUEUE_BYTES
@@ -491,7 +497,10 @@ export class WsHub {
     const queuedReliable = state.reliableQueue.shift();
     if (queuedReliable !== undefined) {
       payload = queuedReliable;
-      state.reliableQueueBytes -= Buffer.byteLength(queuedReliable);
+      state.reliableQueueBytes -= typeof queuedReliable === 'string'
+        ? Buffer.byteLength(queuedReliable)
+        : queuedReliable.byteLength;
+      binary = Buffer.isBuffer(queuedReliable);
       reliable = true;
     } else if (state.pendingStats !== null) {
       payload = state.pendingStats;
@@ -567,6 +576,7 @@ export class WsHub {
       id: this.nextId++,
       socket,
       clientType: 'unknown',
+      binarySensors: false,
       joined: false,
       hasJoined: false,
       awaitingRejoin: false,
@@ -639,6 +649,7 @@ export class WsHub {
           return;
         }
         state.clientType = msg.clientType;
+        state.binarySensors = msg.clientType === 'bot' && msg.binarySensors === true;
         this.enqueueReliable(state, this.welcomeJson);
         return;
       case 'join':

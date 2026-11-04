@@ -6852,7 +6852,7 @@ mod tests {
                     .unwrap()
             ));
         }
-        copies.truncate(0);
+        copies.clear();
         assert!(weak.upgrade().is_some());
         drop(authority);
         assert!(weak.upgrade().is_none());

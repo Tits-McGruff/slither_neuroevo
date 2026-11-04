@@ -9,7 +9,7 @@ import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { BackgroundFramePool, type BackgroundFrameLease } from './backgroundFrames.ts';
 import { BackgroundGenerationRouter } from './backgroundGeneration.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
-import { ControllerDeliveryRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
+import { ControllerDeliveryRouter, ControllerObservationRouter, JoinDeliveryRouter, ReclaimDeliveryRouter } from './controllerDelivery.ts';
 import type { ExperimentalServerRuntime } from './experimentalStartup.ts';
 import type { RustNativeVisualization } from './backgroundRuntime.ts';
 import type { ManagedCheckpointDescriptor, U64Hex } from './checkpointPersistenceProtocol.ts';
@@ -36,6 +36,8 @@ export interface BackgroundOutputOptions {
   send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg): boolean;
   /** Observe scalar routing/lifecycle results before delivery of their messages. */
   event(event: RustBackgroundEvent): void;
+  /** Disconnect only the exact current assignment after an asynchronous observation send fails. */
+  observationDeliveryFailed?(connectionId: RustBackgroundIdentity, leaseId: RustBackgroundIdentity): void;
   /** Transfer one immutable frame lease to the socket hub. */
   frame(lease: BackgroundFrameLease): void;
   /** Avoid frame copies when there is no joined viewer. */
@@ -54,11 +56,13 @@ export interface BackgroundOutputOptions {
   maintainCheckpointRetention?(): Promise<void>;
 }
 
-/** One bounded output consumer shared by generation and ordinary delivery barriers. */
+/** One bounded output consumer for asynchronous observations and transactional lifecycle barriers. */
 export class BackgroundOutputPump {
   /** The server's incoming control pump must use this same sequence owner. */
   readonly admission: BackgroundCommandAdmission;
-  /** Retained ordinary batch receipts. */
+  /** Ordered post-publication observations; this path owns no native receipts. */
+  private readonly observations: ControllerObservationRouter;
+  /** Retained transactional ordinary batch receipts. */
   private readonly ordinary: ControllerDeliveryRouter;
   /** Retained same-snake reconnect completion. */
   private readonly reclaim: ReclaimDeliveryRouter;
@@ -91,6 +95,11 @@ export class BackgroundOutputPump {
   constructor(private readonly options: BackgroundOutputOptions) {
     const { owner, send, maxControllers } = options;
     this.admission = new BackgroundCommandAdmission(owner.runtime);
+    this.observations = new ControllerObservationRouter(maxControllers, {
+      sensorCount: () => this.currentSensorCount(),
+      send: (connectionId, message) => send(connectionId, message),
+      failed: (connectionId, leaseId) => options.observationDeliveryFailed?.(connectionId, leaseId)
+    });
     this.ordinary = new ControllerDeliveryRouter(maxControllers, {
       sensorCount: () => this.currentSensorCount(),
       send, nextSequence: () => this.admission.nextSequence(),
@@ -230,6 +239,7 @@ export class BackgroundOutputPump {
         this.options.event(event);
         if (this.handleImportEvent(event)) continue;
         if (await this.generation.handle(event)) continue;
+        if (event.controllerObservations) this.observations.deliver(event.controllerObservations);
         if (event.controllerMessages && !this.ordinary.deliver(event.controllerMessages)) {
           throw new Error('overlapping ordinary controller output');
         }

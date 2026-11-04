@@ -24,6 +24,8 @@ export class DistillationView {
   private previous: string[] = [];
   /** Next bounded page cursor, absent at the end. */
   private next: string | undefined;
+  /** Visible capture labels keyed by immutable epoch for newer-manifest reconciliation. */
+  private readonly datasetLabels = new Map<string, HTMLElement>();
 
   /** Bind explicit controls only; construction never starts capture or a trainer. */
   constructor(private readonly client: DistillationClient) {
@@ -43,13 +45,13 @@ export class DistillationView {
       const words = this.input('distillationTeachers').value.split(',').map(word => word.trim());
       if (!words.length || words.some(word => !/^[0-9]{1,3}$/u.test(word))) throw new Error('Enter teacher slots separated by commas, for example 0,1,2.');
       const result = await this.client.start(words.map(Number));
-      if (token === this.revision) { this.selected = result; this.datasetDetails(); }
+      if (token === this.revision) { this.selected = result; this.reconcileDatasetLabel(result); this.datasetDetails(); }
       return 'Teacher capture started.';
     }));
     this.button('distillationStop', () => this.action(async token => {
       if (!this.selected) throw new Error('Select an active capture first.');
       const result = await this.client.stop(this.selected.contract.captureEpoch);
-      if (token === this.revision) { this.selected = result; this.datasetDetails(); }
+      if (token === this.revision) { this.selected = result; this.reconcileDatasetLabel(result); this.datasetDetails(); }
       return 'Teacher capture stopped.';
     }));
     this.button('distillationRetry', () => this.action(async token => {
@@ -89,6 +91,7 @@ export class DistillationView {
   contextChanged(enabled: boolean, captureReady: boolean, runId: string): void {
     this.revision++; this.enabled = enabled; this.captureReady = captureReady; this.runId = runId;
     this.selected = undefined; this.shadows = undefined; this.after = '0'.repeat(32); this.previous = []; this.next = undefined;
+    this.datasetLabels.clear();
     this.element('distillationDatasets').replaceChildren(); this.element('distillationDataset').textContent = '';
     for (let slot = 0; slot < 4; slot++) this.element('distillationShadowStatus' + slot).textContent = 'Refresh to load shadow status.';
     const tab = document.querySelector<HTMLButtonElement>('[data-tab="tab-distillation"]');
@@ -103,7 +106,7 @@ export class DistillationView {
       await Promise.all([this.load(this.after, token), this.loadShadows(token)]);
       if (this.selected && token === this.revision) {
         const result = await this.client.manifest(this.selected.contract.captureEpoch);
-        if (token === this.revision) { this.selected = result; this.datasetDetails(); }
+        if (token === this.revision) { this.selected = result; this.reconcileDatasetLabel(result); this.datasetDetails(); }
       }
       return 'Dataset and shadow status refreshed.';
     });
@@ -114,13 +117,14 @@ export class DistillationView {
     if (token !== this.revision) return;
     const page = await this.client.datasets(after); if (token !== this.revision) return;
     this.after = after; this.next = page.hasMore ? page.nextCursor : undefined;
-    const parent = this.element('distillationDatasets'); parent.replaceChildren();
+    const parent = this.element('distillationDatasets'); parent.replaceChildren(); this.datasetLabels.clear();
     for (const dataset of page.datasets) {
       const row = document.createElement('div'); row.className = 'brain-library-item';
-      const text = document.createElement('p'); text.className = 'meta'; text.textContent = dataset.captureEpoch + ' · ' + dataset.state + (dataset.runId === this.runId ? ' · current run' : ' · earlier run');
+      const text = document.createElement('p'); text.className = 'meta'; text.textContent = this.datasetLabel(dataset.captureEpoch, dataset.state, dataset.runId);
+      this.datasetLabels.set(dataset.captureEpoch, text);
       row.append(text, this.rowButton('Inspect capture', '', () => this.action(async current => {
         const value = await this.client.manifest(dataset.captureEpoch);
-        if (current === this.revision) { this.selected = value; this.datasetDetails(); }
+        if (current === this.revision) { this.selected = value; this.reconcileDatasetLabel(value); this.datasetDetails(); }
         return 'Capture selected.';
       }))); parent.append(row);
     }
@@ -133,6 +137,17 @@ export class DistillationView {
     const status = await this.client.shadows(); if (token !== this.revision) return;
     this.shadows = status;
     for (let slot = 0; slot < 4; slot++) this.shadowDetails(slot, status.slots[slot] ?? null);
+  }
+
+  /** Format capture state consistently between discovery rows and exact manifests. */
+  private datasetLabel(epoch: string, state: string, runId: string): string {
+    return epoch + ' · ' + state + (runId === this.runId ? ' · current run' : ' · earlier run');
+  }
+
+  /** Apply a newer exact manifest to its visible discovery row without another request. */
+  private reconcileDatasetLabel(data: DistillationDataset): void {
+    const label = this.datasetLabels.get(data.contract.captureEpoch);
+    if (label) label.textContent = this.datasetLabel(data.contract.captureEpoch, data.state, data.contract.runId);
   }
 
   /** Present exact watermarks/drop counts without claiming that every sequence is retained. */

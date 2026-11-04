@@ -1375,8 +1375,10 @@ mod tests {
                 1.0
             );
             let delivered_steps: Vec<_> = steps[next * 4..(next + rows) * 4]
-                .chunks_exact(4)
-                .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|bytes| u32::from_le_bytes(*bytes))
                 .collect();
             assert_eq!(delivered_steps[0], 1);
             assert!(delivered_steps.windows(2).all(|pair| pair[0] < pair[1]));

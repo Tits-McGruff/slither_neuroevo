@@ -99,6 +99,20 @@ it('starts off and fetches only explicit bounded metadata; v3 admission keeps ca
   expect(f.client.start).not.toHaveBeenCalled(); expect(f.get('distillationStart').disabled).toBe(true);
 });
 
+it('reconciles a newer selected manifest into the visible capture row', async () => {
+  const f = fixture();
+  f.view.refresh();
+  await vi.waitFor(() => expect(f.get('distillationStatus').textContent).toContain('refreshed'));
+  expect(f.get('distillationDatasets').children[0]!.children[0]!.textContent).toContain('active');
+  f.get('distillationDatasets').children[0]!.children[1]!.click();
+  await vi.waitFor(() => expect(f.get('distillationStatus').textContent).toBe('Capture selected.'));
+  f.client.manifest.mockResolvedValue({ ...DATASET, state: 'stopped' });
+  f.view.refresh();
+  await vi.waitFor(() => expect(f.get('distillationStatus').textContent).toContain('refreshed'));
+  expect(f.get('distillationDatasets').children[0]!.children[0]!.textContent).toContain('stopped');
+  expect(f.get('distillationDataset').textContent).toContain('stopped');
+});
+
 it('captures only explicit teacher slots and stops the selected exact epoch', async () => {
   const f = fixture();
   f.get('distillationTeachers').value = '0,2,9'; f.get('distillationStart').click();

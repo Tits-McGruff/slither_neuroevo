@@ -344,7 +344,7 @@ impl<'workspace, 'control> PreparedWorldStep<'workspace, 'control> {
         self.control.ambient_accumulator()
     }
 
-    /// Packed external observations still awaiting matching Node acceptance.
+    /// Packed external observations retained until authoritative output or transactional delivery resolves.
     #[must_use]
     pub const fn external_events(self) -> &'control [PreparedExternalObservation] {
         self.control.external_events()
@@ -1138,7 +1138,7 @@ impl WorldStepWorkspace {
         Ok(self.external_replacement.validation_buffers(key)?)
     }
 
-    /// Borrow publication buffers after all checks were completed before Node delivery.
+    /// Borrow publication buffers after all external-output checks were completed.
     pub(crate) fn publication_buffers_prevalidated(
         &mut self,
         key: PhysicsStepKey,

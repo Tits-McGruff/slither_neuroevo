@@ -835,7 +835,14 @@ pub enum RunningAuthorityEvent {
         capture_epoch: [u8; 16],
         enabled: bool,
     },
-    /// The entire ordinary-step delivery batch, admitted before step preparation.
+    /// Ordered ordinary observations whose authoritative step is already published.
+    /// Their complete payload was admitted to the bounded Rust output queue before
+    /// the step committed, so Node must not return ordinary delivery receipts.
+    ControllerObservations {
+        ticket_sequence: u64,
+        messages: Box<[RunningControllerMessage]>,
+    },
+    /// Receipt-driven ordinary-step batch containing an ownership-changing replacement.
     ControllerMessages {
         ticket_sequence: u64,
         messages: Box<[RunningControllerMessage]>,
@@ -941,7 +948,8 @@ impl RunningAuthorityEvent {
             Self::ControllerReclaimAssignment { resume_token, .. }
             | Self::ControllerJoinAssignment { resume_token, .. } => resume_token.len(),
             Self::ControllerReclaimResolved { .. } | Self::ControllerJoinResolved { .. } => 0,
-            Self::ControllerMessages { messages, .. } => messages
+            Self::ControllerObservations { messages, .. }
+            | Self::ControllerMessages { messages, .. } => messages
                 .len()
                 .saturating_mul(size_of::<RunningControllerMessage>())
                 .saturating_add(messages.iter().fold(0usize, |bytes, message| {

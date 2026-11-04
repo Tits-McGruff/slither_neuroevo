@@ -14,7 +14,9 @@ use std::fmt::{Display, Formatter};
 /// Versioned teacher formula and bounded policy state identity.
 pub const BASELINE_V2_VERSION: u32 = 2;
 const COMMITMENT_SECONDS: f64 = 0.2;
-const SWITCH_IMPROVEMENT: f64 = 0.15;
+const SWITCH_IMPROVEMENT: f64 = 0.025;
+const REVERSAL_SWITCH_IMPROVEMENT: f64 = 0.15;
+const ROAM_FOOD_THRESHOLD: f64 = 0.25;
 const URGENT_URGENCY: f64 = 0.75; // TTC < 0.5 s in the declared two-second horizon.
                                   // Emergency proportional steering remains stable at the admitted 14 rad/s
                                   // turn-rate and 0.06-second cadence: 14 * 0.06 / (PI / 6) < 2.
@@ -346,7 +348,7 @@ impl BaselineV2Policy {
                 state.wander_remaining_seconds = 1.3;
             }
         } else if exploring
-            && best_food <= 0.05
+            && best_food <= ROAM_FOOD_THRESHOLD
             && urgent == 0
             && state.wander_remaining_seconds == 0.0
         {
@@ -452,17 +454,27 @@ impl BaselineV2Policy {
         }
         let mut held_heading = None;
         if let Some(committed) = state.committed_heading {
-            let old = sector(wrap(committed - heading), self.bins);
+            let committed_angle = wrap(committed - heading);
+            let old = sector(committed_angle, self.bins);
+            let switch_improvement =
+                if wrap(angle(best, self.bins) - committed_angle).abs() > FRAC_PI_2 {
+                    REVERSAL_SWITCH_IMPROVEMENT
+                } else {
+                    SWITCH_IMPROVEMENT
+                };
             if safe[old]
                 && (state.commitment_remaining_seconds > 0.0
-                    || scores[best] - scores[old] < SWITCH_IMPROVEMENT)
+                    || scores[best] - scores[old] < switch_improvement)
             {
                 best = old;
                 held_heading = Some(committed);
             }
         }
         let selected = sample.sector(best);
-        let roam = exploring && best_food <= 0.05 && urgent == 0 && pursuit & (1 << best) == 0;
+        let roam = exploring
+            && best_food <= ROAM_FOOD_THRESHOLD
+            && urgent == 0
+            && pursuit & (1 << best) == 0;
         let wander = state
             .wander_angle
             .clamp(-0.8 * PI / self.bins as f64, 0.8 * PI / self.bins as f64);
@@ -831,6 +843,30 @@ mod tests {
         assert!(!a.boost);
         put(&mut row, 16, 0, 9, 1.0);
         assert_eq!(evaluate(&p, &row, BaselineV2State::default()).sector, 9);
+    }
+    #[test]
+    fn expired_safe_commitment_yields_to_strong_side_food() {
+        let p = policy(SensorProfile::Basic, 16, BaselineV2Mode::Deterministic);
+        let mut row = sample(SensorProfile::Basic, 16);
+        put(&mut row, 16, 0, 10, 1.0);
+        let state = BaselineV2State {
+            committed_heading: Some(angle(8, 16)),
+            commitment_remaining_seconds: 0.0,
+            ..BaselineV2State::default()
+        };
+        let action = evaluate(&p, &row, state);
+        assert_eq!(action.sector, 10);
+        assert!(action.turn > 0.0);
+    }
+    #[test]
+    fn weak_food_does_not_suppress_stochastic_wandering() {
+        let p = policy(SensorProfile::Basic, 16, BaselineV2Mode::Stochastic);
+        let mut row = sample(SensorProfile::Basic, 16);
+        put(&mut row, 16, 0, 10, -0.8);
+        let action = evaluate(&p, &row, BaselineV2State::default());
+        assert_eq!(action.uniform_draws, 2);
+        assert!(action.next_state.wander_remaining_seconds > 0.0);
+        assert_eq!(action.next_state.strategy, BaselineStrategyState::Roam);
     }
     #[test]
     fn closing_head_on_risk_differs_from_receding_and_basic_omits_motion() {

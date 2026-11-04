@@ -528,6 +528,14 @@ and `welcome.sensorSpec.order`; do not hard-code the default length. `meta` is
 optional in the type but the current server includes the controlled snake's
 pose.
 
+Ordinary sensor packets form an ordered asynchronous stream. Rust commits the
+fixed step only after the complete observation batch has been admitted to its
+bounded output queue, then continues simulation without waiting for Node, the
+WebSocket, or a client action to acknowledge that observation. `tick` identifies
+the committed source boundary. The latest accepted action remains held under the
+normal input timeout. Fresh/replacement assignments, reconnects and generation
+reassignments retain their reliable transactional delivery rules.
+
 ### `stats`
 
 Replaceable stats follow the committed display cadence, bounded by the configured
@@ -611,12 +619,12 @@ the socket.
 
 ## Sensor contract
 
-The ordinary production default is the frozen `v3` layout, described below.
-Explicitly admitted candidate v4 profiles use `24 + 6 * bubbleBins` inputs for
-Basic and `24 + 15 * bubbleBins` for Motion, with 8..32 bins. They require the
-exact Rust canonical sensor contract carried in welcome metadata; equal widths
-do not imply equal meanings. Their workload/ablation and production-default
-qualification remains open.
+Fresh current runs use the Rust v4 Motion/B16 sensor contract by default.
+V4 Basic uses `24 + 6 * bubbleBins` inputs and v4 Motion uses
+`24 + 15 * bubbleBins`, with 8..32 bins; Motion/B16 therefore has 264 inputs.
+Clients must use the exact canonical contract in `welcome.sensorSpec`, because
+equal widths do not imply equal meanings. The frozen v3 layout remains a
+compatibility contract for retained runs that explicitly carry it.
 
 The frozen `v3` size is:
 
@@ -865,7 +873,7 @@ only for the same world/generation. All steps are sampled, with no slow-step gat
   combined baseline evaluator is not represented by invented separate timings.
 - `bodyQueryWorker` measures body candidate collection and sector processing;
   `bodyRayQueryWorker` measures ray packet construction/traversal. These are
-  **sums of worker-local elapsed time** across delivered neural, external and
+  **sums of worker-local elapsed time** across evaluated neural, external and
   baseline-v2 observations, nested inside their sensing times. They must not be
   added to parallel batch wall times. Diagnostic probes are excluded.
 
@@ -875,7 +883,7 @@ only for the same world/generation. All steps are sampled, with no slow-step gat
 with exact u64 hex fields; mean is `total / samples`. Alive/body/pellet counts
 sample committed end-of-step geometry. Body points include only alive bodies;
 segments sum `max(length - 1, 0)`. Evolved length pools alive evolved-snake
-samples (not a mean of per-step means). Candidate distributions sample delivered
+samples (not a mean of per-step means). Candidate distributions sample evaluated
 observations and report existing bounded query counters, not hypothetical work
 beyond query caps. Body-query collection includes its existing candidate-limit
 semantics; ray candidates are charged traversal visits, including broad-phase

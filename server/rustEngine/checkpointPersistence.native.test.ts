@@ -9,7 +9,7 @@ import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RustBackgroundControllerAction, RustBackgroundControllerDisconnect, RustBackgroundControllerMessage, RustControllerReceiptResolution, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimRequest, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
-import { ControllerDeliveryRouter, ReclaimDeliveryRouter, JoinDeliveryRouter } from './controllerDelivery.ts';
+import { ControllerObservationRouter, ReclaimDeliveryRouter, JoinDeliveryRouter } from './controllerDelivery.ts';
 import { BackgroundCommandAdmission } from './commandAdmission.ts';
 import { GenerationPersistenceHandoff } from './generationPersistenceHandoff.ts';
 import { RunStartPersistenceHandoff } from './runStartPersistenceHandoff.ts';
@@ -241,9 +241,11 @@ interface Stage6BackgroundGenerationEvent {
   kind: string;
   /** Exact originating command sequence when this is a command response. */
   commandSequence?: string;
-  /** Ordinary reliable messages preserved across command-result waits. */
+  /** Ordered ordinary observations emitted after their authoritative step publishes. */
+  controllerObservations?: RustBackgroundControllerMessage[];
+  /** Receipt-driven mixed/replacement controller output, if a lifecycle transition requires it. */
   controllerMessages?: RustBackgroundControllerMessage[];
-  /** Exact ordinary-step receipt completion. */
+  /** Exact transactional ordinary-step receipt completion. */
   controllerReceiptResolution?: RustControllerReceiptResolution;
   /** Boundary at which a deferred action entered the current lease. */
   controllerActionCompletedStep?: string;
@@ -1421,38 +1423,43 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           processedCommands: '000000000000000c'
         });
 
-        const ordinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');
-        const messages = ordinary.controllerMessages;
+        const ordinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations');
+        const messages = ordinary.controllerObservations;
         expect(messages).toHaveLength(1);
         const observation = messages![0]!;
         expect(observation).toMatchObject({ kind: 'observation', snakeId: Number(BigInt(`0x${assignment.frameV1Id}`)) });
         expect(observation.sensors).toHaveLength(83);
         expect(observation.sensors!.every(Number.isFinite)).toBe(true);
         expect(observation.sourceCompletedStep).toBe('0000000000000001');
-        expect(session.health().completedStep).toBe('0000000000000001');
+        expect(BigInt(`0x${session.health().completedStep}`)).toBeGreaterThanOrEqual(1n);
+        expect(session.health().loopState).not.toBe('externalDeliveryPending');
+        expect(session.health().pendingExternalDeliveries).toBe('0000000000000000');
         const receipt: RustGenerationAssignmentReceipt = {
           operationEpoch: observation.operationEpoch, eventSequence: observation.eventSequence,
           connectionId: observation.connectionId, leaseId: observation.leaseId, accepted: true
         };
-        // Wrong-phase generation receipts must not consume this ordinary observation.
+        // Generation and old ordinary-receipt commands cannot consume an already-published observation.
         session.submitGenerationAssignmentReceipt('000000000000000d', receipt);
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000d'))
           .resolves.toMatchObject({ kind: 'commandRejected' });
-        session.submitControllerDeliveryReceipt('000000000000000e', { ...receipt, connectionId: 'ffffffffffffffff' });
+        session.submitControllerDeliveryReceipt('000000000000000e', receipt);
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000e'))
-          .resolves.toMatchObject({ controllerReceiptResolution: {
-            matchedAcceptances: '0000000000000000', ignoredReceipts: '0000000000000001', remaining: '0000000000000001'
-          } });
-        expect(session.health().completedStep).toBe('0000000000000001');
+          .resolves.toMatchObject({ kind: 'commandRejected' });
+
         const sent: unknown[] = [];
-        const action: RustBackgroundControllerAction = {
-          leaseId: observation.leaseId, connectionId: observation.connectionId,
-          turn: 0.75, boost: false, clientTick: '000000000000002a'
-        };
-        expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
+        const observationRouter = new ControllerObservationRouter(2, {
+          send(connectionId, message) { sent.push({ connectionId, message }); return true; },
+          failed() { throw new Error('accepted integration observation unexpectedly failed transport'); }
+        });
+        observationRouter.deliver(messages!);
+        expect(sent).toEqual([{ connectionId: observation.connectionId, message: {
+          type: 'sensors', tick: 1, snakeId: observation.snakeId, sensors: observation.sensors,
+          meta: { x: observation.x, y: observation.y, dir: observation.direction }
+        } }]);
+
         let admitReceipt = false;
         const admission = new BackgroundCommandAdmission({
-          submitGenerationAssignmentReceipt: (sequence, receipt) => session.submitGenerationAssignmentReceipt(sequence, receipt),
+          submitGenerationAssignmentReceipt: (sequence, completion) => session.submitGenerationAssignmentReceipt(sequence, completion),
           submitControllerJoinReceipt(sequence, completion) {
             if (!admitReceipt) throw new Error('QueueCountLimit: injected join receipt backpressure');
             session.submitControllerJoinReceipt(sequence, completion);
@@ -1462,34 +1469,21 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
             session.submitControllerReclaimReceipt(sequence, completion);
           },
           submitControllerDeliveryReceipt(sequence, completion) {
-            if (!admitReceipt) throw new Error('QueueCountLimit: injected transport receipt backpressure');
             session.submitControllerDeliveryReceipt(sequence, completion);
           }
         }, 15n);
-        expect(admission.trySubmitControl(sequence => session.submitControllerAction(sequence, action))).toBe(true);
-        const router = new ControllerDeliveryRouter(1, {
-          send(connectionId, message) { sent.push({ connectionId, message }); return true; },
-          nextSequence() { return admission.nextSequence(); },
-          trySubmitReceipt(sequence, completion) {
-            return admission.trySubmitReceipt(sequence, completion);
-          }
-        });
-        expect(router.deliver(messages!)).toBe(true);
-        expect(router.blocked).toBe(true);
-        expect(router.flushReceipts()).toBe(false);
-        expect(session.health().completedStep).toBe('0000000000000001');
-        admitReceipt = true;
-        expect(router.flushReceipts()).toBe(true);
-        expect(sent).toEqual([{ connectionId: observation.connectionId, message: {
-          type: 'sensors', tick: 1, snakeId: observation.snakeId, sensors: observation.sensors,
-          meta: { x: observation.x, y: observation.y, dir: observation.direction }
-        } }]);
-        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000010'))
-          .resolves.toMatchObject({ controllerReceiptResolution: {
-            matchedAcceptances: '0000000000000001', remaining: '0000000000000000', publishedCompletedStep: '0000000000000002'
-          } });
-        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '000000000000000f'))
-          .resolves.toMatchObject({ kind: 'controllerActionApplied', controllerActionCompletedStep: '0000000000000002' });
+        const action: RustBackgroundControllerAction = {
+          leaseId: observation.leaseId, connectionId: observation.connectionId,
+          turn: 0.75, boost: false, clientTick: '000000000000002a'
+        };
+        expect(() => session.submitControllerAction('000000000000000f', { ...action, turn: NaN })).toThrow();
+        let actionSequence = '';
+        expect(admission.trySubmitControl(sequence => {
+          actionSequence = sequence;
+          session.submitControllerAction(sequence, action);
+        })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === actionSequence))
+          .resolves.toMatchObject({ kind: 'controllerActionApplied' });
         const timedHealth = await waitForBackgroundHealth(
           session,
           health => health.completedStep === '0000000000000002'
@@ -1513,24 +1507,28 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           expect(cost).toMatch(/^[0-9a-f]{16}$/);
         }
 
-        const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages');
-        const nextObservation = nextOrdinary.controllerMessages![0]!;
-        expect(nextObservation.sourceCompletedStep).toBe('0000000000000002');
+        const nextOrdinary = await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations');
+        const nextObservation = nextOrdinary.controllerObservations![0]!;
+        expect(BigInt(`0x${nextObservation.sourceCompletedStep}`)).toBeGreaterThanOrEqual(2n);
         const close = { leaseId: nextObservation.leaseId, connectionId: nextObservation.connectionId };
-        expect(admission.trySubmitControl(sequence => session.submitControllerDisconnect(sequence, close))).toBe(true);
-        expect(session.health().completedStep).toBe('0000000000000002');
-        expect(admission.trySubmitReceipt(admission.nextSequence(), {
-          operationEpoch: nextObservation.operationEpoch, eventSequence: nextObservation.eventSequence,
-          ...close, accepted: true
+        let disconnectSequence = '';
+        expect(admission.trySubmitControl(sequence => {
+          disconnectSequence = sequence;
+          session.submitControllerDisconnect(sequence, close);
         })).toBe(true);
-        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000011'))
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === disconnectSequence))
           .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: {
-            leaseId: close.leaseId, completedStep: '0000000000000003', applied: true
+            leaseId: close.leaseId, applied: true
           } });
-        expect(admission.trySubmitControl(sequence => session.submitControllerDisconnect(sequence, close))).toBe(true);
-        await expect(waitForBackgroundEvent(session, event => event.commandSequence === '0000000000000013'))
+        let duplicateDisconnectSequence = '';
+        expect(admission.trySubmitControl(sequence => {
+          duplicateDisconnectSequence = sequence;
+          session.submitControllerDisconnect(sequence, close);
+        })).toBe(true);
+        await expect(waitForBackgroundEvent(session, event => event.commandSequence === duplicateDisconnectSequence))
           .resolves.toMatchObject({ kind: 'controllerDisconnected', controllerDisconnect: { applied: false } });
-        await waitForBackgroundHealth(session, health => BigInt(`0x${health.completedStep}`) >= 3n);
+        await waitForBackgroundHealth(session, health =>
+          BigInt(`0x${health.completedStep}`) >= BigInt(`0x${nextObservation.sourceCompletedStep}`));
 
         const reclaimSequence = admission.nextSequence();
         expect(admission.trySubmitControl(sequence => session.submitControllerReclaim(sequence, {
@@ -1564,13 +1562,13 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
           .resolves.toMatchObject({ kind: 'commandRejected' });
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === freshActionSequence))
           .resolves.toMatchObject({ kind: 'controllerActionApplied', controllerActionCompletedStep: reclaim.completedStep });
-        const reclaimedObservation = (await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages')).controllerMessages![0]!;
+        const reclaimedObservation = (await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations')).controllerObservations![0]!;
         expect(reclaimedObservation).toMatchObject({ connectionId: reclaim.connectionId, leaseId: reclaim.leaseId, snakeId: reclaim.snakeId });
         expect(admission.trySubmitReclaimReceipt(admission.nextSequence(), { requestSequence: reclaimSequence,
           connectionId: reclaim.connectionId, leaseId: reclaim.leaseId, accepted: true })).toBe(true);
         await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
           .resolves.toMatchObject({ controllerReclaimResolution: { matched: false, accepted: false } });
-        expect(session.health().completedStep).toBe(reclaimedObservation.sourceCompletedStep);
+        expect(BigInt(`0x${session.health().completedStep}`)).toBeGreaterThanOrEqual(BigInt(`0x${reclaimedObservation.sourceCompletedStep}`));
         expect(admission.trySubmitControl(sequence => session.submitControllerDisconnect(sequence, {
           leaseId: reclaim.leaseId, connectionId: reclaim.connectionId
         }))).toBe(true);
@@ -1586,7 +1584,7 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(admission.trySubmitControl(sequence => session.submitControllerReclaim(sequence, {
           connectionId: '000000000000009a', controllerKind: observation.controllerKind, identityKey: 'player:background-fixture'
         }))).toBe(true);
-        expect(router.deliver([reclaimedObservation])).toBe(true);
+        observationRouter.deliver([reclaimedObservation]);
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === invalidTokenSequence))
           .resolves.toMatchObject({ kind: 'commandRejected' });
         const legacyEvent = await waitForBackgroundEvent(session, event => event.commandSequence === legacySequence);
@@ -1598,12 +1596,12 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerReclaimResolved'))
           .resolves.toMatchObject({ controllerReclaimResolution: { requestSequence: legacySequence, matched: true, accepted: true } });
 
-        const beforeJoin = (await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages')).controllerMessages!;
+        const beforeJoin = (await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations')).controllerObservations!;
         const joinSequence = admission.nextSequence();
         expect(admission.trySubmitControl(sequence => session.submitControllerJoin(sequence, {
           connectionId: '000000000000009b', controllerKind: 'reinforcementLearning', identityKey: 'bot:new-owner'
         }))).toBe(true);
-        expect(router.deliver(beforeJoin)).toBe(true);
+        observationRouter.deliver(beforeJoin);
         const joinEvent = await waitForBackgroundEvent(session, event => event.commandSequence === joinSequence);
         expect(joinEvent.kind).toBe('controllerJoinAssignment');
         const fresh = joinEvent.controllerJoinAssignment!;
@@ -1625,7 +1623,7 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(joinRouter.flushReceipts()).toBe(true);
         await expect(waitForBackgroundEvent(session, event => event.kind === 'controllerJoinResolved'))
           .resolves.toMatchObject({ controllerJoinResolution: { requestSequence: joinSequence, matched: true, accepted: true } });
-        const freshMessages = (await waitForBackgroundEvent(session, event => event.kind === 'controllerMessages')).controllerMessages!;
+        const freshMessages = (await waitForBackgroundEvent(session, event => event.kind === 'controllerObservations')).controllerObservations!;
         expect(freshMessages.some(message => message.leaseId === fresh.leaseId && message.snakeId === fresh.snakeId)).toBe(true);
         expect(admission.trySubmitControl(sequence => session.submitControllerJoinReceipt(sequence, {
           requestSequence: fresh.requestSequence, connectionId: fresh.connectionId, leaseId: fresh.leaseId, accepted: true
@@ -1636,11 +1634,11 @@ describe('Stage 3/6 Rust-to-Node managed checkpoint publication handoff', () => 
         expect(admission.trySubmitControl(sequence => session.submitControllerAction(sequence, {
           leaseId: fresh.leaseId, connectionId: fresh.connectionId, turn: 0.25, boost: false, clientTick: fresh.completedStep
         }))).toBe(true);
-        const joinedRouter = new ControllerDeliveryRouter(2, {
-          send() { return true; }, nextSequence() { return admission.nextSequence(); },
-          trySubmitReceipt(sequence, receipt) { return admission.trySubmitReceipt(sequence, receipt); }
+        const joinedRouter = new ControllerObservationRouter(2, {
+          send() { return true; },
+          failed() { throw new Error('joined observation unexpectedly failed transport'); }
         });
-        expect(joinedRouter.deliver(freshMessages)).toBe(true);
+        joinedRouter.deliver(freshMessages);
         await expect(waitForBackgroundEvent(session, event => event.commandSequence === joinedActionSequence))
           .resolves.toMatchObject({ kind: 'controllerActionApplied' });
 

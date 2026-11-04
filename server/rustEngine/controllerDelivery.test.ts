@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RustBackgroundControllerMessage, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
-import { ControllerDeliveryRouter, ReclaimDeliveryRouter, GenerationDeliveryRouter } from './controllerDelivery.ts';
+import { ControllerDeliveryRouter, ControllerObservationRouter, ReclaimDeliveryRouter, GenerationDeliveryRouter } from './controllerDelivery.ts';
 
 /** Rust-owned fixture with distinct wire, snake, lease, connection, and event identities. */
 function observation(eventSequence = '0000000000000009'): RustBackgroundControllerMessage {
@@ -94,11 +94,47 @@ describe('Rust generation assignment transport', () => {
     capacity = true;
     expect(router.flushReceipts()).toBe(true);
     expect(sent).toEqual([{ connectionId: assignment.connectionId, message: {
-      type: 'assign', controller: 'player', snakeId: 6, resumeToken: assignment.resumeToken
+      type: 'assign', controller: 'player', snakeId: 6, resumeToken: assignment.resumeToken,
+      replacementReason: 'generation'
     } }]);
     expect(receipts).toHaveLength(2);
     expect(receipts[0]).toEqual(receipts[1]);
     expect(receipts[0]).toMatchObject({ operationEpoch: assignment.operationEpoch, accepted: true });
+  });
+});
+
+describe('Rust asynchronous observation transport', () => {
+  it('sends ordered observations without native receipts', () => {
+    const sent: unknown[] = [];
+    const failed: Array<[string, string]> = [];
+    const router = new ControllerObservationRouter(4, {
+      sensorCount: () => 83,
+      send(connectionId, message) { sent.push({ connectionId, message }); return true; },
+      failed(connectionId, leaseId) { failed.push([connectionId, leaseId]); }
+    });
+    const first = observation('0000000000000009');
+    const second = { ...observation('000000000000000a'), sourceCompletedStep: '0000000000000001' };
+    router.deliver([first, second]);
+    expect(sent).toEqual([
+      { connectionId: first.connectionId, message: { type: 'sensors', tick: 0, snakeId: 12, sensors: first.sensors, meta: { x: 5, y: 8, dir: 0.25 } } },
+      { connectionId: second.connectionId, message: { type: 'sensors', tick: 1, snakeId: 12, sensors: second.sensors, meta: { x: 5, y: 8, dir: 0.25 } } }
+    ]);
+    expect(failed).toEqual([]);
+  });
+
+  it('reports exact send failures and rejects replacement messages before sending', () => {
+    const failed: Array<[string, string]> = [];
+    let sends = 0;
+    const router = new ControllerObservationRouter(2, {
+      send() { sends++; return false; },
+      failed(connectionId, leaseId) { failed.push([connectionId, leaseId]); }
+    });
+    const item = observation();
+    router.deliver([item]);
+    expect(failed).toEqual([[item.connectionId, item.leaseId]]);
+    expect(sends).toBe(1);
+    expect(() => router.deliver([{ ...item, kind: 'replacementAssignment', resumeToken: 'token' }])).toThrow('observations only');
+    expect(sends).toBe(1);
   });
 });
 

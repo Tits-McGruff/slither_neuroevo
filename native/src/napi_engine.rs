@@ -591,6 +591,7 @@ pub struct Stage6BackgroundGenerationEvent {
     pub generation_start: Option<Stage6BackgroundGenerationStart>,
     pub import_publication: Option<Stage6RunStartPublication>,
     pub display: Option<crate::napi_running_engine::BackgroundDisplayStatus>,
+    pub controller_observations: Option<Vec<BackgroundControllerMessage>>,
     pub controller_messages: Option<Vec<BackgroundControllerMessage>>,
     pub controller_receipt_resolution: Option<BackgroundControllerReceiptResolution>,
     pub controller_action_lease_id: Option<String>,
@@ -4354,6 +4355,38 @@ fn running_authority_event_to_napi(
             output.command_sequence = Some(u64_hex(command_sequence));
             output.visualization_enabled = Some(enabled);
         }
+        RunningAuthorityEvent::ControllerObservations { messages, .. } => {
+            output.kind = "controllerObservations".to_owned();
+            output.controller_observations = Some(
+                messages
+                    .into_vec()
+                    .into_iter()
+                    .map(|message| {
+                        let event = message.event;
+                        debug_assert_eq!(
+                            event.delivery_kind,
+                            crate::engine::ExternalDeliveryEventKind::Observation
+                        );
+                        BackgroundControllerMessage {
+                            operation_epoch: u64_hex(event.step_key.operation_epoch()),
+                            event_sequence: u64_hex(event.event_sequence),
+                            connection_id: u64_hex(event.connection_id),
+                            lease_id: u64_hex(event.lease_id),
+                            controller_kind: controller_kind_name(event.controller_kind).to_owned(),
+                            internal_snake_id: u64_hex(event.snake_id),
+                            snake_id: message.frame_v1_id,
+                            source_completed_step: u64_hex(event.step_key.source_completed_step()),
+                            kind: "observation".to_owned(),
+                            sensors: Some(message.sensors.iter().copied().map(f64::from).collect()),
+                            x: Some(event.position.x),
+                            y: Some(event.position.y),
+                            direction: Some(event.direction),
+                            resume_token: None,
+                        }
+                    })
+                    .collect(),
+            );
+        }
         RunningAuthorityEvent::ControllerMessages { messages, .. } => {
             output.kind = "controllerMessages".to_owned();
             output.controller_messages = Some(
@@ -4618,6 +4651,7 @@ fn empty_background_generation_event() -> Stage6BackgroundGenerationEvent {
         generation_start: None,
         import_publication: None,
         display: None,
+        controller_observations: None,
         controller_messages: None,
         controller_receipt_resolution: None,
         controller_action_lease_id: None,
