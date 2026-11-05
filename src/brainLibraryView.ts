@@ -136,13 +136,17 @@ export class BrainLibraryView {
         if (token === this.revision && this.selected?.brainId === entry.brainId) { this.selected = undefined; this.element('brainLibraryDetails').textContent = ''; }
         return `Deleted ${entry.name} from the library. Running snakes keep their brains.`;
       })));
-      if (this.foundersEnabled && this.startFounder) actions.append(this.rowButton('Start evolution from this brain', () => this.action(async revision => {
-        if (!window.confirm(`Start a new evolving population from “${entry.name}”? Slot 0 keeps the exact trained weights; all other slots start as mutated descendants using the current mutation settings. This replaces the running world. Existing saved brains and retained checkpoints remain stored.`)) return 'Founder start cancelled.';
-        const status = await this.client.list();
-        if (revision !== this.revision || !this.enabled) throw new Error('Server context changed. Refresh the library.');
-        await this.startFounder!({brainId: entry.brainId, expectedProcessEpoch: status.processEpoch, ...status.scope});
-        return 'Started an evolving population from the saved brain.';
-      })));
+      if (this.foundersEnabled && this.startFounder) {
+        const founderButton = this.rowButton('Start evolution from this brain', () => this.action(async revision => {
+          if (!window.confirm(`Start a new evolving population from “${entry.name}”? Slot 0 keeps the exact trained weights; all other slots start as mutated descendants using the current mutation settings. This replaces the running world. Existing saved brains and retained checkpoints remain stored.`)) return 'Founder start cancelled.';
+          const status = await this.client.list();
+          if (revision !== this.revision || !this.enabled) throw new Error('Server context changed. Refresh the library.');
+          await this.startFounder!({brainId: entry.brainId, expectedProcessEpoch: status.processEpoch, ...status.scope});
+          return 'Started an evolving population from the saved brain.';
+        }));
+        founderButton.className += ' brain-library-founder';
+        actions.append(founderButton);
+      }
       if (this.archiveEnabled) {
         const label = document.createElement('label');
         const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.dataset['brainArchive'] = entry.brainId;
