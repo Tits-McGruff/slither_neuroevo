@@ -915,7 +915,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       expect(JSON.parse((await manualFixtureHttp(`${base}/api/health`)).bytes.toString()))
         .toMatchObject({ok: true, runId: initial.runId, loopState: 'ready'});
       const preserved = await manualFixtureHttp(`${base}/api/distillation/v1/library/${brainId}/export`);
-      expect(preserved.status).toBe(200); expect(preserved.bytes).toEqual(bytes);
+      expect(preserved.status).toBe(200); expect(preserved.bytes.equals(bytes)).toBe(true);
       viewer.packets.length = 0;
       const chosen = await selection();
       viewer.socket.send(JSON.stringify({type: 'newRun', requestId: 'start-founders', founder: chosen}));
