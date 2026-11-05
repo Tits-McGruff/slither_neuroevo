@@ -178,6 +178,7 @@ export interface ExternalRewardEnvelopeV1 {
   rewardVersion: number;
   runId: string;
   snakeId: number;
+  state: ExternalRewardStateV1;
   toStep: string;
   transitionKind: ExternalRewardTransitionKind;
   worldEpoch: string;
@@ -202,6 +203,23 @@ export interface ExternalRewardDeltasV1 {
    */
   retainedGrowthDelta: number;
   survivalPointsDelta: number;
+}
+/**
+ * Unweighted physical state at the same observation or pre-cleanup cutoff boundary.
+ */
+export interface ExternalRewardStateV1 {
+  /**
+   * Positive finalized body segments, frozen before terminal cleanup.
+   */
+  bodyLength: number;
+  /**
+   * max(body_length - starting_length, 0), independent of reward weighting.
+   */
+  retainedGrowth: number;
+  /**
+   * Positive finalized body segments when the physical life was assigned.
+   */
+  startingLength: number;
 }
 
 export const SENSOR_HASH_DOMAIN = "slither.sensor-contract.v1\u0000";

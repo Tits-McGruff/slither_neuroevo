@@ -2377,6 +2377,9 @@ mod tests {
         assert_eq!(victim_wire.deltas.length_delta, 1);
         assert_eq!(victim_wire.deltas.retained_growth_delta, 1);
         assert_eq!(victim_wire.deltas.kills_delta, 0);
+        assert_eq!(victim_wire.state.starting_length, 12);
+        assert_eq!(victim_wire.state.body_length, 13);
+        assert_eq!(victim_wire.state.retained_growth, 1);
         let owner = ledgers[1]
             .prepare(4, end, Some(ExternalRewardEndReason::Generation))
             .unwrap();
@@ -2389,6 +2392,9 @@ mod tests {
         assert_eq!(owner_wire.deltas.kills_delta, 1);
         assert_eq!(owner_wire.deltas.kill_points_delta, 400.0);
         assert_eq!(owner_wire.deltas.points_delta, 420.0);
+        assert_eq!(owner_wire.state.starting_length, 15);
+        assert_eq!(owner_wire.state.body_length, 16);
+        assert_eq!(owner_wire.state.retained_growth, 1);
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../contracts/slither_contracts/external-reward-v1-fixture.json");
         let expected: serde_json::Value =

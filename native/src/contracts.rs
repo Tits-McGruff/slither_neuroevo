@@ -55,6 +55,19 @@ pub struct ExternalRewardDeltasV1 {
     pub kills_delta: u64,
 }
 
+/// Unweighted physical state at the same observation or pre-cleanup cutoff boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardStateV1 {
+    /// Positive finalized body segments when the physical life was assigned.
+    pub starting_length: i64,
+    /// Positive finalized body segments, frozen before terminal cleanup.
+    pub body_length: i64,
+    /// max(body_length - starting_length, 0), independent of reward weighting.
+    pub retained_growth: i64,
+}
+
 /// Sensor-independent reward interval. All hexadecimal identities are 16 digits.
 /// Initial envelopes have no predecessor; closures precede replacement assignment.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,6 +86,7 @@ pub struct ExternalRewardEnvelopeV1 {
     pub to_step: String,
     pub transition_kind: ExternalRewardTransitionKind,
     pub reason: Option<ExternalRewardEndReason>,
+    pub state: ExternalRewardStateV1,
     pub deltas: ExternalRewardDeltasV1,
 }
 

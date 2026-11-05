@@ -579,10 +579,25 @@ All numbers are finite. The economic identity is
 Initial balances and spawn state create no earnings. Growth uses finalized
 segments; terminal cleanup does not create a shrinkage penalty.
 
+Every reward envelope also requires a `state` snapshot with exact integer body
+segment quantities:
+
+| State field | Meaning |
+|---|---|
+| `startingLength` | Positive finalized body length when this physical life was assigned; constant for the life |
+| `bodyLength` | Positive finalized body length at this same observation/cutoff boundary, before terminal cleanup |
+| `retainedGrowth` | `max(bodyLength - startingLength, 0)` |
+
+These are unweighted measurements, not additional reward. An initial observation
+may already contain retained growth while still carrying zero deltas. On a
+continuous stream, successive body and retained-growth snapshots differ by
+`lengthDelta` and `retainedGrowthDelta` respectively. Reconnect discards an
+unknown interval but does not change a known life's starting length.
+
 Envelopes carry `rewardVersion`, `runId`, `worldEpoch`, `leaseId`,
 `physicalSnakeId`, public `snakeId`, `observationSequence`,
-`previousObservationSequence`, `fromStep`, `toStep`, `transitionKind`, `reason`
-and `deltas`. Incarnation, sequence and step words use exact lowercase 16-digit
+`previousObservationSequence`, `fromStep`, `toStep`, `transitionKind`, `reason`,
+`state` and `deltas`. Incarnation, sequence and step words use exact lowercase 16-digit
 hexadecimal strings. Visible snake ID alone does not identify an interval.
 An `initial` envelope has no predecessor and zero deltas; `live` accumulates all
 events since the predecessor admitted to native output. Probes do not consume

@@ -34,6 +34,12 @@ ExternalRewardEndReason: TypeAlias = Literal[
 ]
 
 
+class ExternalRewardStateV1(TypedDict, closed=True):
+    bodyLength: int
+    retainedGrowth: int
+    startingLength: int
+
+
 ExternalRewardTransitionKind: TypeAlias = Literal[
     'initial', 'live', 'terminal', 'truncated'
 ]
@@ -248,6 +254,7 @@ class ExternalRewardEnvelopeV1(TypedDict, closed=True):
     rewardVersion: int
     runId: str
     snakeId: int
+    state: ExternalRewardStateV1
     toStep: str
     transitionKind: ExternalRewardTransitionKind
     worldEpoch: str

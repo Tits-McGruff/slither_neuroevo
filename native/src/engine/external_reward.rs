@@ -9,7 +9,7 @@ use super::accounting::SnakeAccountingUpdate;
 use super::evolved_lives::EvolvedPhysicsDelta;
 use crate::contracts::{
     ExternalRewardDeltasV1, ExternalRewardEndReason, ExternalRewardEnvelopeV1,
-    ExternalRewardTransitionKind, EXTERNAL_REWARD_VERSION,
+    ExternalRewardStateV1, ExternalRewardTransitionKind, EXTERNAL_REWARD_VERSION,
 };
 use sha2::{Digest, Sha256};
 use std::fmt::{Display, Formatter};
@@ -85,6 +85,7 @@ pub struct ExternalRewardLedger {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PreparedRewardDelivery {
     identity: RewardLifeIdentity,
+    starting_length: i64,
     predecessor: Option<Marker>,
     marker: Marker,
     kind: ExternalRewardTransitionKind,
@@ -143,6 +144,11 @@ impl PreparedRewardDelivery {
             to_step: format!("{:016x}", self.marker.boundary.completed_step),
             transition_kind: self.kind,
             reason: self.reason,
+            state: ExternalRewardStateV1 {
+                starting_length: self.starting_length,
+                body_length: self.marker.length,
+                retained_growth: (self.marker.length - self.starting_length).max(0),
+            },
             deltas: self.deltas,
         })
     }
@@ -435,6 +441,7 @@ impl ExternalRewardLedger {
         }
         Ok(PreparedRewardDelivery {
             identity: self.identity,
+            starting_length: self.starting_length,
             predecessor: self.admitted,
             marker: Marker {
                 revision: self.revision,
@@ -473,6 +480,7 @@ impl ExternalRewardLedger {
     pub fn validate_delivery(&self, prepared: &PreparedRewardDelivery) -> Result<(), RewardError> {
         if self.closed
             || self.identity != prepared.identity
+            || self.starting_length != prepared.starting_length
             || self.admitted != prepared.predecessor
             || prepared.marker.revision > self.revision
         {
@@ -691,6 +699,7 @@ mod tests {
         let mut ledger = admitted();
         ledger.record_live_time(1.0 / 60.0, 0.01).unwrap();
         let captured = ledger.prepare(2, boundary(1), None).unwrap();
+        assert_eq!(captured.envelope("run").unwrap().state.body_length, 10);
         let before = ledger;
         assert_eq!(
             captured.envelope("run").unwrap(),
@@ -718,6 +727,42 @@ mod tests {
         assert_eq!(tail.deltas.retained_growth_delta, 1);
         assert!(near(tail.deltas.points_delta, 20.0));
         assert_eq!(tail.deltas.survival_points_delta, 0.0);
+        assert_eq!(captured.envelope("run").unwrap().state.body_length, 10);
+        assert_eq!(tail.state.body_length, 11);
+        assert_eq!(tail.state.starting_length, 10);
+        assert_eq!(tail.state.retained_growth, 1);
+    }
+
+    #[test]
+    fn initial_state_can_include_prebaseline_growth_without_rewarding_it() {
+        let mut ledger = ledger();
+        let mut food = physics(70.0, 11);
+        food.food = 1.0;
+        food.food_count = 1;
+        food.credits = 20.0;
+        food.food_credits = 20.0;
+        ledger.record_physics(&food).unwrap();
+        let initial = ledger.prepare(1, boundary(1), None).unwrap();
+        let wire = initial.envelope("run").unwrap();
+        assert_eq!(wire.deltas, ExternalRewardDeltasV1::default());
+        assert_eq!(wire.state.starting_length, 10);
+        assert_eq!(wire.state.body_length, 11);
+        assert_eq!(wire.state.retained_growth, 1);
+        ledger.commit_delivery(&initial).unwrap();
+
+        food.wallet_after = 90.0;
+        food.length_after = 12;
+        ledger.record_physics(&food).unwrap();
+        let next = ledger
+            .prepare(2, boundary(2), None)
+            .unwrap()
+            .envelope("run")
+            .unwrap();
+        assert_eq!(next.state.body_length, 12);
+        assert_eq!(next.state.retained_growth, 2);
+        assert_eq!(next.deltas.length_delta, 1);
+        assert_eq!(next.deltas.retained_growth_delta, 1);
+        assert_eq!(next.deltas.food_count_delta, 1);
     }
 
     #[test]

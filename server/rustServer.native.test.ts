@@ -478,6 +478,10 @@ describeNetworkSuite('Rust server real sockets', () => {
       for (const reward of rewards()) {
         expect(reward.runId).toBe(welcome.runId);
         expect(reward.rewardVersion).toBe(1);
+        expect(reward.state.startingLength).toBeGreaterThan(0);
+        expect(reward.state.bodyLength).toBeGreaterThan(0);
+        expect(reward.state.retainedGrowth).toBe(Math.max(
+          reward.state.bodyLength - reward.state.startingLength, 0));
         const key = `${reward.worldEpoch}/${reward.leaseId}/${reward.physicalSnakeId}`;
         const predecessor = previous.get(key);
         if (reward.transitionKind === 'initial') {
@@ -487,6 +491,10 @@ describeNetworkSuite('Rust server real sockets', () => {
         } else {
           expect(reward.previousObservationSequence).toBe(predecessor?.observationSequence);
           expect(reward.fromStep).toBe(predecessor?.toStep);
+          expect(reward.state.startingLength).toBe(predecessor!.state.startingLength);
+          expect(reward.state.bodyLength - predecessor!.state.bodyLength).toBe(reward.deltas.lengthDelta);
+          expect(reward.state.retainedGrowth - predecessor!.state.retainedGrowth)
+            .toBe(reward.deltas.retainedGrowthDelta);
           const delta = reward.deltas;
           expect(delta.pointsDelta).toBeCloseTo(delta.survivalPointsDelta + delta.foodPointsDelta +
             delta.killPointsDelta + delta.otherPointsDelta - delta.boostPointsSpentDelta, 8);

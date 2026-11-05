@@ -37,6 +37,9 @@ describe('Rust reward lifecycle transport', () => {
     router.deliver([source]);
     expect(sent).toEqual([{ type: 'sensors', tick: 1, snakeId: 12, sensors: source.sensors,
       meta: { x: 5, y: 8, dir: 0.25 }, reward }]);
+    source.rewardJson = JSON.stringify({ ...reward, state: { ...reward.state, bodyLength: 0 } });
+    expect(() => router.deliver([source])).toThrow(/boundary state/u);
+    expect(sent).toHaveLength(1);
   });
 
   it('delivers a terminal closure before assignment and retries only its receipt', () => {

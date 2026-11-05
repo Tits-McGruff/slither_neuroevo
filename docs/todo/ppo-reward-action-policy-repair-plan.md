@@ -152,6 +152,16 @@ For terminal death, measure and freeze the final body length before corpse gener
 
 The same rule applies at generation truncation: preserve the final old-life growth measurement before replacement.
 
+Include an unweighted boundary `state` snapshot in every envelope with
+`startingLength`, `bodyLength`, and `retainedGrowth`. Starting and current length
+are positive exact integers in body segments; retained growth is a nonnegative
+exact integer equal to `max(bodyLength - startingLength, 0)`. Starting length is
+constant for the physical life. The snapshot uses the same captured observation
+or pre-cleanup closure boundary as the deltas. An initial snapshot may contain
+pre-baseline growth while its deltas remain zero. PyRL must check continuous
+snapshot differences against the signed length and retained-growth deltas, and
+report absolute final length directly from the last authoritative snapshot.
+
 ### 3.4 Lifecycle fields
 
 Every envelope must include a transition kind:

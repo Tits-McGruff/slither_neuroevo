@@ -67,6 +67,11 @@ function nativeReward(message: RustBackgroundControllerMessage): ExternalRewardE
       !Object.values(reward.deltas).every(value => typeof value === 'number' && Number.isFinite(value))) {
     throw new TypeError('invalid native reward envelope');
   }
+  if (!reward.state || !Number.isSafeInteger(reward.state.startingLength) ||
+      !Number.isSafeInteger(reward.state.bodyLength) || !Number.isSafeInteger(reward.state.retainedGrowth) ||
+      reward.state.startingLength <= 0 || reward.state.bodyLength <= 0 || reward.state.retainedGrowth < 0) {
+    throw new TypeError('invalid native reward boundary state');
+  }
   identity(reward.worldEpoch);
   identity(reward.leaseId);
   identity(reward.physicalSnakeId);

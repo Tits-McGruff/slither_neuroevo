@@ -412,6 +412,9 @@
           "format": "uint32",
           "minimum": 0
         },
+        "state": {
+          "$ref": "#/$defs/ExternalRewardStateV1"
+        },
         "toStep": {
           "type": "string"
         },
@@ -434,7 +437,35 @@
         "fromStep",
         "toStep",
         "transitionKind",
+        "state",
         "deltas"
+      ]
+    },
+    "ExternalRewardStateV1": {
+      "description": "Unweighted physical state at the same observation or pre-cleanup cutoff boundary.",
+      "type": "object",
+      "properties": {
+        "bodyLength": {
+          "description": "Positive finalized body segments, frozen before terminal cleanup.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "retainedGrowth": {
+          "description": "max(body_length - starting_length, 0), independent of reward weighting.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "startingLength": {
+          "description": "Positive finalized body segments when the physical life was assigned.",
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "startingLength",
+        "bodyLength",
+        "retainedGrowth"
       ]
     },
     "ExternalRewardTransitionKind": {
