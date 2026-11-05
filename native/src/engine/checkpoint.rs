@@ -78,6 +78,8 @@ const MANIFEST_PATH: &str = "manifest.json";
 const STATE_MAGIC: &[u8; 8] = b"SLCSTV3\0";
 /// State-role encoding with a bounded optional legacy origin after allocator state.
 const STATE_ENCODING_WITH_LEGACY_ORIGIN: u32 = 4;
+/// Founder provenance extends the state role; non-founder checkpoints retain v4 bytes.
+const STATE_ENCODING_WITH_FOUNDER: u32 = 5;
 /// Graph-role binary magic.
 const GRAPH_MAGIC: &[u8; 8] = b"SLCGRV1\0";
 /// Population-index binary magic.
@@ -2184,7 +2186,11 @@ fn encode_state(
 ) -> Result<Vec<u8>, CheckpointError> {
     let mut output = BinaryWriter::new(limits.max_state_bytes, limits);
     output.raw(STATE_MAGIC)?;
-    output.u32(STATE_ENCODING_WITH_LEGACY_ORIGIN)?;
+    output.u32(if state.identity.founder.is_some() {
+        STATE_ENCODING_WITH_FOUNDER
+    } else {
+        STATE_ENCODING_WITH_LEGACY_ORIGIN
+    })?;
     let versions = &state.versions;
     for value in [
         versions.state,
@@ -2223,6 +2229,15 @@ fn encode_state(
                 .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?;
             output.string(&encoded)?;
         }
+    }
+    if let Some(origin) = &state.identity.founder {
+        origin
+            .validate()
+            .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error))?;
+        output.string(
+            &serde_json::to_string(origin)
+                .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error.to_string()))?,
+        )?;
     }
     Ok(output.finish())
 }
@@ -2482,7 +2497,13 @@ fn decode_state(
         ));
     }
     let state_encoding = input.u32()?;
-    if state_encoding != CHECKPOINT_VERSION && state_encoding != STATE_ENCODING_WITH_LEGACY_ORIGIN {
+    if ![
+        CHECKPOINT_VERSION,
+        STATE_ENCODING_WITH_LEGACY_ORIGIN,
+        STATE_ENCODING_WITH_FOUNDER,
+    ]
+    .contains(&state_encoding)
+    {
         return Err(CheckpointError::format(
             "STATE_VERSION",
             "unsupported checkpoint state encoding",
@@ -2513,7 +2534,7 @@ fn decode_state(
     let generation = decode_generation(&mut input)?;
     let rng = decode_rng_bundle(&mut input, limits)?;
     let allocators = decode_allocators(&mut input)?;
-    if state_encoding == STATE_ENCODING_WITH_LEGACY_ORIGIN {
+    if state_encoding >= STATE_ENCODING_WITH_LEGACY_ORIGIN {
         identity.legacy_conversion = match input.u8()? {
             0 => None,
             1 => Some(
@@ -2529,6 +2550,15 @@ fn decode_state(
                 ))
             }
         };
+    }
+    if state_encoding == STATE_ENCODING_WITH_FOUNDER {
+        let origin: super::founder::FounderOrigin =
+            serde_json::from_str(&input.string_bounded(512)?)
+                .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error.to_string()))?;
+        origin
+            .validate()
+            .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error))?;
+        identity.founder = Some(origin);
     }
     input.finish()?;
     Ok(DecodedStateParts {
@@ -2546,6 +2576,7 @@ fn decode_state(
 fn decode_identity(input: &mut BinaryReader<'_>) -> Result<RunIdentity, CheckpointError> {
     Ok(RunIdentity {
         legacy_conversion: None,
+        founder: None,
         run_id: input.string()?,
         seed: input.u32()?,
         config_revision: input.u64()?,
@@ -5830,6 +5861,7 @@ mod tests {
             build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
             math_backend: "scalar-test".into(),
             legacy_conversion: None,
+            founder: None,
         };
         // Keep the assignment explicit if config construction changes in a future fixture.
         config.graph_architecture_key = graph.architecture_key.clone();
@@ -6163,6 +6195,40 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn founder_origin_state_encoding_is_bounded_versioned_and_preserves_existing_states() {
+        let (authority, _graph, _policy) = admitted_state(2, false);
+        let limits = checkpoint_limits();
+        let mut candidate = authority.state().clone();
+        let original = encode_state(&candidate, &limits).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(original[8..12].try_into().unwrap()),
+            STATE_ENCODING_WITH_LEGACY_ORIGIN
+        );
+        candidate.identity.founder = Some(super::super::founder::FounderOrigin {
+            schema_version: 1,
+            mode: super::super::founder::FounderMode::ExactFounderMutatedDescendantsV1,
+            artifact_sha256: "ab".repeat(32),
+            weights_sha256: "cd".repeat(32),
+        });
+        let encoded = encode_state(&candidate, &limits).unwrap();
+        assert_eq!(
+            u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
+            STATE_ENCODING_WITH_FOUNDER
+        );
+        assert_eq!(
+            decode_state(&encoded, &limits).unwrap().identity,
+            candidate.identity
+        );
+        assert!(decode_state(&encoded[..encoded.len() - 1], &limits).is_err());
+        let mut invalid = encoded.clone();
+        invalid[8..12].copy_from_slice(&6_u32.to_le_bytes());
+        assert!(decode_state(&invalid, &limits).is_err());
+        candidate.identity.founder.as_mut().unwrap().artifact_sha256 = "x".repeat(64);
+        assert!(encode_state(&candidate, &limits).is_err());
+        assert_eq!(encode_state(authority.state(), &limits).unwrap(), original);
     }
 
     /// Recalculate one mutated USTAR header's standard checksum.

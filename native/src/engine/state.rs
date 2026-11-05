@@ -158,6 +158,8 @@ pub struct ContractVersions {
 /// Stable experiment identity and source/config provenance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunIdentity {
+    /// Explicit saved-brain source for this evolving lineage, independent of live membership.
+    pub founder: Option<super::founder::FounderOrigin>,
     /// Partial source provenance retained independently of this new run's exact continuation.
     pub legacy_conversion: Option<super::legacy_origin::LegacyPopulationOrigin>,
     /// Evolutionary lineage identity.
@@ -4123,6 +4125,14 @@ fn validate_identity(
     identity: &RunIdentity,
     policy: &StateAdmissionPolicy,
 ) -> Result<(), StateError> {
+    if let Some(origin) = &identity.founder {
+        origin
+            .validate()
+            .map_err(|reason| StateError::InvalidField {
+                field: "identity.founder",
+                reason: reason.into(),
+            })?;
+    }
     if let Some(origin) = &identity.legacy_conversion {
         origin
             .validate()
@@ -5694,6 +5704,10 @@ fn add_candidate_text(
     add_text(estimate, &candidate.identity.rustc_version)?;
     add_text(estimate, &candidate.identity.build_contract_sha256)?;
     add_text(estimate, &candidate.identity.math_backend)?;
+    if let Some(origin) = &candidate.identity.founder {
+        add_text(estimate, &origin.artifact_sha256)?;
+        add_text(estimate, &origin.weights_sha256)?;
+    }
     if let Some(origin) = &candidate.identity.legacy_conversion {
         for text in [
             &origin.source_run_id,
@@ -6227,6 +6241,7 @@ mod tests {
                     "sha256:3333333333333333333333333333333333333333333333333333333333333333".into(),
                 math_backend: "rust-scalar-v1".into(),
                 legacy_conversion: None,
+                founder: None,
             },
             config,
             phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),

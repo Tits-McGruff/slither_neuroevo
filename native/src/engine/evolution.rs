@@ -1340,7 +1340,8 @@ fn mutation_cutoff(rate: f64) -> u32 {
     (rate * 4_294_967_296.0).ceil() as u32
 }
 
-fn mutate(
+/// Apply the existing mutation algorithm to a canonical packed genome.
+pub(crate) fn mutate(
     weights: &mut [f32],
     graph: &CompiledGraph,
     config: EvolutionConfig,

@@ -791,6 +791,9 @@ impl PendingRunStartTransition {
             "sensorVersion": state.versions.sensor,
             "settings": settings,
         });
+        if let Some(origin) = &state.identity.founder {
+            metadata["founder"] = serde_json::json!(origin);
+        }
         if let Some(contract) = contract {
             let canonical = String::from_utf8(
                 contract

@@ -58,7 +58,7 @@ import {
 import { parseRustStartupMetadata } from './rustEngine/startupMetadata.ts';
 import { watchArchiveWork } from './rustEngine/archiveWorkWatchdog.ts';
 import { watchRunningAuthority } from './rustEngine/authorityProgressWatchdog.ts';
-import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg } from './protocol.ts';
+import type { GodModeMsg, LiveSettingsMsg, NewRunMsg, ResetMsg, SavedBrainFounderSelectionV1 } from './protocol.ts';
 import { readJsonBody } from './readJsonBody.ts';
 import { clearedStackGraph, normalizeStackSetting, STACK_SETTING_PATHS } from './rustEngine/stackGraph.ts';
 import {
@@ -658,6 +658,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         ...(storageInspectionFault ? { storageInspectionFault } : {}),
         ...(recovery ? { recovery } : {}), ...(importBranch ? { importBranch } : {}),
         ...(legacyConversion ? { legacyConversion } : {}),
+        ...(activeMetadata.founder ? {founder: activeMetadata.founder} : {}),
         ...(fault ? { interfaceFault: fault } : {}) }));
       return;
     }
@@ -1367,7 +1368,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       reason: 'reset' | 'newRun',
       seed: number,
       settings: Array<{ path: string; value: number }>,
-      graphSpec: NonNullable<ExperimentalServerRuntime['metadata']['graphSpec']>
+      graphSpec: NonNullable<ExperimentalServerRuntime['metadata']['graphSpec']>,
+      founder?: SavedBrainFounderSelectionV1
     ): Promise<{ runId: string; seed: number; checkpointId: string }> => {
       const operationId = randomBytes(16).toString('hex');
       const runId = randomUUID();
@@ -1379,13 +1381,27 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
       let nativePreparationStarted = false;
       let routingHeld = false;
       let previousCurrent: { runId: string; checkpointId: string } | undefined;
+      let founderLease: string | undefined;
       try {
+        if (founder) {
+          const leaseId = randomBytes(16).toString('hex');
+          const selected = await owner.persistence.savedBrainCatalog({action: 'acquire', brainId: founder.brainId, leaseId});
+          if (selected.action !== 'acquire' || selected.record.brainId !== founder.brainId) throw new Error('founder saved membership lease mismatch');
+          founderLease = leaseId;
+        }
         await owner.admitCheckpoint();
         const preexistingManagedNames = new Set(await readdir(owner.managedDirectory));
         routing.pauseForReplacement();
         routingHeld = true;
         await output.stagePreparedImport();
         staged = true;
+        if (founder) {
+          const health = owner.runtime.health();
+          if ((reason === 'newRun' && savedBrains?.processEpoch !== founder.expectedProcessEpoch) ||
+              activeMetadata.runId !== founder.expectedRunId ||
+              activeMetadata.configRevision !== founder.expectedConfigRevision ||
+              health.worldEpoch !== founder.expectedWorldEpoch) throw new Error('founder source scope changed; refresh the library');
+        }
         nativePreparationStarted = true;
         const candidate = await owner.runtime.prepareFreshRun(
           owner.managedDirectory,
@@ -1393,7 +1409,8 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
           runId,
           seed,
           settings,
-          JSON.stringify(graphSpec)
+          JSON.stringify(graphSpec),
+          founder?.brainId
         );
         prepared = true;
         const descriptor = parseManagedCheckpointDescriptor(candidate.descriptor);
@@ -1412,7 +1429,7 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
             descriptor.generation !== '0000000000000001' ||
             descriptor.completedStep !== '0000000000000000' ||
             metadata.runId !== runId || metadata.seed !== seed ||
-            !settingsMatch) {
+            !settingsMatch || (founder && metadata.founder?.artifactSha256 !== founder.brainId)) {
           throw new Error('prepared fresh-run identity is internally inconsistent');
         }
         try {
@@ -1493,7 +1510,10 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         if (committed) fail(error);
         throw error;
       } finally {
-        if (routingHeld && !fault && !stopping) routing.resumeAfterReplacement();
+        try {
+          if (founderLease) await owner.persistence.savedBrainCatalog({action: 'release', leaseId: founderLease});
+        } catch (error) { fail(error); }
+        finally { if (routingHeld && !fault && !stopping) routing.resumeAfterReplacement(); }
       }
     };
     /** Serialize Reset/New Run with archive and retention work. */
@@ -1517,7 +1537,12 @@ export async function startRustServer(config: ServerConfig): Promise<RustServer>
         return;
       }
       importAuthorityPublished = false;
-      importOperation = executeFreshReplacement(reason, seed, settings, graphSpec).then(result => {
+      const founder = newRunMessage?.founder ?? (reason === 'reset' && activeMetadata.founder ? {
+        brainId: activeMetadata.founder.artifactSha256, expectedProcessEpoch: savedBrains?.processEpoch ?? '0'.repeat(32),
+        expectedRunId: activeMetadata.runId, expectedConfigRevision: activeMetadata.configRevision,
+        expectedWorldEpoch: owner.runtime.health().worldEpoch
+      } : undefined);
+      importOperation = executeFreshReplacement(reason, seed, settings, graphSpec, founder).then(result => {
         importOperation = undefined;
         importAuthorityPublished = false;
         if (newRunMessage) {

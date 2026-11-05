@@ -479,6 +479,7 @@ fn population_task_ceiling(
 
 /// Libuv task for constructing and publishing a private generation-one run.
 pub struct PrepareFreshRunTask {
+    founder_brain_id: Option<String>,
     population_work: Option<PopulationWorkLease>,
     runtime: Arc<EngineRuntime>,
     managed_directory: PathBuf,
@@ -508,12 +509,23 @@ impl Task for PrepareFreshRunTask {
                 .as_ref()
                 .and_then(|lease| lease.admission.math_backend)
                 .unwrap_or(crate::engine::inference::InferenceMathBackend::Scalar);
-            let mut transition = prepare_configured_fresh_run_with_math(
-                request,
-                &self.settings,
-                self.graph.clone(),
-                math,
-            )
+            let mut transition = if let Some(brain_id) = &self.founder_brain_id {
+                crate::engine::fresh_run::prepare_saved_brain_founder_run(
+                    request,
+                    &self.settings,
+                    self.graph.clone(),
+                    math,
+                    &self.managed_directory,
+                    brain_id,
+                )
+            } else {
+                prepare_configured_fresh_run_with_math(
+                    request,
+                    &self.settings,
+                    self.graph.clone(),
+                    math,
+                )
+            }
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?;
             transition
                 .select_retired_source_memory_ceiling(self.request.memory_ceiling_bytes)
@@ -1131,6 +1143,8 @@ impl ExperimentalRunningAuthority {
 
     /// Construct and publish one private generation-one replacement.
     /// The running game and SQLite remain unchanged until later commands commit it.
+    /// Keep the existing positional bridge compatible; founder selection is optional.
+    #[allow(clippy::too_many_arguments)]
     #[napi(catch_unwind)]
     pub fn prepare_fresh_run(
         &self,
@@ -1140,6 +1154,7 @@ impl ExperimentalRunningAuthority {
         seed: u32,
         settings: Array<'_>,
         graph_spec_json: JsString<'_>,
+        founder_brain_id: Option<JsString<'_>>,
     ) -> Result<AsyncTask<PrepareFreshRunTask>> {
         let managed_directory = parse_managed_path(bounded_js_string(
             managed_directory,
@@ -1156,6 +1171,22 @@ impl ExperimentalRunningAuthority {
         let run_id = bounded_js_string(run_id, "runId", 256, false)?;
         let settings = parse_fresh_run_settings(&settings)?;
         let graph = parse_fresh_run_graph(graph_spec_json)?;
+        let founder_brain_id = founder_brain_id
+            .map(|value| {
+                let id = bounded_js_string(value, "founderBrainId", 64, false)?;
+                if id.len() != 64
+                    || !id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                {
+                    return Err(Error::new(
+                        Status::InvalidArg,
+                        "invalid founder brain identity",
+                    ));
+                }
+                Ok(id)
+            })
+            .transpose()?;
         if self.import_active.swap(true, Ordering::AcqRel) {
             return Err(Error::new(
                 Status::GenericFailure,
@@ -1178,6 +1209,7 @@ impl ExperimentalRunningAuthority {
             }
         };
         Ok(AsyncTask::new(PrepareFreshRunTask {
+            founder_brain_id,
             population_work,
             runtime: Arc::clone(&self.runtime),
             managed_directory,
@@ -2624,6 +2656,7 @@ mod task_panic_tests {
         let runtime = running_test_runtime();
         let prepared = PreparedImportSlot::new();
         let mut task = PrepareFreshRunTask {
+            founder_brain_id: None,
             population_work: task_population_lease(&runtime, &prepared),
             runtime: Arc::clone(&runtime),
             managed_directory: files.0.clone(),

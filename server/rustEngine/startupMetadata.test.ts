@@ -38,6 +38,16 @@ const METADATA: RustStartupMetadata = {
 };
 
 describe('Rust startup metadata', () => {
+  it('preserves strictly versioned founder provenance through startup and welcome', () => {
+    const source = contractMetadata(CONTRACTS.find(value => value.profile === 'motion' && value.bins === 16)!);
+    const founder = {schemaVersion: 1, mode: 'exact-founder-mutated-descendants-v1', artifactSha256: 'ab'.repeat(32), weightsSha256: 'cd'.repeat(32)};
+    const metadata = parseRustStartupMetadata(JSON.stringify({...source, founder}));
+    expect(metadata.founder).toEqual(founder);
+    expect(createRustWelcome(metadata, 'founder-session').founder).toEqual(founder);
+    for (const bad of [{...founder, schemaVersion: 2}, {...founder, mode: 'unknown'}, {...founder, weightsSha256: 'bad'}, {...founder, extra: 1}]) {
+      expect(() => parseRustStartupMetadata(JSON.stringify({...source, founder: bad}))).toThrow(/founder/u);
+    }
+  });
   it.each(CONTRACTS)('preserves native $profile/B$bins structural bytes through startup and welcome', contract=>{
     const encoded = contractMetadata(contract);
     const metadata = parseRustStartupMetadata(JSON.stringify(encoded));
