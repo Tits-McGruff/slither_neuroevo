@@ -300,6 +300,7 @@ impl PreparedControlUpdate {
 /// One staged wall-time lease transition bound to its source indexes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PreparedControllerTransition {
+    reward: Option<super::external_reward::ExternalRewardLedger>,
     lease_index: usize,
     snake_index: usize,
     proposal: ControllerBoundaryProposal,
@@ -1303,6 +1304,7 @@ impl ControlCommitWorkspace {
             let lease = &mut self.world.controller_leases[transition.lease_index];
             let snake = &mut self.world.snakes[transition.snake_index];
             commit_controller_boundary_prevalidated(lease, snake, transition.proposal);
+            lease.reward = transition.reward;
         }
         for result in phase.baseline_controls {
             let slot_index =
@@ -2875,6 +2877,29 @@ impl ControlPhaseWorkspace {
             inputs.config.controller_timing,
         )?;
         let required_transitions = self.controller_transitions.len().saturating_add(1);
+        let mut reward = lease.reward;
+        if let Some(ledger) = reward.as_mut() {
+            use crate::contracts::ExternalRewardControlSourceV1 as Source;
+            let source = match proposal.source() {
+                ExternalControlSource::HeldAction { .. } => Source::Held,
+                ExternalControlSource::ReservedNeutral => Source::Neutral,
+                ExternalControlSource::NeuralTakeover => Source::Neural,
+            };
+            ledger
+                .record_control_selection(
+                    if lease.latest_action.is_explicit {
+                        lease.latest_action.arrival_sequence
+                    } else {
+                        0
+                    },
+                    source,
+                    inputs.prefix.key().source_completed_step(),
+                )
+                .map_err(|error| ControlPhaseError::ExternalMapping {
+                    snake_id: snake.id,
+                    field: error.0,
+                })?;
+        }
         reserve_for(
             &mut self.controller_transitions,
             required_transitions,
@@ -2882,6 +2907,7 @@ impl ControlPhaseWorkspace {
         )?;
         self.controller_transitions
             .push(PreparedControllerTransition {
+                reward,
                 lease_index,
                 snake_index,
                 proposal,
@@ -4016,6 +4042,7 @@ mod tests {
                 resume_token: "takeover-token".to_owned(),
                 status: ControllerLeaseStatus::ReservedNeutral,
                 latest_action: LatestControllerAction {
+                    is_explicit: false,
                     turn: -0.5,
                     boost: true,
                     client_tick: 1,
@@ -4039,6 +4066,7 @@ mod tests {
                 resume_token: "connected-token".to_owned(),
                 status: ControllerLeaseStatus::Connected,
                 latest_action: LatestControllerAction {
+                    is_explicit: false,
                     turn: 0.75,
                     boost: true,
                     client_tick: 2,
@@ -4062,6 +4090,7 @@ mod tests {
                 resume_token: "grace-token".to_owned(),
                 status: ControllerLeaseStatus::ReservedNeutral,
                 latest_action: LatestControllerAction {
+                    is_explicit: false,
                     turn: 0.6,
                     boost: true,
                     client_tick: 3,

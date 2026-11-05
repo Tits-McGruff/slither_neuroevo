@@ -13,6 +13,8 @@
     "transitionKind": "terminal",
     "reason": "death",
     "state": { "startingLength": 12, "bodyLength": 13, "retainedGrowth": 1 },
+    "control": { "source": null, "selectedAtStep": null, "acceptedCommand": null,
+      "appliedCommand": null, "acceptedCount": 0, "appliedCount": 0, "supersededCount": 0 },
     "deltas": {
       "elapsedSeconds": 0.016666666666666666,
       "aliveSecondsDelta": 0.0,
@@ -43,6 +45,8 @@
     "transitionKind": "truncated",
     "reason": "generation",
     "state": { "startingLength": 15, "bodyLength": 16, "retainedGrowth": 1 },
+    "control": { "source": null, "selectedAtStep": null, "acceptedCommand": null,
+      "appliedCommand": null, "acceptedCount": 0, "appliedCount": 0, "supersededCount": 0 },
     "deltas": {
       "elapsedSeconds": 0.016666666666666666,
       "aliveSecondsDelta": 0.0,

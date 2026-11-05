@@ -1464,7 +1464,9 @@ impl ExperimentalRunningAuthority {
     ) -> Result<()> {
         self.submit(
             parse_background_sequence(sequence)?,
-            RunningAuthorityCommand::SubmitControllerAction(parse_controller_action(&action)?),
+            RunningAuthorityCommand::SubmitControllerAction(Box::new(parse_controller_action(
+                &action,
+            )?)),
         )
     }
 
@@ -2331,6 +2333,12 @@ pub(crate) fn parse_controller_action(
         "clientTick",
         true,
     )?;
+    let client_id = optional_reclaim_identity(action, "clientActionId", 16)?;
+    let client_action_id = if client_id.is_empty() {
+        None
+    } else {
+        Some(parse_u64_hex(&client_id, "clientActionId", false)?)
+    };
     let turn = action
         .get::<f64>("turn")?
         .ok_or_else(|| Error::new(Status::InvalidArg, "action omits turn"))?;
@@ -2344,6 +2352,7 @@ pub(crate) fn parse_controller_action(
         .get::<bool>("boost")?
         .ok_or_else(|| Error::new(Status::InvalidArg, "action omits boost"))?;
     Ok(crate::engine::contract::ControllerActionRequest {
+        client_action_id,
         lease_id,
         connection_id,
         turn: turn as f32,

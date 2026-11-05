@@ -453,16 +453,19 @@ Preserve the asynchronous server model and its bounded action routing.
 
 For the supported training adapter, document that the policy's action is an issued steering/boost command. Transport delay, held controls, and command supersession are part of the environment interaction. Do not claim that every next observation was exclusively caused by the latest issued command.
 
-Use existing action correlation where sufficient. Add bounded application metadata to subsequent observations or command results where needed to distinguish:
+Tag PPO commands with increasing `actionId` values. In reward v1, carry bounded
+markers for the latest Rust-accepted command, the latest distinct physically
+applied command and its first committed application step, and the latest control
+source. Report cumulative accepted, applied, and superseded counts per life.
+Acceptance does not establish application. Physics proceeds independently of
+these markers.
 
-- the latest applied command;
-- its application boundary;
-- a command that was superseded without application;
-- controls remaining held from an earlier policy epoch.
-
-This metadata must not introduce per-tick acknowledgements that block physics.
-
-Before collecting a new policy epoch, establish a clean accounting baseline and resolve or fence old-epoch commands. Do not admit an unexplained interval spanning old and new policy ownership.
+On an epoch advance, use the first issued new-epoch ID as a fence. An ordinary
+observation opens it when the committed application marker proves that command
+or a later new-epoch command ran. Exclude the complete opening interval and use
+its observation as the baseline for the next decision. If a lifecycle boundary
+or interruption arrives first, allow an empty contribution and retain valid
+events in episode accounting.
 
 Tests must cover:
 
@@ -829,6 +832,8 @@ Assert:
 - point accounting is conserved;
 - reward and observation identities remain aligned;
 - PPO batches contain one policy version;
+- a subsequent epoch opens only after a new-epoch command has been selected by
+  committed physics, with the opening interval excluded from PPO;
 - initial unchanged-policy KL is close to zero;
 - gradients, losses, and steering variance remain finite;
 - at least one exercised training update changes trainable policy state;
@@ -958,6 +963,8 @@ The implementation repair is complete when all of the following hold:
 - Incomplete or unclassifiable experience is explicitly discarded and counted.
 - PPO batches preserve one coherent policy version.
 - All configured actors contribute before an update.
+- The new-epoch fence uses actual committed command application, including when
+  the first issued command is superseded. The opening interval stays outside PPO.
 - Trainable steering variance receives gradients and survives publication, evaluation, save, and resume.
 - Latent-action likelihoods and tanh corrections pass numerical tests.
 - Evaluator promotion uses repaired return and accepts an initial negative score.
@@ -993,7 +1000,10 @@ Begin with three declared training seeds.
 
 Use an initial budget of one million admitted PPO decision transitions per seed. Also report aggregate simulated live time and actual update counts.
 
-Evaluate the initial policy and retained candidate snapshots on a common set of ten evaluation scenarios/seeds, using the 240-second cap and the same repaired objective.
+Predeclare a snapshot selection rule or use separate validation scenarios to
+select candidates. Evaluate the initial policy and selected candidates on a
+common set of ten evaluation scenarios using the 240-second cap and the same
+repaired objective. Apply the same scenario inclusion policy to each comparison.
 
 These offline comparisons may run sequentially through the separate frozen evaluator. They do not require more training actors or a larger live evaluator pool.
 

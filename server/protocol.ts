@@ -93,6 +93,8 @@ export interface PingMsg {
 
 /** Player action message aligned to a specific tick. */
 export interface ActionMsg {
+  /** Optional positive hexadecimal client command correlation (not an authority clock). */
+  actionId?: string;
   /** Message discriminator. */
   type: 'action';
   /** Client-observed authoritative tick. */
@@ -589,9 +591,11 @@ export function isPing(msg: unknown): msg is PingMsg {
  */
 export function isAction(msg: unknown): msg is ActionMsg {
   if (!isRecord(msg)) return false;
-  if (!hasKeys(msg, ['type', 'tick', 'snakeId', 'turn', 'boost'], ['type', 'tick', 'snakeId', 'turn', 'boost'])) return false;
+  if (!hasKeys(msg, ['type', 'tick', 'snakeId', 'turn', 'boost', 'actionId'], ['type', 'tick', 'snakeId', 'turn', 'boost'])) return false;
   return (
     msg['type'] === 'action' &&
+    (msg['actionId'] === undefined || (typeof msg['actionId'] === 'string' &&
+      /^(?!0{16}$)[0-9a-f]{16}$/u.test(msg['actionId']))) &&
     isFiniteNumber(msg['tick']) &&
     isFiniteNumber(msg['snakeId']) &&
     isFiniteNumber(msg['turn']) &&

@@ -2424,6 +2424,7 @@ mod tests {
             resume_token: "0123456789abcdef0123456789abcdef".to_owned(),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.25,
                 boost: false,
                 client_tick: 1,

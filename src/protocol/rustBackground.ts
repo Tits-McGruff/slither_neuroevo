@@ -294,6 +294,8 @@ export interface RustBackgroundHealth {
 
 /** Latest steering routed to Rust; receipt time is stamped inside the addon. */
 export interface RustBackgroundControllerAction {
+  /** Optional opaque client command identity echoed after actual selection. */
+  clientActionId?: RustBackgroundIdentity;
   /** Rust assignment epoch. */
   leaseId: RustBackgroundIdentity;
   /** Live socket epoch. */

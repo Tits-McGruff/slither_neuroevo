@@ -714,6 +714,7 @@ impl RunningAuthorityLoop {
         let accepted_at_ms = self.controller_receipt_ms(action.received_at)?;
         self.authority.apply_controller_action(
             super::controllers::LatestActionInput {
+                client_action_id: action.client_action_id,
                 lease_id: action.lease_id,
                 connection_id: action.connection_id,
                 turn: action.turn,
@@ -723,6 +724,7 @@ impl RunningAuthorityLoop {
                 accepted_at_ms,
             },
             wall_now_ms,
+            self.completed_step(),
         )
     }
 

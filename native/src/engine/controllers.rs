@@ -90,6 +90,7 @@ struct LeaseSnapshot {
     action_turn_bits: u32,
     action_boost: bool,
     action_client_tick: u64,
+    action_is_explicit: bool,
     action_arrival_sequence: u64,
     action_accepted_at_ms: u64,
     last_observed_at_ms: u64,
@@ -109,6 +110,7 @@ impl LeaseSnapshot {
             action_turn_bits: lease.latest_action.turn.to_bits(),
             action_boost: lease.latest_action.boost,
             action_client_tick: lease.latest_action.client_tick,
+            action_is_explicit: lease.latest_action.is_explicit,
             action_arrival_sequence: lease.latest_action.arrival_sequence,
             action_accepted_at_ms: lease.latest_action.accepted_at_ms,
             last_observed_at_ms: lease.last_observed_at_ms,
@@ -206,6 +208,8 @@ pub struct LatestActionProposal {
 /// One already wire-validated latest-value action delivered by the thin bridge.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LatestActionInput {
+    /// Optional client correlation, independent of diagnostic tick or native queue sequence.
+    pub client_action_id: Option<u64>,
     /// Controller assignment epoch named by the action.
     pub lease_id: u64,
     /// Live transport connection identity named by the action.
@@ -416,6 +420,7 @@ pub fn commit_reclaim(
     lease.resume_token = proposal.next_resume_token;
     lease.status = ControllerLeaseStatus::Connected;
     lease.latest_action = LatestControllerAction {
+        is_explicit: false,
         turn: 0.0,
         boost: false,
         client_tick: 0,
@@ -493,6 +498,7 @@ pub fn prepare_queued_latest_action(
         connection_id: input.connection_id,
         boundary_at_ms,
         action: LatestControllerAction {
+            is_explicit: true,
             turn: input.turn,
             boost: input.boost,
             client_tick: input.client_tick,
@@ -1117,6 +1123,7 @@ mod tests {
             resume_token: "token".into(),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.25,
                 boost: true,
                 client_tick: 1,
@@ -1139,6 +1146,7 @@ mod tests {
         accepted_at_ms: u64,
     ) -> LatestActionInput {
         LatestActionInput {
+            client_action_id: None,
             lease_id: 7,
             connection_id: 11,
             turn,

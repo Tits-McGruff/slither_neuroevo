@@ -2550,6 +2550,7 @@ mod tests {
         running.set_background_clock(origin);
         let before = running.generation_source_controller_leases()[0].clone();
         let action = super::super::contract::ControllerActionRequest {
+            client_action_id: None,
             lease_id: before.id,
             connection_id: before.connection_id.unwrap(),
             turn: 0.75,
@@ -2562,7 +2563,7 @@ mod tests {
             commands: vec![SequencedCommand {
                 sequence: 100,
                 command: EngineCommand::RunningAuthority(
-                    RunningAuthorityCommand::SubmitControllerAction(action),
+                    RunningAuthorityCommand::SubmitControllerAction(Box::new(action)),
                 ),
             }]
             .into_boxed_slice(),

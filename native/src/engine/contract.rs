@@ -249,6 +249,7 @@ pub struct ExternalDeliveryReceipt {
 /// Validated steering received by Rust, with no JavaScript-controlled clock.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ControllerActionRequest {
+    pub client_action_id: Option<u64>,
     pub lease_id: u64,
     pub connection_id: u64,
     pub turn: f32,
@@ -304,7 +305,7 @@ pub enum RunningAuthorityCommand {
     ReclaimController(Box<ControllerReclaimRequest>),
     SubmitControllerReclaimReceipt(ControllerReclaimReceipt),
     /// Apply only at a fresh pre-step boundary, after any retained step resolves.
-    SubmitControllerAction(ControllerActionRequest),
+    SubmitControllerAction(Box<ControllerActionRequest>),
     /// Close ownership at a fresh boundary without extending wall-time grace.
     DisconnectController(ControllerDisconnectRequest),
     /// Replace one bounded settings batch and all config-derived Rust caches atomically.
@@ -437,6 +438,7 @@ impl RunningAuthorityCommand {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller disconnect identity"))
             }
             Self::SubmitControllerAction(action) if action.lease_id == 0 || action.connection_id == 0
+                || action.client_action_id == Some(0)
                 || !action.turn.is_finite() || !(-1.0..=1.0).contains(&action.turn) => {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller action identity or steering"))
             }
@@ -566,7 +568,8 @@ impl RunningAuthorityCommand {
                     )
                 }),
             Self::SubmitControllerReclaimReceipt(_) | Self::SubmitControllerJoinReceipt(_) => Ok(0),
-            Self::SubmitControllerAction(_) | Self::DisconnectController(_) => Ok(0),
+            Self::SubmitControllerAction(_) => Ok(std::mem::size_of::<ControllerActionRequest>()),
+            Self::DisconnectController(_) => Ok(0),
             Self::ApplyLiveSettings { updates } => updates
                 .iter()
                 .try_fold(0usize, |bytes, update| {

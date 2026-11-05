@@ -60,6 +60,16 @@ describe(SUITE, () => {
     expect(getProtocolVersionError(hello)).toContain('server requires 2');
   });
 
+  it('accepts optional exact command correlation for Protocol 2 actions', () => {
+    const action = { type: 'action', snakeId: 1, tick: 0, turn: 0.5, boost: 0 };
+    const tagged = { ...action, actionId: '0123456789abcdef' };
+    expect(parseClientMessage(action)).toEqual(action);
+    expect(parseClientMessage(tagged)).toEqual(tagged);
+    for (const actionId of [1, null, '1', '0000000000000000', '0123456789ABCDEF']) {
+      expect(parseClientMessage({ ...action, actionId })).toBeNull();
+    }
+  });
+
   it('rejects hello with NaN version', () => {
     const msg = parseClientMessage({
       type: 'hello',

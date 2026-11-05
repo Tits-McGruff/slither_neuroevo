@@ -1736,6 +1736,7 @@ impl ExternalReplacementWorkspace {
             .transpose()
             .map_err(|_| ExternalReplacementError::InternalShapeMismatch)?;
         replacement_lease.latest_action = LatestControllerAction {
+            is_explicit: false,
             turn: 0.0,
             boost: false,
             client_tick: completed_step,
@@ -2193,6 +2194,7 @@ pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
         hash.update(lease.latest_action.turn.to_bits().to_le_bytes());
         hash.update([u8::from(lease.latest_action.boost)]);
         hash.update(lease.latest_action.client_tick.to_le_bytes());
+        hash.update([u8::from(lease.latest_action.is_explicit)]);
         hash.update(lease.latest_action.arrival_sequence.to_le_bytes());
         hash.update(lease.latest_action.accepted_at_ms.to_le_bytes());
         hash.update(lease.last_observed_at_ms.to_le_bytes());
@@ -2941,6 +2943,7 @@ mod tests {
             resume_token: format!("old-token-{id}"),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.75,
                 boost: true,
                 client_tick: 9,

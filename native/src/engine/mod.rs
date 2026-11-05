@@ -69,6 +69,8 @@ pub mod export_archive;
 /// One-shot archive completion/validation failures confined to the test addon.
 #[cfg(feature = "engine-test-hooks")]
 pub(crate) mod export_failure_fixture;
+/// Bounded external command acceptance and actual physics-selection chronology.
+pub mod external_command;
 /// Atomic external-controller death replacement staging.
 pub mod external_replacement;
 /// Sensor-independent external reward accounting and output-admission markers.

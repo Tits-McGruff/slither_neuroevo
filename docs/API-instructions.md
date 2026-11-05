@@ -175,6 +175,9 @@ Update the held input for the assigned snake:
   ignored.
 - `turn` is clamped to `[-1, 1]`.
 - `boost` is clamped to `[0, 1]`.
+- Bots may send an optional `actionId` as a nonzero, lowercase 16-digit
+  hexadecimal string. Reward v1 echoes the identifier when Rust accepts or
+  applies that command. Clients can omit it when they do not need correlation.
 - Production holds the latest accepted input for **500 ms** from its acceptance,
   or until another action is accepted or the assignment
   is released. If no fresh action arrives before that interval expires, the
@@ -597,7 +600,7 @@ unknown interval but does not change a known life's starting length.
 Envelopes carry `rewardVersion`, `runId`, `worldEpoch`, `leaseId`,
 `physicalSnakeId`, public `snakeId`, `observationSequence`,
 `previousObservationSequence`, `fromStep`, `toStep`, `transitionKind`, `reason`,
-`state` and `deltas`. Incarnation, sequence and step words use exact lowercase 16-digit
+`state`, `control`, and `deltas`. Incarnation, sequence and step words use exact lowercase 16-digit
 hexadecimal strings. Visible snake ID alone does not identify an interval.
 An `initial` envelope has no predecessor and zero deltas; `live` accumulates all
 events since the predecessor admitted to native output. Probes do not consume
@@ -609,6 +612,27 @@ credits remain separate facts and do not advance the physical observation clock.
 An interval can therefore contain credited live time before physical time
 advances; clients must not require `aliveSecondsDelta <= elapsedSeconds` for
 each individual packet.
+
+### Reward v1 command chronology
+
+The fixed-size `control` snapshot has nullable `source`, `selectedAtStep`,
+`acceptedCommand`, and `appliedCommand` fields. The accepted marker includes
+the Rust sequence, nullable `clientActionId`, diagnostic `clientTick`, and
+`acceptedAtStep`. The applied marker retains the command and its first
+committed `firstAppliedStep`. The latest committed selection identifies
+`held`, `neutral`, or `neural` control. It precedes the observation's
+`toStep`. The applied command remains available after an input expires.
+Join and reclaim defaults do not count as accepted commands.
+
+`acceptedCount`, `appliedCount`, and `supersededCount` are cumulative for the
+physical life. Each accepted command is either applied once, superseded before
+application, or the single unresolved latest command. Holding the same command
+across several steps does not increment its application count. Coalescing or
+rejection before Rust admission is outside these counts. Clients can use
+observed application markers to establish a new policy epoch baseline while
+physics proceeds asynchronously.
+
+### Reward v1 lifecycle closures
 
 Before successor assignment, the same reliable transaction sends:
 

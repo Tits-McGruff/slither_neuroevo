@@ -71,6 +71,10 @@ export type FreshRunGraphNodeWire =
       type: "Split";
     };
 /**
+ * Source selected for a committed physics step, distinct from command receipt.
+ */
+export type ExternalRewardControlSourceV1 = "held" | "neutral" | "neural";
+/**
  * Authoritative life-end reason; transport failure is deliberately absent.
  */
 export type ExternalRewardEndReason =
@@ -168,6 +172,7 @@ export interface FreshRunGraphOutputWire {
  * Initial envelopes have no predecessor; closures precede replacement assignment.
  */
 export interface ExternalRewardEnvelopeV1 {
+  control: ExternalRewardControlV1;
   deltas: ExternalRewardDeltasV1;
   fromStep: string;
   leaseId: string;
@@ -182,6 +187,37 @@ export interface ExternalRewardEnvelopeV1 {
   toStep: string;
   transitionKind: ExternalRewardTransitionKind;
   worldEpoch: string;
+}
+/**
+ * Constant-sized control chronology; counters are cumulative within this physical life.
+ */
+export interface ExternalRewardControlV1 {
+  acceptedCommand?: ExternalRewardCommandV1 | null;
+  acceptedCount: number;
+  appliedCommand?: ExternalRewardAppliedCommandV1 | null;
+  appliedCount: number;
+  selectedAtStep?: string | null;
+  source?: ExternalRewardControlSourceV1 | null;
+  supersededCount: number;
+}
+/**
+ * One Rust-accepted command. Identities and boundaries use exact hexadecimal words.
+ */
+export interface ExternalRewardCommandV1 {
+  acceptedAtStep: string;
+  /**
+   * Optional opaque client correlation; absent for historical Protocol 2 peers.
+   */
+  clientActionId?: string | null;
+  clientTick: string;
+  sequence: string;
+}
+/**
+ * A command actually selected for physics; repeated holds do not change its first step.
+ */
+export interface ExternalRewardAppliedCommandV1 {
+  command: ExternalRewardCommandV1;
+  firstAppliedStep: string;
 }
 /**
  * Unweighted committed quantities. Length is sampled before terminal cleanup.

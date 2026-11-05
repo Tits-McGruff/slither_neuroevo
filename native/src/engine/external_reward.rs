@@ -68,6 +68,7 @@ struct Marker {
 /// One life only; replacing a snake requires a new ledger and assignment identity.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExternalRewardLedger {
+    control: super::external_command::ExternalCommandLedger,
     identity: RewardLifeIdentity,
     start: RewardBoundary,
     starting_length: i64,
@@ -84,6 +85,7 @@ pub struct ExternalRewardLedger {
 /// Immutable capture retained until its complete output batch is admitted.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PreparedRewardDelivery {
+    control: super::external_command::ExternalCommandLedger,
     identity: RewardLifeIdentity,
     starting_length: i64,
     predecessor: Option<Marker>,
@@ -149,12 +151,54 @@ impl PreparedRewardDelivery {
                 body_length: self.marker.length,
                 retained_growth: (self.marker.length - self.starting_length).max(0),
             },
+            control: self.control.wire(),
             deltas: self.deltas,
         })
     }
 }
 
 impl ExternalRewardLedger {
+    /// Stage native receipt metadata with the same atomic lease update.
+    pub fn record_command_received(
+        &mut self,
+        sequence: u64,
+        client_action_id: Option<u64>,
+        client_tick: u64,
+        step: u64,
+    ) -> Result<(), RewardError> {
+        if !self.alive || self.closed {
+            return Err(RewardError("command targets a closed life"));
+        }
+        let mut control = self.control;
+        control
+            .received(sequence, client_action_id, client_tick, step)
+            .map_err(RewardError)?;
+        self.advance_revision()?;
+        self.control = control;
+        Ok(())
+    }
+
+    /// Stage actual source selection; failed physics discards this working ledger.
+    pub fn record_control_selection(
+        &mut self,
+        sequence: u64,
+        source: crate::contracts::ExternalRewardControlSourceV1,
+        step: u64,
+    ) -> Result<(), RewardError> {
+        if !self.alive || self.closed {
+            return Err(RewardError("control targets a closed life"));
+        }
+        let mut control = self.control;
+        control
+            .selected(sequence, source, step)
+            .map_err(RewardError)?;
+        if control != self.control {
+            self.advance_revision()?;
+            self.control = control;
+        }
+        Ok(())
+    }
+
     /// Capture counters at the same immutable boundary as the sensor vector.
     pub fn capture(&self, boundary: RewardBoundary) -> RewardObservationCapture {
         RewardObservationCapture {
@@ -182,6 +226,7 @@ impl ExternalRewardLedger {
         }
         hash.update([u8::from(self.alive), u8::from(self.closed)]);
         hash_totals(hash, self.totals);
+        self.control.hash_into(hash);
         if let Some(marker) = self.admitted {
             hash.update([1]);
             for value in [
@@ -242,6 +287,7 @@ impl ExternalRewardLedger {
             return Err(RewardError("initial body is empty"));
         }
         Ok(Self {
+            control: super::external_command::ExternalCommandLedger::default(),
             identity,
             start,
             starting_length: length,
@@ -440,6 +486,7 @@ impl ExternalRewardLedger {
             return Err(RewardError("interval accounting does not conserve points"));
         }
         Ok(PreparedRewardDelivery {
+            control: self.control,
             identity: self.identity,
             starting_length: self.starting_length,
             predecessor: self.admitted,
@@ -481,6 +528,8 @@ impl ExternalRewardLedger {
         if self.closed
             || self.identity != prepared.identity
             || self.starting_length != prepared.starting_length
+            || !prepared.control.no_later_than(self.control)
+            || (prepared.marker.revision == self.revision && prepared.control != self.control)
             || self.admitted != prepared.predecessor
             || prepared.marker.revision > self.revision
         {

@@ -1668,14 +1668,17 @@ mod tests {
             batch(vec![SequencedCommand {
                 sequence,
                 command: EngineCommand::RunningAuthority(
-                    RunningAuthorityCommand::SubmitControllerAction(ControllerActionRequest {
-                        lease_id: 1,
-                        connection_id: 2,
-                        turn: 0.5,
-                        boost: false,
-                        client_tick: 0,
-                        received_at: std::time::Instant::now(),
-                    }),
+                    RunningAuthorityCommand::SubmitControllerAction(Box::new(
+                        ControllerActionRequest {
+                            client_action_id: None,
+                            lease_id: 1,
+                            connection_id: 2,
+                            turn: 0.5,
+                            boost: false,
+                            client_tick: 0,
+                            received_at: std::time::Instant::now(),
+                        },
+                    )),
                 ),
             }])
         };
@@ -1739,14 +1742,17 @@ mod tests {
         queue
             .try_push(command(
                 2,
-                RunningAuthorityCommand::SubmitControllerAction(ControllerActionRequest {
-                    lease_id: 7,
-                    connection_id: 12,
-                    turn: 0.5,
-                    boost: false,
-                    client_tick: 1,
-                    received_at: std::time::Instant::now(),
-                }),
+                RunningAuthorityCommand::SubmitControllerAction(Box::new(
+                    ControllerActionRequest {
+                        client_action_id: None,
+                        lease_id: 7,
+                        connection_id: 12,
+                        turn: 0.5,
+                        boost: false,
+                        client_tick: 1,
+                        received_at: std::time::Instant::now(),
+                    },
+                )),
             ))
             .assert_ok();
         let mut drained = Vec::new();

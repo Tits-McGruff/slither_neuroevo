@@ -438,6 +438,18 @@ describeNetworkSuite('Rust server real sockets', () => {
         .map(packet => packet['reward'] as ExternalRewardEnvelopeV1);
       await until(bot, () => rewards().some(reward => reward.transitionKind === 'initial'));
       const initial = rewards()[0]!;
+      const actionId = '00000000000000ac';
+      bot.socket.send(JSON.stringify({ type: 'action', snakeId: initial.snakeId,
+        tick: Number(BigInt(`0x${initial.toStep}`)), turn: 0, boost: 0, actionId }));
+      await until(bot, () => rewards().some(reward =>
+        reward.control.appliedCommand?.command.clientActionId === actionId));
+      const confirmed = rewards().find(reward =>
+        reward.control.appliedCommand?.command.clientActionId === actionId)!;
+      expect(confirmed.control).toMatchObject({
+        acceptedCount: 1, appliedCount: 1, supersededCount: 0,
+        acceptedCommand: confirmed.control.appliedCommand!.command,
+      });
+      expect(confirmed.control.appliedCommand!.firstAppliedStep < confirmed.toStep).toBe(true);
       await until(viewer, () => viewer.latestFrame !== undefined);
       const pellet = rewardFixturePellet(viewer.latestFrame!, initial.snakeId);
       const selected = await selectPhysical(viewer, 'reward-move-selection', { snakeId: initial.snakeId });

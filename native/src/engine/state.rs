@@ -803,6 +803,8 @@ pub enum ControllerLeaseStatus {
 /// Latest-value external action retained independently from frame/sensor flow.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LatestControllerAction {
+    /// False for neutral assignment/reclaim input; true only after an explicit command.
+    pub is_explicit: bool,
     /// Finite turn value in `[-1, 1]`.
     pub turn: f32,
     /// Boost request.
@@ -1976,6 +1978,7 @@ impl AuthoritativeState {
         &mut self,
         input: super::controllers::LatestActionInput,
         boundary_at_ms: u64,
+        completed_step: u64,
     ) -> Result<(), String> {
         if self.candidate.phase != AuthorityPhase::Running {
             return Err("controller action requires running authority".to_owned());
@@ -1990,7 +1993,21 @@ impl AuthoritativeState {
         let proposal =
             super::controllers::prepare_queued_latest_action(lease, input, boundary_at_ms)
                 .map_err(|error| error.to_string())?;
-        super::controllers::commit_latest_action(lease, proposal).map_err(|error| error.to_string())
+        let mut reward = lease.reward;
+        if let Some(ledger) = reward.as_mut() {
+            ledger
+                .record_command_received(
+                    input.arrival_sequence,
+                    input.client_action_id,
+                    input.client_tick,
+                    completed_step,
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        super::controllers::commit_latest_action(lease, proposal)
+            .map_err(|error| error.to_string())?;
+        lease.reward = reward;
+        Ok(())
     }
 
     /// Resolve one exact close only while the loop owns an unprepared source.
@@ -6629,6 +6646,7 @@ mod tests {
             resume_token: token.into(),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.25,
                 boost: true,
                 client_tick: 0,
@@ -9307,6 +9325,7 @@ mod tests {
             resume_token: "rl-token".into(),
             status: ControllerLeaseStatus::NeuralTakeover,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.0,
                 boost: false,
                 client_tick: 0,

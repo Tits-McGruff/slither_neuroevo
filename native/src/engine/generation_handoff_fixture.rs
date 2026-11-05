@@ -754,6 +754,7 @@ fn make_terminal_running_candidate(
         resume_token: "generation-handoff-old-token".to_owned(),
         status: ControllerLeaseStatus::Connected,
         latest_action: LatestControllerAction {
+            is_explicit: false,
             turn: 0.25,
             boost: false,
             client_tick: 1,

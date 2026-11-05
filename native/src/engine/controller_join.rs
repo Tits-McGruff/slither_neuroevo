@@ -149,6 +149,7 @@ impl AuthoritativeState {
             connection_id: Some(input.connection_id),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.0,
                 boost: false,
                 client_tick: source.generation.completed_step,

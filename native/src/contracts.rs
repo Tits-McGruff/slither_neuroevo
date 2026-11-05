@@ -68,6 +68,51 @@ pub struct ExternalRewardStateV1 {
     pub retained_growth: i64,
 }
 
+/// Source selected for a committed physics step, distinct from command receipt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ExternalRewardControlSourceV1 {
+    Held,
+    Neutral,
+    Neural,
+}
+
+/// One Rust-accepted command. Identities and boundaries use exact hexadecimal words.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardCommandV1 {
+    pub sequence: String,
+    /// Optional opaque client correlation; absent for historical Protocol 2 peers.
+    pub client_action_id: Option<String>,
+    pub client_tick: String,
+    pub accepted_at_step: String,
+}
+
+/// A command actually selected for physics; repeated holds do not change its first step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardAppliedCommandV1 {
+    pub command: ExternalRewardCommandV1,
+    pub first_applied_step: String,
+}
+
+/// Constant-sized control chronology; counters are cumulative within this physical life.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardControlV1 {
+    pub source: Option<ExternalRewardControlSourceV1>,
+    pub selected_at_step: Option<String>,
+    pub accepted_command: Option<ExternalRewardCommandV1>,
+    pub applied_command: Option<ExternalRewardAppliedCommandV1>,
+    pub accepted_count: u64,
+    pub applied_count: u64,
+    pub superseded_count: u64,
+}
+
 /// Sensor-independent reward interval. All hexadecimal identities are 16 digits.
 /// Initial envelopes have no predecessor; closures precede replacement assignment.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -87,6 +132,7 @@ pub struct ExternalRewardEnvelopeV1 {
     pub transition_kind: ExternalRewardTransitionKind,
     pub reason: Option<ExternalRewardEndReason>,
     pub state: ExternalRewardStateV1,
+    pub control: ExternalRewardControlV1,
     pub deltas: ExternalRewardDeltasV1,
 }
 
