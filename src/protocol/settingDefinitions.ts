@@ -27,8 +27,8 @@ export interface SettingDefinition {
   min?: number;
   /** Maximum accepted numeric value. */
   max?: number;
-  /** UI increment for numeric controls. */
-  step?: number;
+  /** UI increment, or unrestricted precision for exact numeric contracts. */
+  step?: number | 'any';
   /** Decimal places displayed beside the control. */
   decimals?: number;
   /** Whether the value may only be applied while rebuilding the world. */
@@ -37,6 +37,8 @@ export interface SettingDefinition {
   type?: SettingControlType;
   /** Closed integer choices for a dropdown control. */
   options?: readonly SettingChoice[];
+  /** Explicit numeric shortcuts; choosing one follows the ordinary input flow. */
+  presets?: readonly { label: string; value: number }[];
   /** Internal schema marker, carried on the wire without a visible control. */
   hidden?: boolean;
   /** Setting belongs to the complete evolved-life extension. */
@@ -131,7 +133,7 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
 
   { group: 'Baseline bots', path: 'baselineBots.algorithm', label: 'Baseline algorithm', type: 'select', options: [{value: 1, label: 'v1 (frozen)'}, {value: 2, label: 'v2 (requires v4 sensors)'}], requiresReset: true, valueType: 'integer' },
   { group: 'Baseline bots', path: 'baselineBots.behaviorMode', label: 'Baseline variation', type: 'select', options: [{value: 0, label: 'Deterministic'}, {value: 1, label: 'Stochastic'}], requiresReset: true, valueType: 'integer', hint: 'Requires baseline v2 and v4 sensors.' },
-  { group: 'Baseline bots', path: 'baselineBots.controlDt', label: 'V2 decision interval', min: 0.008, max: 0.06, step: 0.001, decimals: 3, type: 'number', requiresReset: true, valueType: 'number', hint: 'Requires baseline v2. Teacher and deployed student cadence must match.' },
+  { group: 'Baseline bots', path: 'baselineBots.controlDt', label: 'V2 decision interval', min: 0.008, max: 0.06, step: 'any', type: 'number', requiresReset: true, valueType: 'number', presets: [{ label: '60 Hz (1/60 s)', value: 1 / 60 }], hint: 'Seconds between decisions. Requires baseline v2. Teacher and deployed student cadence must match exactly.' },
   { group: 'Baseline bots', path: 'baselineBots.count', label: 'Baseline bot count', min: 0, max: 120, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },
   { group: 'Baseline bots', path: 'baselineBots.respawnDelay', label: 'Respawn delay (sec)', min: 0.5, max: 60, step: 0.5, decimals: 1, requiresReset: false, valueType: 'number', derivedState: 'baseline-respawn-delay' },
   { group: 'Baseline bots', path: 'baselineBots.randomizeSeedPerGen', label: 'Randomize base seed per generation', requiresReset: true, type: 'checkbox', valueType: 'boolean' },
@@ -193,7 +195,7 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
   { group: 'Brain and memory', path: 'brain.gruHidden', label: 'GRU hidden size', min: 4, max: 96, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },
   { group: 'Brain and memory', path: 'brain.lstmHidden', label: 'LSTM hidden size', min: 4, max: 96, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },
   { group: 'Brain and memory', path: 'brain.rruHidden', label: 'RRU hidden size', min: 4, max: 96, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },
-  { group: 'Brain and memory', path: 'brain.controlDt', label: 'Brain control dt', min: 0.008, max: 0.06, step: 0.001, decimals: 3, requiresReset: false, valueType: 'number' },
+  { group: 'Brain and memory', path: 'brain.controlDt', label: 'Brain control dt', min: 0.008, max: 0.06, step: 'any', type: 'number', requiresReset: false, valueType: 'number', presets: [{ label: '60 Hz (1/60 s)', value: 1 / 60 }], hint: 'Seconds between neural decisions. Saved brains require an exact cadence match; use 60 Hz for 1/60 second.' },
   { group: 'Brain and memory', path: 'brain.gruMutationRate', label: 'Recurrent mutation rate (GRU/LSTM/RRU)', min: 0, max: 0.35, step: 0.005, decimals: 3, requiresReset: true, valueType: 'number' },
   { group: 'Brain and memory', path: 'brain.gruMutationStd', label: 'Recurrent mutation std (GRU/LSTM/RRU)', min: 0, max: 1.6, step: 0.02, decimals: 2, requiresReset: true, valueType: 'number' },
   { group: 'Brain and memory', path: 'brain.gruCrossoverMode', label: 'Recurrent crossover mode (0 block, 1 unit)', type: 'select', options: [{ value: 0, label: 'Whole block' }, { value: 1, label: 'Unit rows' }], min: 0, max: 1, step: 1, decimals: 0, requiresReset: true, valueType: 'integer' },

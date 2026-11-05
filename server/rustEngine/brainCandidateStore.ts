@@ -1,3 +1,4 @@
+import { maxBrainParameters, maxBrainStateFloats } from '../../contracts/types.ts';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync,
@@ -25,8 +26,8 @@ export function parseBrainDescriptor(value: unknown): BrainArtifactDescriptor {
   distillationInteger(data['schemaVersion'], 1, 1, 'brain descriptor version');
   for (const key of ['artifactSha256', 'weightsSha256', 'layoutSha256', 'sensorSha256']) distillationHex(data[key], 64, key);
   distillationInteger(data['inputSize'], 1, 504, 'brain inputs');
-  distillationInteger(data['parameterCount'], 0, 1_000_000, 'brain parameters');
-  distillationInteger(data['stateSize'], 0, 16384, 'brain state');
+  distillationInteger(data['parameterCount'], 0, maxBrainParameters, 'brain parameters');
+  distillationInteger(data['stateSize'], 0, maxBrainStateFloats, 'brain state');
   const cadence = data['controlIntervalSeconds'];
   if (typeof cadence !== 'number' || !Number.isFinite(cadence) || cadence < 0.008 || cadence > 0.06 ||
       typeof data['architectureKey'] !== 'string' || !data['architectureKey'] || Buffer.byteLength(data['architectureKey']) > 512 * 1024 ||

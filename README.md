@@ -932,7 +932,10 @@ end settings apply through the server.
 - **GRU hidden size**: Memory width; bigger = more capacity, more parameters.
 - **LSTM hidden size**: LSTM memory width.
 - **RRU hidden size**: RRU memory width.
-- **Brain control dt**: How often the brain updates relative to physics.
+- **Brain control dt**: Seconds between neural decisions. This live number input
+  preserves full precision. **60 Hz (1/60 s)** selects the exact interval required
+  by a brain trained at 60 Hz; typing `0.016` or `0.017` selects a different interval.
+  **V2 decision interval** has the same exact preset and applies on reset.
 - **Recurrent mutation rate (GRU/LSTM/RRU)**: Mutation rate applied to recurrent weights.
 - **Recurrent mutation std (GRU/LSTM/RRU)**: Mutation strength for recurrent weights.
 - **Recurrent crossover mode (0 block, 1 unit)**: 0 = block, 1 = unit-wise crossover.
@@ -1147,6 +1150,10 @@ A timeout or lost reply exposes **Retry spawn**, which checks the original reque
 instead of creating another snake. A confirmed rejection clears that pending request.
 Dismissing an uncertain request does not cancel any spawn already admitted by Rust.
 The initial library quota is 100 records and 2 GiB of unique stored model objects.
+Production graphs and portable brains support up to 2,000,000 Float32 parameters
+(8,000,000 raw weight bytes), tensor widths of 4096 and 16,384 recurrent-state
+floats. Population, library, transient-candidate and native-memory budgets still
+apply independently. See [the portable size contract](docs/brain-artifact-v1.md#size-and-storage-budgets).
 To include saved brains in a checkpoint download, select **Include in checkpoint archive**
 on the desired library rows and click **Export checkpoint with selected brains**.
 Selection persists across library pages and clears when the server connection changes.

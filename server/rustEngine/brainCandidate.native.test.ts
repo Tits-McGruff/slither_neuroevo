@@ -1,3 +1,4 @@
+import { largeBrainFixture } from '../test/largeBrainFixture.ts';
 import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 import { CheckpointPersistenceClient } from './checkpointPersistenceClient.ts';
@@ -88,6 +89,13 @@ networkTest('routes bounded inbound candidate bytes to Rust and returns descript
     broken[0] = 0;
     const rejected = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: broken });
     expect(rejected.status).toBe(400);
+    const large = largeBrainFixture();
+    const largeId = createHash('sha256').update(large).digest('hex');
+    const response = await fetch(base.replace(identity, largeId), {method: 'POST',
+      headers: {'Content-Type': 'application/octet-stream'}, body: new Uint8Array(large)});
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({descriptor: {artifactSha256: largeId,
+      parameterCount: 1_746_104, stateSize: 792}, byteCount: large.length});
   } finally {
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));

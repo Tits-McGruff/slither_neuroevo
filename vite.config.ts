@@ -195,6 +195,7 @@ export function buildViteConfig() {
       emptyOutDir: true
     },
     test: {
+      exclude: [...configDefaults.exclude, 'data/**', 'native/target/**', '.cache/**', '.evidence-pyrl/**'],
       setupFiles: ["src/test/vitest.setup.ts"],
       maxWorkers: 1,
       projects: [

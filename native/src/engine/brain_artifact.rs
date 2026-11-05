@@ -135,7 +135,10 @@ pub fn validate_brain_artifact(bytes: &[u8]) -> Result<ValidatedBrainArtifact, S
     let manifest_bytes = read_u32(8);
     let parameter_count = read_u32(16);
     let stored_bytes = read_u32(20);
-    if bytes[13..16] != [0, 0, 0] || manifest_bytes > 1024 * 1024 || parameter_count > 1_000_000 {
+    if bytes[13..16] != [0, 0, 0]
+        || manifest_bytes > 1024 * 1024
+        || parameter_count > crate::contracts::MAX_BRAIN_PARAMETERS
+    {
         return Err("brain artifact header admission".into());
     }
     let encoding = match bytes[12] {
@@ -253,7 +256,7 @@ pub fn validate_brain_artifact(bytes: &[u8]) -> Result<ValidatedBrainArtifact, S
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
 
@@ -289,6 +292,101 @@ mod tests {
         output.extend(json);
         output.extend_from_slice(payload);
         output
+    }
+
+    pub(crate) fn large_artifact(upper_bound: bool) -> Vec<u8> {
+        let mut spec: Value = serde_json::from_slice(
+            &std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("fixtures/production-large-graph.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        if upper_bound {
+            spec["nodes"] = json!([
+                {"id":"input","type":"Input","outputSize":264},
+                {"id":"output","type":"MLP","inputSize":264,"hiddenSizes":[810,2196],"outputSize":2}
+            ]);
+            spec["edges"] = json!([{"from":"input","to":"output","fromPort":0,"toPort":0}]);
+        }
+        let graph = compile_training_graph_json(&serde_json::to_vec(&spec).unwrap()).unwrap();
+        let manifest = CanonicalTrainingGraphManifestV1::build(
+            &graph,
+            &SensorLayout::for_profile(SensorProfile::Motion, 16).unwrap(),
+            TrainingDeployment {
+                control_interval_seconds: 1.0 / 60.0,
+                life_state_rule: TrainingLifeStateRule::Reset,
+                initialization: GenomeInitializationConfig::default(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            graph.total_parameters,
+            if upper_bound { 2_000_000 } else { 1_746_104 }
+        );
+        assert_eq!(graph.total_state_size, if upper_bound { 0 } else { 792 });
+        assert_eq!(
+            manifest.sensor_sha256,
+            "fa525c20998440a3eec3a3f1ed944760ed1c26650d8819608efa0cd44f83893e"
+        );
+        let metadata = json!({"schemaVersion":1,"graphManifest":serde_json::from_slice::<Value>(&manifest.canonical_bytes().unwrap()).unwrap(),
+            "provenance":{"schemaVersion":1,"sourceKind":"distilled","details":{"fixture":"production-large-v1"}}});
+        let raw: Vec<u8> = (0..graph.total_parameters)
+            .flat_map(|i| (((i % 257) as f32 - 128.0) / 65536.0).to_le_bytes())
+            .collect();
+        encode(&metadata, &raw, &raw, 0)
+    }
+
+    #[test]
+    fn production_width_ceiling_and_one_over_reject() {
+        let graph = |width| {
+            serde_json::to_vec(&json!({"type":"graph","nodes":[
+            {"id":"input","type":"Input","outputSize":264},
+            {"id":"output","type":"MLP","inputSize":264,"hiddenSizes":[width],"outputSize":2}],
+            "edges":[{"from":"input","to":"output"}],"outputs":[{"nodeId":"output"}],"outputSize":2})).unwrap()
+        };
+        assert!(
+            compile_training_graph_json(&graph(crate::contracts::MAX_BRAIN_TENSOR_WIDTH)).is_ok()
+        );
+        assert!(
+            compile_training_graph_json(&graph(crate::contracts::MAX_BRAIN_TENSOR_WIDTH + 1))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn production_large_and_exact_ceiling_preserve_bits_and_reject_damaged_envelopes() {
+        for upper in [false, true] {
+            let bytes = large_artifact(upper);
+            let admitted = validate_brain_artifact(&bytes).unwrap();
+            assert_eq!(
+                admitted.weights.len(),
+                if upper {
+                    crate::contracts::MAX_BRAIN_PARAMETERS
+                } else {
+                    1_746_104
+                }
+            );
+            let raw: Vec<u8> = admitted
+                .weights
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect();
+            assert_eq!(&bytes[bytes.len() - raw.len()..], raw);
+            for offset in [24, 56, bytes.len() - 1] {
+                let mut changed = bytes.clone();
+                changed[offset] ^= 1;
+                assert!(validate_brain_artifact(&changed).is_err());
+            }
+            assert!(validate_brain_artifact(&bytes[..bytes.len() - 1]).is_err());
+            let mut oversized = bytes.clone();
+            oversized[16..20].copy_from_slice(&2_000_001u32.to_le_bytes());
+            assert!(validate_brain_artifact(&oversized)
+                .err()
+                .unwrap()
+                .contains("header admission"));
+        }
     }
 
     fn raw() -> Vec<u8> {

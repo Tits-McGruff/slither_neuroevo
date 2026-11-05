@@ -684,16 +684,21 @@ fn archive_v4_roundtrips_selected_heterogeneous_originals_with_all_record_versio
     for (index, name) in [
         "portable-brain-v1.slither-brain",
         "portable-dense-basic8-v1.slither-brain",
+        "generated-production-large",
     ]
     .iter()
     .enumerate()
     {
-        let bytes = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("fixtures")
-                .join(name),
-        )
-        .unwrap();
+        let bytes = if *name == "generated-production-large" {
+            crate::engine::brain_artifact::tests::large_artifact(false)
+        } else {
+            fs::read(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("fixtures")
+                    .join(name),
+            )
+            .unwrap()
+        };
         let id = format!("{:x}", Sha256::digest(&bytes));
         fs::write(source.join(format!("{id}.slither-brain")), &bytes).unwrap();
         selected.push(SavedBrainArchiveEntryV1 {
@@ -730,7 +735,11 @@ fn archive_v4_roundtrips_selected_heterogeneous_originals_with_all_record_versio
         .unwrap();
         let path = source.join(&archive.relative_filename);
         let estimate = estimate_import_disk_bytes(&path).unwrap();
-        assert!(estimate.final_managed_bytes >= fs::metadata(&path).unwrap().len() + 8_000_000);
+        assert!(
+            estimate.final_managed_bytes
+                >= fs::metadata(&path).unwrap().len()
+                    + selected.len() as u64 * crate::contracts::MAX_BRAIN_WEIGHT_BYTES
+        );
         let destination = fixture.directory(&format!("portable-import-{version}"));
         let imported = prepare_import_archive(
             &path,

@@ -21,7 +21,18 @@ function confirmation(body: string): object { return {schemaVersion: 1, ...JSON.
 /** Restore transport globals after each browser client test. */
 afterEach(() => vi.unstubAllGlobals());
 
-it('reuses the exact request after an uncertain response and verifies the receipt scope', async () => {
+it('accepts the production ceiling and rejects one parameter above it', async () => {
+  const client = new BrainLibraryClient(() => 'http://localhost');
+  for (const count of [1_746_104, 2_000_000, 2_000_001]) {
+    const row = {...RECORD, artifact: {...RECORD.artifact, parameterCount: count}};
+    vi.stubGlobal('fetch', vi.fn(async () => response({...PAGE, page: {entries: [row], next: null}})));
+    if (count <= 2_000_000) expect((await client.list()).page.entries[0]?.artifact.parameterCount).toBe(count);
+    else await expect(client.list()).rejects.toThrow(/record/u);
+  }
+});
+
+it('spawns over LAN HTTP without randomUUID and reuses the exact request after an uncertain response', async () => {
+  vi.stubGlobal('crypto', {getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto)});
   const bodies: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
     if (!init?.body) return response(PAGE);
@@ -35,6 +46,7 @@ it('reuses the exact request after an uncertain response and verifies the receip
   await expect(client.spawn(ID)).rejects.toThrow(/pending/);
   const receipt = await client.retrySpawn();
   expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
+  expect(JSON.parse(bodies[0]!).requestId).toMatch(/^[0-9a-f]{32}$/u);
   expect(client.hasPendingSpawn()).toBe(false);
   expect(await client.isCurrent(receipt)).toBe(true);
   expect(await client.isCurrent({...receipt, expectedWorldEpoch: '000000000000000a'})).toBe(false);

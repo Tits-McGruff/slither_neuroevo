@@ -926,7 +926,7 @@ impl TacticalStudent {
         .sha256_hex()?;
         if artifact.sensors.profile == SensorProfile::V3
             || artifact.canonical_manifest.sensor_sha256 != expected
-            || artifact.weights.len() > 1_000_000
+            || artifact.weights.len() > crate::contracts::MAX_BRAIN_PARAMETERS
         {
             return Err(
                 "student tactical cohort requires v4 Basic/Motion B8..32 and at most one million parameters"

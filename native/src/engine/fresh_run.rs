@@ -1776,11 +1776,11 @@ pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
         max_graph_outputs: 8,
         max_identifier_bytes: 64,
         max_total_referenced_identifier_bytes: 16 * 1024,
-        max_tensor_width: 4096,
+        max_tensor_width: crate::contracts::MAX_BRAIN_TENSOR_WIDTH,
         max_mlp_hidden_layers: 8,
         max_split_output_ports: 16,
-        max_parameter_floats: 2_000_000,
-        max_recurrent_state_floats: 16_384,
+        max_parameter_floats: crate::contracts::MAX_BRAIN_PARAMETERS,
+        max_recurrent_state_floats: crate::contracts::MAX_BRAIN_STATE_FLOATS,
         max_canonical_layout_bytes: 128 * 1024,
         max_architecture_key_bytes: 256 * 1024,
     }
@@ -1802,8 +1802,10 @@ pub(crate) fn production_checkpoint_limits() -> CheckpointLimits {
         max_baseline_rng_count: MAXIMUM_FRESH_RUN_BASELINE_COUNT,
         max_string_bytes: 256 * 1024,
         max_total_string_bytes: 4 * MIB,
-        max_weight_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT * 1_000_000,
-        max_recurrent_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT * 16_384,
+        max_weight_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT
+            * crate::contracts::MAX_BRAIN_PARAMETERS,
+        max_recurrent_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT
+            * crate::contracts::MAX_BRAIN_STATE_FLOATS,
         max_numeric_stored_bytes: 512 * MIB_U64,
         max_numeric_candidate_bytes: 512 * MIB_U64,
         max_total_decoded_bytes: 512 * MIB_U64,

@@ -139,9 +139,9 @@ pub fn publish_saved_brain_file(
         validate_existing(&final_path, &admitted.artifact_sha256, bytes.len())?;
     }
     let mut limits = super::fresh_run::production_checkpoint_limits();
-    limits.max_weight_floats = 1_000_000;
-    limits.max_numeric_stored_bytes = 4_000_000;
-    limits.max_numeric_candidate_bytes = 4_000_000;
+    limits.max_weight_floats = crate::contracts::MAX_BRAIN_PARAMETERS;
+    limits.max_numeric_stored_bytes = crate::contracts::MAX_BRAIN_WEIGHT_BYTES;
+    limits.max_numeric_candidate_bytes = crate::contracts::MAX_BRAIN_NUMERIC_CANDIDATE_BYTES;
     let weights = publish_managed_neural_weights(
         &directory,
         operation,
@@ -237,6 +237,103 @@ mod tests {
         validate_brain_artifact(&fs::read(source()).unwrap())
             .unwrap()
             .artifact_sha256
+    }
+
+    #[test]
+    fn production_large_publication_reload_and_native_deployment() {
+        use super::super::sensor_contract::SensorProfile;
+        for upper in [false, true] {
+            let directory = TestDirectory::new();
+            let bytes = super::super::brain_artifact::tests::large_artifact(upper);
+            let admitted = validate_brain_artifact(&bytes).unwrap();
+            let input = directory.0.join("input.slither-brain");
+            fs::write(&input, &bytes).unwrap();
+            // An old raw content-addressed object must remain usable after upgrading.
+            let raw: Vec<u8> = admitted
+                .weights
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect();
+            fs::write(
+                directory
+                    .0
+                    .join(format!("{}.hof-weights-v1", admitted.weights_sha256)),
+                &raw,
+            )
+            .unwrap();
+            let publication = publish_saved_brain_file(
+                &input,
+                &directory.0,
+                &operation(),
+                &admitted.artifact_sha256,
+                u64::MAX,
+                false,
+                false,
+            )
+            .unwrap();
+            assert_eq!(
+                publication.weights.stored_byte_count_hex,
+                format!("{:016x}", raw.len())
+            );
+            let reloaded = read_validated_hall_of_fame_weights(
+                &directory.0.join(&publication.weights.relative_filename),
+                &publication.weights,
+            )
+            .unwrap();
+            assert_eq!(&*reloaded, &*admitted.weights);
+            let mut running = admitted_graph_loop(
+                1.0 / 60.0,
+                SensorProfile::Motion,
+                16,
+                admitted.graph.spec().clone(),
+            );
+            let request = SavedBrainSpawnRequest {
+                managed_directory: directory.0.to_string_lossy().into_owned(),
+                brain_id: admitted.artifact_sha256.clone(),
+                expected_run_id: "saved-brain-live-test".into(),
+                expected_config_revision: 1,
+                expected_world_epoch: running.world_epoch(),
+                weights: Box::new(publication.weights.clone()),
+            };
+            let (_, step) = running.spawn_saved_brain(&request).unwrap();
+            assert_eq!(step, 1);
+            running
+                .service_after_command_drain(
+                    17,
+                    super::super::scheduler::SchedulerServiceMode::Background,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(running.completed_step(), 1);
+            let mut wrong = request.clone();
+            wrong.weights.logical_sha256 = "00".repeat(32);
+            assert!(running
+                .spawn_saved_brain(&wrong)
+                .err()
+                .unwrap()
+                .contains("identity"));
+            let mut wrong = request.clone();
+            wrong.weights.stored_byte_count_hex =
+                format!("{:016x}", crate::contracts::MAX_BRAIN_WEIGHT_BYTES + 1);
+            assert!(running
+                .spawn_saved_brain(&wrong)
+                .err()
+                .unwrap()
+                .contains("descriptor"));
+            let mut cadence = admitted_graph_loop(
+                0.06,
+                SensorProfile::Motion,
+                16,
+                admitted.graph.spec().clone(),
+            );
+            let mut wrong = request.clone();
+            wrong.expected_world_epoch = cadence.world_epoch();
+            assert!(cadence
+                .spawn_saved_brain(&wrong)
+                .err()
+                .unwrap()
+                .contains("cadence"));
+        }
     }
 
     #[test]

@@ -17,7 +17,7 @@ The fixed header is 88 bytes:
 | 8 | 4 | Manifest UTF-8 byte count, at most 1 MiB |
 | 12 | 1 | Numeric encoding: 0 raw-f32le-v1, 1 f32le-shuffle4-zstd-v1 |
 | 13 | 3 | Reserved zero bytes |
-| 16 | 4 | Canonical parameter count, at most 1,000,000 |
+| 16 | 4 | Canonical parameter count, at most 2,000,000 |
 | 20 | 4 | Stored numeric payload byte count |
 | 24 | 32 | SHA256 of decoded canonical Float32 bytes |
 | 56 | 32 | SHA256 of stored numeric payload bytes |
@@ -76,3 +76,41 @@ change population or teacher-spool admission.
 The offline `brain_artifact_validate` tool takes a file and absent output directory,
 then writes its independently reconstructed manifest, exact weights and descriptor.
 It creates no world, controller, run RNG, or live recurrent state.
+
+## Size and storage budgets
+
+`native/src/contracts.rs` owns the production ceilings, exported through the
+existing `slither-contracts` package and generated browser constants. A compatible
+graph has at most 2,000,000 parameter floats, width 4096 and 16,384 state floats.
+Each raw Float32 parameter occupies four bytes: 8,000,000 bytes (about 7.63 MiB),
+not 8 MiB. An MLP affine row stride can be width + 1 because biases are interleaved.
+
+Portable files retain the 64 MiB envelope and 1 MiB manifest limit so existing
+supported compressed encodings remain readable. Decoded parameter allocation
+is independently limited to 8,000,000 bytes. Library managed weights select a
+compressed representation only when smaller than raw, so each final numeric
+object needs at most 8,000,000 stored bytes. Codec scratch files receive a separate
+16,000,000-byte allowance; disk admission prices this staging plus the raw final
+object and original portable file before publication. Import estimates price
+8,000,000 bytes per selected brain plus block overhead and one overlapping codec
+candidate. Fixed population checkpoint (512 MiB), library (100 records / 2 GiB),
+transient candidate (8 records / 64 MiB), shadow workspace (64 MiB) and overall
+save-archive (4 GiB) budgets remain independent aggregate limits. Admission may
+reject a collection or population that exceeds those budgets even when every
+individual graph is valid. Legacy JSON genome import keeps its historical
+one-million-weight bound; it is not the portable brain or current save format.
+
+The regression graph in `native/fixtures/production-large-graph.json` is the
+264-input Motion/B16 Dense396 + LSTM396 parallel graph followed by
+MLP792 -> 528 -> 264 -> 134 -> 2. Its compact compiler manifest is retained beside
+the source; tests generate finite weights, verify 1,746,104 parameters / 792
+states, publish and reload managed objects, deploy into a matching native world,
+and roundtrip selected originals through save archives. A second generated graph
+reaches exactly 2,000,000 parameters. No training weights or teacher captures
+are fixtures.
+
+Deploy the Slither patch and rebuild its production addon before updating PyRL's
+pinned contracts dependency. Existing portable v1 bytes and managed raw/compressed
+objects need no conversion. Candidate upload remains transient; saving to the
+library and spawning remain separate explicit user actions. Existing databases,
+spools, libraries and checkpoint directories must be retained during an upgrade.

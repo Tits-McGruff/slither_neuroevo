@@ -1,6 +1,8 @@
+import { maxBrainParameters, maxBrainStateFloats } from '../../contracts/types.ts';
 import type { SavedBrainPageV1, SavedBrainRecordV1, SavedBrainSpawnReceiptV1,
   SavedBrainSpawnRequestV1, SavedBrainDeploymentScopeV1, SavedBrainSummaryV1 } from '../../server/protocol.ts';
 import { MAX_BRAIN_ARTIFACT_BYTES } from '../protocol/brainArtifacts.ts';
+import { createRequestId } from './requestId.ts';
 
 /** Native scalar metadata needed for one new explicit deployment. */
 export interface BrainLibraryPage {
@@ -46,7 +48,8 @@ function summary(value: unknown): SavedBrainSummaryV1 {
       row['brainId'] !== artifact['artifactSha256'] || typeof row['name'] !== 'string' ||
       !row['name'].trim() || new TextEncoder().encode(row['name']).length > 256 ||
       !Number.isInteger(artifact['inputSize']) || Number(artifact['inputSize']) < 1 || Number(artifact['inputSize']) > 504 ||
-      !Number.isInteger(artifact['parameterCount']) || Number(artifact['parameterCount']) < 0 || Number(artifact['parameterCount']) > 1_000_000 ||
+      !Number.isInteger(artifact['parameterCount']) || Number(artifact['parameterCount']) < 0 || Number(artifact['parameterCount']) > maxBrainParameters ||
+      !Number.isInteger(artifact['stateSize']) || Number(artifact['stateSize']) < 0 || Number(artifact['stateSize']) > maxBrainStateFloats ||
       typeof artifact['sensorSha256'] !== 'string' || !SHA.test(artifact['sensorSha256']) ||
       typeof artifact['controlIntervalSeconds'] !== 'number' || !Number.isFinite(artifact['controlIntervalSeconds']) ||
       artifact['controlIntervalSeconds'] < 0.008 || artifact['controlIntervalSeconds'] > 0.06 ||
@@ -135,7 +138,7 @@ export class BrainLibraryClient {
     try {
       const base = this.currentBase(); const status = await this.list();
       if (this.currentBase() !== base) throw new Error('Server connection changed. Refresh the library.');
-      const body = {...status.scope, requestId: crypto.randomUUID().replaceAll('-', ''),
+      const body = {...status.scope, requestId: createRequestId(),
         expectedProcessEpoch: status.processEpoch, expectedDeploymentSequence: status.deploymentSequence};
       this.pending = {base, brainId, body};
       return await this.retrySpawn();
