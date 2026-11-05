@@ -490,7 +490,10 @@ describeNetworkSuite('Rust server real sockets', () => {
           const delta = reward.deltas;
           expect(delta.pointsDelta).toBeCloseTo(delta.survivalPointsDelta + delta.foodPointsDelta +
             delta.killPointsDelta + delta.otherPointsDelta - delta.boostPointsSpentDelta, 8);
-          expect(delta.aliveSecondsDelta).toBeLessThanOrEqual(delta.elapsedSeconds + 1e-9);
+          expect(Number.isFinite(delta.aliveSecondsDelta)).toBe(true);
+          expect(delta.aliveSecondsDelta).toBeGreaterThanOrEqual(0);
+          expect(Number.isFinite(delta.elapsedSeconds)).toBe(true);
+          expect(delta.elapsedSeconds).toBeGreaterThanOrEqual(0);
         }
         previous.set(key, reward);
       }

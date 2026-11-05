@@ -430,11 +430,8 @@ impl ExternalRewardLedger {
                 + deltas.kill_points_delta
                 + deltas.other_points_delta
                 - deltas.boost_points_spent_delta,
-        ) || deltas.alive_seconds_delta > deltas.elapsed_seconds + 1.0e-9
-        {
-            return Err(RewardError(
-                "interval accounting does not conserve time or points",
-            ));
+        ) {
+            return Err(RewardError("interval accounting does not conserve points"));
         }
         Ok(PreparedRewardDelivery {
             identity: self.identity,
@@ -664,6 +661,29 @@ mod tests {
         assert_eq!(envelope.physical_snake_id, "0000000000000003");
         assert_eq!(envelope.lease_id, "0000000000000002");
         assert_eq!(envelope.reward_version, EXTERNAL_REWARD_VERSION);
+    }
+
+    #[test]
+    fn prefix_live_credit_does_not_require_physical_clock_to_advance() {
+        let mut ledger = admitted();
+        ledger.record_live_time(1.0 / 60.0, 0.01).unwrap();
+        // Prefix accounting and pre-movement sensors share a physical boundary.
+        // Credited live time is an accounting fact, not the observation clock.
+        let prefix = ledger.prepare(2, boundary(0), None).unwrap();
+        let envelope = prefix.envelope("run").unwrap();
+        assert_eq!(envelope.deltas.elapsed_seconds, 0.0);
+        assert!(near(envelope.deltas.alive_seconds_delta, 1.0 / 60.0));
+        assert!(near(envelope.deltas.survival_points_delta, 0.01));
+        ledger.commit_delivery(&prefix).unwrap();
+
+        let cutoff = ledger
+            .prepare(3, boundary(1), Some(ExternalRewardEndReason::Generation))
+            .unwrap()
+            .envelope("run")
+            .unwrap();
+        assert!(near(cutoff.deltas.elapsed_seconds, 1.0 / 60.0));
+        assert_eq!(cutoff.deltas.alive_seconds_delta, 0.0);
+        assert_eq!(cutoff.deltas.points_delta, 0.0);
     }
 
     #[test]

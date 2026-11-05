@@ -47,7 +47,18 @@ Record the effective configuration at startup and in checkpoints. Verify the act
 
 Do not introduce a second authoritative simulation, browser fallback, Node inference implementation, per-layer native bridge, or per-tick transport acknowledgement barrier.
 
-## 2. Define reward contract version 1
+## 2. Keep contract versions distinct
+
+Keep Protocol 2, sensor layout/profile, binary observation envelope, server reward
+contract, trainer reward configuration, policy parameterization, checkpoint schema,
+published collection-policy version, and evaluator score definition distinct.
+
+Changing trainer coefficients does not change the raw server contract. Changing a
+raw field's meaning, units, or accounting rules requires a new reward version.
+A new server using v3 sensors still supplies authoritative reward version 1.
+Sensor compatibility must never select the historical reward parser implicitly.
+
+## 3. Define reward contract version 1
 
 Add an explicit reward-contract advertisement to welcome metadata. It must be separate from:
 
@@ -61,7 +72,7 @@ A new Slither server must provide the same reward contract for v3, v4 Basic, and
 
 Reward version 1 contains raw authoritative quantities. It does not contain a preweighted PPO scalar.
 
-### 2.1 Transition identity
+### 3.1 Transition identity
 
 Each reward-bearing observation or lifecycle closure must identify:
 
@@ -77,7 +88,7 @@ Do not use visible snake ID alone as a complete transition identity.
 
 Use bounded counters and the project's existing wire conventions for identities that cannot be represented safely as JavaScript numbers. Do not add a general provenance or transition-history framework.
 
-### 2.2 Raw fields and units
+### 3.2 Raw fields and units
 
 Define the following fields:
 
@@ -114,7 +125,7 @@ Initial assignment balances, imported state, reset, and assignment replacement a
 
 `foodValueDelta` includes all food the game credits as consumed, including eligible boost-trail and corpse pellets. Do not silently change food-credit semantics for PPO. Any later decision to distinguish pellet origins is a separate objective revision.
 
-### 2.3 Retained growth
+### 3.3 Retained growth
 
 Record the physical body length at the start of each assigned life as `startingLength`.
 
@@ -132,13 +143,16 @@ This is a signed delta.
 
 Losing previously rewarded growth therefore produces a negative growth contribution. Returning to a previously reached length does not create additional net growth reward over a closed loss-and-regrowth cycle.
 
+That telescoping claim applies to undiscounted growth accounting. It does not
+prove that every discounted or complete food-economic cycle is unprofitable.
+
 Use finalized body segments rather than requested target length. Fractional target-length changes receive growth credit when they result in finalized physical growth.
 
 For terminal death, measure and freeze the final body length before corpse generation, body removal, or slot reuse. Death does not manufacture a negative growth delta by deleting the body. The separate death penalty represents the terminal event.
 
 The same rule applies at generation truncation: preserve the final old-life growth measurement before replacement.
 
-### 2.4 Lifecycle fields
+### 3.4 Lifecycle fields
 
 Every envelope must include a transition kind:
 
@@ -161,7 +175,7 @@ Define the supported reason enum in the shared protocol. Do not infer death mere
 
 An initial observation establishes the baseline and carries zero deltas. PyRL must not create a synthetic action transition or pay a spawn reward for it.
 
-## 3. Accumulation and delivery semantics
+## 4. Accumulation and delivery semantics
 
 Rust accumulates authoritative deltas across all committed work between reward-accounting boundaries.
 
@@ -185,9 +199,17 @@ credits are separate accounting facts; they must not move the physical clock
 ahead by one tick. A final tail may contain elapsed physical time with no further
 live-time credit. Test this explicitly at ordinary-observation-to-closure boundaries.
 
+`elapsedSeconds` and `aliveSecondsDelta` are separate facts. An interval may
+contain prefix live-time credits before physical time advances. Neither Rust nor
+PyRL may require credited live time to be less than or equal to physical elapsed
+time within every individual interval.
+
 “Delivered” means committed to the existing bounded output path. It does not mean that Python has acknowledged processing the message.
 
-## 4. Close the final old-life transition before reassignment
+Do not promise end-to-end exactly-once delivery across transport loss. Validate
+intact sequence chains and explicitly discard unresolved experience after gaps.
+
+## 5. Close the final old-life transition before reassignment
 
 A reward payload on ordinary live observations is insufficient. The protocol must also close the interval after the last ordinary observation when a snake dies or the environment truncates its life.
 
@@ -201,7 +223,7 @@ Before a replacement assignment becomes visible to PyRL, deliver an ordered clos
 
 PyRL must process that closure before accepting the next assignment.
 
-### 4.1 Real death
+### 5.1 Real death
 
 For real death:
 
@@ -213,7 +235,7 @@ For real death:
 
 Do not require a normal live sensor packet from a dead snake to deliver its final reward.
 
-### 4.2 Generation truncation
+### 5.2 Generation truncation
 
 For generation replacement:
 
@@ -225,13 +247,13 @@ For generation replacement:
 
 Do not use the replacement snake's observation or the pending transition's starting-state value as a substitute for the cutoff-state value.
 
-### 4.3 Other replacement boundaries
+### 5.3 Other replacement boundaries
 
 Use a reason-specific policy for reset, import, and world replacement.
 
 Where a valid final old-environment observation can be captured, close and bootstrap the old segment explicitly. Where it cannot, retain only previously completed experience and discard the unresolved tail. Do not invent an observation, reward interval, or death.
 
-### 4.4 Simultaneous events
+### 5.4 Simultaneous events
 
 Define and test event precedence:
 
@@ -241,7 +263,7 @@ Define and test event precedence:
 - an alive snake replaced at that boundary is truncated;
 - one life receives at most one closure and one death penalty.
 
-## 5. Preserve Protocol 2 and update binary transport
+## 6. Preserve Protocol 2 and update binary transport
 
 PyRL currently requests binary observations. The repair must cover both JSON and binary paths.
 
@@ -261,7 +283,7 @@ Do not add reward fields only to JSON `SensorsMsg` while leaving the binary trai
 
 Prefer extending the existing encoder and decoder over introducing a separate independently ordered reward channel.
 
-## 6. Define the initial trainer reward objective
+## 7. Define the initial trainer reward objective
 
 Use a trainer-side weighted sum over authoritative fields.
 
@@ -339,9 +361,12 @@ The complete reward of a boost-and-reconsume cycle may include food credit becau
 
 All coefficients must be configurable, validated, logged, and persisted. Freeze them for the first repaired qualification run.
 
+Validate finiteness of weighted components, their scalar sum, pending-decision
+accumulations, and episode returns before admitting them.
+
 Do not add reward clipping or normalization that silently changes these semantics. Any later scaling or clipping experiment must be explicit and versioned in trainer reward configuration.
 
-## 7. Remove sensor-derived reward from the current PPO path
+## 8. Remove sensor-derived reward from the current PPO path
 
 Replace calls to `default_reward_components()` in both supported PPO actor paths with a reward-contract parser.
 
@@ -363,7 +388,7 @@ The historical v3 helper may remain only as an explicit legacy mode. It requires
 
 A new server using v3 sensors must still provide authoritative reward version 1.
 
-## 8. Align reward with pending PPO decisions
+## 9. Align reward with pending PPO decisions
 
 The actor must distinguish:
 
@@ -386,7 +411,31 @@ Keep episode accounting separate from PPO admission:
 
 The difference between received and admitted totals must be explainable through explicit collection boundaries or discarded incomplete experience.
 
-## 9. Define asynchronous action semantics and test them
+Keep component accounting with the pending decision. Adding reward to a pending
+decision does not constitute PPO admission: a disconnect may still discard it.
+Count admitted components once after the completed rollout is queued successfully.
+
+### 9.1 Bootstrap and GAE masks
+
+Represent bootstrap eligibility separately from continuation into the next stored
+transition:
+
+```text
+delta = reward + gamma * bootstrapMask * nextValue - value
+```
+
+| Boundary | Bootstrap | GAE continuation |
+|---|---|---|
+| Ordinary transition | Next-state value | Allowed |
+| Ordinary rollout cutoff | Matching final-state value | Stop at rollout boundary |
+| Real death | Zero | Stop |
+| Generation truncation | Final old-life value | Stop |
+| Unresolved disconnect tail | Discard tail | Stop |
+| Replacement life | New segment | Never continue from old life |
+
+A truncation may bootstrap without propagating advantages into a replacement life.
+
+## 10. Define asynchronous action semantics and test them
 
 The synchronous actor barrier synchronizes policy publication. It does not make the Slither server wait for actions.
 
@@ -416,7 +465,13 @@ Tests must cover:
 
 Discard incomplete or unclassifiable experience explicitly and count it. If the adapter cannot establish its declared ordering, the first baseline must fail its collection-integrity check rather than silently claim exact action alignment.
 
-## 10. Keep discounting fixed and expose duration limits
+After a reconnect gap, discard the unresolved pending decision, retain completed
+experience, and establish a new accounting baseline. Do not assume unacknowledged
+rewards will be replayed. A known old-life closure received after a gap may retire
+the life without making the unresolved interval trainable. Incomplete evaluator
+episodes cannot be promoted.
+
+## 11. Keep discounting fixed and expose duration limits
 
 Keep:
 
@@ -443,7 +498,7 @@ Do not describe gamma as operating at exactly 60 decisions per second unless mea
 
 After the repair is accepted, compare gamma values such as `0.995`, `0.997`, or `0.999` under controlled conditions. A time-aware discount formulation is a separate experiment with an explicitly stated physical discount horizon.
 
-## 11. Add trainable squashed-Gaussian steering
+## 12. Add trainable squashed-Gaussian steering
 
 Add a state-independent trainable parameter owned by the policy:
 
@@ -473,6 +528,9 @@ Allow the initial value to be configured within the supported numerical range. F
 
 The bounds are numerical guards. Keep the stored parameter within those bounds after optimizer steps so hard clamping cannot strand it outside the differentiable range. Validate loaded values and log how often the parameter reaches a bound. Do not reset learned variance during publication, evaluation, or resume.
 
+Test the installed backend's clamp gradient at the bounds. If it vanishes, project
+the stored parameter strictly inside the supported interval after optimization.
+
 Retain:
 
 - the stored pre-tanh latent action;
@@ -495,7 +553,7 @@ Include `turn_log_std` in:
 
 Do not silently load an old fixed-variance model into the new parameterization with an implicit default.
 
-## 12. Make the entropy objective explicit
+## 13. Make the entropy objective explicit
 
 For the first repaired baseline, retain Gaussian steering entropy as an explicitly named regularization surrogate:
 
@@ -529,7 +587,7 @@ Do not use one ambiguous `turn_sat` field for both deterministic means and sampl
 
 Increasing standard deviation is required to change the sampled distribution. It is not required to reduce saturation: it may increase switching between saturated left and right actions.
 
-## 13. Preserve synchronous PPO collection
+## 14. Preserve synchronous PPO collection
 
 Each collection epoch must use one published policy version.
 
@@ -556,7 +614,9 @@ When a new epoch opens, establish the next collection baseline explicitly. Do no
 
 Log nominal and actual batch sizes, partial contributions, empty contributions, and discarded unresolved tails.
 
-## 14. Preserve checkpoints and version compatibility
+An all-empty epoch must release the barrier without an invalid optimizer update.
+
+## 15. Preserve checkpoints and version compatibility
 
 Keep existing checkpoint files available.
 
@@ -589,7 +649,7 @@ Fresh repaired training starts from fresh weights and an empty evaluator leaderb
 
 Historical survival records remain historical diagnostics and do not determine repaired-policy promotion.
 
-## 15. Evaluate the repaired objective immediately
+## 16. Evaluate the repaired objective immediately
 
 Changing evaluator selection is part of the initial repair.
 
@@ -613,11 +673,26 @@ For the first repaired evaluator:
 
 - freeze one policy for the entire episode;
 - sample from its frozen steering and boost distributions;
+- use evaluator randomness separate from training randomness;
 - use the same reward coefficients as training;
 - apply a maximum evaluation duration of 240 simulated seconds;
 - stop earlier on real death or authoritative environment truncation;
 - treat the evaluator duration limit as truncation without a death penalty;
 - select provisionally by total undiscounted repaired reward.
+
+The duration cap must end at a valid accounting boundary. If a clean cutoff cannot
+be obtained, mark the episode incomplete instead of fabricating final reward.
+
+Use the first accepted observation at or after the nominal cap, include its
+complete reward interval, and report actual duration and overshoot. Do not split
+discrete food, kill, or death events proportionally. A trainer-local evaluation
+cutoff must not be advertised as a server death. Start the next capped episode
+with a fresh assignment identity and no reclaim token or legacy name match;
+document the server's ordinary disconnect-grace effect on the old life.
+
+Keep an evaluation score-definition/configuration version separate from trainer
+reward weights. Changes to exposure cap, sampling, or seed protocol invalidate
+the comparable evaluator leaderboard without changing model resume compatibility.
 
 Exclude transport-corrupted or incompletely accounted episodes from promotion.
 
@@ -635,7 +710,7 @@ Multi-episode promotion may follow after the first repair. When added:
 
 Never aggregate episodes from changing candidate policies and label the result as one frozen policy's score.
 
-## 16. Add Slither contract tests
+## 17. Add Slither contract tests
 
 Add focused Rust and server tests covering:
 
@@ -666,7 +741,7 @@ Use the same authoritative event fixture for sensor-independence tests.
 
 Retain bounded queue behavior. Do not add unbounded per-snake event histories to implement reward deltas.
 
-## 17. Add PyRL reward and lifecycle tests
+## 18. Add PyRL reward and lifecycle tests
 
 Construct observations with v4 Motion metadata and no legacy reward labels.
 
@@ -695,7 +770,7 @@ Verify:
 
 Delete or demote tests asserting that the legacy v3 reward vector is the universal default.
 
-## 18. Add policy-distribution and checkpoint tests
+## 19. Add policy-distribution and checkpoint tests
 
 Verify:
 
@@ -721,7 +796,7 @@ With small standard deviation, diagnostics must report near-total executed satur
 
 Do not assert that larger variance necessarily lowers saturation.
 
-## 19. Add deterministic end-to-end correctness checks
+## 20. Add deterministic end-to-end correctness checks
 
 Create a small seeded Slither scenario that exercises the real native engine, protocol transport, PyRL parser, synchronous collection, PPO update, and checkpoint path.
 
@@ -752,7 +827,7 @@ Assert:
 
 Keep this test short enough for routine CI. Longer training and behavioral studies belong in explicit qualification runs.
 
-## 20. Add diagnostics for contract and policy failures
+## 21. Add diagnostics for contract and policy failures
 
 At startup, log:
 
@@ -790,7 +865,7 @@ Do not automatically change coefficients, exploration, or PPO settings in respon
 
 Also warn when steering variance repeatedly reaches a numerical bound or when sampled saturation remains high over a sustained window. These are investigation signals, not automatic proof of policy failure.
 
-## 21. Documentation
+## 22. Documentation
 
 Update both repositories.
 
@@ -828,7 +903,7 @@ Remove claims that `default_reward_components()` is the general reward implement
 
 Keep documentation proportional to the contract. Do not create source snapshots, reconstruction archives, manual test registries, or permanent experiment-management machinery.
 
-## 22. Implementation sequence
+## 23. Implementation sequence
 
 Implement coherent changes in this order:
 
@@ -854,7 +929,7 @@ Implement coherent changes in this order:
 
 Investigate routine failures that exercise changed behavior. Keep unrelated infrastructure failures and expensive historical qualification separate from product correctness.
 
-## 23. Implementation acceptance criteria
+## 24. Implementation acceptance criteria
 
 The implementation repair is complete when all of the following hold:
 
@@ -883,11 +958,11 @@ The implementation repair is complete when all of the following hold:
 
 Useful navigation, reduced circling, and improved food seeking are not deterministic implementation acceptance requirements. They belong to learning qualification.
 
-## 24. Learning qualification protocol
+## 25. Learning qualification protocol
 
 Run qualification only after implementation acceptance passes.
 
-### 24.1 Fixed first experiment
+### 25.1 Fixed first experiment
 
 Use:
 
@@ -902,7 +977,7 @@ Use:
 
 Identify tested code by clean Git commits in both repositories. Keep generated traces, models, and reports in ignored local output or external artifacts.
 
-### 24.2 Budget and replication
+### 25.2 Budget and replication
 
 Begin with three declared training seeds.
 
@@ -914,7 +989,7 @@ These offline comparisons may run sequentially through the separate frozen evalu
 
 A budget exhaustion without improvement is an inconclusive or negative learning result. It does not retroactively make correct event transport an implementation failure.
 
-### 24.3 Reference policies
+### 25.3 Reference policies
 
 Compare against simple diagnostic controls:
 
@@ -922,16 +997,19 @@ Compare against simple diagnostic controls:
 - a straight-ahead policy;
 - the untrained repaired policy.
 
+Declare steering and boost behavior for each reference before comparing results.
+
 Use these only for evaluation. Do not train by imitation or add hand-coded food steering.
 
 The comparisons should reveal whether the repaired score distinguishes useful task progress from survival with little task activity.
 
-### 24.4 Reported outcomes
+### 25.4 Reported outcomes
 
 For each seed and candidate, report:
 
 - mean and median repaired return;
 - return spread;
+- paired return differences against the untrained policy on common scenarios;
 - food value per episode and per live second;
 - retained growth;
 - net task points;
@@ -945,7 +1023,7 @@ For each seed and candidate, report:
 
 Include representative behavior recordings or concise observations where practical.
 
-### 24.5 Learning qualification criteria
+### 25.5 Learning qualification criteria
 
 The first learning qualification is successful when:
 
@@ -963,7 +1041,7 @@ Do not require kill learning in the first qualification. Kills may be too infreq
 
 These criteria support a bounded learning claim for the tested configuration. They do not establish general competitive strength or eliminate all reward exploits.
 
-## 25. If learning qualification fails
+## 26. If learning qualification fails
 
 Keep the accepted implementation and record the observed failure accurately.
 
@@ -982,7 +1060,7 @@ Only then introduce controlled experiments.
 
 Change one justified factor at a time, retain an appropriate baseline, and identify the tested code and configuration. Do not make rejected experimental branches permanent CI obligations.
 
-## 26. Explicitly deferred changes
+## 27. Explicitly deferred changes
 
 Do not add the following during the initial repair unless a focused test exposes a separate concrete requirement:
 

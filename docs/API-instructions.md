@@ -591,6 +591,9 @@ markers, and rolled-back work creates no reward.
 Ordinary physical observation time is `sourceCompletedStep * fixedDt`; the
 post-step cutoff is `(sourceCompletedStep + 1) * fixedDt`. Prefix live-time
 credits remain separate facts and do not advance the physical observation clock.
+An interval can therefore contain credited live time before physical time
+advances; clients must not require `aliveSecondsDelta <= elapsedSeconds` for
+each individual packet.
 
 Before successor assignment, the same reliable transaction sends:
 
