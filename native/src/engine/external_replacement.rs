@@ -244,6 +244,8 @@ fn initial_external_snake(
 /// Complete admitted settings and ceilings for one replacement batch.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExternalReplacementConfig {
+    /// Authoritative fixed-step duration for the replacement's birth boundary.
+    pub fixed_step_seconds: f64,
     /// Versioned transaction shape.
     pub version: u32,
     /// Collision-safe complete-body placement contract.
@@ -267,6 +269,7 @@ impl ExternalReplacementConfig {
     #[must_use]
     pub const fn typescript_defaults() -> Self {
         Self {
+            fixed_step_seconds: 1.0 / 60.0,
             version: EXTERNAL_REPLACEMENT_VERSION,
             spawn: SpawnConfig::typescript_geometry_defaults(),
             genome: GenomeInitializationConfig::typescript_defaults(),
@@ -279,7 +282,10 @@ impl ExternalReplacementConfig {
     }
 
     pub(crate) fn validate(self) -> Result<(), ExternalReplacementError> {
-        if self.version != EXTERNAL_REPLACEMENT_VERSION
+        if !self.fixed_step_seconds.is_finite()
+            || self.fixed_step_seconds <= 0.0
+            || self.fixed_step_seconds > 1.0
+            || self.version != EXTERNAL_REPLACEMENT_VERSION
             || !self.snake_base_speed.is_finite()
             || self.snake_base_speed < 0.0
             || self.maximum_snakes == 0
@@ -553,6 +559,8 @@ struct DeadLeaseTarget {
 
 #[derive(Clone, Copy, Debug)]
 struct ReplacementRecord {
+    /// Final old-life accounting survives physical slot reuse until output admission.
+    old_reward: Option<super::external_reward::ExternalRewardLedger>,
     assignment: ReplacementAssignment,
     snake_index: usize,
     disconnect: DisconnectProposal,
@@ -1118,6 +1126,20 @@ impl ExternalReplacementWorkspace {
     ) -> Result<&[ReplacementAssignment], ExternalReplacementError> {
         self.ensure_ready(key)?;
         Ok(&self.assignments)
+    }
+
+    /// Final old-life ledger for the same ordered replacement assignment.
+    pub fn old_reward(
+        &self,
+        key: PhysicsStepKey,
+        index: usize,
+    ) -> Result<Option<super::external_reward::ExternalRewardLedger>, ExternalReplacementError>
+    {
+        self.ensure_ready(key)?;
+        self.records
+            .get(index)
+            .map(|record| record.old_reward)
+            .ok_or(ExternalReplacementError::InternalShapeMismatch)
     }
 
     /// Read old disconnected tokens whose prior snakes do not exist in the
@@ -1693,6 +1715,26 @@ impl ExternalReplacementWorkspace {
         let replacement_lease = &mut self.world.controller_leases[lease_index];
         replacement_lease.id = lease_id;
         replacement_lease.snake_id = snake_id;
+        replacement_lease.reward = old_lease
+            .reward
+            .map(|_| {
+                super::external_reward::ExternalRewardLedger::new(
+                    super::external_reward::RewardLifeIdentity {
+                        world_epoch: key.world_epoch(),
+                        lease_id,
+                        physical_snake_id: snake_id,
+                        frame_snake_id: frame_v1_id,
+                    },
+                    super::external_reward::RewardBoundary {
+                        completed_step,
+                        elapsed_seconds: completed_step as f64 * config.fixed_step_seconds,
+                    },
+                    self.world.snakes[old_snake_index].body.len,
+                    self.world.snakes[old_snake_index].points,
+                )
+            })
+            .transpose()
+            .map_err(|_| ExternalReplacementError::InternalShapeMismatch)?;
         replacement_lease.latest_action = LatestControllerAction {
             turn: 0.0,
             boost: false,
@@ -1736,6 +1778,7 @@ impl ExternalReplacementWorkspace {
             token_index: ordinal,
         };
         self.records.push(ReplacementRecord {
+            old_reward: old_lease.reward,
             assignment,
             snake_index: old_snake_index,
             disconnect,
@@ -2136,6 +2179,9 @@ pub(crate) fn authority_world_digest(world: &WorldState) -> [u8; 32] {
     }
     hash_usize(&mut hash, world.controller_leases.len());
     for lease in &world.controller_leases {
+        if let Some(reward) = &lease.reward {
+            reward.hash_into(&mut hash);
+        }
         hash.update(lease.id.to_le_bytes());
         hash.update(lease.snake_id.to_le_bytes());
         hash.update([controller_kind_tag(lease.kind)]);
@@ -2354,7 +2400,10 @@ fn validate_generation_controller_source(
             });
         }
         let snake = find_unique_snake(world, lease.snake_id)?;
-        if !snake.alive || snake.kind != SnakeKind::External {
+        // A God Mode death may already be committed before the generation's
+        // final step. The lease still owns that dead external life and must
+        // receive its successor; liveness does not invalidate ownership.
+        if snake.kind != SnakeKind::External {
             return Err(ExternalReplacementError::InvalidLeaseTarget {
                 lease_id: lease.id,
                 snake_id: lease.snake_id,
@@ -2882,6 +2931,7 @@ mod tests {
         connection_id: u64,
     ) -> super::super::state::ControllerLease {
         super::super::state::ControllerLease {
+            reward: None,
             identity_key: String::new(),
             id,
             snake_id,

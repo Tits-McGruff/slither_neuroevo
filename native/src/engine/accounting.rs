@@ -275,6 +275,21 @@ impl<'accounting, 'source> PreparedStepAccounting<'accounting, 'source> {
             snake.age_seconds = update.next_age_seconds;
             snake.points = update.next_points;
         }
+        for lease in &mut target_world.controller_leases {
+            if let Some(reward) = &mut lease.reward {
+                reward
+                    .bind_observation_world(self.key.world_epoch())
+                    .map_err(StepAccountingError::Reward)?;
+                if let Ok(index) = self
+                    .updates
+                    .binary_search_by_key(&lease.snake_id, |update| update.snake_id)
+                {
+                    reward
+                        .record_accounting(&self.updates[index])
+                        .map_err(StepAccountingError::Reward)?;
+                }
+            }
+        }
         Ok(self.next_elapsed_seconds)
     }
 }
@@ -477,6 +492,8 @@ fn reserve_for<T>(
 /// Checked pre-step accounting failure. No variant publishes partial authority.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StepAccountingError {
+    /// External reward accounting rejected the same staged prefix.
+    Reward(super::external_reward::RewardError),
     /// One fixed-step identity component is zero or otherwise invalid.
     InvalidStepKey,
     /// A newer complete authority/config/operation identity superseded staging.
@@ -517,6 +534,7 @@ pub enum StepAccountingError {
 impl Display for StepAccountingError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Reward(error) => write!(formatter, "external reward prefix failed: {error}"),
             Self::InvalidStepKey => write!(formatter, "invalid fixed-step accounting key"),
             Self::StepKeyMismatch { field } => {
                 write!(formatter, "fixed-step accounting key changed at {field:?}")

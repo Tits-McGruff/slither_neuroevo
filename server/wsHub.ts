@@ -45,6 +45,8 @@ export interface ConnectionState {
   clientType: 'unknown' | ClientType;
   /** Whether this bot opted into compact binary observation packets. */
   binarySensors: boolean;
+  /** Opted-in reward extension; absent preserves legacy Protocol 2 payloads. */
+  rewardVersion?: 1;
   joined: boolean;
   /** Whether the original hello/first-join admission completed at least once. */
   hasJoined: boolean;
@@ -405,8 +407,19 @@ export class WsHub {
   sendJsonTo(connId: number, payload: ServerMessage): boolean {
     const state = this.connections.get(connId);
     if (!state || !state.joined) return false;
-    if (state.clientType === 'bot' && state.binarySensors && payload.type === 'sensors') {
-      return this.enqueueReliable(state, encodeBinarySensors(payload));
+    if (payload.type === 'transition' && state.rewardVersion !== 1) return true;
+    if (payload.type === 'sensors') {
+      // Legacy clients deliberately retain their original format. Only an
+      // explicit hello capability selects reward-bearing JSON or binary v2.
+      const observation = state.rewardVersion === 1 ? payload : { ...payload };
+      if (state.rewardVersion !== 1) delete observation.reward;
+      if (state.rewardVersion === 1 && !observation.reward) {
+        throw new TypeError('negotiated reward observation is missing its envelope');
+      }
+      if (state.clientType === 'bot' && state.binarySensors) {
+        return this.enqueueReliable(state, encodeBinarySensors(observation, state.rewardVersion === 1 ? 2 : 1));
+      }
+      return this.enqueueReliable(state, JSON.stringify(observation));
     }
     return this.enqueueReliable(state, JSON.stringify(payload));
   }
@@ -648,6 +661,14 @@ export class WsHub {
           this.protocolError(state, 'duplicate hello');
           return;
         }
+        if ((msg.rewardVersion !== undefined || msg.binarySensorsVersion !== undefined) &&
+            (msg.clientType !== 'bot' || msg.rewardVersion !== 1 ||
+             this.welcome.rewardVersion !== 1 ||
+             (msg.binarySensors === true ? msg.binarySensorsVersion !== 2 : msg.binarySensorsVersion !== undefined))) {
+          this.protocolError(state, 'unsupported reward or binary sensor capability');
+          return;
+        }
+        if (msg.rewardVersion === 1) state.rewardVersion = 1;
         state.clientType = msg.clientType;
         state.binarySensors = msg.clientType === 'bot' && msg.binarySensors === true;
         this.enqueueReliable(state, this.welcomeJson);

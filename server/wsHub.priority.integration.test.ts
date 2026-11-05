@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
+import { readFileSync } from 'node:fs';
+import type { ExternalRewardEnvelopeV1 } from '../contracts/types.ts';
 import type { AssignMsg, ClientMessage, ServerMessage, StateReplacedMsg, WelcomeMsg } from './protocol.ts';
 import { WsHub, type ConnectionState } from './wsHub.ts';
 
@@ -92,6 +94,70 @@ function buildFakeHub(): { hub: WsHub; state: ConnectionState; socket: FakeSocke
 }
 
 describe('WsHub lifecycle priority', () => {
+  const reward = (JSON.parse(readFileSync(new URL(
+    '../contracts/slither_contracts/external-reward-v1-fixture.json', import.meta.url
+  ), 'utf8')) as ExternalRewardEnvelopeV1[])[0]!;
+
+  it('negotiates reward v1 and binary v2 explicitly and preserves reliable closure order', () => {
+    const { hub, state, socket } = buildFakeHub();
+    state.clientType = 'unknown';
+    state.joined = false;
+    const routing = hub as unknown as { maxMessageBytes: number; welcome: WelcomeMsg; welcomeJson: string;
+      handleMessage(state: ConnectionState, data: Buffer, binary: boolean): void };
+    routing.maxMessageBytes = 65536;
+    routing.welcome = { type: 'welcome', protocolVersion: 2, rewardVersion: 1, binarySensorsVersion: 2 } as WelcomeMsg;
+    routing.welcomeJson = JSON.stringify(routing.welcome);
+    routing.handleMessage(state, Buffer.from(JSON.stringify({ type: 'hello', clientType: 'bot', version: 2,
+      binarySensors: true, binarySensorsVersion: 2, rewardVersion: 1 })), false);
+    expect(state.rewardVersion).toBe(1);
+    expect(state.binarySensors).toBe(true);
+    socket.sent[0]!.complete();
+    state.joined = true;
+    expect(() => hub.sendJsonTo(1, { type: 'sensors', tick: 1, snakeId: 7, sensors: [0] })).toThrow(/missing/u);
+    expect(hub.sendJsonTo(1, { type: 'sensors', tick: 1, snakeId: 7, sensors: [0], reward })).toBe(true);
+    expect((socket.sent[1]!.payload as Buffer).readUInt8(4)).toBe(2);
+    expect(hub.sendJsonTo(1, { type: 'transition', reward })).toBe(true);
+    expect(hub.sendJsonTo(1, { type: 'assign', snakeId: 8, controller: 'bot', resumeToken: 'a'.repeat(32) })).toBe(true);
+    socket.sent[1]!.complete();
+    expect(JSON.parse(String(socket.sent[2]!.payload))).toEqual({ type: 'transition', reward });
+    socket.sent[2]!.complete();
+    expect(JSON.parse(String(socket.sent[3]!.payload)).type).toBe('assign');
+    socket.sent[3]!.complete();
+    state.binarySensors = false;
+    hub.sendJsonTo(1, { type: 'sensors', tick: 1, snakeId: 7, sensors: [0], reward });
+    expect(JSON.parse(String(socket.sent[4]!.payload)).reward).toEqual(reward);
+  });
+
+  it('keeps legacy JSON and binary observations unchanged and omits unrequested closures', () => {
+    const { hub, state, socket } = buildFakeHub();
+    state.clientType = 'bot';
+    expect(hub.sendJsonTo(1, { type: 'transition', reward })).toBe(true);
+    expect(socket.sent).toHaveLength(0);
+    const observation = { type: 'sensors' as const, tick: 1, snakeId: 7, sensors: [0], reward };
+    hub.sendJsonTo(1, observation);
+    expect(JSON.parse(String(socket.sent[0]!.payload)).reward).toBeUndefined();
+    expect(observation.reward).toBe(reward);
+    socket.sent[0]!.complete();
+    state.binarySensors = true;
+    hub.sendJsonTo(1, observation);
+    const packet = socket.sent[1]!.payload as Buffer;
+    expect(packet.readUInt8(4)).toBe(1);
+    expect(packet.length).toBe(48);
+  });
+
+  it('rejects reward negotiation with a legacy binary envelope before welcome', () => {
+    const { hub, state, socket } = buildFakeHub();
+    state.clientType = 'unknown'; state.joined = false;
+    const routing = hub as unknown as { maxMessageBytes: number; welcome: WelcomeMsg;
+      handleMessage(state: ConnectionState, data: Buffer, binary: boolean): void };
+    routing.maxMessageBytes = 65536;
+    routing.welcome = { type: 'welcome', rewardVersion: 1 } as WelcomeMsg;
+    routing.handleMessage(state, Buffer.from(JSON.stringify({ type: 'hello', clientType: 'bot', version: 2,
+      binarySensors: true, rewardVersion: 1 })), false);
+    expect(state.rewardVersion).toBeUndefined();
+    expect(JSON.parse(String(socket.sent[0]!.payload))).toMatchObject({ type: 'error' });
+  });
+
   it('sends negotiated bot observations as compact binary reliable payloads', () => {
     const { hub, state, socket } = buildFakeHub();
     state.clientType = 'bot';

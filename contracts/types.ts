@@ -70,11 +70,21 @@ export type FreshRunGraphNodeWire =
       outputSizes: number[];
       type: "Split";
     };
+/**
+ * Authoritative life-end reason; transport failure is deliberately absent.
+ */
+export type ExternalRewardEndReason =
+  "death" | "generation" | "manualGeneration" | "reset" | "import" | "worldReplacement";
+/**
+ * A delivery baseline, ordinary interval, or explicit old-life closure.
+ */
+export type ExternalRewardTransitionKind = "initial" | "live" | "terminal" | "truncated";
 
 export interface Contracts {
   chunk: TeacherChunkDescriptor;
   dataset: DistillationDataset;
   graph: FreshRunGraphWire;
+  reward: ExternalRewardEnvelopeV1;
   teacher: TeacherCaptureContract;
   [k: string]: unknown;
 }
@@ -153,6 +163,46 @@ export interface FreshRunGraphOutputWire {
   nodeId: string;
   port?: number | null;
 }
+/**
+ * Sensor-independent reward interval. All hexadecimal identities are 16 digits.
+ * Initial envelopes have no predecessor; closures precede replacement assignment.
+ */
+export interface ExternalRewardEnvelopeV1 {
+  deltas: ExternalRewardDeltasV1;
+  fromStep: string;
+  leaseId: string;
+  observationSequence: string;
+  physicalSnakeId: string;
+  previousObservationSequence?: string | null;
+  reason?: ExternalRewardEndReason | null;
+  rewardVersion: number;
+  runId: string;
+  snakeId: number;
+  toStep: string;
+  transitionKind: ExternalRewardTransitionKind;
+  worldEpoch: string;
+}
+/**
+ * Unweighted committed quantities. Length is sampled before terminal cleanup.
+ */
+export interface ExternalRewardDeltasV1 {
+  aliveSecondsDelta: number;
+  boostPointsSpentDelta: number;
+  elapsedSeconds: number;
+  foodCountDelta: number;
+  foodPointsDelta: number;
+  foodValueDelta: number;
+  killPointsDelta: number;
+  killsDelta: number;
+  lengthDelta: number;
+  otherPointsDelta: number;
+  pointsDelta: number;
+  /**
+   * Difference of max(finalized length - starting length, 0), including losses.
+   */
+  retainedGrowthDelta: number;
+  survivalPointsDelta: number;
+}
 
 export const SENSOR_HASH_DOMAIN = "slither.sensor-contract.v1\u0000";
 export const maxBrainParameters = 2000000;
@@ -160,3 +210,6 @@ export const maxBrainTensorWidth = 4096;
 export const maxBrainStateFloats = 16384;
 export const maxBrainWeightBytes = 8000000;
 export const maxBrainNumericCandidateBytes = 16000000;
+
+export const EXTERNAL_REWARD_BINARY_VERSION = 2;
+export const EXTERNAL_REWARD_MAX_ENVELOPE_BYTES = 4096;

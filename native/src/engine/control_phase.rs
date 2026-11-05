@@ -194,6 +194,39 @@ pub struct V4BoundaryContext<'source> {
     pub limits: super::ray_work::RayWorkLimits,
 }
 
+/// Cold generation-cutoff capture. Packed vectors belong to the old life, never
+/// to the fresh assignment that transports its closure.
+#[derive(Debug, Default)]
+pub(crate) struct ExternalRewardCutoffs {
+    pub records: Vec<ExternalRewardCutoff>,
+    pub observations: Vec<f32>,
+}
+
+impl ExternalRewardCutoffs {
+    pub fn owned_bytes(&self) -> Result<usize, ControlPhaseError> {
+        self.records
+            .capacity()
+            .checked_mul(std::mem::size_of::<ExternalRewardCutoff>())
+            .and_then(|bytes| {
+                self.observations
+                    .capacity()
+                    .checked_mul(std::mem::size_of::<f32>())
+                    .and_then(|sensors| bytes.checked_add(sensors))
+            })
+            .ok_or(ControlPhaseError::ArithmeticOverflow {
+                context: "retained reward cutoff bytes",
+            })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ExternalRewardCutoff {
+    pub connection_id: u64,
+    pub reward: super::external_reward::RewardObservationCapture,
+    pub observation_start: usize,
+    pub observation_len: usize,
+}
+
 /// Exclusive control source selected for one alive snake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelectedControlSource {
@@ -366,6 +399,7 @@ impl PreparedBaselineControl {
 /// One not-yet-delivered external observation for the thin bridge.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PreparedExternalObservation {
+    reward: Option<super::external_reward::RewardObservationCapture>,
     lease_id: u64,
     connection_id: u64,
     kind: ControllerKind,
@@ -381,6 +415,10 @@ pub struct PreparedExternalObservation {
 }
 
 impl PreparedExternalObservation {
+    /// Raw accounting from exactly the shared sensor boundary, before movement.
+    pub const fn reward(self) -> Option<super::external_reward::RewardObservationCapture> {
+        self.reward
+    }
     /// Assignment epoch that owns this observation.
     #[must_use]
     pub const fn lease_id(self) -> u64 {
@@ -1734,6 +1772,118 @@ impl ControlPhaseWorkspace {
         self.neural.sensor().layout().input_size
     }
 
+    /// Sample final old-life states without consuming sensor/reward markers,
+    /// policy state, RNG, or the ordinary ray-work cursor. Reuse the controlling
+    /// index/scratch allocations at this held, cold generation boundary.
+    pub(crate) fn capture_reward_cutoffs(
+        &mut self,
+        world: &WorldState,
+        generation: &SensorGenerationState,
+        v4: Option<V4BoundaryContext<'_>>,
+        config: ControlPhaseConfig,
+        boundary: super::external_reward::RewardBoundary,
+    ) -> Result<ExternalRewardCutoffs, ControlPhaseError> {
+        let eligible = |lease: &&super::state::ControllerLease| {
+            lease.status == ControllerLeaseStatus::Connected
+                && lease.connection_id.is_some()
+                && lease.reward.is_some_and(|reward| reward.has_delivery())
+        };
+        let count = world.controller_leases.iter().filter(eligible).count();
+        if count > config.maximum_external_observations {
+            return Err(ControlPhaseError::InvalidConfig {
+                field: "reward cutoff observation count",
+            });
+        }
+        let mut result = ExternalRewardCutoffs::default();
+        if count == 0 {
+            return Ok(result);
+        }
+        let width = self.sensor_input_size();
+        let values = count
+            .checked_mul(width)
+            .ok_or(ControlPhaseError::ArithmeticOverflow {
+                context: "reward cutoff sensor values",
+            })?;
+        reserve_for(&mut result.records, count, "reward cutoff records")?;
+        reserve_for(
+            &mut result.observations,
+            values,
+            "reward cutoff observations",
+        )?;
+        self.body_index.rebuild(
+            world,
+            config.sensor_index.body_cell_size,
+            config.sensor_index.maximum_body_entries,
+        )?;
+        self.pellet_index.rebuild(
+            world,
+            config.sensor_index.pellet_cell_size,
+            config.sensor_index.maximum_pellet_entries,
+        )?;
+        let indexed = IndexedSensorWorld::from_indexes(
+            world,
+            std::mem::replace(&mut self.body_index, BodySpatialIndex::empty()),
+            std::mem::replace(&mut self.pellet_index, PelletSpatialIndex::empty()),
+        );
+        let sampled = (|| -> Result<(), ControlPhaseError> {
+            let body_rays = v4
+                .map(|_| self.ray_index.prepare(indexed.body_index()))
+                .transpose()
+                .map_err(ControlPhaseError::Rays)?;
+            let prepared_v4 = v4.zip(body_rays).map(|(context, body_rays)| {
+                super::sensors_v4::PreparedV4Sensing {
+                    body_rays,
+                    heads: None,
+                    context: context.context,
+                    grants_by_snake: &[],
+                }
+            });
+            for lease in world.controller_leases.iter().filter(eligible) {
+                let (snake_index, snake) = world
+                    .snakes
+                    .iter()
+                    .enumerate()
+                    .find(|(_, snake)| snake.id == lease.snake_id)
+                    .ok_or(ControlPhaseError::InternalShapeMismatch {
+                        field: "reward cutoff snake identity",
+                    })?;
+                let start = result.observations.len();
+                let len = if snake.alive { width } else { 0 };
+                if len != 0 {
+                    result.observations.resize(start + len, 0.0);
+                    self.neural.sensor().sample_probe_with_trace(
+                        &indexed,
+                        generation,
+                        snake_index,
+                        &mut result.observations[start..start + len],
+                        &mut self.sensor_scratch,
+                        None,
+                        prepared_v4,
+                        v4.map_or(0, |context| context.limits.cap()),
+                        &mut super::sensor_trace::SensorTrace::default(),
+                    )?;
+                }
+                result.records.push(ExternalRewardCutoff {
+                    connection_id: lease
+                        .connection_id
+                        .expect("eligible cutoff has a connection"),
+                    reward: lease
+                        .reward
+                        .expect("eligible cutoff has a reward ledger")
+                        .capture(boundary),
+                    observation_start: start,
+                    observation_len: len,
+                });
+            }
+            Ok(())
+        })();
+        let (body_index, pellet_index) = indexed.into_indexes();
+        self.body_index = body_index;
+        self.pellet_index = pellet_index;
+        sampled?;
+        Ok(result)
+    }
+
     /// Whether a subscriber currently requests focused activation work.
     pub const fn visualization_enabled(&self) -> bool {
         self.visualization_enabled
@@ -2811,6 +2961,16 @@ impl ControlPhaseWorkspace {
             "external observation events",
         )?;
         self.external_events.push(PreparedExternalObservation {
+            reward: lease.reward.map(|reward| {
+                reward.capture(super::external_reward::RewardBoundary {
+                    completed_step: inputs.prefix.key().source_completed_step(),
+                    // Geometry is still at the source completed-step boundary.
+                    // Prefix live-time credits are separate authoritative facts;
+                    // they must not advance the physical observation clock.
+                    elapsed_seconds: inputs.prefix.key().source_completed_step() as f64
+                        * inputs.prefix.config().fixed_dt,
+                })
+            }),
             lease_id: lease.id,
             connection_id,
             kind: lease.kind,
@@ -3846,6 +4006,7 @@ mod tests {
         }];
         let controller_leases = vec![
             ControllerLease {
+                reward: None,
                 identity_key: String::new(),
                 id: 2,
                 snake_id: 40,
@@ -3868,6 +4029,7 @@ mod tests {
                 takeover_committed_at_ms: None,
             },
             ControllerLease {
+                reward: None,
                 identity_key: String::new(),
                 id: 1,
                 snake_id: 30,
@@ -3890,6 +4052,7 @@ mod tests {
                 takeover_committed_at_ms: None,
             },
             ControllerLease {
+                reward: None,
                 identity_key: String::new(),
                 id: 3,
                 snake_id: 50,
@@ -4233,6 +4396,129 @@ mod tests {
         let neural =
             NeuralControlPipeline::try_new(8, sensor, plan.clone(), workers, usize::MAX).unwrap();
         (plan, ControlPhaseWorkspace::new(neural).unwrap())
+    }
+
+    #[test]
+    fn reward_cutoff_probes_preserve_markers_and_agree_across_sensor_profiles() {
+        use crate::contracts::ExternalRewardEndReason;
+        use crate::engine::evolved_lives::{EvolvedExperimentConfig, EvolvedGenerationState};
+        use crate::engine::external_reward::{
+            ExternalRewardLedger, RewardBoundary, RewardLifeIdentity,
+        };
+        use crate::engine::ray_work::RayWorkLimits;
+        use crate::engine::sensor_contract::SensorProfile;
+
+        let mut expected_reward = None;
+        for profile in [
+            SensorProfile::V3,
+            SensorProfile::Basic,
+            SensorProfile::Motion,
+        ] {
+            let (plan, mut workspace) = if profile == SensorProfile::V3 {
+                let plan = graph_plan_for_width(83);
+                let workspace = control_workspace(plan.clone());
+                (plan, workspace)
+            } else {
+                v4_workspace(profile, 16, 1)
+            };
+            let mut fixture = fixture(&plan);
+            let snake = fixture
+                .world
+                .snakes
+                .iter_mut()
+                .find(|snake| snake.id == 30)
+                .unwrap();
+            let mut ledger = ExternalRewardLedger::new(
+                RewardLifeIdentity {
+                    world_epoch: 7,
+                    lease_id: 1,
+                    physical_snake_id: snake.id,
+                    frame_snake_id: snake.frame_v1_id,
+                },
+                RewardBoundary {
+                    completed_step: 0,
+                    elapsed_seconds: 0.0,
+                },
+                snake.body.len,
+                snake.points,
+            )
+            .unwrap();
+            let initial = ledger
+                .prepare(
+                    1,
+                    RewardBoundary {
+                        completed_step: 0,
+                        elapsed_seconds: 0.0,
+                    },
+                    None,
+                )
+                .unwrap();
+            ledger.commit_delivery(&initial).unwrap();
+            ledger.record_live_time(DT, 0.01).unwrap();
+            snake.points += 0.01;
+            snake.age_seconds += DT;
+            let lease = fixture
+                .world
+                .controller_leases
+                .iter_mut()
+                .find(|lease| lease.snake_id == 30)
+                .unwrap();
+            lease.kind = ControllerKind::ReinforcementLearning;
+            lease.reward = Some(ledger);
+            let before = fixture.world.clone();
+            let mut generation = SensorGenerationState::new();
+            generation.update_after_step(&fixture.world).unwrap();
+            let lives = EvolvedGenerationState::default();
+            let v4 = (profile != SensorProfile::V3).then_some(V4BoundaryContext {
+                context: crate::engine::sensors_v4::V4ObservationContext {
+                    generation_elapsed_seconds: DT,
+                    evolved: &lives,
+                    experiment: EvolvedExperimentConfig::legacy(240.0),
+                },
+                limits: RayWorkLimits::new(1, 256, 767, 8).unwrap(),
+            });
+            let boundary = RewardBoundary {
+                completed_step: 1,
+                elapsed_seconds: DT,
+            };
+            let captured = workspace
+                .capture_reward_cutoffs(&fixture.world, &generation, v4, control_config(), boundary)
+                .unwrap();
+            assert_eq!(captured.records.len(), 1);
+            assert_eq!(captured.observations.len(), plan.input_size());
+            assert!(captured.observations.iter().all(|value| value.is_finite()));
+            let envelope = captured.records[0]
+                .reward
+                .prepare_closure(2, ExternalRewardEndReason::Generation)
+                .unwrap()
+                .envelope("profile-fixture")
+                .unwrap();
+            assert!((envelope.deltas.alive_seconds_delta - DT).abs() < 1e-12);
+            if let Some(expected) = &expected_reward {
+                assert_eq!(&envelope, expected);
+            } else {
+                expected_reward = Some(envelope);
+            }
+            let retried = workspace
+                .capture_reward_cutoffs(&fixture.world, &generation, v4, control_config(), boundary)
+                .unwrap();
+            assert_eq!(retried.observations, captured.observations);
+            assert_eq!(fixture.world, before);
+            // Capacity errors are detected before a probe or delivery marker can commit.
+            assert!(workspace
+                .capture_reward_cutoffs(
+                    &fixture.world,
+                    &generation,
+                    v4,
+                    ControlPhaseConfig {
+                        maximum_external_observations: 0,
+                        ..control_config()
+                    },
+                    boundary
+                )
+                .is_err());
+            assert_eq!(fixture.world, before);
+        }
     }
 
     #[test]

@@ -13,6 +13,32 @@ BrainSourceKind: TypeAlias = Literal['distilled', 'imported', 'manual']
 DatasetState: TypeAlias = Literal['active', 'stopped', 'interrupted']
 
 
+class ExternalRewardDeltasV1(TypedDict, closed=True):
+    aliveSecondsDelta: float
+    boostPointsSpentDelta: float
+    elapsedSeconds: float
+    foodCountDelta: int
+    foodPointsDelta: float
+    foodValueDelta: float
+    killPointsDelta: float
+    killsDelta: int
+    lengthDelta: int
+    otherPointsDelta: float
+    pointsDelta: float
+    retainedGrowthDelta: int
+    survivalPointsDelta: float
+
+
+ExternalRewardEndReason: TypeAlias = Literal[
+    'death', 'generation', 'manualGeneration', 'reset', 'import', 'worldReplacement'
+]
+
+
+ExternalRewardTransitionKind: TypeAlias = Literal[
+    'initial', 'live', 'terminal', 'truncated'
+]
+
+
 FreshRunGraphEdgeWire = TypedDict(
     'FreshRunGraphEdgeWire',
     {
@@ -211,6 +237,22 @@ class DistillationDataset(TypedDict, closed=True):
     storageWatermark: str
 
 
+class ExternalRewardEnvelopeV1(TypedDict, closed=True):
+    deltas: ExternalRewardDeltasV1
+    fromStep: str
+    leaseId: str
+    observationSequence: str
+    physicalSnakeId: str
+    previousObservationSequence: NotRequired[str | None]
+    reason: NotRequired[ExternalRewardEndReason | None]
+    rewardVersion: int
+    runId: str
+    snakeId: int
+    toStep: str
+    transitionKind: ExternalRewardTransitionKind
+    worldEpoch: str
+
+
 class TeacherChunkDescriptor(TypedDict, closed=True):
     baselineSlot: float
     byteCount: float
@@ -294,5 +336,6 @@ class Contracts(TypedDict):
     chunk: TeacherChunkDescriptor
     dataset: DistillationDataset
     graph: FreshRunGraphWire
+    reward: ExternalRewardEnvelopeV1
     teacher: TeacherCaptureContract
     training: CanonicalTrainingGraphManifestV1

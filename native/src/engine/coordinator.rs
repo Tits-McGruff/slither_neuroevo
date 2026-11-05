@@ -1266,13 +1266,15 @@ fn execute_running_authority_command(
                     },
                 )
         }
-        RunningAuthorityCommand::PrepareGenerationReassignments => running
+        RunningAuthorityCommand::PrepareGenerationReassignments => {
+            let run_id = running.controller_run_id().to_owned();
+            running
             .prepare_acknowledged_generation_reassignments()
             .map_err(running_control_error)
             .and_then(|progress| {
                 let (ready, assignments) = match progress {
                     GenerationReassignmentProgress::DeliveryPending(batch) => {
-                        (false, own_pending_generation_assignments(batch)?)
+                        (false, own_pending_generation_assignments(batch, &run_id)?)
                     }
                     GenerationReassignmentProgress::Ready(_) => (true, Box::default()),
                 };
@@ -1281,7 +1283,8 @@ fn execute_running_authority_command(
                     ready,
                     assignments,
                 })
-            }),
+            })
+        },
         RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { receipts } => {
             submit_generation_assignment_receipts(command_sequence, &receipts, running)
         }
@@ -1428,11 +1431,29 @@ fn running_response_owned_byte_bound(
                         && lease.connection_id.is_some()
                 })
                 .count();
+            let reward_count = running
+                .generation_source_controller_leases()
+                .iter()
+                .filter(|lease| {
+                    lease.status == super::state::ControllerLeaseStatus::Connected
+                        && lease.connection_id.is_some()
+                        && lease.reward.is_some()
+                })
+                .count();
+            let reward_bytes = running
+                .sensor_input_size()
+                .checked_mul(size_of::<f32>())
+                .and_then(|bytes| {
+                    bytes.checked_add(crate::contracts::EXTERNAL_REWARD_MAX_ENVELOPE_BYTES)
+                })
+                .and_then(|bytes| bytes.checked_mul(reward_count))
+                .ok_or_else(overflow)?;
             count
                 .checked_mul(
                     size_of::<RunningGenerationAssignment>()
                         + super::external_replacement::RESUME_TOKEN_LENGTH,
                 )
+                .and_then(|bytes| bytes.checked_add(reward_bytes))
                 .ok_or_else(overflow)?
         }
         RunningAuthorityCommand::SubmitGenerationAssignmentReceipts { .. }
@@ -1479,8 +1500,9 @@ fn running_response_owned_byte_bound(
         .ok_or_else(overflow)
 }
 
-fn own_pending_generation_assignments(
+pub(crate) fn own_pending_generation_assignments(
     batch: ExternalObservationBatch<'_>,
+    run_id: &str,
 ) -> Result<Box<[RunningGenerationAssignment]>, EngineError> {
     let pending_count = batch.remaining();
     let mut assignments = Vec::new();
@@ -1519,7 +1541,20 @@ fn own_pending_generation_assignments(
                 )
             })?;
         resume_token.push_str(token);
+        let final_samples = batch.final_observation(index).unwrap_or(&[]);
+        let mut final_sensors = Vec::new();
+        final_sensors
+            .try_reserve_exact(final_samples.len())
+            .map_err(|_| {
+                EngineError::new(
+                    EngineErrorCode::QueueByteLimit,
+                    "failed to reserve cutoff sensor reply",
+                )
+            })?;
+        final_sensors.extend_from_slice(final_samples);
         assignments.push(RunningGenerationAssignment {
+            reward_json: super::controller_output::own_reward_json(event.reward, run_id)?,
+            final_sensors: final_sensors.into_boxed_slice(),
             operation_epoch: event.step_key.operation_epoch(),
             event_sequence: event.event_sequence,
             connection_id: event.connection_id,
@@ -3026,9 +3061,14 @@ mod tests {
                 running_response_owned_byte_bound(&managed.publish_command(), &publication_probe)
                     .unwrap();
             drop(publication_probe);
-            init.output.max_event_owned_bytes = publication_bound;
-            init.output.max_reliable_owned_bytes = publication_bound;
-            init.inbound.max_batch_owned_bytes = publication_bound;
+            // Admission must fit both reply shapes. The pressure probe below
+            // fills that actual capacity, rather than assuming a generation
+            // publication is always larger than a reward-capable observation.
+            let output_bound = publication_bound
+                .max(super::super::controller_output::service_reply_bound(&running).unwrap());
+            init.output.max_event_owned_bytes = output_bound;
+            init.output.max_reliable_owned_bytes = output_bound;
+            init.inbound.max_batch_owned_bytes = output_bound;
             let runtime =
                 EngineRuntime::new_running_authority(init, running, Arc::new(NoopWakeSink))
                     .unwrap();
@@ -3040,7 +3080,7 @@ mod tests {
                     1,
                     EngineCommand::Probe {
                         correlation_id: 1,
-                        payload: vec![0; publication_bound - size_of::<RunningAuthorityEvent>()],
+                        payload: vec![0; output_bound - size_of::<RunningAuthorityEvent>()],
                     },
                 );
                 wait_for_runtime(&runtime, || runtime.health().processed_commands == 1);

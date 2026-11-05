@@ -660,6 +660,8 @@ impl RunningAuthorityCommand {
 /// Owned reliable projection of a retained Rust observation or death assignment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunningControllerMessage {
+    /// Bounded Rust-authored reward JSON, opaque to the thin Node transport.
+    pub reward_json: Option<Box<str>>,
     pub event: ExternalObservationEvent,
     /// Browser/Protocol 2 identity, distinct from the internal snake ID.
     pub frame_v1_id: u32,
@@ -674,13 +676,18 @@ impl RunningControllerMessage {
             .len()
             .saturating_mul(size_of::<f32>())
             .saturating_add(self.resume_token.as_ref().map_or(0, |token| token.len()))
+            .saturating_add(self.reward_json.as_ref().map_or(0, |json| json.len()))
     }
 }
 
 /// One Rust-owned controller reassignment envelope. No population or archive
 /// bytes are copied into this bridge record.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RunningGenerationAssignment {
+    /// Old-life closure, ordered before this successor assignment by transport.
+    pub reward_json: Option<Box<str>>,
+    /// Final old-life sensor state for truncation; empty for terminal/unobserved lives.
+    pub final_sensors: Box<[f32]>,
     /// Exact source operation epoch.
     pub operation_epoch: u64,
     /// Monotonic external event identity.
@@ -990,7 +997,17 @@ impl RunningAuthorityEvent {
                 .len()
                 .saturating_mul(size_of::<RunningGenerationAssignment>())
                 .saturating_add(assignments.iter().fold(0usize, |bytes, assignment| {
-                    bytes.saturating_add(assignment.resume_token.len())
+                    bytes
+                        .saturating_add(assignment.resume_token.len())
+                        .saturating_add(
+                            assignment.reward_json.as_ref().map_or(0, |json| json.len()),
+                        )
+                        .saturating_add(
+                            assignment
+                                .final_sensors
+                                .len()
+                                .saturating_mul(size_of::<f32>()),
+                        )
                 })),
             Self::GenerationStartPublished { resolution, .. } => {
                 let reservations = &resolution.publication.unavailable_controller_reservations;

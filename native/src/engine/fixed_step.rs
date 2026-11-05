@@ -1187,6 +1187,7 @@ pub(crate) fn copy_controller_leases_reusing(
         )?;
         resume_token.push_str(&lease.resume_token);
         target.push(ControllerLease {
+            reward: lease.reward,
             identity_key,
             id: lease.id,
             snake_id: lease.snake_id,
@@ -1222,6 +1223,7 @@ fn copy_lease_reusing(
         "controller resume token",
     )?;
     target.id = source.id;
+    target.reward = source.reward;
     target.snake_id = source.snake_id;
     target.kind = source.kind;
     target.connection_id = source.connection_id;
@@ -2412,6 +2414,7 @@ mod tests {
         ]);
         source_world.snakes.push(external.clone());
         source_world.controller_leases.push(ControllerLease {
+            reward: None,
             identity_key: "player:legacy-owner".to_owned(),
             id: 1,
             snake_id: external.id,

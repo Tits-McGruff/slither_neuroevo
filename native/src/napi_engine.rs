@@ -374,6 +374,8 @@ pub struct Stage6BackgroundGenerationTransition {
 /// One exact Rust-owned reassignment emitted from the retained successor.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationAssignment {
+    pub reward_json: Option<String>,
+    pub final_sensors: Option<Vec<f64>>,
     pub operation_epoch: String,
     pub event_sequence: String,
     pub connection_id: String,
@@ -458,6 +460,7 @@ pub struct BackgroundControllerReclaimResolution {
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct BackgroundControllerMessage {
+    pub reward_json: Option<String>,
     pub operation_epoch: String,
     pub event_sequence: String,
     pub connection_id: String,
@@ -4368,6 +4371,7 @@ fn running_authority_event_to_napi(
                             crate::engine::ExternalDeliveryEventKind::Observation
                         );
                         BackgroundControllerMessage {
+                            reward_json: message.reward_json.map(|json| json.into_string()),
                             operation_epoch: u64_hex(event.step_key.operation_epoch()),
                             event_sequence: u64_hex(event.event_sequence),
                             connection_id: u64_hex(event.connection_id),
@@ -4398,6 +4402,7 @@ fn running_authority_event_to_napi(
                         let observation = event.delivery_kind
                             == crate::engine::ExternalDeliveryEventKind::Observation;
                         BackgroundControllerMessage {
+                            reward_json: message.reward_json.map(|json| json.into_string()),
                             operation_epoch: u64_hex(event.step_key.operation_epoch()),
                             event_sequence: u64_hex(event.event_sequence),
                             connection_id: u64_hex(event.connection_id),
@@ -4496,6 +4501,15 @@ fn running_authority_event_to_napi(
                     .into_vec()
                     .into_iter()
                     .map(|assignment| Stage6BackgroundGenerationAssignment {
+                        reward_json: assignment.reward_json.map(|json| json.into_string()),
+                        final_sensors: (!assignment.final_sensors.is_empty()).then(|| {
+                            assignment
+                                .final_sensors
+                                .iter()
+                                .copied()
+                                .map(f64::from)
+                                .collect()
+                        }),
                         operation_epoch: u64_hex(assignment.operation_epoch),
                         event_sequence: u64_hex(assignment.event_sequence),
                         connection_id: u64_hex(assignment.connection_id),

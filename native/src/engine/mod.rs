@@ -71,6 +71,8 @@ pub mod export_archive;
 pub(crate) mod export_failure_fixture;
 /// Atomic external-controller death replacement staging.
 pub mod external_replacement;
+/// Sensor-independent external reward accounting and output-admission markers.
+pub mod external_reward;
 /// Reusable corrected prefix of one complete authoritative fixed step.
 pub mod fixed_step;
 /// Deterministic contested-food claims and post-food body finalization.

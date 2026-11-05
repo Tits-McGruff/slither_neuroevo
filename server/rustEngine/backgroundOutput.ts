@@ -3,7 +3,7 @@ import type {
   RustBackgroundIdentity,
   RustBackgroundVisualization
 } from '../../src/protocol/rustBackground.ts';
-import type { AssignMsg, ReclaimResultMsg, SensorsMsg } from '../protocol.ts';
+import type { AssignMsg, ReclaimResultMsg, SensorsMsg, RewardTransitionMsg } from '../protocol.ts';
 import { nativeSensorLayout } from './browserMetadata.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { BackgroundFramePool, type BackgroundFrameLease } from './backgroundFrames.ts';
@@ -33,7 +33,7 @@ export interface BackgroundOutputOptions {
   /** Current committed metadata after Reset/import; fixed owners may use startup metadata. */
   metadata?(): RustStartupMetadata;
   /** Exact socket acceptance; only small Protocol 2 messages cross here. */
-  send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg): boolean;
+  send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg | RewardTransitionMsg): boolean;
   /** Observe scalar routing/lifecycle results before delivery of their messages. */
   event(event: RustBackgroundEvent): void;
   /** Disconnect only the exact current assignment after an asynchronous observation send fails. */
@@ -116,6 +116,7 @@ export class BackgroundOutputPump {
     this.generation = new BackgroundGenerationRouter({
       native: owner.runtime, admission: this.admission, persistence: owner.persistence,
       managedDirectory: owner.managedDirectory, maxAssignments: maxControllers, send,
+      sensorCount: () => this.currentSensorCount(),
       admitCheckpoint: () => owner.admitCheckpoint(),
       maintainRetention: () => options.maintainCheckpointRetention?.() ?? Promise.resolve(),
       observeBarrier: durationMs => options.observeCheckpointBarrier?.(durationMs)

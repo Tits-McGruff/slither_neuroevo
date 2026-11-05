@@ -744,6 +744,7 @@ fn make_terminal_running_candidate(
         },
     )?;
     candidate.world.controller_leases.push(ControllerLease {
+        reward: None,
         identity_key: "player:background-fixture".into(),
         id: FIXTURE_LEASE_ID,
         snake_id: external_id,

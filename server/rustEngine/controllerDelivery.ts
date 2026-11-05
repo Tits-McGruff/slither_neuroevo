@@ -1,5 +1,6 @@
 import { isSupportedSensorCount } from '../../src/protocol/sensors.ts';
-import type { AssignMsg, SensorsMsg, ReclaimResultMsg } from '../protocol.ts';
+import type { AssignMsg, SensorsMsg, ReclaimResultMsg, RewardTransitionMsg } from '../protocol.ts';
+import { EXTERNAL_REWARD_MAX_ENVELOPE_BYTES, type ExternalRewardEnvelopeV1 } from '../../contracts/types.ts';
 import type {
   RustBackgroundControllerMessage,
   RustBackgroundIdentity,
@@ -14,7 +15,7 @@ export interface ControllerDeliveryPorts {
   /** Current Rust-admitted width; historical fixture adapters may omit this v3-only hint. */
   sensorCount?(): number;
   /** Route to the exact socket epoch; false means the local send was not accepted. */
-  send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg): boolean;
+  send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | RewardTransitionMsg): boolean;
   /** Allocate from the shared ordered command pump, which must hold later commands while blocked. */
   nextSequence(): RustBackgroundIdentity;
   /** Return false only for queue capacity; other native failures must propagate. */
@@ -27,6 +28,8 @@ interface PendingDelivery {
   receipt: RustGenerationAssignmentReceipt;
   /** Existing Protocol 2 envelope containing Rust-produced values. */
   message: AssignMsg | SensorsMsg;
+  /** Old-life closure must be accepted before the replacement assignment. */
+  closure: RewardTransitionMsg | undefined;
   /** Internal command sequence assigned when the receipt first reaches the queue. */
   sequence?: RustBackgroundIdentity;
 }
@@ -49,6 +52,59 @@ const MAX_WIRE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER);
 function identity(value: string): RustBackgroundIdentity {
   if (!POSITIVE_ID.test(value)) throw new TypeError('invalid Rust controller identity');
   return value;
+}
+
+/** Validate bounded native routing facts without reconstructing game accounting. */
+function nativeReward(message: RustBackgroundControllerMessage): ExternalRewardEnvelopeV1 | undefined {
+  if (message.rewardJson === undefined) return undefined;
+  if (typeof message.rewardJson !== 'string' || Buffer.byteLength(message.rewardJson, 'utf8') > EXTERNAL_REWARD_MAX_ENVELOPE_BYTES) {
+    throw new TypeError('native reward exceeds its wire bound');
+  }
+  const reward = JSON.parse(message.rewardJson) as ExternalRewardEnvelopeV1;
+  if (!reward || reward.rewardVersion !== 1 || reward.observationSequence !== message.eventSequence ||
+      typeof reward.runId !== 'string' || reward.runId.length === 0 ||
+      !/^[0-9a-f]{16}$/u.test(reward.toStep) || !reward.deltas ||
+      !Object.values(reward.deltas).every(value => typeof value === 'number' && Number.isFinite(value))) {
+    throw new TypeError('invalid native reward envelope');
+  }
+  identity(reward.worldEpoch);
+  identity(reward.leaseId);
+  identity(reward.physicalSnakeId);
+  if (!Number.isInteger(reward.snakeId) || reward.snakeId <= 0 || reward.snakeId > 16_777_216) {
+    throw new TypeError('invalid native reward snake identity');
+  }
+  if (message.kind === 'observation' &&
+      (reward.leaseId !== message.leaseId || reward.physicalSnakeId !== message.internalSnakeId ||
+       reward.snakeId !== message.snakeId || reward.toStep !== message.sourceCompletedStep ||
+       !['initial', 'live'].includes(reward.transitionKind))) {
+    throw new TypeError('native observation reward identity mismatch');
+  }
+  return reward;
+}
+
+/** A closure travels on the successor transaction but names only the old life. */
+function prepareClosure(message: RustBackgroundControllerMessage, expectedSensorCount?: number): RewardTransitionMsg | undefined {
+  if (message.kind !== 'replacementAssignment') return undefined;
+  const reward = nativeReward(message);
+  const finalSensors = message.finalSensors;
+  if (!reward) {
+    if (finalSensors !== undefined) throw new TypeError('cutoff sensors omit their reward identity');
+    return undefined;
+  }
+  if (reward.transitionKind !== 'terminal' && reward.transitionKind !== 'truncated') {
+    throw new TypeError('assignment reward must close the old life');
+  }
+  if (reward.transitionKind === 'terminal') {
+    if (reward.reason !== 'death' || finalSensors !== undefined) throw new TypeError('invalid terminal closure');
+    return { type: 'transition', reward };
+  }
+  if (!reward.reason || reward.reason === 'death' || !Array.isArray(finalSensors) ||
+      !isSupportedSensorCount(finalSensors.length) ||
+      (expectedSensorCount !== undefined && finalSensors.length !== expectedSensorCount) ||
+      !finalSensors.every(Number.isFinite)) {
+    throw new TypeError('truncation requires final old-life sensors');
+  }
+  return { type: 'transition', reward, finalSensors };
 }
 
 /** Translate one Rust envelope without calculating sensors or looking up game state. */
@@ -95,9 +151,10 @@ function prepareMessage(
       typeof direction !== 'number' || !Number.isFinite(direction)) {
     throw new TypeError('controller observation omits the admitted sensor values or pose');
   }
+  const reward = nativeReward(message);
   return {
     type: 'sensors', tick: Number(tick), snakeId: message.snakeId,
-    sensors, meta: { x, y, dir: direction }
+    sensors, meta: { x, y, dir: direction }, ...(reward ? { reward } : {})
   };
 }
 
@@ -111,7 +168,8 @@ function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?:
       leaseId: identity(message.leaseId),
       accepted: false
     },
-    message: prepareMessage(message, expectedSensorCount)
+    message: prepareMessage(message, expectedSensorCount),
+    closure: prepareClosure(message, expectedSensorCount)
   };
 }
 
@@ -196,7 +254,10 @@ export class ControllerDeliveryRouter {
     try {
       for (const item of prepared) {
         // A thrown send is a local delivery failure, just like a closed socket.
-        try { item.receipt.accepted = this.ports.send(item.receipt.connectionId, item.message); }
+        try {
+          item.receipt.accepted = (!item.closure || this.ports.send(item.receipt.connectionId, item.closure)) &&
+            this.ports.send(item.receipt.connectionId, item.message);
+        }
         catch { item.receipt.accepted = false; }
       }
     } finally { this.busy = false; }

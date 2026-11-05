@@ -86,6 +86,7 @@ impl WorldStepConfig {
         physics.maximum_body_points = prefix.maximum_body_points;
         physics.maximum_pellets = prefix.maximum_pellets;
         let external_replacement = ExternalReplacementConfig {
+            fixed_step_seconds: prefix.fixed_dt,
             spawn: prefix.baseline_spawn,
             snake_base_speed: prefix.baseline_snake_base_speed,
             controller_timing: control.controller_timing,
@@ -137,6 +138,8 @@ impl WorldStepConfig {
             });
         }
         if self.external_replacement.spawn != self.prefix.baseline_spawn
+            || self.external_replacement.fixed_step_seconds.to_bits()
+                != self.prefix.fixed_dt.to_bits()
             || self.external_replacement.snake_base_speed.to_bits()
                 != self.prefix.baseline_snake_base_speed.to_bits()
             || self.external_replacement.controller_timing != self.control.controller_timing
@@ -1105,6 +1108,15 @@ impl WorldStepWorkspace {
             return Err(WorldStepError::ExternalDeliveryPending { count: pending });
         }
         self.resolved_buffers(key)
+    }
+
+    /// Final old-life accounting retained beside a death replacement transaction.
+    pub(crate) fn replacement_old_reward(
+        &self,
+        key: PhysicsStepKey,
+        index: usize,
+    ) -> Result<Option<super::external_reward::ExternalRewardLedger>, WorldStepError> {
+        Ok(self.external_replacement.old_reward(key, index)?)
     }
 
     /// Resolved generation-base/controller buffers for successor admission.

@@ -1107,6 +1107,7 @@ mod tests {
 
     fn lease() -> ControllerLease {
         ControllerLease {
+            reward: None,
             identity_key: String::new(),
             id: 7,
             snake_id: 9,

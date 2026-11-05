@@ -45,6 +45,15 @@ describe(SUITE, () => {
     expect(msg?.type).toBe('hello');
   });
 
+  it('validates explicit reward and compact-observation capability versions', () => {
+    const hello = { type: 'hello', clientType: 'bot', version: 2, binarySensors: true,
+      rewardVersion: 1, binarySensorsVersion: 2 };
+    expect(parseClientMessage(hello)).toEqual(hello);
+    expect(parseClientMessage({ ...hello, rewardVersion: 2 })).toBeNull();
+    expect(parseClientMessage({ ...hello, rewardVersion: true })).toBeNull();
+    expect(parseClientMessage({ ...hello, binarySensorsVersion: 3 })).toBeNull();
+  });
+
   it('describes Protocol 1 as explicitly incompatible', () => {
     const hello = { type: 'hello', clientType: 'ui', version: 1 };
     expect(parseClientMessage(hello)).toBeNull();

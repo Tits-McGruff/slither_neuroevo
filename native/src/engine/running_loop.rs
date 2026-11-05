@@ -1549,6 +1549,11 @@ impl RunningAuthorityLoop {
         self.coordinator.sensor_input_size()
     }
 
+    /// Scope for immutable reward output from the still-current authority.
+    pub(crate) fn controller_run_id(&self) -> &str {
+        &self.authority.state().identity.run_id
+    }
+
     /// Borrow only the retained source controller records for queue admission.
     /// These remain private Rust data and cannot be supplied by a bridge caller.
     pub(crate) fn generation_source_controller_leases(&self) -> &[super::state::ControllerLease] {

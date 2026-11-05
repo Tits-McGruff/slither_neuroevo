@@ -26,5 +26,7 @@ schema.required = schema.required.filter(name => name !== 'training' && name !==
 const constants = JSON.parse(fs.readFileSync('contracts/slither_contracts/constants.json', 'utf8'));
 const domain = '\\nexport const SENSOR_HASH_DOMAIN = ' + JSON.stringify(constants.sensorHashDomain) + ';\\n';
 const limits = ['maxBrainParameters', 'maxBrainTensorWidth', 'maxBrainStateFloats', 'maxBrainWeightBytes', 'maxBrainNumericCandidateBytes'].map(name => 'export const ' + name + ' = ' + constants[name] + ';').join('\\n');
-fs.writeFileSync('contracts/types.ts', await compile(schema, 'BrowserContracts') + domain + limits + '\\n');
+const reward = '\\nexport const EXTERNAL_REWARD_BINARY_VERSION = ' + constants.externalRewardBinaryVersion + ';\\n'
+  + 'export const EXTERNAL_REWARD_MAX_ENVELOPE_BYTES = ' + constants.externalRewardMaxEnvelopeBytes + ';\\n';
+fs.writeFileSync('contracts/types.ts', await compile(schema, 'BrowserContracts') + domain + limits + '\\n' + reward);
 """], cwd=ROOT, check=True)

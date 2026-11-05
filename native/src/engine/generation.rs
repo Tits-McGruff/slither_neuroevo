@@ -381,7 +381,7 @@ pub(crate) fn admit_prepared_generation_boundary(
     source_key: PhysicsStepKey,
     prepared: PreparedGenerationBoundary,
 ) -> Result<AdmittedGenerationBoundary, GenerationTransitionError> {
-    admit_generation_boundary_internal(current_source, source_key, prepared, None)
+    admit_generation_boundary_internal(current_source, source_key, prepared, None, 0)
 }
 
 /// Admit newborn terminal identities only with the sealed replacement witness.
@@ -394,6 +394,7 @@ pub(crate) fn admit_prepared_generation_boundary_with_evolved(
     completed_rng: &RngStateBundle,
     completed_allocators: &AllocatorState,
     proof: Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof>,
+    retained_bytes: usize,
 ) -> Result<AdmittedGenerationBoundary, GenerationTransitionError> {
     if let Some(proof) = proof {
         if !proof.matches(
@@ -408,10 +409,10 @@ pub(crate) fn admit_prepared_generation_boundary_with_evolved(
             });
         }
     }
-    if proof.is_none() {
+    if proof.is_none() && retained_bytes == 0 {
         return admit_prepared_generation_boundary(current_source, source_key, prepared);
     }
-    admit_generation_boundary_internal(current_source, source_key, prepared, proof)
+    admit_generation_boundary_internal(current_source, source_key, prepared, proof, retained_bytes)
 }
 
 fn admit_generation_boundary_internal(
@@ -419,9 +420,11 @@ fn admit_generation_boundary_internal(
     source_key: PhysicsStepKey,
     prepared: PreparedGenerationBoundary,
     evolved: Option<&super::evolved_replacement::EvolvedReplacementAuthorityProof>,
+    retained_bytes: usize,
 ) -> Result<AdmittedGenerationBoundary, GenerationTransitionError> {
     let (candidate, metadata) = prepared.into_parts();
-    let successor = current_source.admit_generation_successor(source_key, candidate)?;
+    let successor =
+        current_source.admit_generation_successor(source_key, candidate, retained_bytes)?;
     let commit_record = generation_commit_record(
         current_source.state(),
         successor.authority().state(),

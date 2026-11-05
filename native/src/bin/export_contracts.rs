@@ -11,6 +11,7 @@ struct Contracts {
     teacher: TeacherCaptureContract,
     chunk: TeacherChunkDescriptor,
     dataset: DistillationDataset,
+    reward: ExternalRewardEnvelopeV1,
 }
 
 fn main() {
@@ -24,6 +25,9 @@ fn main() {
     )
     .unwrap();
     let constants = json!({
+        "externalRewardVersion": EXTERNAL_REWARD_VERSION,
+        "externalRewardBinaryVersion": EXTERNAL_REWARD_BINARY_VERSION,
+        "externalRewardMaxEnvelopeBytes": EXTERNAL_REWARD_MAX_ENVELOPE_BYTES,
         "brainMagic": std::str::from_utf8(BRAIN_MAGIC).unwrap(),
         "teacherMagic": std::str::from_utf8(TEACHER_MAGIC).unwrap(),
         "brainHeader": BRAIN_HEADER_FORMAT,

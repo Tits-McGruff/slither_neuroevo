@@ -360,6 +360,9 @@ export interface RustBackgroundReclaimReceipt {
 
 /** Exact local-send result for a Rust-issued generation assignment. */
 export interface RustBackgroundGenerationAssignment extends Omit<RustGenerationAssignmentReceipt, 'accepted'> {
+  /** Closure and final sensor state belong to the old life, before this assignment. */
+  rewardJson?: string;
+  finalSensors?: number[];
   /** Rust controller category. */
   controllerKind: 'player' | 'reinforcementLearning';
   /** Internal snake identity, distinct from its public frame identity. */
@@ -386,6 +389,8 @@ export interface RustGenerationAssignmentReceipt {
 
 /** Ordinary reliable observation or death-replacement assignment prepared by Rust. */
 export interface RustBackgroundControllerMessage {
+  /** Opaque bounded Rust-authored reward envelope, independent of sensor layout. */
+  rewardJson?: string;
   /** Exact retained operation epoch. */
   operationEpoch: RustBackgroundIdentity;
   /** Exact retained event sequence. */
@@ -406,6 +411,8 @@ export interface RustBackgroundControllerMessage {
   kind: 'observation' | 'replacementAssignment';
   /** Rust-delivered canonical sensor vector for observations. */
   sensors?: number[];
+  /** Old-life bootstrap vector on a generation replacement, never successor sensors. */
+  finalSensors?: number[];
   /** Pre-movement pose, present on observations. */
   x?: number;
   /** Pre-movement pose, present on observations. */

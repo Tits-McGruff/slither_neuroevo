@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import type { ExternalRewardEnvelopeV1 } from '../../contracts/types.ts';
 import type { RustBackgroundControllerMessage, RustGenerationAssignmentReceipt, RustBackgroundReclaimAssignment, RustBackgroundReclaimReceipt } from '../../src/protocol/rustBackground.ts';
 import { ControllerDeliveryRouter, ControllerObservationRouter, ReclaimDeliveryRouter, GenerationDeliveryRouter } from './controllerDelivery.ts';
+
+const REWARD_FIXTURE = JSON.parse(readFileSync(new URL(
+  '../../contracts/slither_contracts/external-reward-v1-fixture.json', import.meta.url
+), 'utf8')) as ExternalRewardEnvelopeV1[];
 
 /** Rust-owned fixture with distinct wire, snake, lease, connection, and event identities. */
 function observation(eventSequence = '0000000000000009'): RustBackgroundControllerMessage {
@@ -12,6 +18,91 @@ function observation(eventSequence = '0000000000000009'): RustBackgroundControll
     sensors: Array.from({ length: 83 }, (_, i) => i / 100), x: 5, y: 8, direction: 0.25
   };
 }
+
+describe('Rust reward lifecycle transport', () => {
+  it('routes native observation reward and rejects a mismatched batch before sending', () => {
+    const sent: unknown[] = [];
+    const router = new ControllerObservationRouter(4, {
+      sensorCount: () => 83,
+      send(_connection, message) { sent.push(message); return true; },
+      failed() { throw new Error('unexpected transport failure'); }
+    });
+    const source = { ...observation(), sourceCompletedStep: '0000000000000001' };
+    const reward = { ...REWARD_FIXTURE[0]!, transitionKind: 'live' as const, reason: null,
+      observationSequence: source.eventSequence, leaseId: source.leaseId,
+      physicalSnakeId: source.internalSnakeId, snakeId: source.snakeId };
+    source.rewardJson = JSON.stringify(reward);
+    expect(() => router.deliver([source, { ...source, eventSequence: '0000000000000010' }])).toThrow(/identity|envelope/u);
+    expect(sent).toHaveLength(0);
+    router.deliver([source]);
+    expect(sent).toEqual([{ type: 'sensors', tick: 1, snakeId: 12, sensors: source.sensors,
+      meta: { x: 5, y: 8, dir: 0.25 }, reward }]);
+  });
+
+  it('delivers a terminal closure before assignment and retries only its receipt', () => {
+    let capacity = false;
+    const sent: unknown[] = [];
+    const receipts: RustGenerationAssignmentReceipt[] = [];
+    const router = new ControllerDeliveryRouter(2, {
+      send(_connection, message) { sent.push(message); return true; },
+      nextSequence: () => '0000000000000011',
+      trySubmitReceipt(_sequence, receipt) { receipts.push({ ...receipt }); return capacity; }
+    });
+    const reward = { ...REWARD_FIXTURE[0]!, observationSequence: '0000000000000009' };
+    const assignment = { ...observation(), kind: 'replacementAssignment' as const,
+      snakeId: 13, leaseId: '0000000000000006', resumeToken: 'a'.repeat(32),
+      rewardJson: JSON.stringify(reward) };
+    expect(router.deliver([assignment])).toBe(true);
+    expect(sent).toEqual([{ type: 'transition', reward }, {
+      type: 'assign', snakeId: 13, controller: 'bot', resumeToken: assignment.resumeToken
+    }]);
+    expect(router.deliver([assignment])).toBe(false);
+    capacity = true;
+    expect(router.flushReceipts()).toBe(true);
+    expect(sent).toHaveLength(2);
+    expect(receipts.every(receipt => receipt.accepted)).toBe(true);
+  });
+
+  it('keeps final old-life sensors on generation truncation and rejects malformed closures', () => {
+    const sent: unknown[] = [];
+    const router = new GenerationDeliveryRouter(2, {
+      sensorCount: () => 83,
+      send(_connection, message) { sent.push(message); return true; },
+      nextSequence: () => '0000000000000011', trySubmitReceipt: () => true
+    });
+    const reward = { ...REWARD_FIXTURE[1]!, observationSequence: '0000000000000009' };
+    const assignment = { operationEpoch: '0000000000000007', eventSequence: reward.observationSequence,
+      connectionId: '0000000000000003', leaseId: '0000000000000006',
+      snakeId: '0000000000002000', frameV1Id: '000000000000000d',
+      controllerKind: 'reinforcementLearning' as const, resumeToken: 'a'.repeat(32),
+      rewardJson: JSON.stringify(reward), finalSensors: Array(83).fill(0.25) as number[] };
+    expect(() => router.deliverAssignments([{ ...assignment, finalSensors: [] }])).toThrow(/final old-life/u);
+    expect(() => router.deliverAssignments([{ ...assignment, rewardJson: 'x'.repeat(4097) }])).toThrow(/wire bound/u);
+    expect(sent).toHaveLength(0);
+    expect(router.deliverAssignments([assignment])).toBe(true);
+    expect(sent[0]).toEqual({ type: 'transition', reward, finalSensors: assignment.finalSensors });
+    expect(sent[1]).toMatchObject({ type: 'assign', snakeId: 13, replacementReason: 'generation' });
+  });
+
+  it('fails the assignment transaction after either send fails without resending closure', () => {
+    for (const failureAt of [1, 2]) {
+      let sends = 0;
+      let accepted: boolean | undefined;
+      const router = new ControllerDeliveryRouter(1, {
+        send() { return ++sends !== failureAt; },
+        nextSequence: () => '0000000000000011',
+        trySubmitReceipt(_sequence, receipt) { accepted = receipt.accepted; return true; }
+      });
+      const reward = { ...REWARD_FIXTURE[0]!, observationSequence: '0000000000000009' };
+      router.deliver([{ ...observation(), kind: 'replacementAssignment', resumeToken: 'a'.repeat(32),
+        rewardJson: JSON.stringify(reward) }]);
+      expect(accepted).toBe(false);
+      expect(sends).toBe(failureAt);
+      expect(router.flushReceipts()).toBe(true);
+      expect(sends).toBe(failureAt);
+    }
+  });
+});
 
 /** Same-snake reconnect emitted by Rust; the new token is already staged. */
 const RECLAIM: RustBackgroundReclaimAssignment = {

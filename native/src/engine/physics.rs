@@ -679,7 +679,16 @@ impl PhysicsSubstepWorkspace {
         for claim in food.claims() {
             let delta = &mut self.evolved_deltas[claim.snake_index];
             delta.food += claim.value;
-            delta.credits += claim.value * config.food.points_per_food;
+            delta.food_count =
+                delta
+                    .food_count
+                    .checked_add(1)
+                    .ok_or(PhysicsError::ArithmeticOverflow {
+                        context: "reward food count",
+                    })?;
+            let credit = claim.value * config.food.points_per_food;
+            delta.food_credits += credit;
+            delta.credits += credit;
         }
         for emission in effects.corpse_emissions() {
             let delta = &mut self.evolved_deltas[emission.snake_index];
@@ -783,6 +792,7 @@ impl PhysicsSubstepWorkspace {
             let delta = &mut self.evolved_deltas[killer_index];
             delta.kills += 1;
             delta.credits += config.points_per_kill;
+            delta.kill_credits += config.points_per_kill;
             delta.wallet_after = next_points;
             self.awards += 1;
         }
@@ -1232,6 +1242,23 @@ impl PhysicsStepWorkspace {
         self.evolved_deltas.clear();
         self.evolved_deltas
             .extend_from_slice(&substep.evolved_deltas);
+        for lease in &mut self.world.controller_leases {
+            if let Some(reward) = &mut lease.reward {
+                if reward.identity().world_epoch != prepared_key.step.world_epoch() {
+                    return Err(PhysicsError::Reward(super::external_reward::RewardError(
+                        "physics world does not own this reward life",
+                    )));
+                }
+                let index = find_snake_index(
+                    &substep.next_world.snakes,
+                    &substep.validation.snake_order,
+                    lease.snake_id,
+                )?;
+                reward
+                    .record_physics(&substep.evolved_deltas[index])
+                    .map_err(PhysicsError::Reward)?;
+            }
+        }
         std::mem::swap(&mut self.world.snakes, &mut substep.next_world.snakes);
         std::mem::swap(
             &mut self.world.body_points,
@@ -1543,6 +1570,8 @@ fn allocation_delta(snapshot: Option<fn() -> u64>, cursor: &mut Option<u64>) -> 
 /// Checked physics staging failure. No variant publishes partial authority.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PhysicsError {
+    /// External reward rejected an accepted substep's authoritative accounting.
+    Reward(super::external_reward::RewardError),
     /// Generation/config/operation identity is incomplete.
     InvalidStepKey,
     /// A fixed step must contain at least one collision substep.
@@ -1617,6 +1646,7 @@ pub enum PhysicsError {
 impl Display for PhysicsError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Reward(error) => write!(formatter, "external reward physics failed: {error}"),
             Self::InvalidStepKey => write!(formatter, "invalid physics step identity"),
             Self::InvalidSubstepCount => {
                 write!(formatter, "physics step needs at least one substep")
@@ -1911,6 +1941,7 @@ mod tests {
 
     fn lease(snake_id: u64) -> ControllerLease {
         ControllerLease {
+            reward: None,
             identity_key: String::new(),
             id: 1,
             snake_id,
@@ -2200,6 +2231,9 @@ mod tests {
             .unwrap();
         assert!(killer.boost_points_spent > 0.0);
         assert_eq!(killer.food, 1.0);
+        assert_eq!(killer.food_count, 1);
+        assert_eq!(killer.food_credits, config.food.points_per_food);
+        assert_eq!(killer.kill_credits, config.points_per_kill);
         assert_eq!(killer.kills, 1);
         assert_eq!(
             killer.credits,
@@ -2245,6 +2279,129 @@ mod tests {
         step.discard();
         assert!(step.evolved_deltas().is_empty());
         assert_eq!(step.evolved_deltas.capacity(), capacity);
+    }
+
+    #[test]
+    fn external_reward_closures_use_real_food_kill_and_terminal_physics() {
+        use crate::contracts::{ExternalRewardEndReason, ExternalRewardTransitionKind};
+        use crate::engine::external_reward::{
+            ExternalRewardLedger, RewardBoundary, RewardLifeIdentity,
+        };
+
+        // Both externally controlled lives eat. The victim dies on the owner's
+        // body in the same substep; the owner receives that actual kill credit.
+        let mut source = body_collision_world(SnakeKind::External, false);
+        source.snakes[1].kind = SnakeKind::External;
+        source.snakes[1].population_slot = None;
+        for index in 0..2 {
+            source.pellets.push(PelletState {
+                id: 900 + index as u64,
+                position: source.snakes[index].position,
+                value: 1.0,
+                kind: 0,
+                owner: None,
+                color: 0,
+            });
+        }
+        let begin = RewardBoundary {
+            completed_step: 0,
+            elapsed_seconds: 0.0,
+        };
+        let end = RewardBoundary {
+            completed_step: 1,
+            elapsed_seconds: 1.0 / 60.0,
+        };
+        let ledgers: Vec<_> = source
+            .snakes
+            .iter()
+            .enumerate()
+            .map(|(index, snake)| {
+                let mut ledger = ExternalRewardLedger::new(
+                    RewardLifeIdentity {
+                        world_epoch: key(1).world_epoch(),
+                        lease_id: index as u64 + 1,
+                        physical_snake_id: snake.id,
+                        frame_snake_id: snake.frame_v1_id,
+                    },
+                    begin,
+                    snake.body.len,
+                    snake.points,
+                )
+                .unwrap();
+                let initial = ledger.prepare(index as u64 + 1, begin, None).unwrap();
+                ledger.commit_delivery(&initial).unwrap();
+                ledger
+            })
+            .collect();
+        for (index, reward) in ledgers.into_iter().enumerate() {
+            let mut controller = lease(source.snakes[index].id);
+            controller.id = index as u64 + 1;
+            controller.kind = ControllerKind::ReinforcementLearning;
+            controller.connection_id = Some(index as u64 + 1);
+            controller.scope = "reward-fixture".into();
+            controller.reward = Some(reward);
+            source.controller_leases.push(controller);
+        }
+        let mut step = PhysicsStepWorkspace::new();
+        step.begin(
+            key(1),
+            &source,
+            &rng_bundle(0),
+            &allocators(),
+            PhysicsConfig::typescript_defaults(),
+            1,
+        )
+        .unwrap();
+        let mut phases = PhaseWorkspaces::default();
+        stage_and_accept(&mut step, &mut phases).unwrap();
+        // Production substep admission updates the staged lease ledgers. The
+        // test no longer supplies a parallel accounting path beside physics.
+        let mut ledgers: Vec<_> = step
+            .world()
+            .unwrap()
+            .controller_leases
+            .iter()
+            .map(|controller| controller.reward.unwrap())
+            .collect();
+        let victim = ledgers[0]
+            .prepare(3, end, Some(ExternalRewardEndReason::Generation))
+            .unwrap();
+        let victim_wire = victim.envelope("reward-fixture").unwrap();
+        assert_eq!(
+            victim_wire.transition_kind,
+            ExternalRewardTransitionKind::Terminal
+        );
+        assert_eq!(victim_wire.deltas.food_value_delta, 1.0);
+        assert_eq!(victim_wire.deltas.food_count_delta, 1);
+        assert_eq!(victim_wire.deltas.food_points_delta, 20.0);
+        assert_eq!(victim_wire.deltas.length_delta, 1);
+        assert_eq!(victim_wire.deltas.retained_growth_delta, 1);
+        assert_eq!(victim_wire.deltas.kills_delta, 0);
+        let owner = ledgers[1]
+            .prepare(4, end, Some(ExternalRewardEndReason::Generation))
+            .unwrap();
+        let owner_wire = owner.envelope("reward-fixture").unwrap();
+        assert_eq!(
+            owner_wire.transition_kind,
+            ExternalRewardTransitionKind::Truncated
+        );
+        assert_eq!(owner_wire.deltas.food_value_delta, 1.0);
+        assert_eq!(owner_wire.deltas.kills_delta, 1);
+        assert_eq!(owner_wire.deltas.kill_points_delta, 400.0);
+        assert_eq!(owner_wire.deltas.points_delta, 420.0);
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../contracts/slither_contracts/external-reward-v1-fixture.json");
+        let expected: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+        assert_eq!(serde_json::json!([victim_wire, owner_wire]), expected);
+        ledgers[0].commit_delivery(&victim).unwrap();
+        ledgers[1].commit_delivery(&owner).unwrap();
+        assert!(ledgers[0].commit_delivery(&victim).is_err());
+        // Physics staging leaves the authoritative source untouched.
+        assert!(source
+            .snakes
+            .iter()
+            .all(|snake| snake.alive && snake.food == 0.0));
     }
 
     #[test]
