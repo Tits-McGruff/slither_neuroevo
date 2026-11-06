@@ -1,6 +1,7 @@
 import { parseInspectorSnapshot, type InspectEntityMsg } from '../src/protocol/inspector.ts';
 import { largeBrainFixture } from './test/largeBrainFixture.ts';
 import { parseEvolvedLifecycleTelemetry } from '../src/protocol/evolvedLives.ts';
+import type { ExternalRewardEnvelopeV1 } from '../contracts/types.ts';
 import { mkdir, mkdtemp, rm, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -60,11 +61,25 @@ interface Peer {
 }
 
 /** Attach listeners before sending a hello so no ready message can be missed. */
-async function connect(port: number, clientType: 'ui' | 'bot', origin?: string): Promise<Peer> {
+async function connect(port: number, clientType: 'ui' | 'bot', origin?: string, reward = false): Promise<Peer> {
   const peer: Peer = { socket: new WebSocket(`ws://127.0.0.1:${port}`,
     origin === undefined ? {} : { origin }), packets: [], frames: 0 };
   peer.socket.on('message', (data, binary) => {
-    if (binary) { peer.frames++; peer.latestFrame = Buffer.from(data as Buffer); }
+    if (binary && reward) {
+      const bytes = Buffer.from(data as Buffer);
+      expect(bytes.subarray(0, 4).toString('ascii')).toBe('SNS2');
+      expect(bytes.readUInt8(4)).toBe(2);
+      const count = bytes.readUInt16LE(6);
+      const start = 44 + count * 4;
+      const rewardBytes = bytes.readUInt32LE(start);
+      expect(rewardBytes).toBeLessThanOrEqual(4096);
+      expect(bytes.length).toBe(start + 4 + rewardBytes);
+      if (peer.packets.length < 256) peer.packets.push({ type: 'sensors',
+        snakeId: bytes.readUInt32LE(16), tick: Number(bytes.readBigUInt64LE(8)),
+        sensors: Array.from({ length: count }, (_, index) => bytes.readFloatLE(44 + index * 4)),
+        reward: JSON.parse(bytes.subarray(start + 4).toString('utf8')) });
+    }
+    else if (binary) { peer.frames++; peer.latestFrame = Buffer.from(data as Buffer); }
     else {
       const packet = JSON.parse(data.toString()) as Record<string, unknown>;
       if (packet['type'] === 'stateReplaced') peer.rejoinToken = String(packet['rejoinToken']);
@@ -72,7 +87,8 @@ async function connect(port: number, clientType: 'ui' | 'bot', origin?: string):
     }
   });
   await new Promise<void>((done, reject) => { peer.socket.once('open', done); peer.socket.once('error', reject); });
-  peer.socket.send(JSON.stringify({ type: 'hello', version: 2, clientType }));
+  peer.socket.send(JSON.stringify({ type: 'hello', version: 2, clientType,
+    ...(reward ? { rewardVersion: 1, binarySensorsVersion: 2, binarySensors: true } : {}) }));
   return peer;
 }
 
@@ -150,6 +166,37 @@ function firstFrameSnake(bytes: Buffer | undefined): { snakeId: number; x: numbe
   const value = (index: number): number => bytes.readFloatLE(index * Float32Array.BYTES_PER_ELEMENT);
   if (Math.trunc(value(2)) < 1) return undefined;
   return { snakeId: value(7), x: value(10), y: value(11) };
+}
+
+/** Select a real pellet with clearance from other bodies for controlled food transport coverage. */
+function rewardFixturePellet(bytes: Buffer, controlledId: number): { x: number; y: number } {
+  const read = (index: number): number => bytes.readFloatLE(index * 4);
+  const occupied: Array<{ x: number; y: number }> = [];
+  let cursor = 7;
+  for (let snake = 0; snake < read(2); snake++) {
+    const id = read(cursor);
+    const count = read(cursor + 7);
+    for (let point = 0; point < count; point++) {
+      if (id !== controlledId) occupied.push({ x: read(cursor + 8 + point * 2),
+        y: read(cursor + 9 + point * 2) });
+    }
+    cursor += 8 + count * 2;
+  }
+  const count = read(cursor++);
+  for (let pellet = 0; pellet < count; pellet++, cursor += 5) {
+    const position = { x: read(cursor), y: read(cursor + 1) };
+    if (Math.hypot(position.x, position.y) < read(3) - 300 &&
+        occupied.every(body => Math.hypot(position.x - body.x, position.y - body.y) > 100)) return position;
+  }
+  throw new Error('reward fixture has no safe authoritative pellet');
+}
+
+/** Remove only the task-owned reward fixture after validating its absolute target. */
+async function cleanupRewardFixture(root: string): Promise<void> {
+  if (dirname(resolve(root)) !== resolve(tmpdir()) || !root.startsWith(join(tmpdir(), 'slither-rust-reward-'))) {
+    throw new Error('unsafe reward fixture cleanup');
+  }
+  await rm(root, { recursive: true, force: true });
 }
 
 /** Signed shortest angular change from one wrapped direction to another. */
@@ -366,6 +413,121 @@ it('rejects diagnostic disk quota before opening owner database or starting nati
 });
 
 describeNetworkSuite('Rust server real sockets', () => {
+  it('routes authoritative food and complete reward closures over negotiated binary sensors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-reward-'));
+    const peers: Peer[] = [];
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    try {
+      server = await startRustServer({ ...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42,
+        dbPath: join(root, 'reward.sqlite'), rustCalculationWorkers: 1 });
+      expect(server.startupFault).toBeUndefined();
+      const viewer = await connect(server.port, 'ui'); peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator' }));
+      viewer.socket.send(JSON.stringify({ type: 'reset', settings: { snakeCount: 1, simSpeed: 0.1 },
+        updates: [{ path: 'baselineBots.count', value: 0 }, { path: 'pelletCountTarget', value: 100 },
+          { path: 'growPerFood', value: 1 }, { path: 'generationSeconds', value: 240 }],
+        graphSpec: buildStackGraphSpec({ hiddenLayers: 1, neurons1: 2, neurons2: 2,
+          neurons3: 2, neurons4: 2, neurons5: 2 },
+        { brain: { inSize: 264, outSize: 2, useMlp: false } }) }));
+      const welcome = await replacementUntil(viewer, server.port, 'reset');
+      expect(welcome).toMatchObject({ rewardVersion: 1, binarySensorsVersion: 2,
+        sensorSpec: { layoutVersion: 'v4', profile: 'motion', sensorCount: 264 } });
+      viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken }));
+      const bot = await connect(server.port, 'bot', undefined, true); peers.push(bot);
+      await until(bot, () => bot.packets.some(packet => packet['type'] === 'welcome'));
+      bot.socket.send(JSON.stringify({ type: 'join', mode: 'player', name: 'reward-wire-fixture' }));
+      const rewards = (): ExternalRewardEnvelopeV1[] => bot.packets
+        .filter(packet => packet['type'] === 'sensors' || packet['type'] === 'transition')
+        .map(packet => packet['reward'] as ExternalRewardEnvelopeV1);
+      await until(bot, () => rewards().some(reward => reward.transitionKind === 'initial'));
+      const initial = rewards()[0]!;
+      const actionId = '00000000000000ac';
+      bot.socket.send(JSON.stringify({ type: 'action', snakeId: initial.snakeId,
+        tick: Number(BigInt(`0x${initial.toStep}`)), turn: 0, boost: 0, actionId }));
+      await until(bot, () => rewards().some(reward =>
+        reward.control.appliedCommand?.command.clientActionId === actionId));
+      const confirmed = rewards().find(reward =>
+        reward.control.appliedCommand?.command.clientActionId === actionId)!;
+      expect(confirmed.control).toMatchObject({
+        acceptedCount: 1, appliedCount: 1, supersededCount: 0,
+        acceptedCommand: confirmed.control.appliedCommand!.command,
+      });
+      expect(confirmed.control.appliedCommand!.firstAppliedStep < confirmed.toStep).toBe(true);
+      await until(viewer, () => viewer.latestFrame !== undefined);
+      const pellet = rewardFixturePellet(viewer.latestFrame!, initial.snakeId);
+      const selected = await selectPhysical(viewer, 'reward-move-selection', { snakeId: initial.snakeId });
+      viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'reward-food-move', action: 'move',
+        snakeId: initial.snakeId, selectionToken: selected.token, ...pellet }));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'reward-food-move' && packet['applied'] === true));
+      await until(bot, () => rewards().some(reward => reward.leaseId === initial.leaseId && reward.deltas.foodCountDelta > 0));
+      const eaten = rewards().filter(reward => reward.leaseId === initial.leaseId);
+      expect(eaten.reduce((sum, reward) => sum + reward.deltas.foodValueDelta, 0)).toBeGreaterThan(0);
+      expect(eaten.reduce((sum, reward) => sum + reward.deltas.retainedGrowthDelta, 0)).toBeGreaterThan(0);
+      expect(eaten.reduce((sum, reward) => sum + reward.deltas.foodPointsDelta, 0)).toBeGreaterThan(0);
+
+      const kill = await selectPhysical(viewer, 'reward-kill-selection', { snakeId: initial.snakeId });
+      viewer.socket.send(JSON.stringify({ type: 'godMode', requestId: 'reward-real-death', action: 'kill',
+        snakeId: initial.snakeId, selectionToken: kill.token }));
+      await until(bot, () => rewards().some(reward => reward.leaseId === initial.leaseId && reward.transitionKind === 'terminal'));
+      await until(bot, () => rewards().some(reward => reward.leaseId !== initial.leaseId && reward.transitionKind === 'initial'));
+      const next = rewards().find(reward => reward.leaseId !== initial.leaseId && reward.transitionKind === 'initial')!;
+      const terminalIndex = bot.packets.findIndex(packet => packet['type'] === 'transition' &&
+        (packet['reward'] as ExternalRewardEnvelopeV1).leaseId === initial.leaseId);
+      expect(bot.packets[terminalIndex]).toMatchObject({ reward: { transitionKind: 'terminal', reason: 'death' } });
+      expect(bot.packets[terminalIndex]?.['finalSensors']).toBeUndefined();
+      expect(bot.packets.findIndex((packet, index) => index > terminalIndex && packet['type'] === 'assign')).toBeGreaterThan(terminalIndex);
+
+      const health = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as { generation: string };
+      viewer.socket.send(JSON.stringify({ type: 'finishGeneration', requestId: 'reward-manual-cutoff',
+        expectedRunId: welcome.runId, expectedGeneration: Number(BigInt(`0x${health.generation}`)) }));
+      await until(bot, () => rewards().some(reward => reward.leaseId === next.leaseId && reward.transitionKind === 'truncated'));
+      const truncationIndex = bot.packets.findIndex(packet => packet['type'] === 'transition' &&
+        (packet['reward'] as ExternalRewardEnvelopeV1).leaseId === next.leaseId);
+      const cutoff = bot.packets[truncationIndex]!;
+      expect(cutoff).toMatchObject({ reward: { transitionKind: 'truncated', reason: 'manualGeneration' } });
+      expect(cutoff['finalSensors']).toHaveLength(264);
+      expect((cutoff['finalSensors'] as number[]).every(Number.isFinite)).toBe(true);
+      await until(bot, () => bot.packets.some((packet, index) => index > truncationIndex && packet['type'] === 'assign'));
+
+      const previous = new Map<string, ExternalRewardEnvelopeV1>();
+      for (const reward of rewards()) {
+        expect(reward.runId).toBe(welcome.runId);
+        expect(reward.rewardVersion).toBe(1);
+        expect(reward.state.startingLength).toBeGreaterThan(0);
+        expect(reward.state.bodyLength).toBeGreaterThan(0);
+        expect(reward.state.retainedGrowth).toBe(Math.max(
+          reward.state.bodyLength - reward.state.startingLength, 0));
+        const key = `${reward.worldEpoch}/${reward.leaseId}/${reward.physicalSnakeId}`;
+        const predecessor = previous.get(key);
+        if (reward.transitionKind === 'initial') {
+          expect(predecessor).toBeUndefined();
+          expect(reward.previousObservationSequence).toBeNull();
+          expect(Object.values(reward.deltas).every(value => value === 0)).toBe(true);
+        } else {
+          expect(reward.previousObservationSequence).toBe(predecessor?.observationSequence);
+          expect(reward.fromStep).toBe(predecessor?.toStep);
+          expect(reward.state.startingLength).toBe(predecessor!.state.startingLength);
+          expect(reward.state.bodyLength - predecessor!.state.bodyLength).toBe(reward.deltas.lengthDelta);
+          expect(reward.state.retainedGrowth - predecessor!.state.retainedGrowth)
+            .toBe(reward.deltas.retainedGrowthDelta);
+          const delta = reward.deltas;
+          expect(delta.pointsDelta).toBeCloseTo(delta.survivalPointsDelta + delta.foodPointsDelta +
+            delta.killPointsDelta + delta.otherPointsDelta - delta.boostPointsSpentDelta, 8);
+          expect(Number.isFinite(delta.aliveSecondsDelta)).toBe(true);
+          expect(delta.aliveSecondsDelta).toBeGreaterThanOrEqual(0);
+          expect(Number.isFinite(delta.elapsedSeconds)).toBe(true);
+          expect(delta.elapsedSeconds).toBeGreaterThanOrEqual(0);
+        }
+        previous.set(key, reward);
+      }
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close();
+      await cleanupRewardFixture(root);
+    }
+  }, 30_000);
+
   it('selects v4 profiles and baseline v2 through reset, New Run and durable resume, then returns to v3', async () => {
     const root = await mkdtemp(join(tmpdir(), 'slither-rust-v4-selection-'));
     const dbPath = join(root, 'experiment.sqlite');

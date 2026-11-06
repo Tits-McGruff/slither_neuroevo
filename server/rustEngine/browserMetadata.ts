@@ -56,6 +56,7 @@ export function createRustWelcome(
 ): WelcomeMsg {
   return {
     type: 'welcome', protocolVersion: 2, serializerVersion: metadata.serializerVersion,
+    rewardVersion: 1, binarySensorsVersion: 2,
     ...(metadata.legacyConversion ? { legacyConversion: metadata.legacyConversion } : {}),
     ...(metadata.founder ? {founder: metadata.founder} : {}),
     sessionId, tickRate: 1 / metadata.fixedStepSeconds,

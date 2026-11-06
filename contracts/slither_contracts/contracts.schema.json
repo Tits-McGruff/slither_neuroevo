@@ -15,6 +15,9 @@
     "graph": {
       "$ref": "#/$defs/FreshRunGraphWire"
     },
+    "reward": {
+      "$ref": "#/$defs/ExternalRewardEnvelopeV1"
+    },
     "teacher": {
       "$ref": "#/$defs/TeacherCaptureContract"
     },
@@ -28,7 +31,8 @@
     "brain",
     "teacher",
     "chunk",
-    "dataset"
+    "dataset",
+    "reward"
   ],
   "$defs": {
     "BrainManifestV1": {
@@ -269,6 +273,330 @@
         "spoolDroppedChunks",
         "retainedChunks",
         "retainedBytes"
+      ]
+    },
+    "ExternalRewardAppliedCommandV1": {
+      "description": "A command actually selected for physics; repeated holds do not change its first step.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/ExternalRewardCommandV1"
+        },
+        "firstAppliedStep": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "firstAppliedStep"
+      ]
+    },
+    "ExternalRewardCommandV1": {
+      "description": "One Rust-accepted command. Identities and boundaries use exact hexadecimal words.",
+      "type": "object",
+      "properties": {
+        "acceptedAtStep": {
+          "type": "string"
+        },
+        "clientActionId": {
+          "description": "Optional opaque client correlation; absent for historical Protocol 2 peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "clientTick": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "clientTick",
+        "acceptedAtStep"
+      ]
+    },
+    "ExternalRewardControlSourceV1": {
+      "description": "Source selected for a committed physics step, distinct from command receipt.",
+      "type": "string",
+      "enum": [
+        "held",
+        "neutral",
+        "neural"
+      ]
+    },
+    "ExternalRewardControlV1": {
+      "description": "Constant-sized control chronology; counters are cumulative within this physical life.",
+      "type": "object",
+      "properties": {
+        "acceptedCommand": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalRewardCommandV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acceptedCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "appliedCommand": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalRewardAppliedCommandV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "appliedCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "selectedAtStep": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalRewardControlSourceV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "supersededCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "acceptedCount",
+        "appliedCount",
+        "supersededCount"
+      ]
+    },
+    "ExternalRewardDeltasV1": {
+      "description": "Unweighted committed quantities. Length is sampled before terminal cleanup.",
+      "type": "object",
+      "properties": {
+        "aliveSecondsDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "boostPointsSpentDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "elapsedSeconds": {
+          "type": "number",
+          "format": "double"
+        },
+        "foodCountDelta": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "foodPointsDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "foodValueDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "killPointsDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "killsDelta": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lengthDelta": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "otherPointsDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "pointsDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "retainedGrowthDelta": {
+          "description": "Difference of max(finalized length - starting length, 0), including losses.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "survivalPointsDelta": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "elapsedSeconds",
+        "aliveSecondsDelta",
+        "foodValueDelta",
+        "foodCountDelta",
+        "lengthDelta",
+        "retainedGrowthDelta",
+        "pointsDelta",
+        "survivalPointsDelta",
+        "foodPointsDelta",
+        "killPointsDelta",
+        "otherPointsDelta",
+        "boostPointsSpentDelta",
+        "killsDelta"
+      ]
+    },
+    "ExternalRewardEndReason": {
+      "description": "Authoritative life-end reason; transport failure is deliberately absent.",
+      "type": "string",
+      "enum": [
+        "death",
+        "generation",
+        "manualGeneration",
+        "reset",
+        "import",
+        "worldReplacement"
+      ]
+    },
+    "ExternalRewardEnvelopeV1": {
+      "description": "Sensor-independent reward interval. All hexadecimal identities are 16 digits.\nInitial envelopes have no predecessor; closures precede replacement assignment.",
+      "type": "object",
+      "properties": {
+        "control": {
+          "$ref": "#/$defs/ExternalRewardControlV1"
+        },
+        "deltas": {
+          "$ref": "#/$defs/ExternalRewardDeltasV1"
+        },
+        "fromStep": {
+          "type": "string"
+        },
+        "leaseId": {
+          "type": "string"
+        },
+        "observationSequence": {
+          "type": "string"
+        },
+        "physicalSnakeId": {
+          "type": "string"
+        },
+        "previousObservationSequence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExternalRewardEndReason"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rewardVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "runId": {
+          "type": "string"
+        },
+        "snakeId": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "state": {
+          "$ref": "#/$defs/ExternalRewardStateV1"
+        },
+        "toStep": {
+          "type": "string"
+        },
+        "transitionKind": {
+          "$ref": "#/$defs/ExternalRewardTransitionKind"
+        },
+        "worldEpoch": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "rewardVersion",
+        "runId",
+        "worldEpoch",
+        "leaseId",
+        "physicalSnakeId",
+        "snakeId",
+        "observationSequence",
+        "fromStep",
+        "toStep",
+        "transitionKind",
+        "state",
+        "control",
+        "deltas"
+      ]
+    },
+    "ExternalRewardStateV1": {
+      "description": "Unweighted physical state at the same observation or pre-cleanup cutoff boundary.",
+      "type": "object",
+      "properties": {
+        "bodyLength": {
+          "description": "Positive finalized body segments, frozen before terminal cleanup.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "retainedGrowth": {
+          "description": "max(body_length - starting_length, 0), independent of reward weighting.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "startingLength": {
+          "description": "Positive finalized body segments when the physical life was assigned.",
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "startingLength",
+        "bodyLength",
+        "retainedGrowth"
+      ]
+    },
+    "ExternalRewardTransitionKind": {
+      "description": "A delivery baseline, ordinary interval, or explicit old-life closure.",
+      "type": "string",
+      "enum": [
+        "initial",
+        "live",
+        "terminal",
+        "truncated"
       ]
     },
     "FreshRunGraphEdgeWire": {

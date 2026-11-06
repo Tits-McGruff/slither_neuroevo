@@ -14,6 +14,7 @@ import type {
 import type { FitnessData, FitnessHistoryEntry, HallOfFameEntry, VizData } from '../src/protocol/messages.ts';
 import type { SensorSpec as SensorSpecBase } from '../src/protocol/sensors.ts';
 import type { SpatialHashDiagnostics } from '../src/protocol/runtime.ts';
+import type { ExternalRewardEnvelopeV1 } from '../contracts/types.ts';
 import type {
   CoreSettings,
   LiveSettingsUpdate,
@@ -62,6 +63,10 @@ export interface HelloMsg {
   version: number;
   /** Request compact binary sensor packets on bot connections. */
   binarySensors?: boolean;
+  /** Explicit authoritative reward capability requested by a bot. */
+  rewardVersion?: number;
+  /** Compact observation envelope revision; revision 2 carries reward v1. */
+  binarySensorsVersion?: number;
 }
 
 /** Join request from client to register as spectator or player. */
@@ -88,6 +93,8 @@ export interface PingMsg {
 
 /** Player action message aligned to a specific tick. */
 export interface ActionMsg {
+  /** Optional positive hexadecimal client command correlation (not an authority clock). */
+  actionId?: string;
   /** Message discriminator. */
   type: 'action';
   /** Client-observed authoritative tick. */
@@ -222,6 +229,9 @@ export interface AuthoritativeSettingsState {
 
 /** Initial server welcome payload. */
 export interface WelcomeMsg {
+  /** Available authoritative reward and compact observation extensions. */
+  rewardVersion?: 1;
+  binarySensorsVersion?: 2;
   /** Message discriminator. */
   type: 'welcome';
   /** Exact protocol version selected by the server. */
@@ -347,6 +357,8 @@ export interface ReclaimResultMsg {
 
 /** Sensor packet for a controlled snake. */
 export interface SensorsMsg {
+  /** Native-authoritative interval, present only on the reward-capable delivery path. */
+  reward?: ExternalRewardEnvelopeV1;
   /** Message discriminator. */
   type: 'sensors';
   /** Authoritative observation tick. */
@@ -365,6 +377,14 @@ export interface ErrorMsg {
   type: 'error';
   /** Human-readable error. */
   message: string;
+}
+
+/** Final old-life interval, reliably ordered before a successor assignment. */
+export interface RewardTransitionMsg {
+  type: 'transition';
+  reward: ExternalRewardEnvelopeV1;
+  /** Final old-life observation for truncation; absent on real death. */
+  finalSensors?: number[];
 }
 
 /** Authoritative result for one live-settings request. */
@@ -454,6 +474,7 @@ export type ServerMessage =
   | AssignMsg
   | ReclaimResultMsg
   | SensorsMsg
+  | RewardTransitionMsg
   | ErrorMsg
   | SettingsAppliedMsg
   | FinishGenerationResultMsg
@@ -528,10 +549,12 @@ export function getProtocolVersionError(raw: unknown): string | null {
 export function isHello(msg: unknown): msg is HelloMsg {
   if (!isRecord(msg)) return false;
   return (
-    hasKeys(msg, ['type', 'clientType', 'version', 'binarySensors'], ['type', 'clientType', 'version']) &&
+    hasKeys(msg, ['type', 'clientType', 'version', 'binarySensors', 'rewardVersion', 'binarySensorsVersion'], ['type', 'clientType', 'version']) &&
     msg['type'] === 'hello' &&
     msg['version'] === PROTOCOL_VERSION &&
     (msg['binarySensors'] === undefined || typeof msg['binarySensors'] === 'boolean') &&
+    (msg['rewardVersion'] === undefined || (Number.isSafeInteger(msg['rewardVersion']) && msg['rewardVersion'] === 1)) &&
+    (msg['binarySensorsVersion'] === undefined || msg['binarySensorsVersion'] === 2) &&
     (msg['clientType'] === 'ui' || msg['clientType'] === 'bot')
   );
 }
@@ -580,9 +603,11 @@ export function isPing(msg: unknown): msg is PingMsg {
  */
 export function isAction(msg: unknown): msg is ActionMsg {
   if (!isRecord(msg)) return false;
-  if (!hasKeys(msg, ['type', 'tick', 'snakeId', 'turn', 'boost'], ['type', 'tick', 'snakeId', 'turn', 'boost'])) return false;
+  if (!hasKeys(msg, ['type', 'tick', 'snakeId', 'turn', 'boost', 'actionId'], ['type', 'tick', 'snakeId', 'turn', 'boost'])) return false;
   return (
     msg['type'] === 'action' &&
+    (msg['actionId'] === undefined || (typeof msg['actionId'] === 'string' &&
+      /^(?!0{16}$)[0-9a-f]{16}$/u.test(msg['actionId']))) &&
     isFiniteNumber(msg['tick']) &&
     isFiniteNumber(msg['snakeId']) &&
     isFiniteNumber(msg['turn']) &&

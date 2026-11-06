@@ -19,6 +19,8 @@ export interface BackgroundGenerationOptions {
   managedDirectory: string;
   /** Maximum connected assignments admitted by the runtime. */
   maxAssignments: number;
+  /** Exact active width for the final old-life bootstrap vector. */
+  sensorCount?(): number;
   /** Exact local socket acceptance, without inspecting game state. */
   send: ControllerDeliveryPorts['send'];
   /** Free-disk admission before publishing this generation. */
@@ -51,6 +53,7 @@ export class BackgroundGenerationRouter {
   /** Bind transport to the shared generation receipt phase. */
   constructor(private readonly options: BackgroundGenerationOptions) {
     this.delivery = new GenerationDeliveryRouter(options.maxAssignments, {
+      ...(options.sensorCount ? { sensorCount: options.sensorCount } : {}),
       send: options.send,
       nextSequence: () => options.admission.nextSequence(),
       trySubmitReceipt: (sequence, receipt) => options.admission.trySubmitGenerationReceipt(sequence, receipt)

@@ -139,6 +139,28 @@ pub(crate) fn commit_god_mode_kill(
     if !source_matches || world.pellets.len() != prepared.source_pellet_count {
         return Err(GodModeError::SourceChanged);
     }
+    let reward_update = world
+        .controller_leases
+        .iter()
+        .enumerate()
+        .find(|(_, lease)| lease.snake_id == prepared.snake_id && lease.reward.is_some())
+        .map(|(index, lease)| {
+            let snake = &world.snakes[prepared.snake_index];
+            let mut reward = lease.reward.expect("selected reward owner");
+            reward
+                .record_physics(&super::evolved_lives::EvolvedPhysicsDelta {
+                    snake_id: snake.id,
+                    wallet_after: snake.points,
+                    length_after: snake.body.len,
+                    alive_after: false,
+                    death: Some(super::evolved_lives::EvolvedDeathCause::GodMode),
+                    death_flags: 8,
+                    ..Default::default()
+                })
+                .map_err(GodModeError::Reward)?;
+            Ok::<_, GodModeError>((index, reward))
+        })
+        .transpose()?;
     let pellets_dropped = prepared.corpse.pellets.len();
     let (emitted_count, emitted_value, discarded_count, discarded_value) =
         prepared.corpse_summary();
@@ -157,6 +179,9 @@ pub(crate) fn commit_god_mode_kill(
             required: world.pellets.len().saturating_add(pellets_dropped),
         })?;
     world.snakes[prepared.snake_index].alive = false;
+    if let Some((index, reward)) = reward_update {
+        world.controller_leases[index].reward = Some(reward);
+    }
     world.pellets.append(&mut prepared.corpse.pellets);
     *rng = prepared.corpse.rng;
     *allocators = prepared.corpse.allocators;
@@ -277,6 +302,7 @@ fn maximum_translation_scale(
 /// Recoverable rejection of one requested God Mode move.
 #[derive(Clone, Debug, PartialEq)]
 pub enum GodModeError {
+    Reward(super::external_reward::RewardError),
     InvalidRequest,
     MissingOrDeadSnake(u32),
     InvalidBody,
@@ -290,6 +316,9 @@ pub enum GodModeError {
 impl Display for GodModeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Reward(error) => {
+                write!(formatter, "God Mode reward finalization failed: {error}")
+            }
             Self::InvalidRequest => write!(formatter, "God Mode move coordinates must be finite"),
             Self::MissingOrDeadSnake(id) => {
                 write!(formatter, "snake {id} is missing or already dead")
@@ -316,6 +345,7 @@ impl Display for GodModeError {
 impl Error for GodModeError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Reward(error) => Some(error),
             Self::Effects(error) => Some(error),
             Self::LifeAccounting(error) => Some(error),
             _ => None,

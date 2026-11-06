@@ -45,10 +45,29 @@ describe(SUITE, () => {
     expect(msg?.type).toBe('hello');
   });
 
+  it('validates explicit reward and compact-observation capability versions', () => {
+    const hello = { type: 'hello', clientType: 'bot', version: 2, binarySensors: true,
+      rewardVersion: 1, binarySensorsVersion: 2 };
+    expect(parseClientMessage(hello)).toEqual(hello);
+    expect(parseClientMessage({ ...hello, rewardVersion: 2 })).toBeNull();
+    expect(parseClientMessage({ ...hello, rewardVersion: true })).toBeNull();
+    expect(parseClientMessage({ ...hello, binarySensorsVersion: 3 })).toBeNull();
+  });
+
   it('describes Protocol 1 as explicitly incompatible', () => {
     const hello = { type: 'hello', clientType: 'ui', version: 1 };
     expect(parseClientMessage(hello)).toBeNull();
     expect(getProtocolVersionError(hello)).toContain('server requires 2');
+  });
+
+  it('accepts optional exact command correlation for Protocol 2 actions', () => {
+    const action = { type: 'action', snakeId: 1, tick: 0, turn: 0.5, boost: 0 };
+    const tagged = { ...action, actionId: '0123456789abcdef' };
+    expect(parseClientMessage(action)).toEqual(action);
+    expect(parseClientMessage(tagged)).toEqual(tagged);
+    for (const actionId of [1, null, '1', '0000000000000000', '0123456789ABCDEF']) {
+      expect(parseClientMessage({ ...action, actionId })).toBeNull();
+    }
   });
 
   it('rejects hello with NaN version', () => {

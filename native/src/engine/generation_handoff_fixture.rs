@@ -745,6 +745,7 @@ fn make_terminal_running_candidate(
         },
     )?;
     candidate.world.controller_leases.push(ControllerLease {
+        reward: None,
         identity_key: "player:background-fixture".into(),
         id: FIXTURE_LEASE_ID,
         snake_id: external_id,
@@ -754,6 +755,7 @@ fn make_terminal_running_candidate(
         resume_token: "generation-handoff-old-token".to_owned(),
         status: ControllerLeaseStatus::Connected,
         latest_action: LatestControllerAction {
+            is_explicit: false,
             turn: 0.25,
             boost: false,
             client_tick: 1,

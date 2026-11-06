@@ -805,6 +805,8 @@ pub enum ControllerLeaseStatus {
 /// Latest-value external action retained independently from frame/sensor flow.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LatestControllerAction {
+    /// False for neutral assignment/reclaim input; true only after an explicit command.
+    pub is_explicit: bool,
     /// Finite turn value in `[-1, 1]`.
     pub turn: f32,
     /// Boost request.
@@ -820,6 +822,9 @@ pub struct LatestControllerAction {
 /// Rust-owned wall-time controller lease.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ControllerLease {
+    /// Runtime-only accounting for this assigned physical life. Generation
+    /// checkpoints are pre-spawn and establish fresh ledgers on assignment.
+    pub reward: Option<super::external_reward::ExternalRewardLedger>,
     /// Optional bounded trusted-LAN legacy identity, scoped by run and kind.
     /// Empty means this lease cannot be reclaimed without its token.
     pub identity_key: String,
@@ -1777,12 +1782,19 @@ impl AuthoritativeState {
 
     /// Reject an impossible successor numeric allocation before evolution constructs it.
     /// Full successor/state/codec admission remains a separate, stronger gate.
-    pub(crate) fn preflight_generation_numeric_allocation(&self) -> Result<(), StateError> {
+    pub(crate) fn preflight_generation_numeric_allocation(
+        &self,
+        retained_bytes: usize,
+    ) -> Result<(), StateError> {
         let peak = generation_numeric_peak_bytes(
             self.memory.total_bytes,
             self.candidate.population.len(),
             self.graph.compiled(),
-        )?;
+        )?
+        .checked_add(retained_bytes)
+        .ok_or(StateError::ArithmeticOverflow {
+            context: "generation numeric peak and retained cutoff observations",
+        })?;
         if peak > self.memory_ceiling_bytes {
             return Err(StateError::MemoryCeilingExceeded {
                 estimated_bytes: peak,
@@ -1803,12 +1815,14 @@ impl AuthoritativeState {
         &self,
         source_key: PhysicsStepKey,
         candidate: StateCandidate,
+        retained_bytes: usize,
     ) -> Result<AdmittedGenerationSuccessor, StateError> {
         self.validate_running_step_key(source_key)?;
         validate_generation_successor_relation(&self.candidate, &candidate)?;
         let remaining_bytes = self
             .memory_ceiling_bytes
             .checked_sub(self.memory.total_bytes)
+            .and_then(|bytes| bytes.checked_sub(retained_bytes))
             .ok_or(StateError::MemoryCeilingExceeded {
                 estimated_bytes: self.memory.total_bytes,
                 ceiling_bytes: self.memory_ceiling_bytes,
@@ -1819,7 +1833,8 @@ impl AuthoritativeState {
         let combined_state_bytes = self
             .memory
             .total_bytes
-            .checked_add(successor.memory.total_bytes)
+            .checked_add(retained_bytes)
+            .and_then(|bytes| bytes.checked_add(successor.memory.total_bytes))
             .ok_or(StateError::ArithmeticOverflow {
                 context: "current plus staged generation authority",
             })?;
@@ -1965,6 +1980,7 @@ impl AuthoritativeState {
         &mut self,
         input: super::controllers::LatestActionInput,
         boundary_at_ms: u64,
+        completed_step: u64,
     ) -> Result<(), String> {
         if self.candidate.phase != AuthorityPhase::Running {
             return Err("controller action requires running authority".to_owned());
@@ -1979,7 +1995,21 @@ impl AuthoritativeState {
         let proposal =
             super::controllers::prepare_queued_latest_action(lease, input, boundary_at_ms)
                 .map_err(|error| error.to_string())?;
-        super::controllers::commit_latest_action(lease, proposal).map_err(|error| error.to_string())
+        let mut reward = lease.reward;
+        if let Some(ledger) = reward.as_mut() {
+            ledger
+                .record_command_received(
+                    input.arrival_sequence,
+                    input.client_action_id,
+                    input.client_tick,
+                    completed_step,
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        super::controllers::commit_latest_action(lease, proposal)
+            .map_err(|error| error.to_string())?;
+        lease.reward = reward;
+        Ok(())
     }
 
     /// Resolve one exact close only while the loop owns an unprepared source.
@@ -6621,6 +6651,7 @@ mod tests {
 
     fn connected_lease(id: u64, snake_id: u64, connection_id: u64, token: &str) -> ControllerLease {
         ControllerLease {
+            reward: None,
             identity_key: String::new(),
             id,
             snake_id,
@@ -6630,6 +6661,7 @@ mod tests {
             resume_token: token.into(),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.25,
                 boost: true,
                 client_tick: 0,
@@ -6763,6 +6795,141 @@ mod tests {
         let changed = authority.state().clone();
         assert!(authority.commit_controller_join(prepared).is_err());
         assert_eq!(authority.state(), &changed);
+    }
+
+    #[test]
+    fn rl_join_and_native_prefix_stage_reward_without_mutating_authority() {
+        use crate::engine::accounting::{StepAccountingConfig, StepAccountingWorkspace};
+        use crate::engine::external_reward::RewardBoundary;
+        use crate::engine::physics::PhysicsStepKey;
+        let graph = default_graph();
+        let source = complete_running_candidate(&graph);
+        let mut authority = own_complete_running(source, Arc::clone(&graph));
+        let prepared = authority
+            .prepare_controller_join(
+                ControllerJoinInput {
+                    kind: ControllerKind::ReinforcementLearning,
+                    identity_key: "rl:reward-contract".into(),
+                    resume_token: "R".repeat(32),
+                    connection_id: 12,
+                    arrival_sequence: 2,
+                    received_at_ms: 200,
+                    boundary_at_ms: 300,
+                },
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+        authority.commit_controller_join(prepared).unwrap();
+        let authority_before = authority.state().clone();
+        let mut source = authority.state().world.clone();
+        let reward = source
+            .controller_leases
+            .last_mut()
+            .unwrap()
+            .reward
+            .as_mut()
+            .unwrap();
+        assert!(!reward.has_delivery());
+        let initial = reward
+            .prepare(
+                1,
+                RewardBoundary {
+                    completed_step: 0,
+                    elapsed_seconds: 0.0,
+                },
+                None,
+            )
+            .unwrap();
+        reward.commit_delivery(&initial).unwrap();
+        let source_before = source.clone();
+        let key = PhysicsStepKey::new(authority.world_epoch(), 3, 40, 7, 11, [0x5a; 32], 1);
+        let config = StepAccountingConfig::typescript_defaults();
+        let mut workspace = StepAccountingWorkspace::new();
+        let prepared = workspace
+            .prepare(key, &source, 0.0, 1.0 / 60.0, config, source.snakes.len())
+            .unwrap();
+        let mut working = source.clone();
+        prepared
+            .apply_to_working_copy(
+                key,
+                &source,
+                0.0,
+                1.0 / 60.0,
+                config,
+                source.snakes.len(),
+                &mut working,
+            )
+            .unwrap();
+        let reward = working
+            .controller_leases
+            .last()
+            .unwrap()
+            .reward
+            .as_ref()
+            .unwrap();
+        let interval = reward
+            .prepare(
+                2,
+                RewardBoundary {
+                    completed_step: 1,
+                    elapsed_seconds: 1.0 / 60.0,
+                },
+                None,
+            )
+            .unwrap()
+            .envelope("prefix-fixture")
+            .unwrap();
+        assert!((interval.deltas.alive_seconds_delta - 1.0 / 60.0).abs() < 1e-12);
+        assert!((interval.deltas.survival_points_delta - 0.01).abs() < 1e-12);
+        assert_eq!(interval.deltas.food_value_delta, 0.0);
+        assert_eq!(source, source_before);
+        assert_eq!(authority.state(), &authority_before);
+        // A cold God Mode kill closes the same native ledger. The following
+        // physics step must not reinterpret the already-dead record as live.
+        authority
+            .candidate
+            .world
+            .controller_leases
+            .last_mut()
+            .unwrap()
+            .reward
+            .as_mut()
+            .unwrap()
+            .commit_delivery(&initial)
+            .unwrap();
+        let frame_id = authority.candidate.world.snakes.last().unwrap().frame_v1_id;
+        let physics = authority
+            .running_step_config(RunningStepWorkLimits::provisional_defaults())
+            .unwrap()
+            .world_step
+            .physics;
+        authority.apply_god_mode_kill(frame_id, physics).unwrap();
+        let closed = authority
+            .candidate
+            .world
+            .controller_leases
+            .last()
+            .unwrap()
+            .reward
+            .as_ref()
+            .unwrap()
+            .prepare(
+                2,
+                RewardBoundary {
+                    completed_step: 0,
+                    elapsed_seconds: 0.0,
+                },
+                None,
+            )
+            .unwrap()
+            .envelope("god-mode-fixture")
+            .unwrap();
+        assert_eq!(
+            closed.transition_kind,
+            crate::contracts::ExternalRewardTransitionKind::Terminal
+        );
+        assert_eq!(closed.deltas.retained_growth_delta, 0);
+        assert_eq!(closed.deltas.length_delta, 0);
     }
 
     #[test]
@@ -9163,6 +9330,7 @@ mod tests {
         live.allocators.next_entity_id = 1;
         live.allocators.next_external_id = EXTERNAL_ENTITY_ID_START + 1;
         live.world.controller_leases.push(ControllerLease {
+            reward: None,
             identity_key: String::new(),
             id: 1,
             snake_id: EXTERNAL_ENTITY_ID_START,
@@ -9172,6 +9340,7 @@ mod tests {
             resume_token: "rl-token".into(),
             status: ControllerLeaseStatus::NeuralTakeover,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.0,
                 boost: false,
                 client_tick: 0,
@@ -11128,6 +11297,262 @@ mod tests {
     }
 
     #[test]
+    fn reward_generation_closure_retains_cutoff_state_and_death_precedence() {
+        use crate::contracts::{ExternalRewardEndReason, ExternalRewardTransitionKind};
+        use crate::engine::external_reward::{
+            ExternalRewardLedger, RewardBoundary, RewardLifeIdentity,
+        };
+
+        // Live cutoff, previously committed God Mode death, and collision on
+        // the very step that ends the generation must remain distinguishable.
+        for death_case in 0..3 {
+            let graph = default_graph();
+            let mut candidate = complete_running_candidate(&graph);
+            let external_id = EXTERNAL_ENTITY_ID_START;
+            push_connected_external_fixture(
+                &mut candidate,
+                &graph,
+                external_id,
+                2,
+                1,
+                7,
+                WorldPoint {
+                    x: 1_200.0,
+                    y: -1_200.0,
+                },
+            );
+            let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+            let snake = authority
+                .state()
+                .world
+                .snakes
+                .iter()
+                .find(|snake| snake.id == external_id)
+                .unwrap();
+            let old_frame_id = snake.frame_v1_id;
+            let ledger = ExternalRewardLedger::new(
+                RewardLifeIdentity {
+                    world_epoch: authority.world_epoch(),
+                    lease_id: 1,
+                    physical_snake_id: external_id,
+                    frame_snake_id: old_frame_id,
+                },
+                RewardBoundary {
+                    completed_step: 0,
+                    elapsed_seconds: 0.0,
+                },
+                snake.body.len,
+                snake.points,
+            )
+            .unwrap();
+            let lease = authority
+                .candidate
+                .world
+                .controller_leases
+                .last_mut()
+                .unwrap();
+            lease.kind = ControllerKind::ReinforcementLearning;
+            lease.reward = Some(ledger);
+            let mut coordinator = RunningStepCoordinator::try_new(
+                &authority,
+                RunningStepWorkLimits::provisional_defaults(),
+            )
+            .unwrap();
+            let (initial, initial_observation) = match coordinator
+                .advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 100,
+                        wall_accumulator_seconds: 0.0,
+                    },
+                )
+                .unwrap()
+            {
+                RunningStepProgress::ExternalDeliveryPending(batch) => (
+                    batch.events()[0]
+                        .reward
+                        .unwrap()
+                        .envelope("cutoff-fixture")
+                        .unwrap(),
+                    batch.observation(0).unwrap().to_vec(),
+                ),
+                _ => panic!("initial observation must await output admission"),
+            };
+            coordinator
+                .admit_pending_observations(&mut authority)
+                .unwrap();
+            if death_case == 1 {
+                let physics = authority
+                    .running_step_config(RunningStepWorkLimits::provisional_defaults())
+                    .unwrap()
+                    .world_step
+                    .physics;
+                authority
+                    .apply_god_mode_kill(old_frame_id, physics)
+                    .unwrap();
+            }
+            if death_case == 2 {
+                authority
+                    .apply_god_mode_move(old_frame_id, 3_490.5, 0.0)
+                    .unwrap();
+            }
+            let source = authority.state().clone();
+            coordinator.request_manual_finish();
+            let full_ceiling = authority.memory_ceiling_bytes;
+            let cutoff_bound = initial_observation.len() * std::mem::size_of::<f32>()
+                + std::mem::size_of::<crate::engine::control_phase::ExternalRewardCutoff>();
+            let numeric_peak = generation_numeric_peak_bytes(
+                authority.memory.total_bytes,
+                source.population.len(),
+                &graph,
+            )
+            .unwrap();
+            authority.memory_ceiling_bytes = numeric_peak + cutoff_bound - 1;
+            assert!(matches!(
+                coordinator.advance_nonterminal(
+                    &mut authority,
+                    RunningStepInputs {
+                        wall_now_ms: 101,
+                        wall_accumulator_seconds: 0.0
+                    }
+                ),
+                Err(RunningStepError::State(error))
+                    if matches!(*error, StateError::MemoryCeilingExceeded { .. })
+            ));
+            assert_eq!(authority.state(), &source);
+            assert!(coordinator.pending_generation_transition().is_none());
+            authority.memory_ceiling_bytes = full_ceiling;
+            assert!(matches!(
+                coordinator
+                    .advance_nonterminal(
+                        &mut authority,
+                        RunningStepInputs {
+                            wall_now_ms: 101,
+                            wall_accumulator_seconds: 0.0
+                        },
+                    )
+                    .unwrap(),
+                RunningStepProgress::GenerationTransitionPending(_)
+            ));
+            assert_eq!(authority.state(), &source);
+            let directory = GenerationHandoffDirectory::new();
+            let operation =
+                CheckpointOperationId::parse("00000000000000000000000000000092").unwrap();
+            let descriptor = coordinator
+                .publish_pending_generation_checkpoint(
+                    &authority,
+                    directory.path(),
+                    operation,
+                    &generation_handoff_checkpoint_limits(),
+                    &default_graph_limits(),
+                )
+                .unwrap();
+            coordinator
+                .acknowledge_pending_generation_persistence(&authority, &descriptor)
+                .unwrap();
+            let event = match coordinator
+                .prepare_acknowledged_generation_reassignments(&authority)
+                .unwrap()
+            {
+                GenerationReassignmentProgress::DeliveryPending(batch) => {
+                    assert_eq!(batch.events().len(), 1);
+                    let event = batch.events()[0];
+                    let closure = event.reward.unwrap().envelope("cutoff-fixture").unwrap();
+                    let owned = crate::engine::coordinator::own_pending_generation_assignments(
+                        batch,
+                        "cutoff-fixture",
+                    )
+                    .unwrap();
+                    let bridged = &owned[0];
+                    assert_eq!(
+                        bridged.reward_json.as_deref().unwrap(),
+                        serde_json::to_string(&closure).unwrap()
+                    );
+                    assert_eq!(
+                        &*bridged.final_sensors,
+                        batch.final_observation(0).unwrap_or(&[])
+                    );
+                    assert_eq!(closure.snake_id, old_frame_id);
+                    assert_eq!(closure.lease_id, initial.lease_id);
+                    assert_eq!(closure.physical_snake_id, initial.physical_snake_id);
+                    assert_eq!(
+                        closure.previous_observation_sequence,
+                        Some(initial.observation_sequence.clone())
+                    );
+                    assert_eq!(closure.from_step, initial.to_step);
+                    assert_eq!(closure.to_step, "0000000000000002");
+                    assert!((closure.deltas.elapsed_seconds - 2.0 / 60.0).abs() < 1e-12);
+                    assert_ne!(closure.lease_id, format!("{:016x}", event.lease_id));
+                    if death_case != 0 {
+                        assert_eq!(
+                            closure.transition_kind,
+                            ExternalRewardTransitionKind::Terminal
+                        );
+                        assert_eq!(closure.reason, Some(ExternalRewardEndReason::Death));
+                        assert!(batch.final_observation(0).is_none());
+                        let expected_live_time = if death_case == 1 { 0.0 } else { 1.0 / 60.0 };
+                        assert!(
+                            (closure.deltas.alive_seconds_delta - expected_live_time).abs() < 1e-12
+                        );
+                    } else {
+                        assert_eq!(
+                            closure.transition_kind,
+                            ExternalRewardTransitionKind::Truncated
+                        );
+                        assert_eq!(
+                            closure.reason,
+                            Some(ExternalRewardEndReason::ManualGeneration)
+                        );
+                        assert!((closure.deltas.alive_seconds_delta - 1.0 / 60.0).abs() < 1e-12);
+                        let final_state = batch
+                            .final_observation(0)
+                            .expect("live cutoff requires bootstrap sensors");
+                        assert_eq!(final_state.len(), initial_observation.len());
+                        assert!(final_state.iter().all(|value| value.is_finite()));
+                        assert_ne!(final_state, initial_observation);
+                    }
+                    assert!(batch.observation(0).is_none());
+                    event
+                }
+                _ => panic!("generation closure must precede assignment publication"),
+            };
+            // Retrying a held assignment is byte/marker stable and leaves authority unchanged.
+            let retry = match coordinator
+                .prepare_acknowledged_generation_reassignments(&authority)
+                .unwrap()
+            {
+                GenerationReassignmentProgress::DeliveryPending(batch) => batch.events()[0],
+                _ => panic!("unacknowledged assignment must remain pending"),
+            };
+            assert_eq!(retry, event);
+            assert_eq!(authority.state(), &source);
+            coordinator
+                .submit_external_delivery_results(
+                    &mut authority,
+                    &[ExternalDeliveryResult {
+                        step_key: event.step_key,
+                        event_sequence: event.event_sequence,
+                        connection_id: event.connection_id,
+                        lease_id: event.lease_id,
+                        accepted: true,
+                    }],
+                )
+                .unwrap();
+            coordinator
+                .publish_acknowledged_generation_start(&mut authority)
+                .unwrap();
+            let successor = authority
+                .state()
+                .world
+                .controller_leases
+                .iter()
+                .find(|lease| lease.id == event.lease_id)
+                .unwrap();
+            assert!(!successor.reward.unwrap().has_delivery());
+        }
+    }
+
+    #[test]
     fn durable_generation_boundary_retains_disconnected_token_without_hidden_reassignment() {
         let graph = default_graph();
         let mut candidate = complete_running_candidate(&graph);
@@ -11474,6 +11899,203 @@ mod tests {
         assert_eq!(duplicate.ignored_results, 1);
         assert!(matches!(duplicate.state, ExternalDeliveryState::Idle));
         assert_eq!(authority.state(), &published);
+    }
+
+    #[test]
+    fn reward_observation_markers_commit_with_complete_native_output_admission() {
+        use crate::contracts::ExternalRewardTransitionKind;
+        use crate::engine::external_reward::{
+            ExternalRewardLedger, RewardBoundary, RewardLifeIdentity,
+        };
+        let graph = default_graph();
+        let mut candidate = complete_running_candidate(&graph);
+        let external_id = EXTERNAL_ENTITY_ID_START;
+        push_connected_external_fixture(
+            &mut candidate,
+            &graph,
+            external_id,
+            2,
+            1,
+            7,
+            WorldPoint {
+                x: 1_000.0,
+                y: 1_000.0,
+            },
+        );
+        let mut authority = own_complete_running(candidate, Arc::clone(&graph));
+        let world_epoch = authority.world_epoch();
+        let snake = authority
+            .candidate
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == external_id)
+            .unwrap();
+        let reward = ExternalRewardLedger::new(
+            RewardLifeIdentity {
+                world_epoch,
+                lease_id: 1,
+                physical_snake_id: external_id,
+                frame_snake_id: snake.frame_v1_id,
+            },
+            RewardBoundary {
+                completed_step: 0,
+                elapsed_seconds: 0.0,
+            },
+            snake.body.len,
+            snake.points,
+        )
+        .unwrap();
+        let lease = authority
+            .candidate
+            .world
+            .controller_leases
+            .last_mut()
+            .unwrap();
+        lease.kind = ControllerKind::ReinforcementLearning;
+        lease.reward = Some(reward);
+        let before = authority.state().clone();
+        let mut coordinator = RunningStepCoordinator::try_new(
+            &authority,
+            RunningStepWorkLimits::provisional_defaults(),
+        )
+        .unwrap();
+        let first = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 100,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .unwrap()
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+            _ => panic!("reward observation must wait for native output capacity"),
+        };
+        let initial = first.reward.unwrap().envelope("admission-fixture").unwrap();
+        assert_eq!(
+            initial.transition_kind,
+            ExternalRewardTransitionKind::Initial
+        );
+        assert_eq!(
+            initial.deltas,
+            crate::contracts::ExternalRewardDeltasV1::default()
+        );
+        assert_eq!(authority.state(), &before);
+        coordinator
+            .admit_pending_observations(&mut authority)
+            .unwrap();
+        assert!(authority
+            .candidate
+            .world
+            .controller_leases
+            .last()
+            .unwrap()
+            .reward
+            .unwrap()
+            .has_delivery());
+        let once = authority.state().clone();
+        assert!(coordinator
+            .admit_pending_observations(&mut authority)
+            .is_err());
+        assert_eq!(authority.state(), &once);
+        let next = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 101,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .unwrap()
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+            _ => panic!("next observation must carry the accumulated reward"),
+        };
+        let interval = next.reward.unwrap().envelope("admission-fixture").unwrap();
+        assert_eq!(interval.transition_kind, ExternalRewardTransitionKind::Live);
+        assert_eq!(
+            interval.previous_observation_sequence,
+            Some(initial.observation_sequence)
+        );
+        assert!((interval.deltas.alive_seconds_delta - 1.0 / 60.0).abs() < 1e-12);
+        assert!((interval.deltas.survival_points_delta - 0.01).abs() < 1e-12);
+        coordinator
+            .admit_pending_observations(&mut authority)
+            .unwrap();
+        let old_frame_id = authority
+            .candidate
+            .world
+            .snakes
+            .iter()
+            .find(|snake| snake.id == external_id)
+            .unwrap()
+            .frame_v1_id;
+        let physics = authority
+            .running_step_config(RunningStepWorkLimits::provisional_defaults())
+            .unwrap()
+            .world_step
+            .physics;
+        authority
+            .apply_god_mode_kill(old_frame_id, physics)
+            .unwrap();
+        let assignment = match coordinator
+            .advance_nonterminal(
+                &mut authority,
+                RunningStepInputs {
+                    wall_now_ms: 102,
+                    wall_accumulator_seconds: 0.0,
+                },
+            )
+            .unwrap()
+        {
+            RunningStepProgress::ExternalDeliveryPending(batch) => batch.events()[0],
+            _ => panic!("death must retain its old reward until replacement admission"),
+        };
+        assert!(matches!(
+            assignment.delivery_kind,
+            crate::engine::ExternalDeliveryEventKind::ReplacementAssignment { .. }
+        ));
+        let terminal = assignment
+            .reward
+            .unwrap()
+            .envelope("admission-fixture")
+            .unwrap();
+        assert_eq!(
+            terminal.transition_kind,
+            ExternalRewardTransitionKind::Terminal
+        );
+        assert_eq!(terminal.snake_id, old_frame_id);
+        assert_eq!(
+            terminal.previous_observation_sequence,
+            Some(interval.observation_sequence)
+        );
+        assert_eq!(terminal.deltas.alive_seconds_delta, 0.0);
+        assert_eq!(terminal.deltas.length_delta, 0);
+        assert_ne!(terminal.lease_id, format!("{:016x}", assignment.lease_id));
+        coordinator
+            .submit_external_delivery_results(
+                &mut authority,
+                &[ExternalDeliveryResult {
+                    step_key: assignment.step_key,
+                    event_sequence: assignment.event_sequence,
+                    connection_id: assignment.connection_id,
+                    lease_id: assignment.lease_id,
+                    accepted: true,
+                }],
+            )
+            .unwrap();
+        let successor = authority
+            .candidate
+            .world
+            .controller_leases
+            .last()
+            .unwrap()
+            .reward
+            .unwrap();
+        assert!(!successor.has_delivery());
+        assert_eq!(successor.identity().lease_id, assignment.lease_id);
     }
 
     #[test]

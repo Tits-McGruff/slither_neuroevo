@@ -246,14 +246,17 @@ fn advance(
                     running,
                     &mut sequence,
                     *wall,
-                    RunningAuthorityCommand::SubmitControllerAction(ControllerActionRequest {
-                        lease_id: lease.id,
-                        connection_id: connection,
-                        turn,
-                        boost,
-                        client_tick: tick,
-                        received_at: origin + Duration::from_millis(*wall),
-                    }),
+                    RunningAuthorityCommand::SubmitControllerAction(Box::new(
+                        ControllerActionRequest {
+                            client_action_id: None,
+                            lease_id: lease.id,
+                            connection_id: connection,
+                            turn,
+                            boost,
+                            client_tick: tick,
+                            received_at: origin + Duration::from_millis(*wall),
+                        },
+                    )),
                 );
                 let RunningAuthorityEvent::ControllerActionApplied { completed_step, .. } = applied
                 else {

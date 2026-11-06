@@ -3,7 +3,7 @@ import type {
   RustBackgroundIdentity,
   RustBackgroundVisualization
 } from '../../src/protocol/rustBackground.ts';
-import type { AssignMsg, ReclaimResultMsg, SensorsMsg } from '../protocol.ts';
+import type { AssignMsg, ReclaimResultMsg, SensorsMsg, RewardTransitionMsg } from '../protocol.ts';
 import { nativeSensorLayout } from './browserMetadata.ts';
 import type { RustStartupMetadata } from '../../src/protocol/rustBackground.ts';
 import { BackgroundFramePool, type BackgroundFrameLease } from './backgroundFrames.ts';
@@ -33,7 +33,7 @@ export interface BackgroundOutputOptions {
   /** Current committed metadata after Reset/import; fixed owners may use startup metadata. */
   metadata?(): RustStartupMetadata;
   /** Exact socket acceptance; only small Protocol 2 messages cross here. */
-  send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg): boolean;
+  send(connectionId: RustBackgroundIdentity, message: AssignMsg | SensorsMsg | ReclaimResultMsg | RewardTransitionMsg): boolean;
   /** Observe scalar routing/lifecycle results before delivery of their messages. */
   event(event: RustBackgroundEvent): void;
   /** Disconnect only the exact current assignment after an asynchronous observation send fails. */
@@ -60,9 +60,9 @@ export interface BackgroundOutputOptions {
 export class BackgroundOutputPump {
   /** The server's incoming control pump must use this same sequence owner. */
   readonly admission: BackgroundCommandAdmission;
-  /** Ordered post-publication observations; this path owns no native receipts. */
+  /** Ordered observations admitted by Rust; this path owns no native receipts. */
   private readonly observations: ControllerObservationRouter;
-  /** Retained transactional ordinary batch receipts. */
+  /** Retained death replacement receipts. */
   private readonly ordinary: ControllerDeliveryRouter;
   /** Retained same-snake reconnect completion. */
   private readonly reclaim: ReclaimDeliveryRouter;
@@ -116,6 +116,7 @@ export class BackgroundOutputPump {
     this.generation = new BackgroundGenerationRouter({
       native: owner.runtime, admission: this.admission, persistence: owner.persistence,
       managedDirectory: owner.managedDirectory, maxAssignments: maxControllers, send,
+      sensorCount: () => this.currentSensorCount(),
       admitCheckpoint: () => owner.admitCheckpoint(),
       maintainRetention: () => options.maintainCheckpointRetention?.() ?? Promise.resolve(),
       observeBarrier: durationMs => options.observeCheckpointBarrier?.(durationMs)
@@ -239,10 +240,10 @@ export class BackgroundOutputPump {
         this.options.event(event);
         if (this.handleImportEvent(event)) continue;
         if (await this.generation.handle(event)) continue;
-        if (event.controllerObservations) this.observations.deliver(event.controllerObservations);
         if (event.controllerMessages && !this.ordinary.deliver(event.controllerMessages)) {
-          throw new Error('overlapping ordinary controller output');
+          throw new Error('overlapping controller replacement output');
         }
+        if (event.controllerObservations) this.observations.deliver(event.controllerObservations);
         if (event.controllerReclaimAssignment && !this.reclaim.deliver(event.controllerReclaimAssignment)) {
           throw new Error('overlapping reclaim output');
         }

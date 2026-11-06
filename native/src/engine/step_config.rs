@@ -685,6 +685,7 @@ pub(crate) fn project_running_step_config(
         .validate()
         .map_err(|_| StepConfigError::InvalidGenomeInitialization)?;
     let external_replacement = super::external_replacement::ExternalReplacementConfig {
+        fixed_step_seconds: fixed_dt,
         spawn: baseline_spawn,
         genome: genome_initialization,
         snake_base_speed,

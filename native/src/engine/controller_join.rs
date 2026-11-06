@@ -113,7 +113,33 @@ impl AuthoritativeState {
             config,
         )
         .map_err(|error| error.to_string())?;
+        let reward = if input.kind == ControllerKind::ReinforcementLearning {
+            use crate::engine::external_reward::{
+                ExternalRewardLedger, RewardBoundary, RewardLifeIdentity,
+            };
+            Some(
+                ExternalRewardLedger::new(
+                    RewardLifeIdentity {
+                        world_epoch: self.world_epoch,
+                        lease_id: fresh.lease_id,
+                        physical_snake_id: fresh.snake.id,
+                        frame_snake_id: fresh.snake.frame_v1_id,
+                    },
+                    RewardBoundary {
+                        completed_step: source.generation.completed_step,
+                        elapsed_seconds: source.generation.completed_step as f64
+                            * source.config.fixed_step_seconds,
+                    },
+                    fresh.snake.body.len,
+                    fresh.snake.points,
+                )
+                .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
         let lease = ControllerLease {
+            reward,
             identity_key: input.identity_key,
             id: fresh.lease_id,
             snake_id: fresh.snake.id,
@@ -123,6 +149,7 @@ impl AuthoritativeState {
             connection_id: Some(input.connection_id),
             status: ControllerLeaseStatus::Connected,
             latest_action: LatestControllerAction {
+                is_explicit: false,
                 turn: 0.0,
                 boost: false,
                 client_tick: source.generation.completed_step,

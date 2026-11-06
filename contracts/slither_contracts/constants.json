@@ -24,6 +24,9 @@
     "rru": "candidate=tanh((Wc*x+Uc*h)+bc); gate=sigmoid((Wr*x+Ur*h)+br); h'=(1-gate)*h+gate*candidate",
     "split": "contiguous source slices in outputSizes order; zero-based ports"
   },
+  "externalRewardBinaryVersion": 2,
+  "externalRewardMaxEnvelopeBytes": 4096,
+  "externalRewardVersion": 1,
   "graphHashDomain": "slither-neuroevo/graph-layout/v1\u0000",
   "graphLayoutVersion": 1,
   "maxBrainBytes": 67108864,

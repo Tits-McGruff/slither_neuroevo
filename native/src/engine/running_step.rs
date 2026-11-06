@@ -193,6 +193,9 @@ pub enum ExternalDeliveryEventKind {
 /// One reliable external event whose step has otherwise staged fully.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExternalObservationEvent {
+    /// Immutable observation marker, or the old-life closure on an assignment.
+    /// Assignment reward never belongs to the successor's identity.
+    pub reward: Option<super::external_reward::PreparedRewardDelivery>,
     /// Exact full step identity that produced this observation.
     pub step_key: PhysicsStepKey,
     /// Monotonic event identity within this coordinator instance.
@@ -237,6 +240,20 @@ impl<'workspace> ExternalObservationBatch<'workspace> {
     pub fn observation(self, event_index: usize) -> Option<&'workspace [f32]> {
         let event = self.events.get(event_index)?;
         if event.delivery_kind != ExternalDeliveryEventKind::Observation {
+            return None;
+        }
+        let end = event.observation_start.checked_add(event.observation_len)?;
+        self.observations.get(event.observation_start..end)
+    }
+
+    /// Final old-life state carried by a generation assignment for bootstrapping.
+    /// Terminal closures and ordinary assignments have no final observation.
+    #[must_use]
+    pub fn final_observation(self, event_index: usize) -> Option<&'workspace [f32]> {
+        let event = self.events.get(event_index)?;
+        if event.delivery_kind == ExternalDeliveryEventKind::Observation
+            || event.observation_len == 0
+        {
             return None;
         }
         let end = event.observation_start.checked_add(event.observation_len)?;
@@ -483,6 +500,7 @@ pub enum GenerationTransitionReason {
 
 #[derive(Debug)]
 struct PendingGenerationTransition {
+    reward_cutoffs: super::control_phase::ExternalRewardCutoffs,
     reason: GenerationTransitionReason,
     elapsed_seconds: f64,
     alive_evolved: usize,
@@ -554,6 +572,7 @@ pub struct RunningStepCoordinator {
     pending_sources: Vec<PendingExternalSource>,
     pending_observations: Vec<PreparedExternalObservation>,
     pending_observation_statuses: Vec<ExternalDeliveryStatus>,
+    pending_observations_admitted: bool,
     pending_tokens: Vec<String>,
     pending_token_count: usize,
     next_external_event_sequence: u64,
@@ -678,6 +697,7 @@ impl RunningStepCoordinator {
             pending_sources: Vec::new(),
             pending_observations: Vec::new(),
             pending_observation_statuses: Vec::new(),
+            pending_observations_admitted: false,
             pending_tokens: Vec::new(),
             pending_token_count: 0,
             next_external_event_sequence: 1,
@@ -1235,9 +1255,62 @@ impl RunningStepCoordinator {
                     self.last_phase_allocations.generation_guard =
                         allocation_delta(self.allocation_snapshot, &mut self.allocation_cursor);
                 }
-                authority.preflight_generation_numeric_allocation()?;
+                let cutoff_count = prepared
+                    .world()
+                    .controller_leases
+                    .iter()
+                    .filter(|lease| {
+                        lease.status == ControllerLeaseStatus::Connected
+                            && lease.connection_id.is_some()
+                            && lease.reward.is_some_and(|reward| reward.has_delivery())
+                    })
+                    .count();
+                let cutoff_bound = self
+                    .control
+                    .sensor_input_size()
+                    .checked_mul(std::mem::size_of::<f32>())
+                    .and_then(|bytes| {
+                        bytes.checked_add(std::mem::size_of::<
+                            super::control_phase::ExternalRewardCutoff,
+                        >())
+                    })
+                    .and_then(|bytes| bytes.checked_mul(cutoff_count))
+                    .ok_or(RunningStepError::ArithmeticOverflow {
+                        context: "generation cutoff allocation",
+                    })?;
+                authority.preflight_generation_numeric_allocation(cutoff_bound)?;
                 let elapsed_seconds = prepared.generation_elapsed_seconds();
+                let reward_cutoffs = self.control.capture_reward_cutoffs(
+                    prepared.world(),
+                    &self.staged_sensor_generation,
+                    self.work_limits
+                        .ray_work
+                        .filter(|_| {
+                            self.projection.sensor_profile
+                                != super::sensor_contract::SensorProfile::V3
+                        })
+                        .map(|limits| super::control_phase::V4BoundaryContext {
+                            context: super::sensors_v4::V4ObservationContext {
+                                generation_elapsed_seconds: elapsed_seconds,
+                                evolved: &self.staged_evolved_generation,
+                                experiment: self.projection.evolved,
+                            },
+                            limits,
+                        }),
+                    self.projection.world_step.control,
+                    super::external_reward::RewardBoundary {
+                        completed_step: key.source_completed_step().checked_add(1).ok_or(
+                            RunningStepError::ArithmeticOverflow {
+                                context: "generation reward cutoff step",
+                            },
+                        )?,
+                        elapsed_seconds: (key.source_completed_step() as f64 + 1.0)
+                            * self.projection.world_step.prefix.fixed_dt,
+                    },
+                )?;
                 let preparation_started = Instant::now();
+                let cutoff_owned_bytes = reward_cutoffs.owned_bytes()?;
+                authority.preflight_generation_numeric_allocation(cutoff_owned_bytes)?;
                 let next = prepare_generation_boundary_with_evolved(
                     state,
                     prepared.world(),
@@ -1263,6 +1336,7 @@ impl RunningStepCoordinator {
                     prepared.rng(),
                     prepared.allocators(),
                     self.prefix.evolved_proof(),
+                    cutoff_owned_bytes,
                 )?;
                 self.staged_work.observe_world(prepared.world());
                 let mut work = self.generation_work;
@@ -1288,6 +1362,7 @@ impl RunningStepCoordinator {
                     u64::try_from(admission_started.elapsed().as_micros()).unwrap_or(u64::MAX);
                 return Ok(StagedStep::Generation(Box::new(
                     PendingGenerationTransition {
+                        reward_cutoffs,
                         reason,
                         elapsed_seconds,
                         alive_evolved,
@@ -1413,62 +1488,61 @@ impl RunningStepCoordinator {
         )?))
     }
 
-    /// Publish one retained observation-only batch after its complete output has
-    /// already been admitted by the background reliable queue. Controller
-    /// ownership-changing replacement assignments are deliberately excluded.
-    pub(crate) fn publish_pending_observations<'workspace>(
+    /// Commit ordinary delivery markers to the staged world once its complete
+    /// output has been admitted. Only assignments may still block publication.
+    pub(crate) fn admit_pending_observations<'workspace>(
         &'workspace mut self,
         authority: &mut AuthoritativeState,
-    ) -> Result<RunningStepOutcome<'workspace>, RunningStepError> {
+    ) -> Result<Option<RunningStepOutcome<'workspace>>, RunningStepError> {
         self.validate_authority(authority)?;
         let key = self
             .pending_key
             .ok_or(RunningStepError::PendingDeliveryStateMismatch { field: "step key" })?;
         if self.pending_delivery_context != Some(PendingDeliveryContext::RunningStep) {
             return Err(RunningStepError::PendingDeliveryStateMismatch {
-                field: "observation-only delivery context",
+                field: "ordinary observation delivery context",
             });
         }
         self.validate_pending_batch(key)?;
-        if self.pending_events.is_empty()
-            || self.pending_events.len() != self.pending_observations.len()
-            || self.pending_observation_statuses.len() != self.pending_observations.len()
-        {
+        if self.pending_observations.is_empty() || self.pending_observations_admitted {
             return Err(RunningStepError::PendingDeliveryStateMismatch {
-                field: "observation-only retained counts",
+                field: "ordinary observation admission",
             });
         }
-        for (index, event) in self.pending_events.iter().enumerate() {
-            if !matches!(event.delivery_kind, ExternalDeliveryEventKind::Observation)
-                || !matches!(
-                    self.pending_sources.get(index),
-                    Some(PendingExternalSource::Observation { retained_index }) if *retained_index == index
-                )
-                || self.pending_statuses[index] != ExternalDeliveryStatus::Pending
-                || self.pending_observation_statuses[index] != ExternalDeliveryStatus::Pending
-            {
-                return Err(RunningStepError::PendingDeliveryStateMismatch {
-                    field: "observation-only event state",
-                });
-            }
+        if self
+            .pending_observation_statuses
+            .iter()
+            .any(|status| *status != ExternalDeliveryStatus::Pending)
+        {
+            return Err(RunningStepError::PendingDeliveryStateMismatch {
+                field: "ordinary observation event state",
+            });
         }
         self.validate_pending_publication(authority, key)?;
-        self.pending_statuses.fill(ExternalDeliveryStatus::Accepted);
+        for (source, status) in self.pending_sources.iter().zip(&mut self.pending_statuses) {
+            if matches!(source, PendingExternalSource::Observation { .. }) {
+                *status = ExternalDeliveryStatus::Accepted;
+            }
+        }
         self.pending_observation_statuses
             .fill(ExternalDeliveryStatus::Accepted);
+        self.commit_external_observations(key);
+        self.pending_observations_admitted = true;
+        if self
+            .pending_statuses
+            .contains(&ExternalDeliveryStatus::Pending)
+        {
+            return Ok(None);
+        }
         let inputs = self
             .pending_inputs
             .expect("prevalidated pending observation delivery must retain step inputs");
         let preflight = self
             .pending_preflight
             .expect("prevalidated pending observation delivery must retain state proof");
-        self.world_step.commit_prevalidated_external_deliveries(
-            key,
-            &self.pending_observations,
-            &self.pending_observation_statuses,
-        );
         let diagnostics = self.world_step.diagnostics();
         self.publish_prevalidated_staged(authority, key, inputs, preflight, diagnostics)
+            .map(Some)
     }
 
     /// Apply local Node send results to the one retained external event batch.
@@ -1621,11 +1695,9 @@ impl RunningStepCoordinator {
         let preflight = self
             .pending_preflight
             .expect("prevalidated pending delivery must retain state proof");
-        self.world_step.commit_prevalidated_external_deliveries(
-            key,
-            &self.pending_observations,
-            &self.pending_observation_statuses,
-        );
+        if !self.pending_observations_admitted {
+            self.commit_external_observations(key);
+        }
         let diagnostics = self.world_step.diagnostics();
         let outcome =
             self.publish_prevalidated_staged(authority, key, inputs, preflight, diagnostics)?;
@@ -2380,6 +2452,25 @@ impl RunningStepCoordinator {
                 },
             )?;
             self.pending_events.push(ExternalObservationEvent {
+                reward: self
+                    .world_step
+                    .replacement_old_reward(key, assignment_index)?
+                    .filter(|reward| reward.has_delivery())
+                    .map(|reward| {
+                        reward.prepare(
+                            event_sequence,
+                            super::external_reward::RewardBoundary {
+                                completed_step: key.source_completed_step().checked_add(1).ok_or(
+                                    super::external_reward::RewardError("closure step overflow"),
+                                )?,
+                                elapsed_seconds: (key.source_completed_step() as f64 + 1.0)
+                                    * self.projection.world_step.prefix.fixed_dt,
+                            },
+                            None,
+                        )
+                    })
+                    .transpose()
+                    .map_err(RunningStepError::Reward)?,
                 step_key: key,
                 event_sequence,
                 connection_id: assignment.connection_id,
@@ -2434,6 +2525,11 @@ impl RunningStepCoordinator {
             self.pending_observation_statuses
                 .push(ExternalDeliveryStatus::Pending);
             self.pending_events.push(ExternalObservationEvent {
+                reward: source
+                    .reward()
+                    .map(|reward| reward.prepare(event_sequence))
+                    .transpose()
+                    .map_err(RunningStepError::Reward)?,
                 step_key: key,
                 event_sequence,
                 connection_id: source.connection_id(),
@@ -2542,7 +2638,26 @@ impl RunningStepCoordinator {
                     context: "generation assignment event sequence",
                 },
             )?;
+            let pending = self
+                .pending_generation
+                .as_ref()
+                .ok_or(RunningStepError::GenerationTransitionNotPending)?;
+            let cutoff = pending
+                .reward_cutoffs
+                .records
+                .iter()
+                .find(|cutoff| cutoff.connection_id == assignment.connection_id);
+            let reason = if pending.reason == GenerationTransitionReason::Manual {
+                crate::contracts::ExternalRewardEndReason::ManualGeneration
+            } else {
+                crate::contracts::ExternalRewardEndReason::Generation
+            };
+            let reward = cutoff
+                .map(|cutoff| cutoff.reward.prepare_closure(event_sequence, reason))
+                .transpose()
+                .map_err(RunningStepError::Reward)?;
             self.pending_events.push(ExternalObservationEvent {
+                reward,
                 step_key: key,
                 event_sequence,
                 connection_id: assignment.connection_id,
@@ -2554,8 +2669,8 @@ impl RunningStepCoordinator {
                 snake_id: assignment.snake_id,
                 position: replacement.position,
                 direction: replacement.direction,
-                observation_start: 0,
-                observation_len: 0,
+                observation_start: cutoff.map_or(0, |cutoff| cutoff.observation_start),
+                observation_len: cutoff.map_or(0, |cutoff| cutoff.observation_len),
                 token_index: Some(assignment_index),
             });
             self.pending_statuses.push(ExternalDeliveryStatus::Pending);
@@ -2597,14 +2712,20 @@ impl RunningStepCoordinator {
                 field: "delivery context",
             },
         )?;
-        let empty_observations: &[f32] = &[];
         let observations = match context {
             PendingDeliveryContext::RunningStep => {
                 self.control_commit
                     .external_delivery_buffers(pending_key)?
                     .1
             }
-            PendingDeliveryContext::GenerationStart => empty_observations,
+            PendingDeliveryContext::GenerationStart => {
+                &self
+                    .pending_generation
+                    .as_ref()
+                    .ok_or(RunningStepError::GenerationTransitionNotPending)?
+                    .reward_cutoffs
+                    .observations
+            }
         };
         for (index, event) in self.pending_events.iter().enumerate() {
             if event.step_key != key
@@ -2644,7 +2765,18 @@ impl RunningStepCoordinator {
                     ExternalDeliveryEventKind::ReplacementAssignment { .. },
                     PendingExternalSource::ReplacementAssignment { assignment_index },
                 ) if event.token_index == Some(assignment_index)
-                    && assignment_index < self.pending_token_count => {}
+                    && assignment_index < self.pending_token_count =>
+                {
+                    if event
+                        .observation_start
+                        .checked_add(event.observation_len)
+                        .is_none_or(|end| end > observations.len())
+                    {
+                        return Err(RunningStepError::PendingDeliveryStateMismatch {
+                            field: "final old-life observation range",
+                        });
+                    }
+                }
                 _ => {
                     return Err(RunningStepError::PendingDeliveryStateMismatch {
                         field: "external event source kind",
@@ -2659,7 +2791,6 @@ impl RunningStepCoordinator {
         let key = self
             .pending_key
             .expect("prevalidated pending delivery must retain its step key");
-        let empty_observations: &[f32] = &[];
         let observations = match self
             .pending_delivery_context
             .expect("prevalidated pending delivery must retain its context")
@@ -2669,7 +2800,14 @@ impl RunningStepCoordinator {
                     .external_delivery_buffers_prevalidated(key)
                     .1
             }
-            PendingDeliveryContext::GenerationStart => empty_observations,
+            PendingDeliveryContext::GenerationStart => {
+                &self
+                    .pending_generation
+                    .as_ref()
+                    .expect("generation assignment retains its cutoff observations")
+                    .reward_cutoffs
+                    .observations
+            }
         };
         debug_assert_eq!(self.pending_events.len(), self.pending_statuses.len());
         ExternalObservationBatch {
@@ -2700,6 +2838,30 @@ impl RunningStepCoordinator {
             .validate_external_delivery_preflight(key, &self.pending_observations)?;
         let v2_proof = self.control_commit.baseline_v2_proof();
         let mut buffers = self.world_step.validation_buffers(key)?;
+        for event in &self.pending_events {
+            if event.delivery_kind != ExternalDeliveryEventKind::Observation {
+                continue;
+            }
+            if let Some(reward) = &event.reward {
+                let owner = buffers
+                    .world
+                    .controller_leases
+                    .iter()
+                    .find(|lease| lease.id == event.lease_id && lease.snake_id == event.snake_id)
+                    .and_then(|lease| lease.reward.as_ref())
+                    .ok_or(RunningStepError::PendingDeliveryStateMismatch {
+                        field: "reward owner",
+                    })?;
+                if owner.identity().world_epoch != key.world_epoch() {
+                    return Err(RunningStepError::PendingDeliveryStateMismatch {
+                        field: "reward world",
+                    });
+                }
+                owner
+                    .validate_delivery(reward)
+                    .map_err(RunningStepError::Reward)?;
+            }
+        }
         let brains = if let Some(brains) = buffers.replacement_brains.take() {
             brains
         } else {
@@ -2826,6 +2988,35 @@ impl RunningStepCoordinator {
         Ok(authority.preflight_running_step(&mut replacement)?)
     }
 
+    fn commit_external_observations(&mut self, key: PhysicsStepKey) {
+        self.world_step.commit_prevalidated_external_deliveries(
+            key,
+            &self.pending_observations,
+            &self.pending_observation_statuses,
+        );
+        let buffers = self
+            .world_step
+            .validation_buffers(key)
+            .expect("prevalidated observation world must remain ready");
+        for event in &self.pending_events {
+            if event.delivery_kind != ExternalDeliveryEventKind::Observation {
+                continue;
+            }
+            if let Some(reward) = &event.reward {
+                let owner = buffers
+                    .world
+                    .controller_leases
+                    .iter_mut()
+                    .find(|lease| lease.id == event.lease_id && lease.snake_id == event.snake_id)
+                    .and_then(|lease| lease.reward.as_mut())
+                    .expect("prevalidated reward owner must survive observation admission");
+                owner
+                    .commit_delivery(reward)
+                    .expect("prevalidated reward marker must remain current");
+            }
+        }
+    }
+
     fn publish_prevalidated_staged<'workspace>(
         &'workspace mut self,
         authority: &mut AuthoritativeState,
@@ -2906,6 +3097,7 @@ impl RunningStepCoordinator {
         self.pending_sources.clear();
         self.pending_observations.clear();
         self.pending_observation_statuses.clear();
+        self.pending_observations_admitted = false;
         self.pending_token_count = 0;
     }
 
@@ -3071,6 +3263,8 @@ fn generation_transition_required(
 /// Failure before one complete nonterminal fixed step becomes authoritative.
 #[derive(Debug)]
 pub enum RunningStepError {
+    /// Raw external reward accounting or output identity is inconsistent.
+    Reward(super::external_reward::RewardError),
     /// Admitted normalized configuration could not project.
     Config(Box<StepConfigError>),
     /// Corrected sensor evaluator construction failed.
@@ -3155,6 +3349,7 @@ boxed_from!(StateError, State);
 impl Display for RunningStepError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Reward(error) => write!(formatter, "external reward preparation failed: {error}"),
             Self::Config(error) => write!(formatter, "{error}"),
             Self::Sensor(error) => write!(formatter, "{error}"),
             Self::Inference(error) => write!(formatter, "{error}"),
@@ -3245,6 +3440,7 @@ impl Display for RunningStepError {
 impl Error for RunningStepError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Reward(error) => Some(error),
             Self::Config(error) => Some(error.as_ref()),
             Self::Sensor(error) => Some(error.as_ref()),
             Self::Inference(error) => Some(error.as_ref()),

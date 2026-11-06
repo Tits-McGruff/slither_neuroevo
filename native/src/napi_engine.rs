@@ -374,6 +374,8 @@ pub struct Stage6BackgroundGenerationTransition {
 /// One exact Rust-owned reassignment emitted from the retained successor.
 #[napi(object)]
 pub struct Stage6BackgroundGenerationAssignment {
+    pub reward_json: Option<String>,
+    pub final_sensors: Option<Vec<f64>>,
     pub operation_epoch: String,
     pub event_sequence: String,
     pub connection_id: String,
@@ -458,6 +460,7 @@ pub struct BackgroundControllerReclaimResolution {
 /// One typed output drained from the real background runtime.
 #[napi(object)]
 pub struct BackgroundControllerMessage {
+    pub reward_json: Option<String>,
     pub operation_epoch: String,
     pub event_sequence: String,
     pub connection_id: String,
@@ -2950,9 +2953,9 @@ impl Stage6BackgroundGenerationHandoffFixtureSession {
     ) -> Result<()> {
         self.submit_control(
             parse_background_sequence(sequence_hex)?,
-            RunningAuthorityCommand::SubmitControllerAction(
+            RunningAuthorityCommand::SubmitControllerAction(Box::new(
                 crate::napi_running_engine::parse_controller_action(&action)?,
-            ),
+            )),
         )
     }
 
@@ -4114,7 +4117,7 @@ pub(crate) fn background_generation_event_to_napi(
     Ok(output)
 }
 
-fn running_authority_event_to_napi(
+pub(super) fn running_authority_event_to_napi(
     event: RunningAuthorityEvent,
 ) -> std::result::Result<Stage6BackgroundGenerationEvent, EngineError> {
     let mut output = empty_background_generation_event();
@@ -4355,73 +4358,45 @@ fn running_authority_event_to_napi(
             output.command_sequence = Some(u64_hex(command_sequence));
             output.visualization_enabled = Some(enabled);
         }
-        RunningAuthorityEvent::ControllerObservations { messages, .. } => {
-            output.kind = "controllerObservations".to_owned();
-            output.controller_observations = Some(
-                messages
-                    .into_vec()
-                    .into_iter()
-                    .map(|message| {
-                        let event = message.event;
-                        debug_assert_eq!(
-                            event.delivery_kind,
-                            crate::engine::ExternalDeliveryEventKind::Observation
-                        );
-                        BackgroundControllerMessage {
-                            operation_epoch: u64_hex(event.step_key.operation_epoch()),
-                            event_sequence: u64_hex(event.event_sequence),
-                            connection_id: u64_hex(event.connection_id),
-                            lease_id: u64_hex(event.lease_id),
-                            controller_kind: controller_kind_name(event.controller_kind).to_owned(),
-                            internal_snake_id: u64_hex(event.snake_id),
-                            snake_id: message.frame_v1_id,
-                            source_completed_step: u64_hex(event.step_key.source_completed_step()),
-                            kind: "observation".to_owned(),
-                            sensors: Some(message.sensors.iter().copied().map(f64::from).collect()),
-                            x: Some(event.position.x),
-                            y: Some(event.position.y),
-                            direction: Some(event.direction),
-                            resume_token: None,
-                        }
-                    })
-                    .collect(),
-            );
-        }
-        RunningAuthorityEvent::ControllerMessages { messages, .. } => {
-            output.kind = "controllerMessages".to_owned();
-            output.controller_messages = Some(
-                messages
-                    .into_vec()
-                    .into_iter()
-                    .map(|message| {
-                        let event = message.event;
-                        let observation = event.delivery_kind
-                            == crate::engine::ExternalDeliveryEventKind::Observation;
-                        BackgroundControllerMessage {
-                            operation_epoch: u64_hex(event.step_key.operation_epoch()),
-                            event_sequence: u64_hex(event.event_sequence),
-                            connection_id: u64_hex(event.connection_id),
-                            lease_id: u64_hex(event.lease_id),
-                            controller_kind: controller_kind_name(event.controller_kind).to_owned(),
-                            internal_snake_id: u64_hex(event.snake_id),
-                            snake_id: message.frame_v1_id,
-                            source_completed_step: u64_hex(event.step_key.source_completed_step()),
-                            kind: if observation {
-                                "observation"
-                            } else {
-                                "replacementAssignment"
-                            }
-                            .to_owned(),
-                            sensors: observation
-                                .then(|| message.sensors.iter().copied().map(f64::from).collect()),
-                            x: observation.then_some(event.position.x),
-                            y: observation.then_some(event.position.y),
-                            direction: observation.then_some(event.direction),
-                            resume_token: message.resume_token.map(|token| token.into_string()),
-                        }
-                    })
-                    .collect(),
-            );
+        RunningAuthorityEvent::ControllerObservations { messages, .. }
+        | RunningAuthorityEvent::ControllerMessages { messages, .. } => {
+            let message_count = messages.len();
+            for message in messages.into_vec() {
+                let event = message.event;
+                let observation =
+                    event.delivery_kind == crate::engine::ExternalDeliveryEventKind::Observation;
+                let (target, kind) = if observation {
+                    (&mut output.controller_observations, "observation")
+                } else {
+                    (&mut output.controller_messages, "replacementAssignment")
+                };
+                target
+                    .get_or_insert_with(|| Vec::with_capacity(message_count))
+                    .push(BackgroundControllerMessage {
+                        reward_json: message.reward_json.map(|json| json.into_string()),
+                        operation_epoch: u64_hex(event.step_key.operation_epoch()),
+                        event_sequence: u64_hex(event.event_sequence),
+                        connection_id: u64_hex(event.connection_id),
+                        lease_id: u64_hex(event.lease_id),
+                        controller_kind: controller_kind_name(event.controller_kind).to_owned(),
+                        internal_snake_id: u64_hex(event.snake_id),
+                        snake_id: message.frame_v1_id,
+                        source_completed_step: u64_hex(event.step_key.source_completed_step()),
+                        kind: kind.to_owned(),
+                        sensors: observation
+                            .then(|| message.sensors.iter().copied().map(f64::from).collect()),
+                        x: observation.then_some(event.position.x),
+                        y: observation.then_some(event.position.y),
+                        direction: observation.then_some(event.direction),
+                        resume_token: message.resume_token.map(|token| token.into_string()),
+                    });
+            }
+            output.kind = if output.controller_messages.is_some() {
+                "controllerMessages"
+            } else {
+                "controllerObservations"
+            }
+            .to_owned();
         }
         RunningAuthorityEvent::ControllerDeliveryReceiptsApplied {
             command_sequence,
@@ -4496,6 +4471,15 @@ fn running_authority_event_to_napi(
                     .into_vec()
                     .into_iter()
                     .map(|assignment| Stage6BackgroundGenerationAssignment {
+                        reward_json: assignment.reward_json.map(|json| json.into_string()),
+                        final_sensors: (!assignment.final_sensors.is_empty()).then(|| {
+                            assignment
+                                .final_sensors
+                                .iter()
+                                .copied()
+                                .map(f64::from)
+                                .collect()
+                        }),
                         operation_epoch: u64_hex(assignment.operation_epoch),
                         event_sequence: u64_hex(assignment.event_sequence),
                         connection_id: u64_hex(assignment.connection_id),

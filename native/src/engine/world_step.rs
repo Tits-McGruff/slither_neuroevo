@@ -46,12 +46,12 @@ pub const WORLD_STEP_VERSION: u32 = 1;
 /// Hard safety ceiling for collision-only subdivisions of one fixed step.
 pub const MAXIMUM_PHYSICS_SUBSTEPS: usize = 256;
 
-/// Local Node disposition for one exact external observation event.
+/// Delivery disposition for one exact external controller event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExternalDeliveryStatus {
     /// No matching local send result has resolved this event yet.
     Pending,
-    /// Node accepted the event into the matching socket send path.
+    /// Native admitted an observation, or a receipt accepted a transactional send.
     Accepted,
     /// The matching socket send failed and the controller must disconnect.
     Failed,
@@ -86,6 +86,7 @@ impl WorldStepConfig {
         physics.maximum_body_points = prefix.maximum_body_points;
         physics.maximum_pellets = prefix.maximum_pellets;
         let external_replacement = ExternalReplacementConfig {
+            fixed_step_seconds: prefix.fixed_dt,
             spawn: prefix.baseline_spawn,
             snake_base_speed: prefix.baseline_snake_base_speed,
             controller_timing: control.controller_timing,
@@ -137,6 +138,8 @@ impl WorldStepConfig {
             });
         }
         if self.external_replacement.spawn != self.prefix.baseline_spawn
+            || self.external_replacement.fixed_step_seconds.to_bits()
+                != self.prefix.fixed_dt.to_bits()
             || self.external_replacement.snake_base_speed.to_bits()
                 != self.prefix.baseline_snake_base_speed.to_bits()
             || self.external_replacement.controller_timing != self.control.controller_timing
@@ -1105,6 +1108,15 @@ impl WorldStepWorkspace {
             return Err(WorldStepError::ExternalDeliveryPending { count: pending });
         }
         self.resolved_buffers(key)
+    }
+
+    /// Final old-life accounting retained beside a death replacement transaction.
+    pub(crate) fn replacement_old_reward(
+        &self,
+        key: PhysicsStepKey,
+        index: usize,
+    ) -> Result<Option<super::external_reward::ExternalRewardLedger>, WorldStepError> {
+        Ok(self.external_replacement.old_reward(key, index)?)
     }
 
     /// Resolved generation-base/controller buffers for successor admission.

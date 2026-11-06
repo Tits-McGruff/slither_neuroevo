@@ -201,8 +201,8 @@ export function buildViteConfig() {
       projects: [
         { extends: true as const, test: { name: "unit", include: ["{src,server,scripts}/**/*.test.ts"],
           exclude: [...configDefaults.exclude, "**/*.native.test.ts", "**/*.integration.test.ts", "**/*.system.test.ts", "**/*.performance.test.ts"] } },
-        { extends: true as const, test: { name: "integration", include: ["**/*.{integration,system}.test.ts"], fileParallelism: false } },
-        { extends: true as const, test: { name: "native", include: ["**/*.native.test.ts"], fileParallelism: false,
+        { extends: true as const, test: { name: "integration", include: ["{src,server,scripts}/**/*.{integration,system}.test.ts"], fileParallelism: false } },
+        { extends: true as const, test: { name: "native", include: ["{src,server,scripts}/**/*.native.test.ts"], fileParallelism: false,
           globalSetup: ["scripts/native-test-setup.ts"] } }
       ]
     },

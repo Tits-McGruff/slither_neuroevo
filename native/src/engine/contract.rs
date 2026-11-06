@@ -249,6 +249,7 @@ pub struct ExternalDeliveryReceipt {
 /// Validated steering received by Rust, with no JavaScript-controlled clock.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ControllerActionRequest {
+    pub client_action_id: Option<u64>,
     pub lease_id: u64,
     pub connection_id: u64,
     pub turn: f32,
@@ -304,7 +305,7 @@ pub enum RunningAuthorityCommand {
     ReclaimController(Box<ControllerReclaimRequest>),
     SubmitControllerReclaimReceipt(ControllerReclaimReceipt),
     /// Apply only at a fresh pre-step boundary, after any retained step resolves.
-    SubmitControllerAction(ControllerActionRequest),
+    SubmitControllerAction(Box<ControllerActionRequest>),
     /// Close ownership at a fresh boundary without extending wall-time grace.
     DisconnectController(ControllerDisconnectRequest),
     /// Replace one bounded settings batch and all config-derived Rust caches atomically.
@@ -437,6 +438,7 @@ impl RunningAuthorityCommand {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller disconnect identity"))
             }
             Self::SubmitControllerAction(action) if action.lease_id == 0 || action.connection_id == 0
+                || action.client_action_id == Some(0)
                 || !action.turn.is_finite() || !(-1.0..=1.0).contains(&action.turn) => {
                 Err(EngineError::new(EngineErrorCode::InvalidCommand, "invalid controller action identity or steering"))
             }
@@ -566,7 +568,8 @@ impl RunningAuthorityCommand {
                     )
                 }),
             Self::SubmitControllerReclaimReceipt(_) | Self::SubmitControllerJoinReceipt(_) => Ok(0),
-            Self::SubmitControllerAction(_) | Self::DisconnectController(_) => Ok(0),
+            Self::SubmitControllerAction(_) => Ok(std::mem::size_of::<ControllerActionRequest>()),
+            Self::DisconnectController(_) => Ok(0),
             Self::ApplyLiveSettings { updates } => updates
                 .iter()
                 .try_fold(0usize, |bytes, update| {
@@ -660,6 +663,8 @@ impl RunningAuthorityCommand {
 /// Owned reliable projection of a retained Rust observation or death assignment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunningControllerMessage {
+    /// Bounded Rust-authored reward JSON, opaque to the thin Node transport.
+    pub reward_json: Option<Box<str>>,
     pub event: ExternalObservationEvent,
     /// Browser/Protocol 2 identity, distinct from the internal snake ID.
     pub frame_v1_id: u32,
@@ -674,13 +679,18 @@ impl RunningControllerMessage {
             .len()
             .saturating_mul(size_of::<f32>())
             .saturating_add(self.resume_token.as_ref().map_or(0, |token| token.len()))
+            .saturating_add(self.reward_json.as_ref().map_or(0, |json| json.len()))
     }
 }
 
 /// One Rust-owned controller reassignment envelope. No population or archive
 /// bytes are copied into this bridge record.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RunningGenerationAssignment {
+    /// Old-life closure, ordered before this successor assignment by transport.
+    pub reward_json: Option<Box<str>>,
+    /// Final old-life sensor state for truncation; empty for terminal/unobserved lives.
+    pub final_sensors: Box<[f32]>,
     /// Exact source operation epoch.
     pub operation_epoch: u64,
     /// Monotonic external event identity.
@@ -835,14 +845,14 @@ pub enum RunningAuthorityEvent {
         capture_epoch: [u8; 16],
         enabled: bool,
     },
-    /// Ordered ordinary observations whose authoritative step is already published.
-    /// Their complete payload was admitted to the bounded Rust output queue before
-    /// the step committed, so Node must not return ordinary delivery receipts.
+    /// Ordered ordinary observations from an observation-only step. Their
+    /// complete payload was admitted to the bounded Rust output queue.
     ControllerObservations {
         ticket_sequence: u64,
         messages: Box<[RunningControllerMessage]>,
     },
-    /// Receipt-driven ordinary-step batch containing an ownership-changing replacement.
+    /// One ordered step batch containing replacements and any admitted observations.
+    /// Only replacements require receipts.
     ControllerMessages {
         ticket_sequence: u64,
         messages: Box<[RunningControllerMessage]>,
@@ -990,7 +1000,17 @@ impl RunningAuthorityEvent {
                 .len()
                 .saturating_mul(size_of::<RunningGenerationAssignment>())
                 .saturating_add(assignments.iter().fold(0usize, |bytes, assignment| {
-                    bytes.saturating_add(assignment.resume_token.len())
+                    bytes
+                        .saturating_add(assignment.resume_token.len())
+                        .saturating_add(
+                            assignment.reward_json.as_ref().map_or(0, |json| json.len()),
+                        )
+                        .saturating_add(
+                            assignment
+                                .final_sensors
+                                .len()
+                                .saturating_mul(size_of::<f32>()),
+                        )
                 })),
             Self::GenerationStartPublished { resolution, .. } => {
                 let reservations = &resolution.publication.unavailable_controller_reservations;

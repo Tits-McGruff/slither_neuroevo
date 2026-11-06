@@ -71,6 +71,12 @@ function hex(value: number): RustBackgroundIdentity {
   return BigInt(value).toString(16).padStart(16, '0');
 }
 
+/** Optional client correlation uses the same bounded positive word convention. */
+function identityAction(value: string): RustBackgroundIdentity {
+  if (!/^(?!0{16}$)[0-9a-f]{16}$/u.test(value)) throw new RangeError('invalid client action identity');
+  return value;
+}
+
 /** Keep only bounded socket tags, unadmitted lifecycle commands and newest input. */
 export class ExternalControllerRouting {
   /** Retain transport requests while a replacement holds the old native world. */
@@ -151,7 +157,9 @@ export class ExternalControllerRouting {
     const step = this.options.native.health().completedStep;
     if (route.actionStep !== step) { route.actionStep = step; route.stepActions = 0; }
     if (++route.stepActions > this.options.maxActionsPerTick && route.request.controllerKind === 'reinforcementLearning') return;
-    route.action = { connectionId: route.id, leaseId: route.lease, clientTick: hex(message.tick), turn: Math.max(-1, Math.min(1, message.turn)), boost: message.boost > 0 };
+    route.action = { connectionId: route.id, leaseId: route.lease, clientTick: hex(message.tick),
+      ...(message.actionId === undefined ? {} : { clientActionId: identityAction(message.actionId) }),
+      turn: Math.max(-1, Math.min(1, message.turn)), boost: message.boost > 0 };
     route.actionReceivedAt = now;
     this.flush();
   }

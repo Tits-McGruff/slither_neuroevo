@@ -175,6 +175,9 @@ Update the held input for the assigned snake:
   ignored.
 - `turn` is clamped to `[-1, 1]`.
 - `boost` is clamped to `[0, 1]`.
+- Bots may send an optional `actionId` as a nonzero, lowercase 16-digit
+  hexadecimal string. Reward v1 echoes the identifier when Rust accepts or
+  applies that command. Clients can omit it when they do not need correlation.
 - Production holds the latest accepted input for **500 ms** from its acceptance,
   or until another action is accepted or the assignment
   is released. If no fresh action arrives before that interval expires, the
@@ -575,6 +578,124 @@ WebSocket, or a client action to acknowledge that observation. `tick` identifies
 the committed source boundary. The latest accepted action remains held under the
 normal input timeout. Fresh/replacement assignments, reconnects and generation
 reassignments retain their reliable transactional delivery rules.
+
+### Authoritative reward v1 and `transition`
+
+Welcome advertises `rewardVersion: 1` and `binarySensorsVersion: 2` independently
+of sensor layout and Protocol 2. A training bot requests both extensions in hello:
+
+```json
+{"type":"hello","clientType":"bot","version":2,"binarySensors":true,"binarySensorsVersion":2,"rewardVersion":1}
+```
+
+For JSON observations, request `rewardVersion: 1` without `binarySensors` or
+`binarySensorsVersion`. Peers that omit the reward capability retain their
+original observations and assignments. Unsupported combinations fail admission.
+
+Reward-capable `sensors` include a `reward` envelope. SNS2 binary revision 2 keeps
+the 44-byte header and little-endian Float32 sensor body, then appends a
+little-endian Uint32 JSON byte length followed by at most 4096 UTF-8 bytes. The
+envelope's public snake ID and ending step match the sensor header. Revision 1
+has no suffix and remains the format for legacy binary peers.
+
+Rust constructs all reward facts directly from committed accounting and physics,
+independently of v3, v4 Basic or v4 Motion labels:
+
+| Delta | Meaning and units |
+|---|---|
+| `elapsedSeconds` | Physical simulated seconds between observation/cutoff boundaries |
+| `aliveSecondsDelta` | Live seconds credited by authoritative prefix accounting |
+| `foodValueDelta` | Value of pellets actually consumed; nonnegative food-value units |
+| `foodCountDelta` | Consumed pellet count; nonnegative integer |
+| `lengthDelta` | Signed change in finalized physical body segments |
+| `retainedGrowthDelta` | Signed change in `max(finalizedLength - startingLength, 0)` |
+| `pointsDelta` | Signed wallet change from ordinary game accounting |
+| `survivalPointsDelta` | Gross points awarded by live-time accounting |
+| `foodPointsDelta` | Gross points awarded by food consumption |
+| `killPointsDelta` | Gross points awarded by credited kills |
+| `otherPointsDelta` | Other signed ordinary point adjustments |
+| `boostPointsSpentDelta` | Nonnegative actual boost expenditure in points |
+| `killsDelta` | Nonnegative authoritative credited-kill count |
+
+All numbers are finite. The economic identity is
+`pointsDelta = survivalPointsDelta + foodPointsDelta + killPointsDelta + otherPointsDelta - boostPointsSpentDelta`.
+Initial balances and spawn state create no earnings. Growth uses finalized
+segments; terminal cleanup does not create a shrinkage penalty.
+
+Every reward envelope also requires a `state` snapshot with exact integer body
+segment quantities:
+
+| State field | Meaning |
+|---|---|
+| `startingLength` | Positive finalized body length when this physical life was assigned; constant for the life |
+| `bodyLength` | Positive finalized body length at this same observation/cutoff boundary, before terminal cleanup |
+| `retainedGrowth` | `max(bodyLength - startingLength, 0)` |
+
+These are unweighted measurements, not additional reward. An initial observation
+may already contain retained growth while still carrying zero deltas. On a
+continuous stream, successive body and retained-growth snapshots differ by
+`lengthDelta` and `retainedGrowthDelta` respectively. Reconnect discards an
+unknown interval but does not change a known life's starting length.
+
+Envelopes carry `rewardVersion`, `runId`, `worldEpoch`, `leaseId`,
+`physicalSnakeId`, public `snakeId`, `observationSequence`,
+`previousObservationSequence`, `fromStep`, `toStep`, `transitionKind`, `reason`,
+`state`, `control`, and `deltas`. Incarnation, sequence and step words use exact lowercase 16-digit
+hexadecimal strings. Visible snake ID alone does not identify an interval.
+An `initial` envelope has no predecessor and zero deltas; `live` accumulates all
+events since the predecessor admitted to native output. Probes do not consume
+markers, and rolled-back work creates no reward.
+
+Ordinary physical observation time is `sourceCompletedStep * fixedDt`; the
+post-step cutoff is `(sourceCompletedStep + 1) * fixedDt`. Prefix live-time
+credits remain separate facts and do not advance the physical observation clock.
+An interval can therefore contain credited live time before physical time
+advances; clients must not require `aliveSecondsDelta <= elapsedSeconds` for
+each individual packet.
+
+### Reward v1 command chronology
+
+The fixed-size `control` snapshot has nullable `source`, `selectedAtStep`,
+`acceptedCommand`, and `appliedCommand` fields. The accepted marker includes
+the Rust sequence, nullable `clientActionId`, diagnostic `clientTick`, and
+`acceptedAtStep`. The applied marker retains the command and its first
+committed `firstAppliedStep`. The latest committed selection identifies
+`held`, `neutral`, or `neural` control. It precedes the observation's
+`toStep`. The applied command remains available after an input expires.
+Join and reclaim defaults do not count as accepted commands.
+
+`acceptedCount`, `appliedCount`, and `supersededCount` are cumulative for the
+physical life. Each accepted command is either applied once, superseded before
+application, or the single unresolved latest command. Holding the same command
+across several steps does not increment its application count. A successful
+reclaim supersedes any unapplied command when it resets the held input.
+Coalescing or rejection before Rust admission is outside these counts. Clients can use
+observed application markers to establish a new policy epoch baseline while
+physics proceeds asynchronously.
+
+### Reward v1 lifecycle closures
+
+Before successor assignment, the same reliable transaction sends:
+
+```text
+{ type: "transition", reward: <old-life envelope>, finalSensors?: <old-life vector> }
+{ type: "assign", ...successor identity and resume token... }
+```
+
+Actual death closes as `terminal` with reason `death`, including its final event
+tail and no bootstrap vector. A live generation cutoff closes as `truncated`
+with reason `generation` or `manualGeneration` and includes final old-life
+sensors for value bootstrapping. Death on the generation-ending step takes
+precedence over truncation. No new-life observation substitutes for that vector.
+Both sends must be admitted before the assignment receipt reports success;
+receipt retries do not resend either message.
+
+Socket interruption does not manufacture death or reset native delivery markers.
+After a gap, a trainer discards unresolved experience and explicitly rebases from
+a subsequent live envelope. If closure arrives first, it retires that life
+without rewarding the unaccounted interval. Reset/import replacement without a
+valid final state similarly discards the unresolved tail. Rust transmits raw
+facts; PPO coefficients and terminal penalties belong to the trainer.
 
 ### `stats`
 

@@ -3,6 +3,139 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Raw external-agent reward semantics, independent of sensor and transport versions.
+pub const EXTERNAL_REWARD_VERSION: u32 = 1;
+/// Negotiated SNS2 envelope revision retaining the packed Float32 observation body.
+pub const EXTERNAL_REWARD_BINARY_VERSION: u8 = 2;
+/// Maximum UTF-8 JSON reward bytes in one binary observation envelope.
+pub const EXTERNAL_REWARD_MAX_ENVELOPE_BYTES: usize = 4096;
+
+/// A delivery baseline, ordinary interval, or explicit old-life closure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ExternalRewardTransitionKind {
+    Initial,
+    Live,
+    Terminal,
+    Truncated,
+}
+
+/// Authoritative life-end reason; transport failure is deliberately absent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ExternalRewardEndReason {
+    Death,
+    Generation,
+    ManualGeneration,
+    Reset,
+    Import,
+    WorldReplacement,
+}
+
+/// Unweighted committed quantities. Length is sampled before terminal cleanup.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardDeltasV1 {
+    pub elapsed_seconds: f64,
+    pub alive_seconds_delta: f64,
+    pub food_value_delta: f64,
+    pub food_count_delta: u64,
+    pub length_delta: i64,
+    /// Difference of max(finalized length - starting length, 0), including losses.
+    pub retained_growth_delta: i64,
+    pub points_delta: f64,
+    pub survival_points_delta: f64,
+    pub food_points_delta: f64,
+    pub kill_points_delta: f64,
+    pub other_points_delta: f64,
+    pub boost_points_spent_delta: f64,
+    pub kills_delta: u64,
+}
+
+/// Unweighted physical state at the same observation or pre-cleanup cutoff boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardStateV1 {
+    /// Positive finalized body segments when the physical life was assigned.
+    pub starting_length: i64,
+    /// Positive finalized body segments, frozen before terminal cleanup.
+    pub body_length: i64,
+    /// max(body_length - starting_length, 0), independent of reward weighting.
+    pub retained_growth: i64,
+}
+
+/// Source selected for a committed physics step, distinct from command receipt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub enum ExternalRewardControlSourceV1 {
+    Held,
+    Neutral,
+    Neural,
+}
+
+/// One Rust-accepted command. Identities and boundaries use exact hexadecimal words.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardCommandV1 {
+    pub sequence: String,
+    /// Optional opaque client correlation; absent for historical Protocol 2 peers.
+    pub client_action_id: Option<String>,
+    pub client_tick: String,
+    pub accepted_at_step: String,
+}
+
+/// A command actually selected for physics; repeated holds do not change its first step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardAppliedCommandV1 {
+    pub command: ExternalRewardCommandV1,
+    pub first_applied_step: String,
+}
+
+/// Constant-sized control chronology; counters are cumulative within this physical life.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardControlV1 {
+    pub source: Option<ExternalRewardControlSourceV1>,
+    pub selected_at_step: Option<String>,
+    pub accepted_command: Option<ExternalRewardCommandV1>,
+    pub applied_command: Option<ExternalRewardAppliedCommandV1>,
+    pub accepted_count: u64,
+    pub applied_count: u64,
+    pub superseded_count: u64,
+}
+
+/// Sensor-independent reward interval. All hexadecimal identities are 16 digits.
+/// Initial envelopes have no predecessor; closures precede replacement assignment.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExternalRewardEnvelopeV1 {
+    pub reward_version: u32,
+    pub run_id: String,
+    pub world_epoch: String,
+    pub lease_id: String,
+    pub physical_snake_id: String,
+    pub snake_id: u32,
+    pub observation_sequence: String,
+    pub previous_observation_sequence: Option<String>,
+    pub from_step: String,
+    pub to_step: String,
+    pub transition_kind: ExternalRewardTransitionKind,
+    pub reason: Option<ExternalRewardEndReason>,
+    pub state: ExternalRewardStateV1,
+    pub control: ExternalRewardControlV1,
+    pub deltas: ExternalRewardDeltasV1,
+}
+
 /// Maximum encoded manifest bytes; checked by the bounded serializer.
 pub const MAX_TRAINING_MANIFEST_BYTES: usize = 1024 * 1024;
 /// Revision of the exact deployed equations, independent of structural layout.

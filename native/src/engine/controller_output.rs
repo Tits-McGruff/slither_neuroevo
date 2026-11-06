@@ -30,6 +30,15 @@ pub(crate) fn service_reply_bound(running: &RunningAuthorityLoop) -> Result<usiz
             lease.status == ControllerLeaseStatus::Connected && lease.connection_id.is_some()
         })
         .count();
+    let reward_connections = running
+        .generation_source_controller_leases()
+        .iter()
+        .filter(|lease| {
+            lease.status == ControllerLeaseStatus::Connected
+                && lease.connection_id.is_some()
+                && lease.reward.is_some()
+        })
+        .count();
     // Retain the historical v3 reservation and price wider v4 vectors exactly.
     let sensor_bytes = running
         .sensor_input_size()
@@ -44,11 +53,37 @@ pub(crate) fn service_reply_bound(running: &RunningAuthorityLoop) -> Result<usiz
         .checked_add(sensor_bytes)
         .and_then(|bytes| bytes.checked_add(super::external_replacement::RESUME_TOKEN_LENGTH))
         .ok_or_else(overflow)?;
+    let reward_bytes = reward_connections
+        .checked_mul(2)
+        .and_then(|count| count.checked_mul(crate::contracts::EXTERNAL_REWARD_MAX_ENVELOPE_BYTES))
+        .ok_or_else(overflow)?;
     connections
         .checked_mul(2)
         .and_then(|count| count.checked_mul(per_event))
+        .and_then(|bytes| bytes.checked_add(reward_bytes))
         .and_then(|bytes| bytes.checked_add(size_of::<RunningAuthorityEvent>()))
         .ok_or_else(overflow)
+}
+
+/// Serialize a native marker within the shared wire bound, for both ordinary
+/// output and the cold generation assignment transaction.
+pub(crate) fn own_reward_json(
+    reward: Option<super::external_reward::PreparedRewardDelivery>,
+    run_id: &str,
+) -> Result<Option<Box<str>>, EngineError> {
+    reward
+        .map(|reward| {
+            let envelope = reward
+                .envelope(run_id)
+                .map_err(|error| EngineError::new(EngineErrorCode::Faulted, error.to_string()))?;
+            let json = serde_json::to_string(&envelope)
+                .map_err(|error| EngineError::new(EngineErrorCode::Faulted, error.to_string()))?;
+            if json.len() > crate::contracts::EXTERNAL_REWARD_MAX_ENVELOPE_BYTES {
+                return Err(overflow());
+            }
+            Ok(json.into_boxed_str())
+        })
+        .transpose()
 }
 
 /// Copy only unresolved retained messages after the complete queue reservation.
@@ -116,7 +151,9 @@ pub(crate) fn own_pending_messages(
                 Ok::<_, EngineError>(owned.into_boxed_str())
             })
             .transpose()?;
+        let reward_json = own_reward_json(event.reward, running.controller_run_id())?;
         messages.push(RunningControllerMessage {
+            reward_json,
             event,
             frame_v1_id,
             sensors: sensors.into_boxed_slice(),

@@ -348,6 +348,11 @@ pub struct EvolvedPhysicsDelta {
     pub boost_points_spent: f64,
     pub credits: f64,
     pub food: f64,
+    /// Actual accepted pellet claims, distinct from their summed food value.
+    pub food_count: u64,
+    /// Food and kill credit categories for sensor-independent external rewards.
+    pub food_credits: f64,
+    pub kill_credits: f64,
     pub kills: u64,
     pub wallet_after: f64,
     pub length_after: usize,
@@ -1438,6 +1443,9 @@ mod tests {
                 - spent
                 + credits,
             food: credits / 20.0,
+            food_count: u64::from(credits > 0.0),
+            food_credits: credits,
+            kill_credits: 0.0,
             kills: 0,
             death: Some(EvolvedDeathCause::Body),
             death_flags: 4,
