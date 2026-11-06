@@ -627,8 +627,9 @@ Join and reclaim defaults do not count as accepted commands.
 `acceptedCount`, `appliedCount`, and `supersededCount` are cumulative for the
 physical life. Each accepted command is either applied once, superseded before
 application, or the single unresolved latest command. Holding the same command
-across several steps does not increment its application count. Coalescing or
-rejection before Rust admission is outside these counts. Clients can use
+across several steps does not increment its application count. A successful
+reclaim supersedes any unapplied command when it resets the held input.
+Coalescing or rejection before Rust admission is outside these counts. Clients can use
 observed application markers to establish a new policy epoch baseline while
 physics proceeds asynchronously.
 

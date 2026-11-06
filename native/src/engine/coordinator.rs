@@ -805,7 +805,7 @@ pub(crate) fn run_running_coordinator(
             wait = RunningWait::Immediate;
             continue;
         }
-        let service_reservation = if running.state() == RunningAuthorityLoopState::Ready {
+        let mut service_reservation = if running.state() == RunningAuthorityLoopState::Ready {
             Some(output.reserve_authority_reply(service_reply_bytes)?)
         } else {
             None
@@ -825,43 +825,27 @@ pub(crate) fn run_running_coordinator(
                 ));
             }
         };
-        let mut asynchronous_observations = None;
+        let mut controller_output = None;
         if let RunningAuthorityLoopProgress::ExternalDeliveryPending {
             ticket_sequence, ..
         } = progress
         {
-            let observation_only = running.pending_external_delivery().is_some_and(|batch| {
-                !batch.events().is_empty()
-                    && batch.events().iter().all(|event| {
-                        matches!(event.delivery_kind, ExternalDeliveryEventKind::Observation)
-                    })
-            });
-            if observation_only {
-                if service_reservation.is_none() {
-                    return Err(EngineError::new(
+            if announced_delivery_ticket != Some(ticket_sequence) {
+                let reservation = service_reservation.take().ok_or_else(|| {
+                    EngineError::new(
                         EngineErrorCode::Faulted,
-                        "ordinary controller observations lost their admitted output reservation",
-                    ));
-                }
-                let messages = super::controller_output::own_pending_messages(running)?;
-                let event = ReliableEvent::RunningAuthority(Box::new(
-                    RunningAuthorityEvent::ControllerObservations {
-                        ticket_sequence,
-                        messages,
-                    },
-                ));
-                if event.owned_bytes() > service_reply_bytes {
-                    return Err(EngineError::new(
-                        EngineErrorCode::QueueByteLimit,
-                        "controller observation output exceeded its pre-step reservation",
-                    ));
-                }
-                progress = running
-                    .publish_pending_observations(None)
-                    .map_err(|error| {
-                        EngineError::new(EngineErrorCode::Faulted, error.to_string())
-                    })?;
-                asynchronous_observations = Some(event);
+                        "controller output lost its admitted reply",
+                    )
+                })?;
+                let (admitted, event) = prepare_controller_output(
+                    running,
+                    service_reply_bytes,
+                    progress,
+                    ticket_sequence,
+                )?;
+                progress = admitted;
+                controller_output = Some((reservation, event));
+                announced_delivery_ticket = Some(ticket_sequence);
             }
         }
         if was_ready
@@ -883,6 +867,9 @@ pub(crate) fn run_running_coordinator(
             }
         }
         metrics.observe(running);
+        if let Some((reservation, event)) = controller_output {
+            reservation.publish(event)?;
+        }
         wait = match progress {
             RunningAuthorityLoopProgress::ControllerReclaimPending
             | RunningAuthorityLoopProgress::ControllerJoinPending
@@ -895,40 +882,11 @@ pub(crate) fn run_running_coordinator(
                 RunningWait::Timed(positive_wait_duration(wall_seconds_until_step)?)
             }
             RunningAuthorityLoopProgress::Published { .. } => {
-                if let Some(event) = asynchronous_observations.take() {
-                    let reservation = service_reservation.ok_or_else(|| {
-                        EngineError::new(
-                            EngineErrorCode::Faulted,
-                            "published controller observations lost their admitted output reservation",
-                        )
-                    })?;
-                    reservation.publish(event)?;
-                }
                 announced_generation_source = None;
                 announced_delivery_ticket = None;
                 RunningWait::Immediate
             }
-            RunningAuthorityLoopProgress::ExternalDeliveryPending {
-                ticket_sequence, ..
-            } => {
-                if announced_delivery_ticket != Some(ticket_sequence) {
-                    let reservation = service_reservation.ok_or_else(|| {
-                        EngineError::new(
-                            EngineErrorCode::Faulted,
-                            "ordinary controller messages lost their admitted reply",
-                        )
-                    })?;
-                    let messages = super::controller_output::own_pending_messages(running)?;
-                    reservation.publish(ReliableEvent::RunningAuthority(Box::new(
-                        RunningAuthorityEvent::ControllerMessages {
-                            ticket_sequence,
-                            messages,
-                        },
-                    )))?;
-                    announced_delivery_ticket = Some(ticket_sequence);
-                }
-                RunningWait::Blocked
-            }
+            RunningAuthorityLoopProgress::ExternalDeliveryPending { .. } => RunningWait::Blocked,
             RunningAuthorityLoopProgress::GenerationTransitionPending {
                 ticket_sequence,
                 source_key,
@@ -958,6 +916,45 @@ pub(crate) fn run_running_coordinator(
             }
         };
     }
+}
+
+/// Own one reserved queue event before committing any observation markers.
+fn prepare_controller_output(
+    running: &mut RunningAuthorityLoop,
+    reserved_bytes: usize,
+    mut progress: RunningAuthorityLoopProgress,
+    ticket_sequence: u64,
+) -> Result<(RunningAuthorityLoopProgress, ReliableEvent), EngineError> {
+    let messages = super::controller_output::own_pending_messages(running)?;
+    let has_observations = messages
+        .iter()
+        .any(|message| message.event.delivery_kind == ExternalDeliveryEventKind::Observation);
+    let has_assignments = messages
+        .iter()
+        .any(|message| message.event.delivery_kind != ExternalDeliveryEventKind::Observation);
+    let event = ReliableEvent::RunningAuthority(Box::new(if has_assignments {
+        RunningAuthorityEvent::ControllerMessages {
+            ticket_sequence,
+            messages,
+        }
+    } else {
+        RunningAuthorityEvent::ControllerObservations {
+            ticket_sequence,
+            messages,
+        }
+    }));
+    if event.owned_bytes() > reserved_bytes {
+        return Err(EngineError::new(
+            EngineErrorCode::QueueByteLimit,
+            "controller output exceeded its pre-step reservation",
+        ));
+    }
+    if has_observations {
+        progress = running
+            .admit_pending_observations(None)
+            .map_err(|error| EngineError::new(EngineErrorCode::Faulted, error.to_string()))?;
+    }
+    Ok((progress, event))
 }
 
 /// Reserve the possible transition announcement before servicing any new step.
@@ -2104,17 +2101,8 @@ mod tests {
             .iter()
             .all(|event| matches!(event.delivery_kind, ExternalDeliveryEventKind::Observation)));
 
-        let messages = super::super::controller_output::own_pending_messages(&running).unwrap();
-        assert_eq!(messages.len(), batch.events().len());
-        let event = ReliableEvent::RunningAuthority(Box::new(
-            RunningAuthorityEvent::ControllerObservations {
-                ticket_sequence,
-                messages,
-            },
-        ));
-        assert!(event.owned_bytes() <= bound);
-
-        let publication = running.publish_pending_observations(None).unwrap();
+        let (publication, event) =
+            prepare_controller_output(&mut running, bound, progress, ticket_sequence).unwrap();
         assert!(matches!(
             publication,
             RunningAuthorityLoopProgress::Published { .. }
@@ -2135,6 +2123,153 @@ mod tests {
             CompletedEvent::Reliable(ReliableEvent::RunningAuthority(inner))
                 if matches!(inner.as_ref(), RunningAuthorityEvent::ControllerObservations { .. })
         )));
+    }
+
+    #[test]
+    fn mixed_controller_batch_requires_only_the_replacement_receipt() {
+        use crate::engine::contract::{ControllerJoinRequest, ControllerReclaimReceipt};
+        use crate::engine::state::{ControllerKind, EntitySelectionTarget};
+
+        let mut running = ordinary_controller_loop();
+        let origin = Instant::now();
+        running.set_background_clock(origin);
+        let victim_id = running.generation_source_controller_leases()[0].snake_id;
+        let victim_frame = running.controller_frame_v1_id(victim_id).unwrap();
+        let request = ControllerJoinRequest {
+            connection_id: 999,
+            kind: ControllerKind::ReinforcementLearning,
+            identity_key: "bot:mixed-batch".into(),
+            received_at: origin + Duration::from_millis(1_200),
+        };
+        let RunningAuthorityEvent::ControllerJoinAssignment { lease_id, .. } = running
+            .prepare_controller_join(100, &request, 1_200)
+            .unwrap()
+        else {
+            panic!("expected a second controller");
+        };
+        assert!(running
+            .resolve_controller_join(&ControllerReclaimReceipt {
+                request_sequence: 100,
+                connection_id: request.connection_id,
+                lease_id,
+                accepted: true,
+            })
+            .unwrap());
+        let victim = running
+            .select_entity(
+                EntitySelectionTarget::Frame(victim_frame),
+                running.controller_run_id(),
+                2,
+            )
+            .unwrap()
+            .unwrap();
+        running
+            .apply_god_mode_kill(victim.token, victim_frame)
+            .unwrap();
+
+        let before_step = running.completed_step();
+        let bound = super::super::controller_output::service_reply_bound(&running).unwrap();
+        let output = output_with_cap(bound);
+        let reservation = output.reserve_authority_reply(bound).unwrap();
+        let progress = running
+            .service_after_command_drain(1_220, SchedulerServiceMode::Background, None)
+            .unwrap();
+        let RunningAuthorityLoopProgress::ExternalDeliveryPending {
+            ticket_sequence,
+            remaining: 2,
+        } = progress
+        else {
+            panic!("expected a replacement and a surviving observation: {progress:?}");
+        };
+        let (progress, event) =
+            prepare_controller_output(&mut running, bound, progress, ticket_sequence).unwrap();
+        assert!(matches!(
+            progress,
+            RunningAuthorityLoopProgress::ExternalDeliveryPending { remaining: 1, .. }
+        ));
+        assert_eq!(running.completed_step(), before_step);
+        let batch = running.pending_external_delivery().unwrap();
+        assert_eq!(batch.status(0), Some(ExternalDeliveryStatus::Pending));
+        assert_eq!(batch.status(1), Some(ExternalDeliveryStatus::Accepted));
+        reservation.publish(event).unwrap();
+
+        let drained = output.drain(8, bound);
+        let [CompletedEvent::Reliable(ReliableEvent::RunningAuthority(event))] =
+            drained.events.as_slice()
+        else {
+            panic!("expected one atomic controller output event");
+        };
+        let RunningAuthorityEvent::ControllerMessages { messages, .. } = event.as_ref() else {
+            panic!("expected a mixed controller output");
+        };
+        let wire =
+            crate::napi_engine::running_authority_event_to_napi(event.as_ref().clone()).unwrap();
+        let assignments = wire.controller_messages.unwrap();
+        let observations = wire.controller_observations.unwrap();
+        assert_eq!(assignments.len(), 1);
+        assert_eq!(assignments[0].kind, "replacementAssignment");
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].kind, "observation");
+        let [assignment, observation] = messages.as_ref() else {
+            panic!("expected one replacement and one observation");
+        };
+        assert_eq!(observation.event.lease_id, lease_id);
+        let reward = observation.event.reward.unwrap();
+        let admitted = reward.envelope(running.controller_run_id()).unwrap();
+        let receipt = |event: super::super::running_step::ExternalObservationEvent, accepted| {
+            ExternalDeliveryReceipt {
+                operation_epoch: event.step_key.operation_epoch(),
+                event_sequence: event.event_sequence,
+                connection_id: event.connection_id,
+                lease_id: event.lease_id,
+                accepted,
+            }
+        };
+        let ignored = super::super::controller_output::submit_receipts(
+            101,
+            &[receipt(observation.event, false)],
+            &mut running,
+        )
+        .unwrap();
+        assert!(matches!(
+            ignored,
+            RunningAuthorityEvent::ControllerDeliveryReceiptsApplied {
+                ignored_receipts: 1,
+                remaining: 1,
+                published_completed_step: None,
+                ..
+            }
+        ));
+        let resolved = super::super::controller_output::submit_receipts(
+            102,
+            &[receipt(assignment.event, true)],
+            &mut running,
+        )
+        .unwrap();
+        assert!(
+            matches!(resolved, RunningAuthorityEvent::ControllerDeliveryReceiptsApplied {
+            matched_acceptances: 1, remaining: 0, published_completed_step: Some(step), ..
+        } if step == before_step + 1)
+        );
+
+        running
+            .service_after_command_drain(1_240, SchedulerServiceMode::Background, None)
+            .unwrap();
+        let next = running
+            .pending_external_delivery()
+            .unwrap()
+            .events()
+            .iter()
+            .find(|event| event.lease_id == lease_id)
+            .unwrap()
+            .reward
+            .unwrap()
+            .envelope(running.controller_run_id())
+            .unwrap();
+        assert_eq!(
+            next.previous_observation_sequence,
+            Some(admitted.observation_sequence)
+        );
     }
 
     /// Pending vectors, rejected queue admission and terminal batches cannot enter the cached prefix.

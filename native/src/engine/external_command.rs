@@ -56,6 +56,18 @@ fn increment(value: u64) -> Result<u64, &'static str> {
 }
 
 impl ExternalCommandLedger {
+    fn has_unapplied_command(self) -> bool {
+        self.applied_count + self.superseded_count < self.accepted_count
+    }
+
+    /// Retire held input without losing the historical acceptance marker.
+    pub fn retire_unapplied_command(&mut self) {
+        if self.has_unapplied_command() {
+            // The retired command already occupies one of the accepted counts.
+            self.superseded_count += 1;
+        }
+    }
+
     /// Record only after native identity/ordering validation, before committing the lease.
     pub fn received(
         &mut self,
@@ -76,12 +88,7 @@ impl ExternalCommandLedger {
             return Err("invalid external command receipt chronology");
         }
         let mut next = *self;
-        if self
-            .accepted
-            .is_some_and(|old| self.applied.map(|value| value.0.sequence) != Some(old.sequence))
-        {
-            next.superseded_count = increment(next.superseded_count)?;
-        }
+        next.retire_unapplied_command();
         next.accepted_count = increment(next.accepted_count)?;
         next.accepted = Some(Command {
             sequence,
@@ -120,6 +127,9 @@ impl ExternalCommandLedger {
                 return Err("external command selection boundary regressed");
             }
             if self.applied.map(|value| value.0.sequence) != Some(sequence) {
+                if !self.has_unapplied_command() {
+                    return Err("selected external command was already superseded");
+                }
                 next.applied_count = increment(next.applied_count)?;
                 next.applied = Some((accepted, step));
             }

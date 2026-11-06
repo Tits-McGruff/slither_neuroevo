@@ -260,6 +260,7 @@ pub struct ReclaimInput<'a> {
 pub struct ReclaimProposal {
     expected: ControllerLease,
     expected_snake: SnakeControlSnapshot,
+    reward: Option<super::external_reward::ExternalRewardLedger>,
     connection_id: u64,
     arrival_sequence: u64,
     received_at_ms: u64,
@@ -393,9 +394,16 @@ pub fn prepare_reclaim(
             "invalid replacement token",
         ));
     }
+    let mut reward = lease.reward;
+    if let Some(ledger) = &mut reward {
+        ledger
+            .retire_unapplied_command()
+            .map_err(|error| ControllerError::ReclaimRejected(error.0))?;
+    }
     Ok(ReclaimProposal {
         expected: lease.clone(),
         expected_snake: SnakeControlSnapshot::capture(snake),
+        reward,
         connection_id: input.connection_id,
         arrival_sequence: input.arrival_sequence,
         received_at_ms: input.received_at_ms,
@@ -419,6 +427,7 @@ pub fn commit_reclaim(
     lease.connection_id = Some(proposal.connection_id);
     lease.resume_token = proposal.next_resume_token;
     lease.status = ControllerLeaseStatus::Connected;
+    lease.reward = proposal.reward;
     lease.latest_action = LatestControllerAction {
         is_explicit: false,
         turn: 0.0,
@@ -1293,6 +1302,86 @@ mod tests {
         )
         .unwrap();
         assert!(prepare_reclaim(&lease, &snake, reclaim_input(1_500), TIMING).is_err());
+    }
+
+    #[test]
+    fn reclaim_counts_the_unapplied_command_once_and_preserves_command_history() {
+        use crate::contracts::ExternalRewardControlSourceV1::Held;
+        use crate::engine::external_reward::{
+            ExternalRewardLedger, RewardBoundary, RewardLifeIdentity,
+        };
+
+        let mut lease = lease();
+        let mut snake = snake();
+        lease.kind = ControllerKind::ReinforcementLearning;
+        let boundary = RewardBoundary {
+            completed_step: 0,
+            elapsed_seconds: 0.0,
+        };
+        let mut reward = ExternalRewardLedger::new(
+            RewardLifeIdentity {
+                world_epoch: 1,
+                lease_id: lease.id,
+                physical_snake_id: snake.id,
+                frame_snake_id: snake.frame_v1_id,
+            },
+            boundary,
+            snake.body.len,
+            snake.points,
+        )
+        .unwrap();
+        reward.record_command_received(2, Some(1), 0, 0).unwrap();
+        reward.record_control_selection(2, Held, 0).unwrap();
+        reward.record_command_received(3, Some(2), 0, 0).unwrap();
+        lease.reward = Some(reward);
+        let latest = prepare_latest_action(&lease, action(0.5, false, 0, 3, 1_100)).unwrap();
+        commit_latest_action(&mut lease, latest).unwrap();
+        let disconnect = prepare_disconnect(&lease, &snake, 11, 1_200, TIMING).unwrap();
+        commit_disconnect(&mut lease, &mut snake, disconnect).unwrap();
+
+        let input = || ReclaimInput {
+            kind: ControllerKind::ReinforcementLearning,
+            arrival_sequence: 4,
+            ..reclaim_input(1_300)
+        };
+        let snapshot = |lease: &ControllerLease| {
+            lease
+                .reward
+                .unwrap()
+                .prepare(1, boundary, None)
+                .unwrap()
+                .envelope("run")
+                .unwrap()
+                .control
+        };
+        let before = snapshot(&lease);
+        drop(prepare_reclaim(&lease, &snake, input(), TIMING).unwrap());
+        assert_eq!(snapshot(&lease), before);
+        let proposal = prepare_reclaim(&lease, &snake, input(), TIMING).unwrap();
+        commit_reclaim(&mut lease, &mut snake, proposal.clone()).unwrap();
+        let after = snapshot(&lease);
+        assert!(!lease.latest_action.is_explicit);
+        assert_eq!(after.accepted_count, 2);
+        assert_eq!(after.applied_count, 1);
+        assert_eq!(after.superseded_count, 1);
+        assert_eq!(after.accepted_command, before.accepted_command);
+        assert_eq!(after.applied_command, before.applied_command);
+        assert!(commit_reclaim(&mut lease, &mut snake, proposal).is_err());
+        assert_eq!(snapshot(&lease), after);
+
+        let reward = lease.reward.as_mut().unwrap();
+        assert!(reward.record_control_selection(3, Held, 0).is_err());
+        reward.record_command_received(5, Some(3), 0, 0).unwrap();
+        reward.record_control_selection(5, Held, 0).unwrap();
+        let next = snapshot(&lease);
+        assert_eq!(
+            (
+                next.accepted_count,
+                next.applied_count,
+                next.superseded_count
+            ),
+            (3, 2, 1)
+        );
     }
 
     #[test]

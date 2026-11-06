@@ -845,14 +845,14 @@ pub enum RunningAuthorityEvent {
         capture_epoch: [u8; 16],
         enabled: bool,
     },
-    /// Ordered ordinary observations whose authoritative step is already published.
-    /// Their complete payload was admitted to the bounded Rust output queue before
-    /// the step committed, so Node must not return ordinary delivery receipts.
+    /// Ordered ordinary observations from an observation-only step. Their
+    /// complete payload was admitted to the bounded Rust output queue.
     ControllerObservations {
         ticket_sequence: u64,
         messages: Box<[RunningControllerMessage]>,
     },
-    /// Receipt-driven ordinary-step batch containing an ownership-changing replacement.
+    /// One ordered step batch containing replacements and any admitted observations.
+    /// Only replacements require receipts.
     ControllerMessages {
         ticket_sequence: u64,
         messages: Box<[RunningControllerMessage]>,

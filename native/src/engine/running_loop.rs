@@ -1652,15 +1652,14 @@ impl RunningAuthorityLoop {
             .prepare_acknowledged_generation_reassignments(&self.authority)?)
     }
 
-    /// Publish a retained observation-only step after the background output
-    /// queue has reserved and fully owned its sensor batch. This deliberately
-    /// cannot resolve replacement assignments or generation handoffs.
-    pub(crate) fn publish_pending_observations(
+    /// Admit the complete observation output and publish the step if it has
+    /// no replacement assignments waiting for receipts.
+    pub(crate) fn admit_pending_observations(
         &mut self,
         frame: Option<RunningFramePublication<'_>>,
     ) -> Result<RunningAuthorityLoopProgress, RunningAuthorityLoopError> {
         self.require_action_state(
-            "publish pending controller observations",
+            "admit pending controller observations",
             RunningAuthorityLoopState::ExternalDeliveryPending,
         )?;
         let step = self.validate_retained_step()?;
@@ -1669,9 +1668,10 @@ impl RunningAuthorityLoop {
             .expect("validated retained step must include due-step count");
         let outcome = match self
             .coordinator
-            .publish_pending_observations(&mut self.authority)
+            .admit_pending_observations(&mut self.authority)
         {
-            Ok(outcome) => outcome,
+            Ok(Some(outcome)) => outcome,
+            Ok(None) => return self.retained_blocked_progress(),
             Err(error) => {
                 self.state = RunningAuthorityLoopState::Faulted;
                 return Err(error.into());

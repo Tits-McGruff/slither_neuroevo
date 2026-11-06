@@ -11364,7 +11364,7 @@ mod tests {
                 _ => panic!("initial observation must await output admission"),
             };
             coordinator
-                .publish_pending_observations(&mut authority)
+                .admit_pending_observations(&mut authority)
                 .unwrap();
             if death_case == 1 {
                 let physics = authority
@@ -11969,7 +11969,7 @@ mod tests {
         );
         assert_eq!(authority.state(), &before);
         coordinator
-            .publish_pending_observations(&mut authority)
+            .admit_pending_observations(&mut authority)
             .unwrap();
         assert!(authority
             .candidate
@@ -11982,7 +11982,7 @@ mod tests {
             .has_delivery());
         let once = authority.state().clone();
         assert!(coordinator
-            .publish_pending_observations(&mut authority)
+            .admit_pending_observations(&mut authority)
             .is_err());
         assert_eq!(authority.state(), &once);
         let next = match coordinator
@@ -12007,7 +12007,7 @@ mod tests {
         assert!((interval.deltas.alive_seconds_delta - 1.0 / 60.0).abs() < 1e-12);
         assert!((interval.deltas.survival_points_delta - 0.01).abs() < 1e-12);
         coordinator
-            .publish_pending_observations(&mut authority)
+            .admit_pending_observations(&mut authority)
             .unwrap();
         let old_frame_id = authority
             .candidate

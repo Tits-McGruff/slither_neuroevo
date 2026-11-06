@@ -178,7 +178,7 @@ function prepare(message: RustBackgroundControllerMessage, expectedSensorCount?:
   };
 }
 
-/** Transport for ordered observations whose authoritative step is already committed. */
+/** Transport for ordered observations admitted to the native output stream. */
 export interface ControllerObservationPorts {
   /** Current Rust-admitted sensor width. */
   sensorCount?(): number;
@@ -188,7 +188,7 @@ export interface ControllerObservationPorts {
   failed(connectionId: RustBackgroundIdentity, leaseId: RustBackgroundIdentity): void;
 }
 
-/** Send already-published observation batches without manufacturing native receipts. */
+/** Send admitted observation batches without manufacturing native receipts. */
 export class ControllerObservationRouter {
   constructor(private readonly maxMessages: number, private readonly ports: ControllerObservationPorts) {
     if (!Number.isSafeInteger(maxMessages) || maxMessages <= 0) {

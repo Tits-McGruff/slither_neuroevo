@@ -215,8 +215,8 @@ async function run(): Promise<void> {
           if (event.kind === 'fault') throw new Error(event.faultDetail ?? 'native fault');
           external.event(event); diagnostics.event(event);
           if (await generation.handle(event)) continue;
-          if (event.controllerObservations) observations.deliver(event.controllerObservations);
           if (event.controllerMessages) assert(ordinary.deliver(event.controllerMessages), 'overlapping transactional controller delivery');
+          if (event.controllerObservations) observations.deliver(event.controllerObservations);
           if (event.controllerReclaimAssignment) assert(reclaim.deliver(event.controllerReclaimAssignment), 'overlapping reclaim');
           if (event.controllerJoinAssignment) assert(joinDelivery.deliver(event.controllerJoinAssignment), 'overlapping join');
         }

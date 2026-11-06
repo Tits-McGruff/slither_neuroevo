@@ -158,6 +158,17 @@ impl PreparedRewardDelivery {
 }
 
 impl ExternalRewardLedger {
+    /// Stage the effect of reclaim's neutral input on the latest explicit command.
+    pub fn retire_unapplied_command(&mut self) -> Result<(), RewardError> {
+        let mut control = self.control;
+        control.retire_unapplied_command();
+        if control != self.control {
+            self.advance_revision()?;
+            self.control = control;
+        }
+        Ok(())
+    }
+
     /// Stage native receipt metadata with the same atomic lease update.
     pub fn record_command_received(
         &mut self,

@@ -46,12 +46,12 @@ pub const WORLD_STEP_VERSION: u32 = 1;
 /// Hard safety ceiling for collision-only subdivisions of one fixed step.
 pub const MAXIMUM_PHYSICS_SUBSTEPS: usize = 256;
 
-/// Local Node disposition for one exact external observation event.
+/// Delivery disposition for one exact external controller event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExternalDeliveryStatus {
     /// No matching local send result has resolved this event yet.
     Pending,
-    /// Node accepted the event into the matching socket send path.
+    /// Native admitted an observation, or a receipt accepted a transactional send.
     Accepted,
     /// The matching socket send failed and the controller must disconnect.
     Failed,

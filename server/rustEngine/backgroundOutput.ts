@@ -60,9 +60,9 @@ export interface BackgroundOutputOptions {
 export class BackgroundOutputPump {
   /** The server's incoming control pump must use this same sequence owner. */
   readonly admission: BackgroundCommandAdmission;
-  /** Ordered post-publication observations; this path owns no native receipts. */
+  /** Ordered observations admitted by Rust; this path owns no native receipts. */
   private readonly observations: ControllerObservationRouter;
-  /** Retained transactional ordinary batch receipts. */
+  /** Retained death replacement receipts. */
   private readonly ordinary: ControllerDeliveryRouter;
   /** Retained same-snake reconnect completion. */
   private readonly reclaim: ReclaimDeliveryRouter;
@@ -240,10 +240,10 @@ export class BackgroundOutputPump {
         this.options.event(event);
         if (this.handleImportEvent(event)) continue;
         if (await this.generation.handle(event)) continue;
-        if (event.controllerObservations) this.observations.deliver(event.controllerObservations);
         if (event.controllerMessages && !this.ordinary.deliver(event.controllerMessages)) {
-          throw new Error('overlapping ordinary controller output');
+          throw new Error('overlapping controller replacement output');
         }
+        if (event.controllerObservations) this.observations.deliver(event.controllerObservations);
         if (event.controllerReclaimAssignment && !this.reclaim.deliver(event.controllerReclaimAssignment)) {
           throw new Error('overlapping reclaim output');
         }

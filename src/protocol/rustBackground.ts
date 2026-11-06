@@ -483,9 +483,9 @@ export interface RustBackgroundEvent {
   importPublication?: unknown;
   /** Replaceable basic stats and cached frame metadata, after priority events. */
   display?: RustBackgroundDisplay;
-  /** Ordered ordinary observations from an already-published authoritative step. */
+  /** Ordered observations admitted to native output, including on a step awaiting a replacement receipt. */
   controllerObservations?: RustBackgroundControllerMessage[];
-  /** Receipt-driven ordinary-step batch containing a controller replacement. */
+  /** Receipt-driven death replacement assignments only. */
   controllerMessages?: RustBackgroundControllerMessage[];
   /** Exact ordinary receipt result, separate from generation assignments. */
   controllerReceiptResolution?: RustControllerReceiptResolution;
