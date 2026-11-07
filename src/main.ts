@@ -1,75 +1,80 @@
-import { DistillationClient } from './net/distillation.ts';
-import { DistillationView } from './distillationView.ts';
-import { DecisionInspectorClient } from './net/decisionInspector.ts';
 import { DecisionInspectorView } from './decisionInspectorView.ts';
+import { DistillationView } from './distillationView.ts';
+import { DIAGRAM_NODE_HEIGHT,DIAGRAM_NODE_WIDTH,renderGraphDiagramView } from './graph_diagram.ts';
+import { renderGraphInspectorView } from './graph_inspector.ts';
+import { buildDefaultNode,buildLinearMlpTemplate,buildMlpGruMlpTemplate,buildSkipTemplate,buildSplitTemplate } from './graph_templates.ts';
+import { DecisionInspectorClient } from './net/decisionInspector.ts';
+import { DistillationClient } from './net/distillation.ts';
 /** Entry point for the simulation UI, canvas, and client networking. */
 
-import { BrainLibraryClient } from './net/brainLibrary.ts';
-import { BrainLibraryView, type LibraryEnvironment } from './brainLibraryView.ts';
-import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
-import { CFG, CFG_DEFAULT, resetCFGToDefaults, syncBrainInputSize, applyAuthoritativeSensorSpec } from './config.ts';
-import { EVOLVED_SETTING_PATHS } from './protocol/settingDefinitions.ts';
-import {
-  BASELINE_BOT_SEED_HINT_ID,
-  BASELINE_BOT_SEED_INPUT_ID,
-  BASELINE_BOT_SEED_RANDOMIZE_ID,
-  BROWSER_CAMERA_SETTING_PATHS,
-  applyValuesToSlidersFromCFG,
-  setupSettingsUI,
-  updateCFGFromUI,
-  validateSettingDrafts, collectSettingsUpdates, refreshSensorSettings,
-  readSettingChoice, readLifeSettingInput,
-  type SettingInputElement
-} from './settings.ts';
-import { lerp, setByPath, getByPath } from './utils.ts';
-import { renderWorldStruct } from './render.ts';
-import {
-  exportJsonToFile,
-  loadBaselineBotSettings,
-  saveBaselineBotSettings
-} from './storage.ts';
-import { hof } from './hallOfFame.ts';
+import { BrainLibraryView,type LibraryEnvironment } from './brainLibraryView.ts';
+import { graphKey } from './brains/graph/compiler.ts';
+import type { GraphSizeState } from './brains/graph/editor.ts';
+import { inferGraphSizes } from './brains/graph/editor.ts';
+import type { GraphEdge,GraphNodeType,GraphSpec } from './brains/graph/schema.ts';
+import { validateGraph } from './brains/graph/validate.ts';
+import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import { BrainViz } from './BrainViz.ts';
 import { AdvancedCharts } from './chartUtils.ts';
-import { FRAME_HEADER_FLOATS, FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
-import {
-  createWsClient,
-  formatImportBranchRuntimeStatus,
-  formatLegacyConversionRuntimeStatus,
-  formatRecoveryRuntimeStatus,
-  formatServerRuntimeStatus,
-  resolveServerUrl,
-  storeServerUrl,
-  type WelcomeInferenceMode
-} from './net/wsClient.ts';
+import { CFG,CFG_DEFAULT,applyAuthoritativeSensorSpec,resetCFGToDefaults,syncBrainInputSize } from './config.ts';
+import { hof } from './hallOfFame.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
-import { createEntitySelectionClient, describeSelectedEntity } from './net/entitySelection.ts';
+import { BrainLibraryClient } from './net/brainLibrary.ts';
+import { createEntitySelectionClient,describeSelectedEntity } from './net/entitySelection.ts';
 import {
-  PlayerActionPump,
-  normalizePlayerActionRate,
-  type LatestPlayerAction
+PlayerActionPump,
+normalizePlayerActionRate,
+type LatestPlayerAction
 } from './net/playerActionPump.ts';
-import { inferGraphSizes } from './brains/graph/editor.ts';
-import type { GraphSizeState } from './brains/graph/editor.ts';
-import { validateGraph } from './brains/graph/validate.ts';
-import { graphKey } from './brains/graph/compiler.ts';
-import { buildStackGraphSpec } from './brains/stackBuilder.ts';
-import type { GraphEdge, GraphNodeSpec, GraphNodeType, GraphSpec } from './brains/graph/schema.ts';
-import type { FrameStats, HallOfFameEntry, VizData } from './protocol/messages.ts';
+import {
+createWsClient,
+formatImportBranchRuntimeStatus,
+formatLegacyConversionRuntimeStatus,
+formatRecoveryRuntimeStatus,
+formatServerRuntimeStatus,
+resolveServerUrl,
+storeServerUrl,
+type WelcomeInferenceMode
+} from './net/wsClient.ts';
+import { formatDurationTimer,parseDurationDraft } from './protocol/duration.ts';
+import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
+import { FRAME_HEADER_FLOATS,FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
+import type { FrameStats,HallOfFameEntry,VizData } from './protocol/messages.ts';
 import type {
-  RustImportBranchNotice,
-  RustLegacyConversionNotice,
-  RustRecoveryNotice
+RustImportBranchNotice,
+RustLegacyConversionNotice,
+RustRecoveryNotice
 } from './protocol/rustBackground.ts';
-import { coerceSettingsUpdateValue } from './protocol/settings.ts';
-import { parseDurationDraft, formatDurationTimer } from './protocol/duration.ts';
-import { SETTING_DEFINITION_BY_PATH, normalizeSettingValue } from './protocol/settingDefinitions.ts';
+import { EVOLVED_SETTING_PATHS,SETTING_DEFINITION_BY_PATH,normalizeSettingValue } from './protocol/settingDefinitions.ts';
 import type {
-  CoreSettings,
-  LiveSettingPath,
-  LiveSettingsUpdate,
-  SettingsUpdate
+CoreSettings,
+LiveSettingPath,
+LiveSettingsUpdate,
+SettingsUpdate
 } from './protocol/settings.ts';
+import { coerceSettingsUpdateValue } from './protocol/settings.ts';
+import { renderWorldStruct } from './render.ts';
+import {
+BASELINE_BOT_SEED_HINT_ID,
+BASELINE_BOT_SEED_INPUT_ID,
+BASELINE_BOT_SEED_RANDOMIZE_ID,
+BROWSER_CAMERA_SETTING_PATHS,
+applyValuesToSlidersFromCFG,
+collectSettingsUpdates,
+readLifeSettingInput,
+readSettingChoice,
+refreshSensorSettings,
+setupSettingsUI,
+updateCFGFromUI,
+validateSettingDrafts,
+type SettingInputElement
+} from './settings.ts';
+import {
+exportJsonToFile,
+loadBaselineBotSettings,
+saveBaselineBotSettings
+} from './storage.ts';
+import { getByPath,lerp,setByPath } from './utils.ts';
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
@@ -197,10 +202,6 @@ const GRAPH_SPEC_STORAGE_KEY = 'slither_neuroevo_graph_spec';
 let customGraphSpec: GraphSpec | null = null;
 /** Current graph editor draft spec. */
 let graphDraft: GraphSpec | null = null;
-/** Diagram node width in pixels. */
-const DIAGRAM_NODE_WIDTH = 140;
-/** Diagram node height in pixels. */
-const DIAGRAM_NODE_HEIGHT = 44;
 /** Per-node layout overrides for the graph diagram. */
 const graphLayoutOverrides = new Map<string, { x: number; y: number }>();
 /** Selected node id in the graph editor. */
@@ -844,12 +845,12 @@ graphTemplateButtons.forEach(btn => {
     const template = btn.dataset['template'];
     const spec =
       template === 'mlp-gru-mlp'
-        ? buildMlpGruMlpTemplate()
+        ? buildMlpGruMlpTemplate(readSettingsFromCoreUI(), CFG.brain)
         : template === 'skip'
-          ? buildSkipTemplate()
+          ? buildSkipTemplate(readSettingsFromCoreUI(), CFG.brain)
           : template === 'split'
-            ? buildSplitTemplate()
-            : buildLinearMlpTemplate();
+            ? buildSplitTemplate(CFG.brain)
+            : buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain);
     setGraphDraft(spec, 'Template loaded. Apply graph to use it.');
   });
 });
@@ -884,7 +885,7 @@ if (graphDiagramAddNode) {
   graphDiagramAddNode.addEventListener('click', () => {
     const draft = ensureGraphDraft();
     const id = buildUniqueNodeId(draft, 'node');
-    draft.nodes.push(buildDefaultNode('Dense', id));
+    draft.nodes.push(buildDefaultNode('Dense', id, CFG.brain, readSettingsFromCoreUI()));
     if (graphDiagram?.viewBox?.baseVal) {
       const box = graphDiagram.viewBox.baseVal;
       const centerX = graphPointerPos?.x ?? box.x + box.width / 2 - DIAGRAM_NODE_WIDTH / 2;
@@ -1001,7 +1002,7 @@ if (graphDiagram) {
 if (graphNodeAdd) {
   graphNodeAdd.addEventListener('click', () => {
     const draft = ensureGraphDraft();
-    draft.nodes.push(buildDefaultNode('Dense', buildUniqueNodeId(draft, 'node')));
+    draft.nodes.push(buildDefaultNode('Dense', buildUniqueNodeId(draft, 'node'), CFG.brain, readSettingsFromCoreUI()));
     renderGraphEditor();
     setGraphSpecStatus('Node added. Apply graph to use it.');
   });
@@ -1466,7 +1467,7 @@ function resolveServerHttpUrl(): string | null {
  * @returns Active graph spec.
  */
 function getActiveGraphSpec(): GraphSpec {
-  return customGraphSpec ?? graphDraft ?? buildLinearMlpTemplate();
+  return customGraphSpec ?? graphDraft ?? buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain);
 }
 
 /**
@@ -1474,7 +1475,7 @@ function getActiveGraphSpec(): GraphSpec {
  * @returns Draft graph spec.
  */
 function getDraftGraphSpec(): GraphSpec {
-  return graphDraft ?? customGraphSpec ?? buildLinearMlpTemplate();
+  return graphDraft ?? customGraphSpec ?? buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain);
 }
 
 /**
@@ -1787,7 +1788,7 @@ function resetGraphDraft(): void {
     setGraphDraft(customGraphSpec, 'Editor reset to applied graph.');
     return;
   }
-  setGraphDraft(buildLinearMlpTemplate(), 'Editor reset to default graph.');
+  setGraphDraft(buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain), 'Editor reset to default graph.');
 }
 
 /**
@@ -1907,162 +1908,6 @@ function loadStoredGraphSpec(): void {
 }
 
 /**
- * Build hidden layer sizes from the current core UI settings.
- * @param settings - Core UI settings snapshot.
- * @returns Array of hidden layer sizes.
- */
-function buildHiddenSizesForExample(settings: ReturnType<typeof readSettingsFromCoreUI>): number[] {
-  const layers = settings.hiddenLayers;
-  const hidden: number[] = [];
-  if (layers >= 1) hidden.push(settings.neurons1);
-  if (layers >= 2) hidden.push(settings.neurons2);
-  if (layers >= 3) hidden.push(settings.neurons3);
-  if (layers >= 4) hidden.push(settings.neurons4);
-  if (layers >= 5) hidden.push(settings.neurons5);
-  if (!hidden.length) hidden.push(Math.max(4, settings.neurons1 || 8));
-  return hidden;
-}
-
-/**
- * Build a linear MLP-only graph template.
- * @returns Graph spec for a linear MLP.
- */
-function buildLinearMlpTemplate(): GraphSpec {
-  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
-  const inputSize = CFG.brain.inSize;
-  const outputSize = CFG.brain.outSize;
-  return {
-    type: 'graph',
-    outputSize,
-    nodes: [
-      { id: 'input', type: 'Input', outputSize: inputSize },
-      { id: 'mlp', type: 'MLP', inputSize, outputSize, hiddenSizes }
-    ],
-    edges: [{ from: 'input', to: 'mlp' }],
-    outputs: [{ nodeId: 'mlp' }]
-  };
-}
-
-/**
- * Build a template with MLP to GRU to MLP stages.
- * @returns Graph spec for MLP-GRU-MLP.
- */
-function buildMlpGruMlpTemplate(): GraphSpec {
-  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
-  const inputSize = CFG.brain.inSize;
-  const outputSize = CFG.brain.outSize;
-  const featureSize = hiddenSizes[hiddenSizes.length - 1] ?? Math.max(4, Math.floor(inputSize * 0.75));
-  const mlpHidden = hiddenSizes.length > 1 ? hiddenSizes.slice(0, -1) : hiddenSizes;
-  const gruHidden = Math.max(2, Math.floor(CFG.brain.gruHidden || featureSize));
-  return {
-    type: 'graph',
-    outputSize,
-    nodes: [
-      { id: 'input', type: 'Input', outputSize: inputSize },
-      { id: 'mlp-a', type: 'MLP', inputSize, outputSize: featureSize, hiddenSizes: mlpHidden },
-      { id: 'gru', type: 'GRU', inputSize: featureSize, hiddenSize: gruHidden },
-      { id: 'mlp-b', type: 'MLP', inputSize: gruHidden, outputSize, hiddenSizes }
-    ],
-    edges: [
-      { from: 'input', to: 'mlp-a' },
-      { from: 'mlp-a', to: 'gru' },
-      { from: 'gru', to: 'mlp-b' }
-    ],
-    outputs: [{ nodeId: 'mlp-b' }]
-  };
-}
-
-/**
- * Build a template with skip connection and concat.
- * @returns Graph spec for a skip-style template.
- */
-function buildSkipTemplate(): GraphSpec {
-  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
-  const inputSize = CFG.brain.inSize;
-  const outputSize = CFG.brain.outSize;
-  const mlpOut = inputSize;
-  return {
-    type: 'graph',
-    outputSize,
-    nodes: [
-      { id: 'input', type: 'Input', outputSize: inputSize },
-      { id: 'mlp-skip', type: 'MLP', inputSize, outputSize: mlpOut, hiddenSizes },
-      { id: 'concat', type: 'Concat' },
-      { id: 'head', type: 'Dense', inputSize: inputSize + mlpOut, outputSize }
-    ],
-    edges: [
-      { from: 'input', to: 'mlp-skip' },
-      { from: 'input', to: 'concat', toPort: 0 },
-      { from: 'mlp-skip', to: 'concat', toPort: 1 },
-      { from: 'concat', to: 'head' }
-    ],
-    outputs: [{ nodeId: 'head' }]
-  };
-}
-
-/**
- * Build a template with a split output head.
- * @returns Graph spec for a split output template.
- */
-function buildSplitTemplate(): GraphSpec {
-  const inputSize = CFG.brain.inSize;
-  const outputSize = CFG.brain.outSize;
-  const leftIn = Math.max(1, Math.floor(inputSize / 2));
-  const rightIn = Math.max(1, inputSize - leftIn);
-  const leftOut = Math.max(1, Math.floor(outputSize / 2));
-  const rightOut = Math.max(1, outputSize - leftOut);
-  return {
-    type: 'graph',
-    outputSize,
-    nodes: [
-      { id: 'input', type: 'Input', outputSize: inputSize },
-      { id: 'split', type: 'Split', outputSizes: [leftIn, rightIn] },
-      { id: 'head-a', type: 'Dense', inputSize: leftIn, outputSize: leftOut },
-      { id: 'head-b', type: 'Dense', inputSize: rightIn, outputSize: rightOut }
-    ],
-    edges: [
-      { from: 'input', to: 'split' },
-      { from: 'split', to: 'head-a', fromPort: 0 },
-      { from: 'split', to: 'head-b', fromPort: 1 }
-    ],
-    outputs: [{ nodeId: 'head-a' }, { nodeId: 'head-b' }]
-  };
-}
-
-/**
- * Build a default node spec for a given node type.
- * @param type - Node type to create.
- * @param id - Node id to assign.
- * @returns Node specification.
- */
-function buildDefaultNode(type: GraphNodeType, id: string): GraphNodeSpec {
-  const inputSize = CFG.brain.inSize;
-  const outputSize = CFG.brain.outSize;
-  const hiddenSizes = buildHiddenSizesForExample(readSettingsFromCoreUI());
-  switch (type) {
-    case 'Input':
-      return { id, type: 'Input', outputSize: inputSize };
-    case 'Dense':
-      return { id, type: 'Dense', inputSize, outputSize };
-    case 'MLP':
-      return { id, type: 'MLP', inputSize, outputSize, hiddenSizes };
-    case 'GRU':
-      return { id, type: 'GRU', inputSize, hiddenSize: Math.max(2, Math.floor(CFG.brain.gruHidden || 8)) };
-    case 'LSTM':
-      return { id, type: 'LSTM', inputSize, hiddenSize: Math.max(2, Math.floor(CFG.brain.lstmHidden || CFG.brain.gruHidden || 8)) };
-    case 'RRU':
-      return { id, type: 'RRU', inputSize, hiddenSize: Math.max(2, Math.floor(CFG.brain.rruHidden || CFG.brain.gruHidden || 8)) };
-    case 'Split': {
-      const first = Math.max(1, Math.floor(inputSize / 2));
-      const second = Math.max(1, inputSize - first);
-      return { id, type: 'Split', outputSizes: [first, second] };
-    }
-    case 'Concat':
-      return { id, type: 'Concat' };
-  }
-}
-
-/**
  * Build a unique node id within a graph spec.
  * @param spec - Graph spec to scan.
  * @param prefix - Prefix to use for the id.
@@ -2079,25 +1924,6 @@ function buildUniqueNodeId(spec: GraphSpec, prefix: string): string {
   }
   return next;
 }
-
-/** Diagram node derived from graph spec for SVG rendering. */
-type DiagramNode = {
-  id: string;
-  label: string;
-  type: string;
-  layer: number;
-  outputIndex?: number;
-};
-
-/** Diagram edge derived from graph spec for SVG rendering. */
-type DiagramEdge = {
-  from: string;
-  to: string;
-  fromPort?: number;
-  toPort?: number;
-  edgeIndex?: number;
-  outputIndex?: number;
-};
 
 /**
  * Clamp a number to a range.
@@ -2343,634 +2169,47 @@ function addGraphEdge(fromId: string, toId: string, spec: GraphSpec): number | n
   return spec.edges.length - 1;
 }
 
-/**
- * Render the graph diagram SVG from the spec.
- * @param spec - Graph spec to render.
- */
+/** Render through the existing editor owner without copying its mutable state. */
 function renderGraphDiagram(spec: GraphSpec): void {
-  if (!graphDiagram) return;
-  graphDiagram.innerHTML = '';
-  graphDiagramNodeRects.clear();
-  if (!spec.nodes.length) return;
-
-  const svgNs = 'http://www.w3.org/2000/svg';
-  const sizeState = graphSizeState ?? updateGraphSizeState(spec);
-  const nodeErrors = sizeState.nodeErrors;
-  const nodeById = new Map<string, GraphNodeSpec>();
-  spec.nodes.forEach(node => nodeById.set(node.id, node));
-
-  const edges = spec.edges
-    .map((edge, index) => ({ edge, index }))
-    .filter(({ edge }) => nodeById.has(edge.from) && nodeById.has(edge.to));
-  const outgoing = new Map<string, string[]>();
-  const incoming = new Map<string, string[]>();
-  spec.nodes.forEach(node => {
-    outgoing.set(node.id, []);
-    incoming.set(node.id, []);
+  renderGraphDiagramView(spec, {
+    get graphDiagram() { return graphDiagram; },
+    get graphDiagramNodeRects() { return graphDiagramNodeRects; },
+    get graphSizeState() { return graphSizeState; },
+    updateGraphSizeState,
+    get graphLayoutOverrides() { return graphLayoutOverrides; },
+    get graphSelectedEdgeIndex() { return graphSelectedEdgeIndex; },
+    setGraphSelection,
+    get graphConnectLine() { return graphConnectLine; },
+    set graphConnectLine(value) { graphConnectLine = value; },
+    get graphSelectedOutputIndex() { return graphSelectedOutputIndex; },
+    get graphSelectedNodeId() { return graphSelectedNodeId; },
+    beginGraphConnectDrag,
+    getSvgPoint,
+    get graphDragState() { return graphDragState; },
+    set graphDragState(value) { graphDragState = value; },
+    get graphConnectDrag() { return graphConnectDrag; },
+    get graphPointerPos() { return graphPointerPos; },
+    updateGraphConnectDrag,
   });
-  edges.forEach(({ edge }) => {
-    outgoing.get(edge.from)?.push(edge.to);
-    incoming.get(edge.to)?.push(edge.from);
-  });
-
-  const layerById = new Map<string, number>();
-  const roots = spec.nodes
-    .filter(node => node.type === 'Input' || (incoming.get(node.id)?.length ?? 0) === 0)
-    .map(node => node.id)
-    .sort((a, b) => a.localeCompare(b));
-  roots.forEach(id => layerById.set(id, 0));
-  const queue = [...roots];
-  while (queue.length) {
-    const id = queue.shift();
-    if (!id) break;
-    const baseLayer = layerById.get(id) ?? 0;
-    for (const next of outgoing.get(id) ?? []) {
-      const nextLayer = baseLayer + 1;
-      const current = layerById.get(next);
-      if (current == null || nextLayer > current) {
-        layerById.set(next, nextLayer);
-        queue.push(next);
-      }
-    }
-  }
-  let maxLayer = Math.max(0, ...Array.from(layerById.values()));
-  spec.nodes.forEach(node => {
-    if (!layerById.has(node.id)) {
-      maxLayer += 1;
-      layerById.set(node.id, maxLayer);
-    }
-  });
-
-  const outputNodes = spec.outputs.map((output, index) => ({
-    id: `__out-${index + 1}`,
-    label: `Out ${index + 1}`,
-    type: 'Output',
-    layer: maxLayer + 1,
-    outputIndex: index,
-    fromId: output.nodeId,
-    port: output.port
-  }));
-
-  const diagramNodes: DiagramNode[] = [
-    ...spec.nodes.map(node => ({
-      id: node.id,
-      label: node.id,
-      type: node.type,
-      layer: layerById.get(node.id) ?? 0
-    })),
-    ...outputNodes.map(node => ({
-      id: node.id,
-      label: node.label,
-      type: node.type,
-      layer: node.layer,
-      outputIndex: node.outputIndex
-    }))
-  ];
-
-  const diagramEdges: DiagramEdge[] = [
-    ...edges.map(({ edge, index }) => {
-      const entry: DiagramEdge = { from: edge.from, to: edge.to, edgeIndex: index };
-      if (edge.fromPort != null) entry.fromPort = edge.fromPort;
-      if (edge.toPort != null) entry.toPort = edge.toPort;
-      return entry;
-    }),
-    ...outputNodes.map(node => {
-      const entry: DiagramEdge = { from: node.fromId, to: node.id, outputIndex: node.outputIndex };
-      if (node.port != null) entry.fromPort = node.port;
-      return entry;
-    })
-  ];
-
-  const layerGroups = new Map<number, DiagramNode[]>();
-  diagramNodes.forEach(node => {
-    const group = layerGroups.get(node.layer) ?? [];
-    group.push(node);
-    layerGroups.set(node.layer, group);
-  });
-
-  const sortedLayers = Array.from(layerGroups.keys()).sort((a, b) => a - b);
-  const maxPerLayer = Math.max(1, ...sortedLayers.map(layer => layerGroups.get(layer)?.length ?? 0));
-
-  const nodeWidth = DIAGRAM_NODE_WIDTH;
-  const nodeHeight = DIAGRAM_NODE_HEIGHT;
-  const layerGap = 90;
-  const rowGap = 18;
-  const padding = 20;
-  const totalLayers = sortedLayers.length;
-  const width = padding * 2 + totalLayers * nodeWidth + Math.max(0, totalLayers - 1) * layerGap;
-  const height = padding * 2 + maxPerLayer * nodeHeight + Math.max(0, maxPerLayer - 1) * rowGap;
-  graphDiagram.setAttribute('viewBox', `0 0 ${width} ${height}`);
-
-  const positions = new Map<string, { x: number; y: number }>();
-  sortedLayers.forEach((layer, index) => {
-    const nodes = layerGroups.get(layer) ?? [];
-    nodes.sort((a, b) => a.id.localeCompare(b.id));
-    const totalHeight = nodes.length * nodeHeight + Math.max(0, nodes.length - 1) * rowGap;
-    const startY = padding + (height - padding * 2 - totalHeight) / 2;
-    const x = padding + index * (nodeWidth + layerGap);
-    nodes.forEach((node, idx) => {
-      const y = startY + idx * (nodeHeight + rowGap);
-      positions.set(node.id, { x, y });
-    });
-  });
-
-  diagramNodes.forEach(node => {
-    if (node.id.startsWith('__out-')) return;
-    const override = graphLayoutOverrides.get(node.id);
-    if (!override) return;
-    const x = clamp(override.x, padding, width - padding - nodeWidth);
-    const y = clamp(override.y, padding, height - padding - nodeHeight);
-    positions.set(node.id, { x, y });
-  });
-
-  const edgesGroup = document.createElementNS(svgNs, 'g');
-  diagramEdges.forEach(edge => {
-    const from = positions.get(edge.from);
-    const to = positions.get(edge.to);
-    if (!from || !to) return;
-    const x1 = from.x + nodeWidth;
-    const y1 = from.y + nodeHeight / 2;
-    const x2 = to.x;
-    const y2 = to.y + nodeHeight / 2;
-    const curve = Math.max(20, (x2 - x1) * 0.35);
-    const path = document.createElementNS(svgNs, 'path');
-    const isSelected = edge.edgeIndex != null && edge.edgeIndex === graphSelectedEdgeIndex;
-    path.setAttribute('class', isSelected ? 'graph-diagram-edge selected' : 'graph-diagram-edge');
-    path.setAttribute('d', `M ${x1} ${y1} C ${x1 + curve} ${y1} ${x2 - curve} ${y2} ${x2} ${y2}`);
-    edgesGroup.appendChild(path);
-    if (edge.edgeIndex != null) {
-      const hit = document.createElementNS(svgNs, 'path');
-      hit.setAttribute('class', 'graph-diagram-edge-hit');
-      hit.setAttribute('d', path.getAttribute('d') ?? '');
-      hit.addEventListener('click', (event) => {
-        event.stopPropagation();
-        setGraphSelection({ edgeIndex: edge.edgeIndex ?? null });
-      });
-      edgesGroup.appendChild(hit);
-    }
-
-    const addPortLabel = (value: number | undefined, x: number, y: number) => {
-      if (value == null) return;
-      const label = document.createElementNS(svgNs, 'text');
-      label.setAttribute('class', 'graph-diagram-port');
-      label.setAttribute('x', String(x));
-      label.setAttribute('y', String(y));
-      label.textContent = `p${value}`;
-      edgesGroup.appendChild(label);
-    };
-
-    addPortLabel(edge.fromPort, x1 + 6, y1 - 6);
-    addPortLabel(edge.toPort, x2 - 18, y2 - 6);
-  });
-  const connectPath = document.createElementNS(svgNs, 'path');
-  connectPath.setAttribute('class', 'graph-diagram-edge ghost');
-  graphConnectLine = connectPath;
-  edgesGroup.appendChild(connectPath);
-  graphDiagram.appendChild(edgesGroup);
-
-  const nodesGroup = document.createElementNS(svgNs, 'g');
-  diagramNodes.forEach(node => {
-    const pos = positions.get(node.id);
-    if (!pos) return;
-    const group = document.createElementNS(svgNs, 'g');
-    group.setAttribute('data-node-id', node.id);
-    if (node.outputIndex != null) {
-      group.setAttribute('data-output-index', String(node.outputIndex));
-    }
-    group.setAttribute('cursor', 'pointer');
-
-    const isSelected =
-      node.outputIndex != null
-        ? graphSelectedOutputIndex === node.outputIndex
-        : graphSelectedNodeId === node.id;
-    const isOutput = node.outputIndex != null || node.id.startsWith('__out-');
-    if (!isOutput) {
-      graphDiagramNodeRects.set(node.id, { x: pos.x, y: pos.y, width: nodeWidth, height: nodeHeight });
-    }
-    const sizeInfo = sizeState.sizes.get(node.id);
-    const hasError = !!nodeErrors.get(node.id)?.length;
-    const isPending =
-      !hasError &&
-      !isOutput &&
-      (node.type === 'Concat'
-        ? !sizeInfo?.outputSizes
-        : node.type !== 'Input' && sizeInfo?.inputSize == null);
-    const rect = document.createElementNS(svgNs, 'rect');
-    rect.setAttribute('x', String(pos.x));
-    rect.setAttribute('y', String(pos.y));
-    rect.setAttribute('rx', '10');
-    rect.setAttribute('ry', '10');
-    rect.setAttribute('width', String(nodeWidth));
-    rect.setAttribute('height', String(nodeHeight));
-    rect.setAttribute(
-      'class',
-      `graph-diagram-node graph-diagram-${node.type.toLowerCase()}${isSelected ? ' selected' : ''}${hasError ? ' error' : ''}${isPending ? ' pending' : ''}`
-    );
-    group.appendChild(rect);
-
-    if (!isOutput) {
-      const handle = document.createElementNS(svgNs, 'circle');
-      handle.setAttribute('class', 'graph-diagram-handle');
-      handle.setAttribute('cx', String(pos.x + nodeWidth));
-      handle.setAttribute('cy', String(pos.y + nodeHeight / 2));
-      handle.setAttribute('r', '6');
-      handle.addEventListener('pointerdown', (event) => {
-        event.stopPropagation();
-        beginGraphConnectDrag(node.id, event);
-      });
-      group.appendChild(handle);
-    }
-
-    const text = document.createElementNS(svgNs, 'text');
-    text.setAttribute('class', 'graph-diagram-label');
-    text.setAttribute('x', String(pos.x + nodeWidth / 2));
-    text.setAttribute('y', String(pos.y + nodeHeight / 2 - 6));
-    const line1 = document.createElementNS(svgNs, 'tspan');
-    line1.textContent = node.label;
-    line1.setAttribute('x', String(pos.x + nodeWidth / 2));
-    const line2 = document.createElementNS(svgNs, 'tspan');
-    line2.textContent = node.type;
-    line2.setAttribute('class', 'graph-diagram-label-sub');
-    line2.setAttribute('x', String(pos.x + nodeWidth / 2));
-    line2.setAttribute('dy', '14');
-    text.appendChild(line1);
-    text.appendChild(line2);
-    group.appendChild(text);
-
-    group.addEventListener('pointerdown', (event) => {
-      event.stopPropagation();
-      if (event.button !== 0) return;
-      if (node.outputIndex != null || node.id.startsWith('__out-')) return;
-      const point = getSvgPoint(event);
-      if (!point) return;
-      const current = positions.get(node.id);
-      if (!current) return;
-      graphDragState = {
-        id: node.id,
-        offsetX: point.x - current.x,
-        offsetY: point.y - current.y
-      };
-      group.setPointerCapture?.(event.pointerId);
-    });
-
-    group.addEventListener('click', (event) => {
-      event.stopPropagation();
-      if (node.outputIndex != null) {
-        setGraphSelection({ outputIndex: node.outputIndex });
-        return;
-      }
-      setGraphSelection({ nodeId: node.id });
-    });
-
-    nodesGroup.appendChild(group);
-  });
-  graphDiagram.appendChild(nodesGroup);
-  if (graphConnectDrag && graphPointerPos) {
-    updateGraphConnectDrag(graphPointerPos);
-  }
 }
 
-/**
- * Render the graph inspector panel for the current selection.
- * @param spec - Graph spec to inspect and edit.
- */
+/** Render through the existing editor owner without copying its mutable state. */
 function renderGraphInspector(spec: GraphSpec): void {
-  if (!graphDiagramInspector) return;
-  graphDiagramInspector.innerHTML = '';
-  const sizeState = graphSizeState ?? updateGraphSizeState(spec);
-
-  const makeRow = (labelText: string, input: HTMLElement): HTMLDivElement => {
-    const row = document.createElement('div');
-    row.className = 'graph-inspector-row';
-    const label = document.createElement('label');
-    label.textContent = labelText;
-    row.appendChild(label);
-    row.appendChild(input);
-    return row;
-  };
-
-  const makeNumberInput = (value: number): HTMLInputElement => {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.value = Number.isFinite(value) ? String(value) : '';
-    return input;
-  };
-
-  /**
-   * Build a read-only number input for inferred sizes.
-   * @param value - Value to show, or null to leave blank.
-   * @param placeholder - Placeholder text for unresolved sizes.
-   * @returns Disabled number input element.
-   */
-  const makeReadOnlyNumberInput = (value: number | null, placeholder = 'auto'): HTMLInputElement => {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.value = value != null && Number.isFinite(value) ? String(value) : '';
-    input.placeholder = placeholder;
-    input.disabled = true;
-    return input;
-  };
-
-  const parseNumberList = (value: string): number[] => {
-    return value
-      .split(',')
-      .map(part => Number(part.trim()))
-      .filter(num => Number.isFinite(num) && num > 0);
-  };
-
-  const nodeIds = spec.nodes.map(node => node.id);
-
-  const addActions = (actions: Array<{ label: string; onClick: () => void }>): void => {
-    const row = document.createElement('div');
-    row.className = 'graph-inspector-actions';
-    actions.forEach(action => {
-      const btn = document.createElement('button');
-      btn.className = 'btn small';
-      btn.type = 'button';
-      btn.textContent = action.label;
-      btn.addEventListener('click', action.onClick);
-      row.appendChild(btn);
-    });
-    graphDiagramInspector.appendChild(row);
-  };
-
-  if (graphSelectedNodeId) {
-    const nodeIndex = spec.nodes.findIndex(node => node.id === graphSelectedNodeId);
-    const node = nodeIndex >= 0 ? spec.nodes[nodeIndex] : null;
-    if (!node) return;
-    graphDiagramInspector.classList.remove('hidden');
-
-    const title = document.createElement('div');
-    title.textContent = `Node: ${node.id}`;
-    graphDiagramInspector.appendChild(title);
-
-    const idInput = document.createElement('input');
-    idInput.type = 'text';
-    idInput.value = node.id;
-    idInput.addEventListener('change', () => {
-      const nextId = idInput.value.trim();
-      if (!nextId) {
-        idInput.value = node.id;
-        setGraphSpecStatus('Node id cannot be empty.', true);
-        return;
-      }
-      if (nextId !== node.id && spec.nodes.some(n => n.id === nextId)) {
-        idInput.value = node.id;
-        setGraphSpecStatus('Node id must be unique.', true);
-        return;
-      }
-      if (nextId === node.id) return;
-      const oldId = node.id;
-      node.id = nextId;
-      spec.edges.forEach(edge => {
-        if (edge.from === oldId) edge.from = nextId;
-        if (edge.to === oldId) edge.to = nextId;
-      });
-      spec.outputs.forEach(output => {
-        if (output.nodeId === oldId) output.nodeId = nextId;
-      });
-      if (graphLayoutOverrides.has(oldId)) {
-        const override = graphLayoutOverrides.get(oldId)!;
-        graphLayoutOverrides.delete(oldId);
-        graphLayoutOverrides.set(nextId, override);
-      }
-      if (graphSelectedNodeId === oldId) graphSelectedNodeId = nextId;
-      renderGraphEditor();
-      setGraphSpecStatus('Node id updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('Id', idInput));
-
-    const typeSelect = document.createElement('select');
-    const availableTypes: GraphNodeType[] =
-      node.type === 'Input'
-        ? ['Input']
-        : ['Dense', 'MLP', 'GRU', 'LSTM', 'RRU', 'Split', 'Concat'];
-    availableTypes.forEach(type => {
-      const option = document.createElement('option');
-      option.value = type;
-      option.textContent = type;
-      typeSelect.appendChild(option);
-    });
-    typeSelect.value = node.type;
-    typeSelect.addEventListener('change', () => {
-      const nextType = typeSelect.value as GraphNodeType;
-      spec.nodes[nodeIndex] = buildDefaultNode(nextType, node.id);
-      renderGraphEditor();
-      setGraphSpecStatus('Node type updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('Type', typeSelect));
-
-    if (node.type === 'Input') {
-      graphDiagramInspector.appendChild(makeRow('Output', makeReadOnlyNumberInput(CFG.brain.inSize, 'fixed')));
-    }
-    if (node.type === 'Dense' || node.type === 'MLP') {
-      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
-      graphDiagramInspector.appendChild(makeRow('Input', makeReadOnlyNumberInput(inferred)));
-
-      const output = makeNumberInput(node.outputSize);
-      output.addEventListener('input', () => {
-        const next = Number(output.value);
-        if (!Number.isFinite(next)) return;
-        node.outputSize = next;
-        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
-      });
-      graphDiagramInspector.appendChild(makeRow('Output', output));
-    }
-    if (node.type === 'MLP') {
-      const hidden = document.createElement('input');
-      hidden.type = 'text';
-      hidden.value = (node.hiddenSizes ?? []).join(', ');
-      hidden.addEventListener('change', () => {
-        node.hiddenSizes = parseNumberList(hidden.value);
-        setGraphSpecStatus('Updated hidden sizes. Apply graph to use it.');
-      });
-      graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
-    }
-    if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
-      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
-      graphDiagramInspector.appendChild(makeRow('Input', makeReadOnlyNumberInput(inferred)));
-
-      const hidden = makeNumberInput(node.hiddenSize);
-      hidden.addEventListener('input', () => {
-        const next = Number(hidden.value);
-        if (!Number.isFinite(next)) return;
-        node.hiddenSize = next;
-        setGraphSpecStatus('Updated hidden size. Apply graph to use it.');
-      });
-      graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
-    }
-    if (node.type === 'Split') {
-      const sizes = document.createElement('input');
-      sizes.type = 'text';
-      sizes.value = node.outputSizes.join(', ');
-      sizes.addEventListener('change', () => {
-        const next = parseNumberList(sizes.value);
-        if (!next.length) return;
-        node.outputSizes = next;
-        setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
-      });
-      graphDiagramInspector.appendChild(makeRow('Outputs', sizes));
-    }
-    if (node.type === 'Concat') {
-      const outSize = sizeState.sizes.get(node.id)?.outputSizes?.[0] ?? null;
-      graphDiagramInspector.appendChild(makeRow('Output', makeReadOnlyNumberInput(outSize)));
-    }
-
-    addActions([
-      {
-        label: 'Delete',
-        onClick: () => {
-          if (node.type === 'Input') {
-            setGraphSpecStatus('Input node cannot be removed.', true);
-            return;
-          }
-          const removedId = node.id;
-          spec.nodes.splice(nodeIndex, 1);
-          spec.edges = spec.edges.filter(edge => edge.from !== removedId && edge.to !== removedId);
-          spec.outputs = spec.outputs.filter(out => out.nodeId !== removedId);
-          graphLayoutOverrides.delete(removedId);
-          setGraphSelection({});
-          renderGraphEditor();
-          setGraphSpecStatus('Node removed. Apply graph to use it.');
-        }
-      }
-    ]);
-    return;
-  }
-
-  if (graphSelectedEdgeIndex != null) {
-    const edge = spec.edges[graphSelectedEdgeIndex];
-    if (!edge) return;
-    graphDiagramInspector.classList.remove('hidden');
-    const title = document.createElement('div');
-    title.textContent = 'Edge';
-    graphDiagramInspector.appendChild(title);
-
-    const fromSelect = document.createElement('select');
-    nodeIds.forEach(id => {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = id;
-      fromSelect.appendChild(opt);
-    });
-    fromSelect.value = edge.from;
-    fromSelect.addEventListener('change', () => {
-      edge.from = fromSelect.value;
-      renderGraphEditor();
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('From', fromSelect));
-
-    const fromPort = makeNumberInput(edge.fromPort ?? 0);
-    fromPort.value = edge.fromPort == null ? '' : String(edge.fromPort);
-    fromPort.addEventListener('change', () => {
-      const value = fromPort.value.trim();
-      if (value === '') {
-        if ('fromPort' in edge) delete edge.fromPort;
-      } else {
-        edge.fromPort = Number(value);
-      }
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('From port', fromPort));
-
-    const toSelect = document.createElement('select');
-    nodeIds.forEach(id => {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = id;
-      toSelect.appendChild(opt);
-    });
-    toSelect.value = edge.to;
-    toSelect.addEventListener('change', () => {
-      edge.to = toSelect.value;
-      renderGraphEditor();
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('To', toSelect));
-
-    const toPort = makeNumberInput(edge.toPort ?? 0);
-    toPort.value = edge.toPort == null ? '' : String(edge.toPort);
-    toPort.addEventListener('change', () => {
-      const value = toPort.value.trim();
-      if (value === '') {
-        if ('toPort' in edge) delete edge.toPort;
-      } else {
-        edge.toPort = Number(value);
-      }
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('To port', toPort));
-
-    const edgeIndex = graphSelectedEdgeIndex;
-    addActions([
-      {
-        label: 'Delete',
-        onClick: () => {
-          if (edgeIndex == null) return;
-          spec.edges.splice(edgeIndex, 1);
-          setGraphSelection({});
-          renderGraphEditor();
-          setGraphSpecStatus('Edge removed. Apply graph to use it.');
-        }
-      }
-    ]);
-    return;
-  }
-
-  if (graphSelectedOutputIndex != null) {
-    const output = spec.outputs[graphSelectedOutputIndex];
-    if (!output) return;
-    graphDiagramInspector.classList.remove('hidden');
-    const title = document.createElement('div');
-    title.textContent = `Output ${graphSelectedOutputIndex + 1}`;
-    graphDiagramInspector.appendChild(title);
-
-    const nodeSelect = document.createElement('select');
-    nodeIds.forEach(id => {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = id;
-      nodeSelect.appendChild(opt);
-    });
-    nodeSelect.value = output.nodeId;
-    nodeSelect.addEventListener('change', () => {
-      output.nodeId = nodeSelect.value;
-      renderGraphEditor();
-      setGraphSpecStatus('Output updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('Node', nodeSelect));
-
-    const portInput = makeNumberInput(output.port ?? 0);
-    portInput.value = output.port == null ? '' : String(output.port);
-    portInput.addEventListener('change', () => {
-      const value = portInput.value.trim();
-      if (value === '') {
-        if ('port' in output) delete output.port;
-      } else {
-        output.port = Number(value);
-      }
-      setGraphSpecStatus('Output updated. Apply graph to use it.');
-    });
-    graphDiagramInspector.appendChild(makeRow('Port', portInput));
-
-    const outputIndex = graphSelectedOutputIndex;
-    addActions([
-      {
-        label: 'Delete',
-        onClick: () => {
-          if (outputIndex == null) return;
-          spec.outputs.splice(outputIndex, 1);
-          setGraphSelection({});
-          renderGraphEditor();
-          setGraphSpecStatus('Output removed. Apply graph to use it.');
-        }
-      }
-    ]);
-    return;
-  }
-
-  graphDiagramInspector.classList.add('hidden');
+  renderGraphInspectorView(spec, {
+    get graphDiagramInspector() { return graphDiagramInspector; },
+    get graphSizeState() { return graphSizeState; },
+    updateGraphSizeState,
+    get graphSelectedNodeId() { return graphSelectedNodeId; },
+    set graphSelectedNodeId(value) { graphSelectedNodeId = value; },
+    setGraphSpecStatus,
+    get graphLayoutOverrides() { return graphLayoutOverrides; },
+    renderGraphEditor,
+    setGraphSelection,
+    get graphSelectedEdgeIndex() { return graphSelectedEdgeIndex; },
+    get graphSelectedOutputIndex() { return graphSelectedOutputIndex; },
+    get brainInputSize() { return CFG.brain.inSize; },
+    createNode: (type, id) => buildDefaultNode(type, id, CFG.brain, readSettingsFromCoreUI()),
+  });
 }
 
 /**
@@ -3082,7 +2321,7 @@ function renderGraphEditor(): void {
     typeSelect.value = node.type;
     typeSelect.addEventListener('change', () => {
       const nextType = typeSelect.value as GraphNodeType;
-      spec.nodes[index] = buildDefaultNode(nextType, node.id);
+      spec.nodes[index] = buildDefaultNode(nextType, node.id, CFG.brain, readSettingsFromCoreUI());
       renderGraphEditor();
       setGraphSpecStatus('Node type updated. Apply graph to use it.');
     });
