@@ -1,17 +1,24 @@
+import { exportServerSnapshot as exportArchive,importServerArchive,resolveServerHttpBase,type ArchiveTransportPort } from './archive_transport.ts';
+import { finishCameraPan as finishCameraPanCamera,fitArenaView as fitArenaViewCamera,moveCameraPan as moveCameraPanCamera,publishClientCamera as publishClientCameraCamera,resetManualCamera as resetManualCameraCamera,screenToWorld as screenToWorldCamera,updateClientCamera as updateClientCameraCamera,type CameraPort } from './camera.ts';
 import { DecisionInspectorView } from './decisionInspectorView.ts';
 import { DistillationView } from './distillationView.ts';
 import { DIAGRAM_NODE_HEIGHT,DIAGRAM_NODE_WIDTH,renderGraphDiagramView } from './graph_diagram.ts';
 import { renderGraphInspectorView } from './graph_inspector.ts';
+import { refreshSavedPresets as refreshGraphPresets,saveGraphPreset,type GraphPresetPort } from './graph_presets.ts';
+import { applySimpleOutputSelection as applySimpleOutputSelectionSettings,renderGraphEditor as renderGraphEditorSettings,type GraphSettingsPort } from './graph_settings.ts';
+import { buildUniqueNodeId,cloneGraphSpec,getGraphSpecInputSize,applyGraphSizeInference as projectGraphSizeInference } from './graph_state.ts';
 import { buildDefaultNode,buildLinearMlpTemplate,buildMlpGruMlpTemplate,buildSkipTemplate,buildSplitTemplate } from './graph_templates.ts';
 import { DecisionInspectorClient } from './net/decisionInspector.ts';
 import { DistillationClient } from './net/distillation.ts';
+import { computeTurnInput,frameContainsSnake as containsFrameSnake,normalizeVizData,findSnakeNear as selectFrameSnake,type SelectedSnake } from './player_input_and_frames.ts';
+import { applyCoreSettingsToUi as applyCoreUI,parseBaselineSeedValue,applySettingsLock as projectSettingsLock,readSettingsFromCoreUI as readCoreUI,readSettingsInputValue,refreshCoreUIState as refreshCoreUI,type CoreInputElements,type CoreUiDraft } from './settings_ui.ts';
 /** Entry point for the simulation UI, canvas, and client networking. */
 
 import { BrainLibraryView,type LibraryEnvironment } from './brainLibraryView.ts';
 import { graphKey } from './brains/graph/compiler.ts';
 import type { GraphSizeState } from './brains/graph/editor.ts';
 import { inferGraphSizes } from './brains/graph/editor.ts';
-import type { GraphEdge,GraphNodeType,GraphSpec } from './brains/graph/schema.ts';
+import type { GraphEdge,GraphSpec } from './brains/graph/schema.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import { BrainViz } from './BrainViz.ts';
@@ -36,9 +43,8 @@ resolveServerUrl,
 storeServerUrl,
 type WelcomeInferenceMode
 } from './net/wsClient.ts';
-import { formatDurationTimer,parseDurationDraft } from './protocol/duration.ts';
+import { formatDurationTimer } from './protocol/duration.ts';
 import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
-import { FRAME_HEADER_FLOATS,FRAME_HEADER_OFFSETS } from './protocol/frame.ts';
 import type { FrameStats,HallOfFameEntry,VizData } from './protocol/messages.ts';
 import type {
 RustImportBranchNotice,
@@ -61,9 +67,6 @@ BASELINE_BOT_SEED_RANDOMIZE_ID,
 BROWSER_CAMERA_SETTING_PATHS,
 applyValuesToSlidersFromCFG,
 collectSettingsUpdates,
-readLifeSettingInput,
-readSettingChoice,
-refreshSensorSettings,
 setupSettingsUI,
 updateCFGFromUI,
 validateSettingDrafts,
@@ -74,7 +77,9 @@ exportJsonToFile,
 loadBaselineBotSettings,
 saveBaselineBotSettings
 } from './storage.ts';
-import { getByPath,lerp,setByPath } from './utils.ts';
+import { getByPath,setByPath } from './utils.ts';
+
+let cachedCameraPort: CameraPort | undefined;
 
 /** Minimal world interface exposed to UI panels and HoF actions. */
 interface ProxyWorld {
@@ -105,17 +110,6 @@ interface GodModeLogEntry {
   action: string;
   snakeId: number;
   result: string;
-}
-
-/** Selected snake snapshot used by God Mode interactions. */
-interface SelectedSnake {
-  /** Native physical identity, absent on an unresolved frame snapshot. */
-  token?: string;
-  id: number;
-  x: number;
-  y: number;
-  radius: number;
-  skin: number;
 }
 
 /** Connection mode used by the main UI. */
@@ -532,42 +526,8 @@ if (joinSpectate) {
 setJoinOverlayVisible(true);
 setJoinStatus('Connecting...');
 
-/**
- * Reads the core UI slider values into a settings object for the world.
- */
-function readSettingsFromCoreUI(): {
-  snakeCount: number;
-  simSpeed: number;
-  hiddenLayers: number;
-  neurons1: number;
-  neurons2: number;
-  neurons3: number;
-  neurons4: number;
-  neurons5: number;
-} {
-  const hiddenLayers = parseInt(elLayers.value, 10);
-  return {
-    snakeCount: parseInt(elSnakes.value, 10),
-    simSpeed: parseFloat(elSimSpeed.value),
-    hiddenLayers,
-    neurons1: parseInt(elN1.value, 10),
-    neurons2: parseInt(elN2.value, 10),
-    neurons3: parseInt(elN3.value, 10),
-    neurons4: parseInt(elN4.value, 10),
-    neurons5: parseInt(elN5.value, 10)
-  };
-}
-
-/**
- * Parse a baseline bot seed from a raw input string.
- * @param value - Raw input value.
- * @returns Normalized seed value or null when invalid.
- */
-function parseBaselineSeedValue(value: string): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
-  return Math.max(0, parsed);
-}
+/** Project the existing browser controls without moving their ownership. */
+function readSettingsFromCoreUI(): CoreUiDraft { return readCoreUI(getCoreInputElements()); }
 
 /**
  * Toggle the baseline seed validation hint.
@@ -693,55 +653,8 @@ function wireBaselineBotControls(): void {
   }
 }
 
-/**
- * Apply core settings values to the UI sliders.
- * @param settings - Partial core settings to apply to the UI.
- */
-function applyCoreSettingsToUi(settings: Partial<CoreSettings>): void {
-  if (Number.isFinite(settings.snakeCount)) {
-    elSnakes.value = String(settings.snakeCount);
-  }
-  if (Number.isFinite(settings.simSpeed)) {
-    elSimSpeed.value = String(settings.simSpeed);
-  }
-  if (Number.isFinite(settings.hiddenLayers)) {
-    elLayers.value = String(settings.hiddenLayers);
-  }
-  if (Number.isFinite(settings.neurons1)) {
-    elN1.value = String(settings.neurons1);
-  }
-  if (Number.isFinite(settings.neurons2)) {
-    elN2.value = String(settings.neurons2);
-  }
-  if (Number.isFinite(settings.neurons3)) {
-    elN3.value = String(settings.neurons3);
-  }
-  if (Number.isFinite(settings.neurons4)) {
-    elN4.value = String(settings.neurons4);
-  }
-  if (Number.isFinite(settings.neurons5)) {
-    elN5.value = String(settings.neurons5);
-  }
-  refreshCoreUIState();
-}
-
-/**
- * Read a numeric value from a CFG-backed settings input.
- * @param input - Input element to read.
- * @returns Parsed numeric value or null when invalid.
- */
-function readSettingsInputValue(input: SettingInputElement): number | null {
-  if (input.dataset['lifeContract'] === '1') return readLifeSettingInput(input);
-  if (input.dataset['controlType'] === 'select') return readSettingChoice(input as HTMLSelectElement);
-  if (input.dataset['controlType'] === 'duration') return parseDurationDraft(input.value, input.dataset['recordedDuration']);
-  if (input.type === "checkbox" && 'checked' in input) return input.checked ? 1 : 0;
-  if (input.dataset['path'] === 'baselineBots.seed') {
-    return parseBaselineSeedValue(input.value);
-  }
-  const value = Number(input.value);
-  if (!Number.isFinite(value)) return null;
-  return value;
-}
+/** Project the existing browser controls without moving their ownership. */
+function applyCoreSettingsToUi(settings: Partial<CoreSettings>): void { applyCoreUI(settings, getCoreInputElements(), refreshCoreUIState); }
 
 /**
  * Resolve the root element containing CFG-backed settings sliders.
@@ -763,57 +676,9 @@ function collectSettingsUpdatesFromUI(): SettingsUpdate[] {
   return collectSettingsUpdates(resolveSettingsRoot());
 }
 
-/**
- * Apply graph mode styling to stack slider rows and hints.
- * @param graphActive - Whether a custom graph spec is active.
- */
-function applyGraphModeUiState(graphActive: boolean): void {
-  const sliders = [elLayers, elN1, elN2, elN3, elN4, elN5];
-  sliders.forEach(slider => {
-    const row = slider.closest('.row');
-    if (!row) return;
-    row.classList.toggle('graph-stack-disabled', graphActive);
-  });
-  if (graphModeHint) {
-    graphModeHint.textContent = graphActive
-      ? 'Custom graph active; stack sliders are ignored.'
-      : '';
-  }
-}
-
-/**
- * Synchronises the displayed numbers next to the core UI sliders and
- * disables or enables the neuron sliders based on the number of hidden
- * layers.
- */
+/** Project the existing browser controls without moving their ownership. */
 function refreshCoreUIState(): void {
-  snakesVal.textContent = elSnakes.value;
-  simSpeedVal.textContent = Number(elSimSpeed.value).toFixed(2);
-  layersVal.textContent = elLayers.value;
-  n1Val.textContent = elN1.value;
-  n2Val.textContent = elN2.value;
-  n3Val.textContent = elN3.value;
-  n4Val.textContent = elN4.value;
-  n5Val.textContent = elN5.value;
-  const L = parseInt(elLayers.value, 10);
-  const graphActive = !!customGraphSpec;
-  const disableAll = settingsLocked || graphActive;
-  elLayers.disabled = disableAll;
-  elN1.disabled = disableAll;
-  elN2.disabled = disableAll || L < 2;
-  elN3.disabled = disableAll || L < 3;
-  elN4.disabled = disableAll || L < 4;
-  elN5.disabled = disableAll || L < 5;
-  applyGraphModeUiState(graphActive);
-  const applyOpacity = (el: HTMLInputElement) => {
-    el.style.opacity = el.disabled ? '0.45' : '1';
-  };
-  applyOpacity(elN1);
-  applyOpacity(elN2);
-  applyOpacity(elN3);
-  applyOpacity(elN4);
-  applyOpacity(elN5);
-  applyOpacity(elLayers);
+  refreshCoreUI(getCoreInputElements(), { snakesVal, simSpeedVal, layersVal, n1Val, n2Val, n3Val, n4Val, n5Val }, () => settingsLocked, () => !!customGraphSpec, graphModeHint);
 }
 
 // Restore baseline bot settings before rendering settings UI.
@@ -1081,37 +946,7 @@ function stageStackGraph(note: string): void {
 }
 
 if (graphPresetSave) {
-  graphPresetSave.addEventListener('click', async () => {
-    const name = graphPresetName?.value.trim() ?? '';
-    if (!name) {
-      setGraphSpecStatus('Preset name is required.', true);
-      return;
-    }
-    const baseUrl = resolveServerHttpUrl();
-    if (!baseUrl || typeof fetch === 'undefined') {
-      setGraphSpecStatus('Server not available for saving presets.', true);
-      return;
-    }
-    const spec = getDraftGraphSpec();
-    try {
-      const response = await fetch(`${baseUrl}/api/graph-presets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, spec })
-      });
-      const data = (await response.json()) as { ok?: boolean; presetId?: number; message?: string };
-      if (!response.ok || !data.ok) {
-        setGraphSpecStatus(data.message || 'Failed to save preset.', true);
-        return;
-      }
-      setGraphSpecStatus(`Saved preset "${name}".`);
-      if (graphPresetName) graphPresetName.value = '';
-      await refreshSavedPresets();
-    } catch (err) {
-      console.warn('[graph-presets] save failed', err);
-      setGraphSpecStatus('Failed to save preset.', true);
-    }
-  });
+  graphPresetSave.addEventListener('click', () => saveGraphPreset(getGraphPresetPort()));
 }
 
 if (graphSpecApply && graphSpecInput) {
@@ -1440,11 +1275,6 @@ function enterPlayerMode(): void {
   wsClient.sendView({ mode: 'follow', viewW: cssW, viewH: cssH });
 }
 
-/** Saved graph preset summary from the server. */
-type SavedGraphPreset = { id: number; name: string; createdAt: number };
-/** Loaded graph preset including the graph spec. */
-type LoadedGraphPreset = SavedGraphPreset & { spec: GraphSpec };
-
 /**
  * Resolve the HTTP base URL for graph preset APIs from the WS URL.
  * @returns HTTP base URL or null when invalid.
@@ -1476,29 +1306,6 @@ function getActiveGraphSpec(): GraphSpec {
  */
 function getDraftGraphSpec(): GraphSpec {
   return graphDraft ?? customGraphSpec ?? buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain);
-}
-
-/**
- * Clone a graph spec to avoid mutating the original.
- * @param spec - Graph spec to clone.
- * @returns Cloned graph spec.
- */
-function cloneGraphSpec(spec: GraphSpec): GraphSpec {
-  return {
-    type: 'graph',
-    outputSize: spec.outputSize,
-    nodes: spec.nodes.map(node => {
-      if (node.type === 'MLP') {
-        return { ...node, hiddenSizes: node.hiddenSizes ? node.hiddenSizes.slice() : [] };
-      }
-      if (node.type === 'Split') {
-        return { ...node, outputSizes: node.outputSizes.slice() };
-      }
-      return { ...node };
-    }),
-    edges: spec.edges.map(edge => ({ ...edge })),
-    outputs: spec.outputs.map(out => ({ ...out }))
-  };
 }
 
 /**
@@ -1548,174 +1355,14 @@ function updateGraphSizeState(spec: GraphSpec): GraphSizeState {
   return state;
 }
 
-/**
- * Apply inferred input sizes back into the draft spec.
- * @param spec - Graph spec to update in-place.
- * @param state - Size inference state for the spec.
- */
+/** Project sizes through the current browser configuration snapshot. */
 function applyGraphSizeInference(spec: GraphSpec, state: GraphSizeState): void {
-  spec.outputSize = CFG.brain.outSize;
-  spec.nodes.forEach(node => {
-    if (node.type === 'Input') {
-      node.outputSize = CFG.brain.inSize;
-      return;
-    }
-    if (node.type === 'Dense' || node.type === 'MLP' || node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
-      const inputSize = state.sizes.get(node.id)?.inputSize;
-      if (inputSize != null && Number.isFinite(inputSize) && inputSize > 0) {
-        node.inputSize = inputSize;
-      }
-    }
-  });
+  projectGraphSizeInference(spec, state, CFG.brain);
 }
 
-/**
- * Normalize viz payloads that arrive from JSON by reconstructing activation arrays.
- * @param viz - Incoming visualization payload.
- * @returns Normalized visualization payload or null.
- */
-function normalizeVizData(viz: VizData | null | undefined): VizData | null {
-  if (!viz) return null;
-  const layers = viz.layers.map(layer => {
-    const activations = layer.activations;
-    if (!activations) return layer;
-    if (Array.isArray(activations) || ArrayBuffer.isView(activations)) return layer;
-    const count = Math.max(0, layer.count);
-    const next = new Array<number>(count);
-    const source = activations as unknown as Record<string, number>;
-    for (let i = 0; i < count; i += 1) {
-      const raw = source[i] ?? 0;
-      next[i] = Number.isFinite(raw) ? raw : 0;
-    }
-    return { ...layer, activations: next };
-  });
-  return { ...viz, layers };
-}
-
-/** Simple output selector state derived from the graph spec. */
-type SimpleOutputState =
-  | { mode: 'simple'; nodeId: string; split: boolean }
-  | { mode: 'custom'; nodeId: string | null };
-
-/**
- * Derive the simple output selector state from a graph spec.
- * @param spec - Graph spec to inspect.
- * @returns Simple output selection state.
- */
-function resolveSimpleOutputState(spec: GraphSpec): SimpleOutputState {
-  if (spec.outputs.length === 1) {
-    const output = spec.outputs[0]!;
-    return { mode: 'simple', nodeId: output.nodeId, split: false };
-  }
-  if (spec.outputs.length === 2) {
-    const first = spec.outputs[0];
-    const second = spec.outputs[1];
-    if (first && second && first.nodeId === second.nodeId && (first.port ?? 0) === 0 && (second.port ?? 1) === 1) {
-      return { mode: 'simple', nodeId: first.nodeId, split: true };
-    }
-  }
-  const fallback = spec.outputs[0]?.nodeId ?? null;
-  return { mode: 'custom', nodeId: fallback };
-}
-
-/**
- * Render the simple outputs UI based on the current spec and size state.
- * @param spec - Graph spec to reflect in the UI.
- * @param sizeState - Inferred size state for sizing hints.
- */
-function renderSimpleOutputUi(spec: GraphSpec, sizeState: GraphSizeState): void {
-  if (!graphOutputSimpleNode || !graphOutputSimpleSplit) return;
-  const selectableNodes = spec.nodes.slice();
-  graphOutputSimpleNode.innerHTML = '';
-  if (!selectableNodes.length) {
-    graphOutputSimpleNode.disabled = true;
-    graphOutputSimpleSplit.disabled = true;
-    if (graphOutputSimpleHint) {
-      graphOutputSimpleHint.textContent = 'Add a node before selecting outputs.';
-      graphOutputSimpleHint.classList.remove('error');
-    }
-    return;
-  }
-  selectableNodes.forEach(node => {
-    const option = document.createElement('option');
-    option.value = node.id;
-    const sizes = sizeState.sizes.get(node.id)?.outputSizes;
-    const sizeLabel = sizes ? sizes.join('+') : '?';
-    option.textContent = `${node.id} (${sizeLabel})`;
-    graphOutputSimpleNode.appendChild(option);
-  });
-  const state = resolveSimpleOutputState(spec);
-  const hasNode = state.nodeId && selectableNodes.some(node => node.id === state.nodeId);
-  const fallbackId = hasNode ? (state.nodeId as string) : selectableNodes[0]?.id ?? '';
-  graphOutputSimpleNode.value = fallbackId;
-  graphOutputSimpleSplit.checked = state.mode === 'simple' && state.split;
-  graphOutputSimpleNode.disabled = !selectableNodes.length;
-  graphOutputSimpleSplit.disabled = !selectableNodes.length;
-  updateSimpleOutputHint(state, sizeState);
-}
-
-/**
- * Update the simple output hint text based on current selection.
- * @param state - Current simple output selector state.
- * @param sizeState - Inferred size state for the graph.
- */
-function updateSimpleOutputHint(state: SimpleOutputState, sizeState: GraphSizeState): void {
-  if (!graphOutputSimpleHint) return;
-  graphOutputSimpleHint.classList.remove('error');
-  if (state.mode === 'custom') {
-    graphOutputSimpleHint.textContent =
-      'Custom outputs active. Choosing a node below will replace outputs.';
-    return;
-  }
-  const sizes = sizeState.sizes.get(state.nodeId)?.outputSizes;
-  if (!sizes) {
-    graphOutputSimpleHint.textContent = 'Output sizes unresolved. Check wiring first.';
-    graphOutputSimpleHint.classList.add('error');
-    return;
-  }
-  if (!state.split) {
-    if (sizes.length !== 1) {
-      graphOutputSimpleHint.textContent = 'Selected node has multiple ports. Enable split or use advanced outputs.';
-      graphOutputSimpleHint.classList.add('error');
-      return;
-    }
-    if (sizes[0] !== CFG.brain.outSize) {
-      graphOutputSimpleHint.textContent = `Output size must be ${CFG.brain.outSize}.`;
-      graphOutputSimpleHint.classList.add('error');
-      return;
-    }
-    graphOutputSimpleHint.textContent = 'Outputs map to turn + boost.';
-    return;
-  }
-  if (sizes.length < 2) {
-    graphOutputSimpleHint.textContent = 'Split outputs require at least two ports.';
-    graphOutputSimpleHint.classList.add('error');
-    return;
-  }
-  const total = (sizes[0] ?? 0) + (sizes[1] ?? 0);
-  if (total !== CFG.brain.outSize) {
-    graphOutputSimpleHint.textContent = `Split ports 0+1 must sum to ${CFG.brain.outSize}.`;
-    graphOutputSimpleHint.classList.add('error');
-    return;
-  }
-  graphOutputSimpleHint.textContent = 'Port 0 feeds turn, port 1 feeds boost.';
-}
-
-/**
- * Apply the simple output selector values to the current draft.
- */
+/** Render and edit through the existing graph owner. */
 function applySimpleOutputSelection(): void {
-  if (!graphOutputSimpleNode || !graphOutputSimpleSplit) return;
-  const draft = ensureGraphDraft();
-  const nodeId = graphOutputSimpleNode.value;
-  if (!nodeId) return;
-  if (graphOutputSimpleSplit.checked) {
-    draft.outputs = [{ nodeId, port: 0 }, { nodeId, port: 1 }];
-  } else {
-    draft.outputs = [{ nodeId }];
-  }
-  renderGraphEditor();
-  setGraphSpecStatus('Outputs updated. Apply graph to use it.');
+  applySimpleOutputSelectionSettings(getGraphSettingsPort());
 }
 
 /**
@@ -1727,18 +1374,6 @@ function setGraphDraft(spec: GraphSpec, note = ''): void {
   graphDraft = cloneGraphSpec(spec);
   renderGraphEditor();
   if (note) setGraphSpecStatus(note);
-}
-
-/**
- * Resolve the input size encoded by a graph spec's Input node.
- * @param spec - Graph spec to inspect.
- * @returns Input node output size or null if invalid/missing.
- */
-function getGraphSpecInputSize(spec: GraphSpec): number | null {
-  const inputNodes = spec.nodes.filter(node => node.type === 'Input');
-  if (inputNodes.length !== 1) return null;
-  const size = inputNodes[0]?.outputSize;
-  return Number.isFinite(size) ? (size as number) : null;
 }
 
 /**
@@ -1791,95 +1426,9 @@ function resetGraphDraft(): void {
   setGraphDraft(buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain), 'Editor reset to default graph.');
 }
 
-/**
- * Render the saved graph preset list in the UI.
- * @param presets - Presets to display.
- */
-function renderSavedPresetList(presets: SavedGraphPreset[]): void {
-  if (!graphPresetList) return;
-  graphPresetList.innerHTML = '';
-  if (!presets.length) {
-    const empty = document.createElement('div');
-    empty.className = 'meta';
-    empty.textContent = 'No saved presets yet.';
-    graphPresetList.appendChild(empty);
-    return;
-  }
-  presets.forEach(preset => {
-    const row = document.createElement('div');
-    row.className = 'graph-preset-item';
-    const name = document.createElement('div');
-    name.className = 'graph-preset-name';
-    name.textContent = preset.name;
-    const load = document.createElement('button');
-    load.className = 'btn small';
-    load.textContent = 'Load';
-    load.addEventListener('click', () => {
-      void loadPresetById(preset.id);
-    });
-    row.appendChild(name);
-    row.appendChild(load);
-    graphPresetList.appendChild(row);
-  });
-}
-
-/**
- * Load a saved graph preset by id from the server.
- * @param presetId - Preset id to load.
- */
-async function loadPresetById(presetId: number): Promise<void> {
-  const baseUrl = resolveServerHttpUrl();
-  if (!baseUrl || typeof fetch === 'undefined') {
-    setGraphSpecStatus('Server not available for loading presets.', true);
-    return;
-  }
-  try {
-    const response = await fetch(`${baseUrl}/api/graph-presets/${presetId}`);
-    const data = (await response.json()) as { ok?: boolean; preset?: LoadedGraphPreset; message?: string };
-    if (!response.ok || !data.ok || !data.preset) {
-      setGraphSpecStatus(data.message || 'Failed to load preset.', true);
-      return;
-    }
-    const result = validateGraph(data.preset.spec);
-    if (!result.ok) {
-      setGraphSpecStatus(`Preset graph invalid: ${result.reason}`, true);
-      return;
-    }
-    setGraphDraft(data.preset.spec, `Loaded preset "${data.preset.name}". Apply graph to use it.`);
-  } catch (err) {
-    console.warn('[graph-presets] load failed', err);
-    setGraphSpecStatus('Failed to load preset.', true);
-  }
-}
-
-/**
- * Refresh the saved presets list from the server.
- */
-async function refreshSavedPresets(): Promise<void> {
-  if (!graphPresetList) return;
-  const baseUrl = resolveServerHttpUrl();
-  if (!baseUrl) {
-    renderSavedPresetList([]);
-    return;
-  }
-  if (typeof fetch === 'undefined') {
-    setGraphSpecStatus('Fetch not available for saved presets.', true);
-    return;
-  }
-  try {
-    const response = await fetch(`${baseUrl}/api/graph-presets?limit=50`);
-    const data = (await response.json()) as { ok?: boolean; presets?: SavedGraphPreset[]; message?: string };
-    if (!response.ok || !data.ok) {
-      setGraphSpecStatus(data.message || 'Failed to load saved presets.', true);
-      renderSavedPresetList([]);
-      return;
-    }
-    renderSavedPresetList(data.presets ?? []);
-  } catch (err) {
-    console.warn('[graph-presets] load failed', err);
-    setGraphSpecStatus('Failed to load saved presets.', true);
-    renderSavedPresetList([]);
-  }
+/** Refresh presets through the existing browser session and graph draft owner. */
+function refreshSavedPresets(): Promise<void> {
+  return refreshGraphPresets(getGraphPresetPort());
 }
 
 /**
@@ -1905,24 +1454,6 @@ function loadStoredGraphSpec(): void {
   } catch {
     stageStackGraph('Stored graph invalid. Using stack controls.');
   }
-}
-
-/**
- * Build a unique node id within a graph spec.
- * @param spec - Graph spec to scan.
- * @param prefix - Prefix to use for the id.
- * @returns Unique node id.
- */
-function buildUniqueNodeId(spec: GraphSpec, prefix: string): string {
-  let idx = 1;
-  let next = `${prefix}-${idx}`;
-  const used = new Set(spec.nodes.map(node => node.id));
-  if (!used.has(prefix)) return prefix;
-  while (used.has(next)) {
-    idx += 1;
-    next = `${prefix}-${idx}`;
-  }
-  return next;
 }
 
 /**
@@ -2212,341 +1743,15 @@ function renderGraphInspector(spec: GraphSpec): void {
   });
 }
 
-/**
- * Render the graph editor form controls for nodes, edges, and outputs.
- */
+/** Render and edit through the existing graph owner. */
 function renderGraphEditor(): void {
-  if (!graphNodes || !graphEdges || !graphOutputs) return;
-  const spec = ensureGraphDraft();
-  spec.nodes.forEach(node => {
-    if (node.type === 'Input') node.outputSize = CFG.brain.inSize;
-  });
-  const sizeState = updateGraphSizeState(spec);
-  applyGraphSizeInference(spec, sizeState);
-  syncGraphSelection(spec);
-  const nodeIds = spec.nodes.map(node => node.id);
-
-  const makeField = (labelText: string, input: HTMLInputElement | HTMLSelectElement): HTMLDivElement => {
-    const field = document.createElement('div');
-    field.className = 'graph-field';
-    const label = document.createElement('label');
-    label.textContent = labelText;
-    field.appendChild(label);
-    field.appendChild(input);
-    return field;
-  };
-
-  const makeNumberInput = (value: number, min?: number): HTMLInputElement => {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.value = Number.isFinite(value) ? String(value) : '';
-    if (min != null) input.min = String(min);
-    return input;
-  };
-
-  /**
-   * Build a read-only number input for inferred sizes.
-   * @param value - Value to show, or null to leave blank.
-   * @param placeholder - Placeholder when size is unresolved.
-   * @returns Disabled number input element.
-   */
-  const makeReadOnlyNumberInput = (value: number | null, placeholder = 'auto'): HTMLInputElement => {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.value = value != null && Number.isFinite(value) ? String(value) : '';
-    input.placeholder = placeholder;
-    input.disabled = true;
-    return input;
-  };
-
-  const parseNumberList = (value: string): number[] => {
-    return value
-      .split(',')
-      .map(part => Number(part.trim()))
-      .filter(num => Number.isFinite(num) && num > 0);
-  };
-
-  graphNodes.innerHTML = '';
-  spec.nodes.forEach((node, index) => {
-    const row = document.createElement('div');
-    row.className = 'graph-row';
-
-    const idInput = document.createElement('input');
-    idInput.type = 'text';
-    idInput.value = node.id;
-    idInput.addEventListener('change', () => {
-      const nextId = idInput.value.trim();
-      if (!nextId) {
-        idInput.value = node.id;
-        setGraphSpecStatus('Node id cannot be empty.', true);
-        return;
-      }
-      if (nextId !== node.id && spec.nodes.some((n, idx) => idx !== index && n.id === nextId)) {
-        idInput.value = node.id;
-        setGraphSpecStatus('Node id must be unique.', true);
-        return;
-      }
-      if (nextId === node.id) return;
-      const oldId = node.id;
-      spec.nodes[index] = { ...node, id: nextId };
-      spec.edges.forEach(edge => {
-        if (edge.from === oldId) edge.from = nextId;
-        if (edge.to === oldId) edge.to = nextId;
-      });
-      spec.outputs.forEach(output => {
-        if (output.nodeId === oldId) output.nodeId = nextId;
-      });
-      if (graphLayoutOverrides.has(oldId)) {
-        const override = graphLayoutOverrides.get(oldId)!;
-        graphLayoutOverrides.delete(oldId);
-        graphLayoutOverrides.set(nextId, override);
-      }
-      if (graphSelectedNodeId === oldId) graphSelectedNodeId = nextId;
-      renderGraphEditor();
-      setGraphSpecStatus('Node id updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('Id', idInput));
-
-    const typeSelect = document.createElement('select');
-    const availableTypes: GraphNodeType[] =
-      node.type === 'Input'
-        ? ['Input']
-        : ['Dense', 'MLP', 'GRU', 'LSTM', 'RRU', 'Split', 'Concat'];
-    availableTypes.forEach(type => {
-      const option = document.createElement('option');
-      option.value = type;
-      option.textContent = type;
-      typeSelect.appendChild(option);
-    });
-    typeSelect.value = node.type;
-    typeSelect.addEventListener('change', () => {
-      const nextType = typeSelect.value as GraphNodeType;
-      spec.nodes[index] = buildDefaultNode(nextType, node.id, CFG.brain, readSettingsFromCoreUI());
-      renderGraphEditor();
-      setGraphSpecStatus('Node type updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('Type', typeSelect));
-
-    if (node.type === 'Input') {
-      const out = makeNumberInput(CFG.brain.inSize, 1);
-      out.disabled = true;
-      row.appendChild(makeField('Output', out));
-    }
-    if (node.type === 'Dense' || node.type === 'MLP') {
-      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
-      row.appendChild(makeField('Input', makeReadOnlyNumberInput(inferred)));
-
-      const output = makeNumberInput(node.outputSize, 1);
-      output.addEventListener('input', () => {
-        const next = Number(output.value);
-        if (!Number.isFinite(next)) return;
-        node.outputSize = next;
-        setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
-      });
-      row.appendChild(makeField('Output', output));
-    }
-    if (node.type === 'MLP') {
-      const hidden = document.createElement('input');
-      hidden.type = 'text';
-      hidden.value = (node.hiddenSizes ?? []).join(', ');
-      hidden.placeholder = '16, 16';
-      hidden.addEventListener('change', () => {
-        node.hiddenSizes = parseNumberList(hidden.value);
-        setGraphSpecStatus('Updated hidden sizes. Apply graph to use it.');
-      });
-      row.appendChild(makeField('Hidden', hidden));
-    }
-    if (node.type === 'GRU' || node.type === 'LSTM' || node.type === 'RRU') {
-      const inferred = sizeState.sizes.get(node.id)?.inputSize ?? null;
-      row.appendChild(makeField('Input', makeReadOnlyNumberInput(inferred)));
-
-      const hidden = makeNumberInput(node.hiddenSize, 1);
-      hidden.addEventListener('input', () => {
-        const next = Number(hidden.value);
-        if (!Number.isFinite(next)) return;
-        node.hiddenSize = next;
-        setGraphSpecStatus('Updated hidden size. Apply graph to use it.');
-      });
-      row.appendChild(makeField('Hidden', hidden));
-    }
-    if (node.type === 'Split') {
-      const sizes = document.createElement('input');
-      sizes.type = 'text';
-      sizes.value = node.outputSizes.join(', ');
-      sizes.placeholder = '8, 8';
-      sizes.addEventListener('change', () => {
-        const next = parseNumberList(sizes.value);
-        if (!next.length) return;
-        node.outputSizes = next;
-        setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
-      });
-      row.appendChild(makeField('Outputs', sizes));
-    }
-    if (node.type === 'Concat') {
-      const outSize = sizeState.sizes.get(node.id)?.outputSizes?.[0] ?? null;
-      row.appendChild(makeField('Output', makeReadOnlyNumberInput(outSize)));
-    }
-
-    if (node.type !== 'Input') {
-      const remove = document.createElement('button');
-      remove.className = 'btn small';
-      remove.textContent = 'Remove';
-      remove.addEventListener('click', () => {
-        const removedId = node.id;
-        spec.nodes.splice(index, 1);
-        spec.edges = spec.edges.filter(edge => edge.from !== removedId && edge.to !== removedId);
-        spec.outputs = spec.outputs.filter(out => out.nodeId !== removedId);
-        graphLayoutOverrides.delete(removedId);
-        if (graphSelectedNodeId === removedId) graphSelectedNodeId = null;
-        renderGraphEditor();
-        setGraphSpecStatus('Node removed. Apply graph to use it.');
-      });
-      row.appendChild(remove);
-    }
-
-    graphNodes.appendChild(row);
-  });
-
-  graphEdges.innerHTML = '';
-  spec.edges.forEach((edge, index) => {
-    const row = document.createElement('div');
-    row.className = 'graph-row';
-
-    const fromSelect = document.createElement('select');
-    nodeIds.forEach(id => {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = id;
-      fromSelect.appendChild(opt);
-    });
-    fromSelect.value = edge.from;
-    fromSelect.addEventListener('change', () => {
-      edge.from = fromSelect.value;
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('From', fromSelect));
-
-    const fromPort = makeNumberInput(edge.fromPort ?? 0, 0);
-    fromPort.value = edge.fromPort == null ? '' : String(edge.fromPort);
-    fromPort.addEventListener('change', () => {
-      const value = fromPort.value.trim();
-      if (value === '') {
-        if ('fromPort' in edge) delete edge.fromPort;
-      } else {
-        edge.fromPort = Number(value);
-      }
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('From port', fromPort));
-
-    const toSelect = document.createElement('select');
-    nodeIds.forEach(id => {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = id;
-      toSelect.appendChild(opt);
-    });
-    toSelect.value = edge.to;
-    toSelect.addEventListener('change', () => {
-      edge.to = toSelect.value;
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('To', toSelect));
-
-    const toPort = makeNumberInput(edge.toPort ?? 0, 0);
-    toPort.value = edge.toPort == null ? '' : String(edge.toPort);
-    toPort.addEventListener('change', () => {
-      const value = toPort.value.trim();
-      if (value === '') {
-        if ('toPort' in edge) delete edge.toPort;
-      } else {
-        edge.toPort = Number(value);
-      }
-      setGraphSpecStatus('Edge updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('To port', toPort));
-
-    const remove = document.createElement('button');
-    remove.className = 'btn small';
-    remove.textContent = 'Remove';
-    remove.addEventListener('click', () => {
-      spec.edges.splice(index, 1);
-      renderGraphEditor();
-      setGraphSpecStatus('Edge removed. Apply graph to use it.');
-    });
-    row.appendChild(remove);
-
-    graphEdges.appendChild(row);
-  });
-
-  renderSimpleOutputUi(spec, sizeState);
-  graphOutputs.innerHTML = '';
-  spec.outputs.forEach((output, index) => {
-    const row = document.createElement('div');
-    row.className = 'graph-row';
-
-    const nodeSelect = document.createElement('select');
-    nodeIds.forEach(id => {
-      const opt = document.createElement('option');
-      opt.value = id;
-      opt.textContent = id;
-      nodeSelect.appendChild(opt);
-    });
-    nodeSelect.value = output.nodeId;
-    nodeSelect.addEventListener('change', () => {
-      output.nodeId = nodeSelect.value;
-      setGraphSpecStatus('Output updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('Node', nodeSelect));
-
-    const portInput = makeNumberInput(output.port ?? 0, 0);
-    portInput.value = output.port == null ? '' : String(output.port);
-    portInput.addEventListener('change', () => {
-      const value = portInput.value.trim();
-      if (value === '') {
-        if ('port' in output) delete output.port;
-      } else {
-        output.port = Number(value);
-      }
-      setGraphSpecStatus('Output updated. Apply graph to use it.');
-    });
-    row.appendChild(makeField('Port', portInput));
-
-    const remove = document.createElement('button');
-    remove.className = 'btn small';
-    remove.textContent = 'Remove';
-    remove.addEventListener('click', () => {
-      spec.outputs.splice(index, 1);
-      renderGraphEditor();
-      setGraphSpecStatus('Output removed. Apply graph to use it.');
-    });
-    row.appendChild(remove);
-
-    graphOutputs.appendChild(row);
-  });
-
-  renderGraphDiagram(spec);
-  renderGraphInspector(spec);
+  renderGraphEditorSettings(getGraphSettingsPort());
 }
 
-/**
- * Apply the settings lock state to UI controls.
- */
+/** Project the existing browser controls without moving their ownership. */
 function applySettingsLock(): void {
-  if (!settingsTab || !settingsControls || !toggleSettingsLock) return;
-  settingsTab.classList.toggle('settings-locked', settingsLocked);
-  toggleSettingsLock.textContent = settingsLocked ? 'Unlock' : 'Lock';
-  if (settingsLockHint) {
-    settingsLockHint.textContent = settingsLocked
-      ? 'Locked to keep little hands off the sliders.'
-      : 'Unlocked. Changes apply immediately.';
-  }
-  const controls = settingsControls.querySelectorAll('input, button, select, textarea');
-  controls.forEach(control => {
-    (control as HTMLInputElement).disabled = settingsLocked;
-  });
-  refreshSensorSettings(resolveSettingsRoot(), settingsLocked);
-  if (!settingsLocked) refreshCoreUIState();
+  projectSettingsLock({ settingsTab, settingsControls, toggleSettingsLock, settingsLockHint,
+    get settingsLocked() { return settingsLocked; }, resolveSettingsRoot, refreshCoreUIState });
 }
 
 /**
@@ -2555,25 +1760,6 @@ function applySettingsLock(): void {
  */
 function isPlayerControlActive(): boolean {
   return connectionMode === 'server' && !!playerSnakeId;
-}
-
-/**
- * Compute a normalized turn input toward a target position.
- * @param meta - Current snake position and direction.
- * @param target - Target world position.
- * @returns Turn input in [-1,1].
- */
-function computeTurnInput(
-  meta: { x: number; y: number; dir: number },
-  target: { x: number; y: number }
-): number {
-  const dx = target.x - meta.x;
-  const dy = target.y - meta.y;
-  if (dx === 0 && dy === 0) return 0;
-  const desired = Math.atan2(dy, dx);
-  const delta = Math.atan2(Math.sin(desired - meta.dir), Math.cos(desired - meta.dir));
-  const scaled = delta / (Math.PI / 2);
-  return Math.max(-1, Math.min(1, scaled));
 }
 
 /**
@@ -2618,108 +1804,24 @@ function applyFrameBuffer(buffer: ArrayBuffer): void {
   }
 }
 
-/** Minimal snapshot of a snake parsed from the frame buffer. */
-type FrameSnakeSnapshot = { id: number; x: number; y: number; ptCount: number };
-
-/**
- * Find a snake in the frame buffer by id or return the first alive snake.
- * @param buffer - Frame buffer to scan.
- * @param targetId - Optional target snake id.
- * @returns Snapshot of the snake or null when none found.
- */
-function findSnakeInFrame(buffer: Float32Array, targetId: number | null): FrameSnakeSnapshot | null {
-  if (buffer.length < FRAME_HEADER_FLOATS) return null;
-  const aliveCount = (buffer[FRAME_HEADER_OFFSETS.aliveCount] ?? 0) | 0;
-  let ptr = FRAME_HEADER_FLOATS;
-  let first: FrameSnakeSnapshot | null = null;
-  for (let i = 0; i < aliveCount; i++) {
-    if (ptr + 7 >= buffer.length) break;
-    const id = (buffer[ptr] ?? 0) | 0;
-    const x = buffer[ptr + 3] ?? 0;
-    const y = buffer[ptr + 4] ?? 0;
-    const ptCount = (buffer[ptr + 7] ?? 0) | 0;
-    const info = { id, x, y, ptCount };
-    if (!first) first = info;
-    if (targetId != null && id === targetId) return info;
-    ptr += 8 + ptCount * 2;
-  }
-  return first;
-}
-
-/** Publish the same local camera used for drawing, steering, and God Mode selection. */
+/** Use the same local camera owner for rendering, input and selection. */
 function publishClientCamera(): void {
-  proxyWorld.cameraX = clientCamX;
-  proxyWorld.cameraY = clientCamY;
-  proxyWorld.zoom = clientZoom;
+  return publishClientCameraCamera(getCameraPort());
 }
 
-/** Restore automatic camera movement and cancel any unfinished camera drag. */
+/** Use the same local camera owner for rendering, input and selection. */
 function resetManualCamera(): void {
-  manualCamera = false;
-  cameraPan = null;
-  suppressCanvasClick = false;
-  canvas.style.cursor = isPlayerControlActive() ? '' : 'grab';
+  return resetManualCameraCamera(getCameraPort());
 }
 
-/** Fit the authoritative arena and presentation margins into the current viewport. */
-function arenaFitZoom(): number {
-  const radius = currentFrameBuffer?.[FRAME_HEADER_OFFSETS.worldRadius] ?? CFG.worldRadius;
-  const effectiveRadius = radius + CFG.observer.overviewExtraWorldMargin;
-  return clamp(Math.min(cssW, cssH) / (2 * effectiveRadius * CFG.observer.overviewPadding), 0.01, 2);
-}
-
-/** Return immediately to a centered overview without changing simulation state. */
+/** Use the same local camera owner for rendering, input and selection. */
 function fitArenaView(): void {
-  resetManualCamera();
-  proxyWorld.viewMode = 'overview';
-  clientCamX = 0;
-  clientCamY = 0;
-  clientZoom = arenaFitZoom();
-  publishClientCamera();
-  wsClient?.sendView({ mode: 'overview', viewW: cssW, viewH: cssH });
+  return fitArenaViewCamera(getCameraPort());
 }
 
-/** Update the automatic camera unless the user has taken control of the local view. */
+/** Use the same local camera owner for rendering, input and selection. */
 function updateClientCamera(): void {
-  if (connectionMode !== 'server') return;
-  const frame = currentFrameBuffer;
-  if (!frame) return;
-  if (manualCamera) {
-    publishClientCamera();
-    return;
-  }
-  const mode = proxyWorld.viewMode === 'follow' ? 'follow' : 'overview';
-  if (mode === 'overview') {
-    clientCamX = 0;
-    clientCamY = 0;
-    const targetZoom = arenaFitZoom();
-    if (CFG.observer.snapZoomOutInOverview && clientZoom > targetZoom) {
-      clientZoom = targetZoom;
-    } else {
-      clientZoom = lerp(clientZoom, targetZoom, CFG.observer.zoomLerpOverview);
-    }
-    publishClientCamera();
-    return;
-  }
-
-  const waitingForIndividual = !isPlayerControlActive() && (followIndividualInput?.checked ?? true)
-    && entitySelection.followedPopulationSlot() !== null;
-  if (waitingForIndividual && !selectedSnake) { publishClientCamera(); return; }
-  const targetId = isPlayerControlActive() ? playerSnakeId : selectedSnake?.id ?? spectatorFollowSnakeId;
-  const focus = targetId !== null && !frameContainsSnake(targetId) ? null : findSnakeInFrame(frame, targetId);
-  if (!focus && waitingForIndividual) { publishClientCamera(); return; }
-  if (focus) {
-    clientCamX = focus.x;
-    clientCamY = focus.y;
-    const denom = Math.max(1, CFG.snakeMaxLen);
-    const targetZoom = clamp(1.15 - (focus.ptCount / denom) * 0.55, 0.45, 1.12);
-    clientZoom = lerp(clientZoom, targetZoom, CFG.observer.zoomLerpFollow);
-  } else {
-    clientCamX = 0;
-    clientCamY = 0;
-    clientZoom = lerp(clientZoom, 0.95, 0.05);
-  }
-  publishClientCamera();
+  return updateClientCameraCamera(getCameraPort());
 }
 
 /** Ask the Rust server to resurrect one retained winner by its opaque compact identity. */
@@ -3376,119 +2478,16 @@ window.addEventListener('keydown', e => {
   }
 });
 
-// ============== GOD MODE: Canvas Event Handlers ==============
-
-/**
- * Converts screen-space coordinates (CSS pixels) into simulation world coordinates.
- * 
- * Transformation Logic:
- * 1. Offset by viewport center: Map (0,0) at top-left to centered origin.
- * 2. Scale by inverse zoom: Convert CSS pixels to world units.
- * 3. Offset by camera position: Map centered local view to absolute world space.
- * 
- * @param screenX - Screen X in CSS pixels (relative to canvas).
- * @param screenY - Screen Y in CSS pixels (relative to canvas).
- * @returns Object containing absolute simulation world coordinates \{x, y\}.
- */
+/** Use the same local camera owner for rendering, input and selection. */
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
-  // Use the local presentation camera, including manual zoom and panning.
-  let camX = 0, camY = 0, zoom = 1;
-  if (connectionMode === 'server') {
-    camX = clientCamX;
-    camY = clientCamY;
-    zoom = clientZoom;
-  }
-
-  const centerX = cssW / 2;
-  const centerY = cssH / 2;
-
-  // Inverse Transformation Formula: World = Camera + (Screen - Center) / Zoom
-  // This formula reverses the rendering transform to map a mouse click (screen space)
-  // back into simulation world coordinates.
-  const worldX = camX + (screenX - centerX) / zoom;
-  const worldY = camY + (screenY - centerY) / zoom;
-  return { x: worldX, y: worldY };
+  return screenToWorldCamera(screenX, screenY, getCameraPort());
 }
 
-/** Scan compact frame headers without constructing snake/body snapshots. */
-function frameContainsSnake(targetId: number): boolean {
-  const buffer = currentFrameBuffer;
-  if (!buffer || buffer.length < FRAME_HEADER_FLOATS) return false;
-  const count = buffer[FRAME_HEADER_OFFSETS.aliveCount] ?? 0;
-  let cursor = FRAME_HEADER_FLOATS;
-  for (let index = 0; index < count; index++) {
-    if (cursor + 8 > buffer.length) return false;
-    const points = buffer[cursor + 7]!;
-    const next = cursor + 8 + 2 * points;
-    if (!Number.isSafeInteger(points) || points < 0 || next > buffer.length) return false;
-    if (buffer[cursor] === targetId) return true;
-    cursor = next;
-  }
-  return false;
-}
+/** Query the current packed frame without copying world state. */
+function frameContainsSnake(targetId: number): boolean { return containsFrameSnake(currentFrameBuffer, targetId); }
 
-/**
- * Identifies the snake closest to a specific world coordinate within a search radius.
- * 
- * Scanning Algorithm:
- * Because the binary frame buffer uses variable-length snake blocks (due to body points), 
- * we must perform a linear scan. We skip over body data by reading the `ptCount` for each 
- * snake to jump to the next block until we find the best match.
- * 
- * @param worldX - Focus X in simulation units.
- * @param worldY - Focus Y in simulation units.
- * @param maxDist - Maximum distance threshold for selection.
- * @returns A snapshot of the closest snake's metadata or null if none found.
- */
-function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSnake | null {
-  if (!currentFrameBuffer || currentFrameBuffer.length < FRAME_HEADER_FLOATS) return null;
-
-  const buffer = currentFrameBuffer;
-  const read = (idx: number): number => buffer[idx] ?? 0;
-
-  // Retrieve count of snakes from the header to bound the search.
-  const aliveCount = read(FRAME_HEADER_OFFSETS.aliveCount) | 0;
-
-  let closestSnake = null;
-  let closestDist = maxDist;
-  let ptr = FRAME_HEADER_FLOATS;
-
-  const SNAKE_STATEDATA_FLOATS = 8; // ID, Rad, Skin, X, Y, Ang, Boost, PtCount
-  const PT_COUNT_OFFSET = 7;
-  const RADIUS_OFFSET = 1;
-  const SKIN_OFFSET = 2;
-  const X_OFFSET = 3;
-  const Y_OFFSET = 4;
-
-  for (let i = 0; i < aliveCount; i++) {
-    const ptCount = read(ptr + PT_COUNT_OFFSET) | 0;
-
-    // Selection Jump Logic:
-    // Because snake body point counts vary, we calculate the total byte size of the snake block 
-    // [Header (8) + (ptCount * 2)] to jump the pointer precisely to the next entity.
-    const blockSize = SNAKE_STATEDATA_FLOATS + ptCount * 2;
-
-    if (ptr + blockSize > buffer.length) break;
-
-    const id = read(ptr);
-    const radius = read(ptr + RADIUS_OFFSET);
-    const skin = read(ptr + SKIN_OFFSET);
-    const x = read(ptr + X_OFFSET);
-    const y = read(ptr + Y_OFFSET);
-
-    const dist = Math.hypot(x - worldX, y - worldY);
-    // Selection threshold includes the snake's actual physical radius to make 
-    // clicking on large snakes easier.
-    if (dist < closestDist && dist < radius + maxDist) {
-      closestDist = dist;
-      closestSnake = { id, x, y, radius, skin };
-    }
-
-    ptr += blockSize;
-  }
-
-  return closestSnake;
-}
+/** Select against the current packed frame. */
+function findSnakeNear(worldX: number, worldY: number, maxDist = 50): SelectedSnake | null { return selectFrameSnake(currentFrameBuffer, worldX, worldY, maxDist); }
 
 // ============== START ANIMATION LOOP ==============
 requestAnimationFrame(frame);
@@ -3509,30 +2508,14 @@ canvas.addEventListener('wheel', e => {
   publishClientCamera();
 }, { passive: false });
 
-/** Pan by CSS-pixel deltas, keeping the grabbed point fixed even outside the canvas. */
+/** Use the same local camera owner for rendering, input and selection. */
 function moveCameraPan(e: MouseEvent): boolean {
-  const pan = cameraPan;
-  if (!pan) return false;
-  if (!pan.moved && Math.hypot(e.clientX - pan.startX, e.clientY - pan.startY) < 3) return true;
-  pan.moved = true;
-  manualCamera = true;
-  clientCamX -= (e.clientX - pan.lastX) / clientZoom;
-  clientCamY -= (e.clientY - pan.lastY) / clientZoom;
-  pan.lastX = e.clientX;
-  pan.lastY = e.clientY;
-  canvas.style.cursor = 'grabbing';
-  publishClientCamera();
-  return true;
+  return moveCameraPanCamera(e, getCameraPort());
 }
 
-/** Finish a camera drag at its release point without selecting or moving a snake. */
+/** Use the same local camera owner for rendering, input and selection. */
 function finishCameraPan(e: MouseEvent): boolean {
-  if (!cameraPan || e.button !== cameraPan.button) return false;
-  moveCameraPan(e);
-  suppressCanvasClick = cameraPan.moved;
-  cameraPan = null;
-  canvas.style.cursor = isPlayerControlActive() ? '' : 'grab';
-  return true;
+  return finishCameraPanCamera(e, getCameraPort());
 }
 
 window.addEventListener('mousemove', moveCameraPan);
@@ -3656,47 +2639,9 @@ canvas.addEventListener('mouseleave', () => {
   playerActionPump.requestImmediate();
 });
 
-/**
- * Resolve the HTTP base URL for server API requests from a WS URL.
- * @param wsUrl - WebSocket URL used for the server connection.
- * @returns HTTP base URL or null when parsing fails.
- */
-function resolveServerHttpBase(wsUrl: string): string | null {
-  try {
-    const url = new URL(wsUrl);
-    const protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-    return `${protocol}//${url.host}`;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Start an opaque direct archive download when the connected authority supports it.
- */
-async function exportServerSnapshot(): Promise<void> {
-  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-  if (!base) {
-    pendingExport = false;
-    alert('Export failed: invalid server URL.');
-    return;
-  }
-  if (serverArchiveExport) {
-    const link = document.createElement('a');
-    link.href = `${base}/api/export/latest`;
-    link.download = '';
-    // Error JSON is not an attachment, so keep its navigation outside the game tab.
-    link.target = '_blank';
-    link.rel = 'noopener';
-    link.hidden = true;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    pendingExport = false;
-    return;
-  }
-  pendingExport = false;
-  alert('Export unavailable: this server does not support native archive downloads.');
+/** Download through the current connection owner and export admission flag. */
+function exportServerSnapshot(): Promise<void> {
+  return exportArchive(getArchiveTransportPort());
 }
 
 // Persistence UI Wiring
@@ -3715,77 +2660,6 @@ if (btnPinCheckpoint) {
       console.error('Checkpoint pin failed', error);
       alert(`Pin failed: ${(error as Error).message}`);
     }).finally(() => { btnPinCheckpoint.disabled = false; });
-  });
-}
-
-/** Small success response returned after an atomic Rust archive replacement. */
-interface ServerArchiveImportResult {
-  /** True only after SQLite and the running Rust authority both switched. */
-  ok: boolean;
-  /** Imported run identity. */
-  runId: string;
-  /** Exact fixed-width imported generation. */
-  generation: string;
-  /** Exact imported checkpoint identity. */
-  checkpointId: string;
-  /** True when an older source was resumed under a fresh run identity. */
-  branched?: boolean;
-  /** Original archive run retained when `branched` is true. */
-  sourceRunId?: string;
-  /** Bounded rejection detail when the upload fails. */
-  message?: string;
-}
-
-/** Small structured failure used to offer the explicit safe branch operation. */
-class ServerArchiveImportError extends Error {
-  /** Stable server rejection code, when supplied. */
-  public readonly code: string | undefined;
-
-  public constructor(message: string, code?: string) {
-    super(message);
-    this.name = 'ServerArchiveImportError';
-    this.code = code;
-  }
-}
-
-/**
- * Upload one selected save unchanged; JavaScript never reads its population bytes.
- * @param file - Browser-owned file selected by the user.
- * @param onProgress - Optional visible upload-byte progress callback.
- * @returns Small committed replacement identity from the server.
- */
-function uploadServerArchive(
-  file: File,
-  onProgress?: (sentBytes: number, totalBytes: number) => void,
-  resumeAsBranch = false
-): Promise<ServerArchiveImportResult> {
-  const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
-  if (!base) return Promise.reject(new Error('invalid server URL.'));
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('POST', `${base}/api/import/archive${resumeAsBranch ? '?mode=branch' : ''}`);
-    request.setRequestHeader('Content-Type', 'application/vnd.slither-neuroevo.save');
-    request.timeout = 0;
-    request.upload.onprogress = event => {
-      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
-    };
-    request.onerror = () => reject(new Error('archive upload connection failed'));
-    request.onabort = () => reject(new Error('archive upload was cancelled'));
-    request.onload = () => {
-      let result: (Partial<ServerArchiveImportResult> & { code?: string }) | undefined;
-      try { result = JSON.parse(request.responseText) as Partial<ServerArchiveImportResult> & { code?: string }; }
-      catch { /* The status below supplies the bounded failure. */ }
-      if (request.status < 200 || request.status >= 300 || result?.ok !== true ||
-          typeof result.runId !== 'string' || !/^[0-9a-f]{16}$/u.test(result.generation ?? '') ||
-          !/^[0-9a-f]{64}$/u.test(result.checkpointId ?? '')) {
-        reject(new ServerArchiveImportError(
-          result?.message ?? `server archive import failed (${request.status})`, result?.code
-        ));
-        return;
-      }
-      resolve(result as ServerArchiveImportResult);
-    };
-    request.send(file);
   });
 }
 /** Button that triggers exporting population and HoF data. */
@@ -3811,50 +2685,7 @@ if (btnImport && fileInput) {
     fileInput.click();
   });
 
-  fileInput.addEventListener('change', async (e) => {
-    const target = e.target as HTMLInputElement | null;
-    if (!target?.files?.length) return;
-    const file = target.files.item(0);
-    if (!file) return;
-    const importLabel = btnImport.textContent;
-    btnImport.disabled = true;
-    try {
-      if (serverArchiveImport) {
-        const progress = (sentBytes: number, totalBytes: number): void => {
-          btnImport.textContent = sentBytes >= totalBytes
-            ? 'Activating...'
-            : `Importing ${Math.min(99, Math.floor(sentBytes * 100 / totalBytes))}%`;
-        };
-        let result: ServerArchiveImportResult;
-        try {
-          result = await uploadServerArchive(file, progress);
-        } catch (error) {
-          if (!(error instanceof ServerArchiveImportError) || error.code !== 'IMPORT_REQUIRES_BRANCH' ||
-              !confirm('This save is older than later history already stored for that run. Resume it as a new run while keeping the later history?')) {
-            throw error;
-          }
-          result = await uploadServerArchive(file, progress, true);
-        }
-        const source = result.branched && result.sourceRunId
-          ? ` as a new run (original run ${result.sourceRunId})` : ` from run ${result.runId}`;
-        alert(`Imported generation ${BigInt(`0x${result.generation}`).toString()}${source}.`);
-        return;
-      }
-      throw new Error('Import unavailable: this server does not support native archive uploads.');
-    } catch (err) {
-      console.error("Import failed", err);
-      const error = err as Error;
-      if (wsClient?.isConnected() && error.message.includes('no compatible genomes')) {
-        alert('Import failed: the file does not match the server brain. Re-export with the latest build (includes graph/settings metadata) or reset the server to the matching graph before importing.');
-      } else {
-        alert("Failed to import file: " + error.message);
-      }
-    } finally {
-      if (target) target.value = '';
-      btnImport.disabled = false;
-      btnImport.textContent = importLabel;
-    }
-  });
+  fileInput.addEventListener('change', e => importServerArchive(e, btnImport, getArchiveTransportPort()));
 }
 
 /**
@@ -4001,3 +2832,85 @@ window.spawnHoF = async function (idx) {
     (document.querySelector('[data-tab="tab-viz"]') as HTMLButtonElement).click();
   }
 };
+
+
+/** Provide live editor state without creating another mutable owner. */
+function getGraphSettingsPort(): GraphSettingsPort {
+  return {
+    get graphOutputSimpleNode() { return graphOutputSimpleNode; },
+    get graphOutputSimpleSplit() { return graphOutputSimpleSplit; },
+    get graphOutputSimpleHint() { return graphOutputSimpleHint; },
+    ensureGraphDraft,
+    setGraphSpecStatus,
+    get graphNodes() { return graphNodes; },
+    get graphEdges() { return graphEdges; },
+    get graphOutputs() { return graphOutputs; },
+    updateGraphSizeState,
+    applyGraphSizeInference,
+    syncGraphSelection,
+    get graphLayoutOverrides() { return graphLayoutOverrides; },
+    get graphSelectedNodeId() { return graphSelectedNodeId; },
+    set graphSelectedNodeId(value) { graphSelectedNodeId = value; },
+    renderGraphDiagram,
+    renderGraphInspector,
+    get brainOutputSize() { return CFG.brain.outSize; },
+    get brainInputSize() { return CFG.brain.inSize; },
+    createNode: (type, id) => buildDefaultNode(type, id, CFG.brain, readSettingsFromCoreUI()),
+  };
+}
+
+
+/** Pass the one browser connection/draft owner to preset operations. */
+function getGraphPresetPort(): GraphPresetPort {
+  return { graphPresetList, graphPresetName, resolveBaseUrl: resolveServerHttpUrl,
+    setGraphSpecStatus, setGraphDraft, getDraftGraphSpec };
+}
+
+
+/** Share the existing connection/capability and download admission state. */
+function getArchiveTransportPort(): ArchiveTransportPort {
+  return { get serverWsUrl() { return serverUrl || resolveServerUrl(); },
+    get serverArchiveExport() { return serverArchiveExport; },
+    get serverArchiveImport() { return serverArchiveImport; },
+    get pendingExport() { return pendingExport; },
+    set pendingExport(value) { pendingExport = value; },
+    isConnected: () => Boolean(wsClient?.isConnected()) };
+}
+
+
+/** Supply the already registered core controls at the current projection boundary. */
+function getCoreInputElements(): CoreInputElements { return { elSnakes, elSimSpeed, elLayers, elN1, elN2, elN3, elN4, elN5 }; }
+
+
+/** Cache the live camera port so delegation adds no per-frame port allocation. */
+function getCameraPort(): CameraPort {
+  return cachedCameraPort ??= {
+    get proxyWorld() { return proxyWorld; },
+    get clientCamX() { return clientCamX; },
+    set clientCamX(value) { clientCamX = value; },
+    get clientCamY() { return clientCamY; },
+    set clientCamY(value) { clientCamY = value; },
+    get clientZoom() { return clientZoom; },
+    set clientZoom(value) { clientZoom = value; },
+    get manualCamera() { return manualCamera; },
+    set manualCamera(value) { manualCamera = value; },
+    get cameraPan() { return cameraPan; },
+    set cameraPan(value) { cameraPan = value; },
+    get suppressCanvasClick() { return suppressCanvasClick; },
+    set suppressCanvasClick(value) { suppressCanvasClick = value; },
+    get canvas() { return canvas; },
+    isPlayerControlActive,
+    get currentFrameBuffer() { return currentFrameBuffer; },
+    get cssW() { return cssW; },
+    get cssH() { return cssH; },
+    get selectedSnake() { return selectedSnake; },
+    get playerSnakeId() { return playerSnakeId; },
+    get spectatorFollowSnakeId() { return spectatorFollowSnakeId; },
+    frameContainsSnake,
+    get settings() { return CFG; },
+    get isServerMode() { return connectionMode === 'server'; },
+    get followIndividual() { return followIndividualInput?.checked ?? true; },
+    followedPopulationSlot: () => entitySelection.followedPopulationSlot(),
+    sendOverview: () => { wsClient?.sendView({ mode: 'overview', viewW: cssW, viewH: cssH }); },
+  };
+}

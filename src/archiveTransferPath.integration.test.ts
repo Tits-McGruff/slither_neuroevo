@@ -2,13 +2,16 @@ import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
-/** Parsed browser entry source used to inspect only the negotiated Rust archive path. */
-const SOURCE = ts.createSourceFile('main.ts', readFileSync(new URL('./main.ts', import.meta.url), 'utf8'),
+/** Composition root must still route the selected file and download into the archive module. */
+const ENTRY = ts.createSourceFile('main.ts', readFileSync(new URL('./main.ts', import.meta.url), 'utf8'),
+  ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+/** Parsed implementation of the negotiated opaque Rust archive path. */
+const SOURCE = ts.createSourceFile('archive_transport.ts', readFileSync(new URL('./archive_transport.ts', import.meta.url), 'utf8'),
   ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 
 /** Resolve one named browser function without scanning its reference-only siblings. */
-function browserFunction(name: string): ts.FunctionDeclaration {
-  const found = SOURCE.statements.find(statement =>
+function browserFunction(name: string, source = SOURCE): ts.FunctionDeclaration {
+  const found = source.statements.find(statement =>
     ts.isFunctionDeclaration(statement) && statement.name?.text === name);
   if (!found || !ts.isFunctionDeclaration(found) || !found.body) {
     throw new Error(`browser archive function ${name} is missing`);
@@ -20,7 +23,10 @@ function browserFunction(name: string): ts.FunctionDeclaration {
 function archiveBranch(root: ts.Node, capability: string): string {
   let branch: ts.Statement | undefined;
   const visit = (node: ts.Node): void => {
-    if (ts.isIfStatement(node) && node.expression.getText(SOURCE) === capability) {
+    if (ts.isIfStatement(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'ports' &&
+        node.expression.name.text === capability) {
       branch = node.thenStatement;
       return;
     }
@@ -45,6 +51,9 @@ describe('Rust archive browser transfer path', () => {
   });
 
   it('keeps the negotiated export as a direct download link', () => {
+    expect(ENTRY.getText()).toMatch(/from\s+['"]\.\/archive_transport\.ts['"]/u);
+    expect(browserFunction('exportServerSnapshot', ENTRY).body!.getText(ENTRY))
+      .toMatch(/\bexportArchive\s*\(\s*getArchiveTransportPort\s*\(\s*\)\s*\)/u);
     const branch = archiveBranch(browserFunction('exportServerSnapshot'), 'serverArchiveExport');
     expect(branch).toContain('/api/export/latest');
     expect(branch).toMatch(/\.click\s*\(/u);
@@ -52,6 +61,7 @@ describe('Rust archive browser transfer path', () => {
   });
 
   it('keeps the negotiated import on the direct selected-File call graph', () => {
+    expect(ENTRY.getText()).toMatch(/\bimportServerArchive\s*\(\s*e,\s*btnImport,\s*getArchiveTransportPort\s*\(\s*\)\s*\)/u);
     const branch = archiveBranch(SOURCE, 'serverArchiveImport');
     const upload = browserFunction('uploadServerArchive').body!.getText(SOURCE);
     expect(branch).toMatch(/uploadServerArchive\s*\(\s*file\b/u);

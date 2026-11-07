@@ -124,3 +124,28 @@ P4's current physical sizes are `main.ts` 4,003 lines, `graph_templates.ts` 176,
 
 
 P3's first full native run passed 208 cases and failed the committed-import/rejoined-controller heading outcome, with 12 skips. Its unchanged helper polls a real socket-driven heading condition for five seconds. The focused import/reset/New Run variants then passed (3/3), the entire lease file passed (8/8), and a fresh full native confirmation passed 209/209 executed cases with 12 skips. No Rust, server or test edits were made between the failure and these reproductions, and neither the deadline nor the assertion was changed. The failure was not reproduced; its precise scheduling cause is unproven. The initial failed result is retained locally alongside the confirmation rather than represented as an uninterrupted green run.
+
+
+### P4 remaining graph, settings, archive and camera projections (verified)
+
+Seven more physical modules separate graph copying/projection, graph form rendering, presets, core settings UI, opaque archive transfer, packed-frame/player projections and local camera operations. Their symbols are appended to the P4 move map. All 37 moved helper/listener bodies match after the documented argument/port, immutable-DOM alias and internal-call substitutions. No graph IDs, port order, output count, storage keys, request routes, upload object, response parsing, camera equations or thresholds change. DOM queries and event-listener registration remain in the entry point, with the baseline-control registration still called in its original bootstrap position. Views do not import the entry point.
+
+Connection, pending request, reset/staging and mutable camera state remain with the original root. Camera delegation caches one live port so it adds no per-frame port-object allocation. Packed frame helpers receive the original buffer rather than a world clone. Preset HTTP operations call the existing URL/draft/status owner through a small port and preserve their async sequence. Archive upload sends the original File, and export still creates a direct download anchor. The source-AST archive guards now inspect the extracted implementation and additionally check root delegation; their population-materialization and direct-File assertions remain intact.
+
+The first broader P4 unit/integration run found two guards still anchored to main's former archive branches (878 passed, 2 failed, 6 skipped). After the guard relocation update, the focused archive/main suites passed 29 tests, and the full unit/integration confirmation passed 880 tests with 6 skips and zero failures (exit 0). Typecheck, full ESLint and Vite build pass. Browser integration contributes 26 passing cases, including the graph draft/server replacement case. Rust source, native identity and PyRL distillation identity do not change in this browser packet.
+
+| Current browser source | Lines |
+|---|---:|
+| `src/main.ts` | 2,916 |
+| `src/graph_templates.ts` | 176 |
+| `src/graph_diagram.ts` | 337 |
+| `src/graph_inspector.ts` | 363 |
+| `src/graph_state.ts` | 110 |
+| `src/graph_settings.ts` | 456 |
+| `src/graph_presets.ts` | 137 |
+| `src/archive_transport.ts` | 173 |
+| `src/settings_ui.ts` | 203 |
+| `src/player_input_and_frames.ts` | 171 |
+| `src/camera.ts` | 178 |
+
+The remaining main facade requires the P9 residual review: it still composes DOM registration, server/welcome/reconnect callbacks, graph staging, controller input and the shared UI state. Further moves must justify their navigation benefit rather than accumulate unrelated callbacks into a broad application context. The N-API and Node production packets and selective native helper work remain pending; this receipt does not mark the overall plan complete.
