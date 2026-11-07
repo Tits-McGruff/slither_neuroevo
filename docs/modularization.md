@@ -59,3 +59,46 @@ All newly created Rust files are listed below; their symbols are indexed in the 
 - `native/src/engine/coordinator/tests/`: `controller_delivery.rs`, `fixtures.rs`, `generation_and_runtime.rs`, `metrics.rs`, `mod.rs`.
 - `native/src/engine/sensors_v4/tests/`: `baseline_actions.rs`, `fixtures.rs`, `geometry_and_traces.rs`, `mod.rs`, `observations_and_limits.rs`.
 - `native/src/engine/brain_library/tests/`: `fixtures.rs`, `mod.rs`, `publication.rs`, `saved_deployment.rs`.
+
+## P2 remaining large engine tests and TypeScript scenario suites (verified)
+
+Twenty-three additional engine owners now load out-of-line tests. The three largest suites (`inference`, `control`, `generation`) have topical children and a shared fixture file; twenty other suites retain their exact Rust module path in one modest `OWNER/tests.rs`. No production logic changes. All 334 moved test bodies, all shared fixtures and all twenty single-file payloads match after the same documented visibility/path/format adjustments. Discovery remains exactly 873 tests, and all 873 release hook-enabled tests pass (exit 0). Rust format and all-targets hook-enabled Clippy pass (exit 0).
+
+| Owner | Before lines | After lines | Physical test files |
+|---|---:|---:|---:|
+| `inference.rs` | 3,726 | 2,225 | 5 |
+| `control.rs` | 2,819 | 1,555 | 4 |
+| `generation.rs` | 2,452 | 1,202 | 4 |
+| `ambient.rs` | 1,573 | 884 | 1 |
+| `baseline.rs` | 1,889 | 1,161 | 1 |
+| `baseline_control.rs` | 1,804 | 1,029 | 1 |
+| `baseline_qualification.rs` | 1,751 | 1,073 | 1 |
+| `collision.rs` | 2,866 | 1,675 | 1 |
+| `controllers.rs` | 1,796 | 1,075 | 1 |
+| `effects.rs` | 2,295 | 1,363 | 1 |
+| `evolution.rs` | 2,560 | 1,402 | 1 |
+| `evolved_lives.rs` | 2,017 | 1,382 | 1 |
+| `external_replacement.rs` | 3,965 | 2,780 | 1 |
+| `fixed_step.rs` | 2,553 | 1,623 | 1 |
+| `food.rs` | 1,476 | 864 | 1 |
+| `generation_handoff_fixture.rs` | 1,480 | 838 | 1 |
+| `graph.rs` | 2,235 | 1,513 | 1 |
+| `physics.rs` | 2,915 | 1,768 | 1 |
+| `queues.rs` | 2,658 | 1,612 | 1 |
+| `sensors.rs` | 2,237 | 1,517 | 1 |
+| `sensor_qualification.rs` | 2,333 | 1,550 | 1 |
+| `spatial.rs` | 2,465 | 1,635 | 1 |
+| `spawn.rs` | 2,065 | 1,221 | 1 |
+
+The TypeScript suites split by responsibility, retaining their original suite titles, test registrations, timeout arguments, gating expressions and callback bodies. `checkpointPersistenceFixture.ts`, `rustServerFixture.ts` and `rustServerArchiveFixture.ts` hold their original shared helpers. The persistence `afterEach` cleanup retains client shutdown before temporary-directory deletion. Vitest configuration is unchanged, including serial native/integration files and default per-file isolation. The Linux private-filesystem qualification command now selects the relocated resource cases; its test-name filter is unchanged. Historical test-file references remain historical.
+
+All 132 original TypeScript registrations and all three fixture payloads match apart from fixture exports and scope-aware import organization. TypeScript typecheck and targeted ESLint pass (exit 0). The persistence integration packet passes 83 tests with one platform skip (exit 0). See the [Rust map](modularization-p2-rust-moves.tsv) and [TypeScript registration map](modularization-p2-ts-moves.tsv); these are change receipts, not test-runner registries. The complete Vitest suite passed against both rebuilt addon classes: 1,088 passed, 18 skipped, zero failed (exit 0). The supplied evidence summary reports 1,083 passed; this receipt records the actual current-run count rather than assuming that summary count. All 132 changed registrations and their case tables are preserved exactly, and the before/after relocation checks account for every changed test body.
+
+Production and hook ABI surfaces and production declarations remain unchanged. Native probes again pass new→new exact restore, old→new exact rejection and compatible distinct-run activation. Both addon classes carry source SHA `cccc9cddacb1dd39945dddcf728609765da69daae4a68daea589fab36c3c323c`. These are source-layout identity changes; admission policy is unchanged. PyRL source and its distillation identity are unchanged in P2.
+
+
+## P8 independent PyRL packet (verified)
+
+PyRL commit `6290fc6` extracts `gae`, `split_rollout_by_policy_version` and `collate_rollouts` into `pyrl_trainer/rollout_processing.py`, and `format_reward_exposure` into `reward_reporting.py`, preserving all historical `learner` imports. The original four function ASTs are unchanged. The learner drops from 914 to 747 lines; the specialized modules are 148 and 40 lines. Actor, optimizer, policy-fence and distillation checkpoint owners are unchanged. The complete packet receipt is `../PyRL-trainer/docs/modularization.md`.
+
+The default Python 3.12.10 pytest run passed 804 tests with 13 skips. Nine skipped cross-repository tests were separately enabled and all passed, covering the baseline 813 passing cases with four optional skips remaining. Before/after discovery retains all 817 IDs. All 29 additional native artifact/teacher tests passed with the intentional very-large-model qualification case deselected. Changed-module CI-options Pylint, compilation, import compatibility and AST checks passed. Distillation source identity inputs and formats are unchanged. A first pytest command used the wrong repository working directory; it failed during unrelated collection and was corrected, as documented in the PyRL receipt.

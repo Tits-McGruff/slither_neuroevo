@@ -36,5 +36,5 @@ parent_namespace=$(readlink /proc/self/ns/mnt)
 TMPDIR="$resolved_fixture" SLITHER_PRIVATE_QUOTA_TEST=1 \
   SLITHER_PARENT_MOUNT_NAMESPACE="$parent_namespace" \
   unshare --user --map-root-user --mount --propagation private \
-  node node_modules/vitest/vitest.mjs run server/rustServer.archiveTransport.native.test.ts \
+  node node_modules/vitest/vitest.mjs run server/rustServer.archiveTransport.resources.native.test.ts \
   --maxWorkers=1 --reporter=dot -t 'real private-filesystem exhaustion'
