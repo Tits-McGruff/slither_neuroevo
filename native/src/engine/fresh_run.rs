@@ -42,6 +42,15 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
+mod configuration;
+use configuration::*;
+mod restore_policy;
+use restore_policy::*;
+#[allow(unused_imports)]
+pub(crate) use restore_policy::{
+    production_checkpoint_limits, stage6a_p0_archive_validation_contract, stage6a_p0_graph_limits,
+};
+
 /// Version of the fixed first-cut Stage 6A P0 fresh-run profile.
 pub const STAGE6A_P0_FRESH_RUN_PROFILE_VERSION: u32 = 1;
 /// Evolved population in the approved P0 workload.
@@ -87,55 +96,6 @@ pub struct FreshRunSettingUpdate {
     pub path: String,
     /// Finite numeric representation; booleans are zero or one.
     pub value: f64,
-}
-
-/// Qualified defaults apply only to genuinely new configurations. Recorded
-/// v3/v1 settings continue through their existing explicit constructors.
-fn selected_fresh_default_settings() -> Result<Vec<super::state::NormalizedSetting>, FreshRunError>
-{
-    let mut settings =
-        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT);
-    super::sensor_contract::SensorContractIdentity::new(
-        super::sensor_contract::SensorProfile::Motion,
-        16,
-    )
-    .and_then(|contract| contract.record_v4_settings(&mut settings))
-    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
-    super::ray_work::RayWorkLimits::new(1, 256, 65536, 512)
-        .map_err(|error| FreshRunError::Settings(error.to_string()))?
-        .record_settings(&mut settings);
-    super::baseline_v2::BaselineV2Settings {
-        mode: super::baseline_v2::BaselineV2Mode::Stochastic,
-        control_interval_seconds: 1.0 / 60.0,
-    }
-    .record_settings(&mut settings)
-    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
-    settings
-        .iter_mut()
-        .find(|setting| setting.path == "sense.maxPelletChecks")
-        .ok_or_else(|| FreshRunError::Settings("default pellet work setting is missing".into()))?
-        .value = NormalizedSettingValue::Integer(3000);
-    Ok(settings)
-}
-
-/// Only scalar settings cross the fresh-construction interface; Rust derives the digest.
-fn numeric_fresh_settings(
-    settings: Vec<super::state::NormalizedSetting>,
-) -> Vec<FreshRunSettingUpdate> {
-    settings
-        .into_iter()
-        .filter_map(|setting| {
-            Some(FreshRunSettingUpdate {
-                path: setting.path,
-                value: match setting.value {
-                    NormalizedSettingValue::Bool(value) => f64::from(value),
-                    NormalizedSettingValue::Integer(value) => value as f64,
-                    NormalizedSettingValue::Float(value) => value,
-                    NormalizedSettingValue::Text(_) => return None,
-                },
-            })
-        })
-        .collect()
 }
 
 /// One production initial boundary, using the qualified graph/profile and SSE2 path.
@@ -1395,241 +1355,6 @@ pub(crate) fn prepare_checkpoint_capacity_run(
     })
 }
 
-/// Apply exact typed numeric replacements before projection and state admission.
-fn apply_fresh_run_settings(
-    settings: &mut [super::state::NormalizedSetting],
-    updates: &[FreshRunSettingUpdate],
-) -> Result<(), FreshRunError> {
-    if updates.len() > 128 {
-        return Err(FreshRunError::Settings(
-            "fresh-run settings exceed 128 entries".to_owned(),
-        ));
-    }
-    for (index, update) in updates.iter().enumerate() {
-        if !update.value.is_finite() || update.path.is_empty() || update.path.len() > 128 {
-            return Err(FreshRunError::Settings(
-                "fresh-run setting is not bounded and finite".to_owned(),
-            ));
-        }
-        if updates[..index]
-            .iter()
-            .any(|prior| prior.path == update.path)
-        {
-            return Err(FreshRunError::Settings(format!(
-                "duplicate fresh-run setting {}",
-                update.path
-            )));
-        }
-        let setting = settings
-            .binary_search_by(|setting| setting.path.as_str().cmp(update.path.as_str()))
-            .ok()
-            .and_then(|position| settings.get_mut(position))
-            .ok_or_else(|| {
-                FreshRunError::Settings(format!("unknown fresh-run setting {}", update.path))
-            })?;
-        let replacement = match &setting.value {
-            NormalizedSettingValue::Bool(_) if update.value == 0.0 || update.value == 1.0 => {
-                NormalizedSettingValue::Bool(update.value == 1.0)
-            }
-            NormalizedSettingValue::Integer(_)
-                if update.value.fract() == 0.0
-                    && update.value >= i64::MIN as f64
-                    && update.value <= i64::MAX as f64 =>
-            {
-                NormalizedSettingValue::Integer(update.value as i64)
-            }
-            NormalizedSettingValue::Float(_) => NormalizedSettingValue::Float(update.value),
-            _ => {
-                return Err(FreshRunError::Settings(format!(
-                    "fresh-run setting {} has the wrong numeric type",
-                    update.path
-                )))
-            }
-        };
-        setting.value = replacement;
-    }
-    Ok(())
-}
-
-/// Read one required Float64 setting after typed replacement.
-fn fresh_float(config: &NormalizedEngineConfig, path: &str) -> Result<f64, FreshRunError> {
-    match config
-        .settings
-        .iter()
-        .find(|setting| setting.path == path)
-        .map(|setting| &setting.value)
-    {
-        Some(NormalizedSettingValue::Float(value)) => Ok(*value),
-        _ => Err(FreshRunError::Settings(format!(
-            "missing floating fresh-run setting {path}"
-        ))),
-    }
-}
-
-/// Read one required non-negative integer setting after typed replacement.
-fn fresh_integer(config: &NormalizedEngineConfig, path: &str) -> Result<usize, FreshRunError> {
-    fresh_setting_integer(&config.settings, path)
-}
-
-/// Read one required non-negative integer directly from a normalized setting set.
-fn fresh_setting_integer(
-    settings: &[super::state::NormalizedSetting],
-    path: &str,
-) -> Result<usize, FreshRunError> {
-    match settings
-        .iter()
-        .find(|setting| setting.path == path)
-        .map(|setting| &setting.value)
-    {
-        Some(NormalizedSettingValue::Integer(value)) => usize::try_from(*value).map_err(|_| {
-            FreshRunError::Settings(format!("invalid integer fresh-run setting {path}"))
-        }),
-        _ => Err(FreshRunError::Settings(format!(
-            "missing integer fresh-run setting {path}"
-        ))),
-    }
-}
-
-/// Validate the opaque lineage label before any graph or population allocation.
-fn validated_run_id(value: &str) -> Result<String, FreshRunError> {
-    if value.is_empty() || value.contains('\0') || value.len() > 256 {
-        return Err(FreshRunError::InvalidRunId);
-    }
-    Ok(value.to_owned())
-}
-
-/// Construct the exact supported P0 normalized configuration.
-fn stage6a_p0_config(
-    graph: &GraphBundle,
-    settings: Vec<super::state::NormalizedSetting>,
-    settings_schema_sha256: String,
-    population_count: usize,
-    baseline_count: usize,
-) -> NormalizedEngineConfig {
-    NormalizedEngineConfig {
-        version: NORMALIZED_CONFIG_VERSION,
-        settings,
-        settings_schema_sha256,
-        graph_architecture_key: graph.architecture_key.clone(),
-        fixed_step_seconds: 1.0 / 60.0,
-        requested_sim_speed: 1.0,
-        world_radius: 3_500.0,
-        population_count,
-        baseline_count,
-        max_world_snakes: population_count + baseline_count + 64,
-        max_non_population_brains: 64,
-        max_body_points: MAXIMUM_RUNNING_BODY_POINTS,
-        max_pellets: MAXIMUM_RUNNING_PELLETS,
-        spatial_index_bytes: 256 * MIB,
-        worker_scratch_bytes: 512 * MIB,
-        checkpoint_scratch_bytes: 512 * MIB,
-        controller_input_hold_ms: 500,
-        controller_disconnect_grace_ms: 30_000,
-    }
-}
-
-/// Bind admission to the currently loaded addon and exact settings schema.
-fn current_build_policy(
-    memory_ceiling_bytes: usize,
-    settings_schema_sha256: String,
-    require_exact_build_identity: bool,
-) -> StateAdmissionPolicy {
-    let build_identifier = crate::native_addon_build_identifier();
-    StateAdmissionPolicy {
-        memory_ceiling_bytes,
-        require_exact_build_identity,
-        expected_source_revision: build_identifier.clone(),
-        expected_engine_build_id: build_identifier,
-        expected_source_sha256: crate::native_addon_source_sha256(),
-        expected_target_triple: crate::native_addon_build_target(),
-        expected_build_profile: crate::native_addon_build_profile(),
-        expected_build_class: crate::native_addon_build_class(),
-        expected_rustc_version: crate::native_addon_rustc_version(),
-        expected_build_contract_sha256: crate::native_addon_build_contract_sha256(),
-        expected_math_backend: InferenceMathBackend::Scalar.label().to_owned(),
-        allowed_settings_schema_sha256: Vec::new(),
-        allowed_math_backends: Vec::new(),
-        expected_settings_schema_sha256: settings_schema_sha256,
-    }
-}
-
-/// Production restore recognizes only complete frozen or complete life-contract schemas.
-fn production_restore_policy(
-    memory_ceiling_bytes: usize,
-    require_exact_build_identity: bool,
-) -> Result<StateAdmissionPolicy, FreshRunError> {
-    let legacy = normalized_settings_schema_hash(&typescript_default_settings(
-        STAGE6A_P0_POPULATION_COUNT,
-        STAGE6A_P0_BASELINE_COUNT,
-    ))?;
-    let modern = normalized_settings_schema_hash(&production_default_settings(
-        STAGE6A_P0_POPULATION_COUNT,
-        STAGE6A_P0_BASELINE_COUNT,
-    ))?;
-    let mut policy =
-        current_build_policy(memory_ceiling_bytes, legacy, require_exact_build_identity);
-    policy
-        .allowed_math_backends
-        .push(InferenceMathBackend::Sse2.label().into());
-    policy
-        .allowed_math_backends
-        .push(InferenceMathBackend::I16MatrixFma128.label().into());
-    policy
-        .allowed_math_backends
-        .push(InferenceMathBackend::I16AffineFma128.label().into());
-    policy.allowed_settings_schema_sha256.push(modern);
-    for mut settings in [
-        typescript_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
-        production_default_settings(STAGE6A_P0_POPULATION_COUNT, STAGE6A_P0_BASELINE_COUNT),
-    ] {
-        super::sensor_contract::SensorContractIdentity::new(
-            super::sensor_contract::SensorProfile::Motion,
-            16,
-        )
-        .and_then(|contract| contract.record_v4_settings(&mut settings))
-        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
-        policy
-            .allowed_settings_schema_sha256
-            .push(normalized_settings_schema_hash(&settings)?);
-        let mut recorded_rays = settings.clone();
-        // Only field types enter this hash; these values select no defaults.
-        super::ray_work::RayWorkLimits::new(1, 1, 512, 512)
-            .map_err(|error| FreshRunError::Settings(error.to_string()))?
-            .record_settings(&mut recorded_rays);
-        policy
-            .allowed_settings_schema_sha256
-            .push(normalized_settings_schema_hash(&recorded_rays)?);
-        super::baseline_v2::BaselineV2Settings {
-            mode: super::baseline_v2::BaselineV2Mode::Stochastic,
-            control_interval_seconds: 0.06,
-        }
-        .record_settings(&mut settings)
-        .map_err(|error| FreshRunError::Settings(error.to_string()))?;
-        policy
-            .allowed_settings_schema_sha256
-            .push(normalized_settings_schema_hash(&settings)?);
-        super::ray_work::RayWorkLimits::new(1, 1, 512, 512)
-            .map_err(|error| FreshRunError::Settings(error.to_string()))?
-            .record_settings(&mut settings);
-        policy
-            .allowed_settings_schema_sha256
-            .push(normalized_settings_schema_hash(&settings)?);
-    }
-    Ok(policy)
-}
-
-/// Rebuild the fixed P0 archive validation contract without a second population.
-pub(crate) fn stage6a_p0_archive_validation_contract(
-    memory_ceiling_bytes: usize,
-    require_exact_build_identity: bool,
-) -> Result<(CheckpointLimits, GraphLimits, StateAdmissionPolicy), FreshRunError> {
-    Ok((
-        production_checkpoint_limits(),
-        stage6a_p0_graph_limits(),
-        production_restore_policy(memory_ceiling_bytes, require_exact_build_identity)?,
-    ))
-}
-
 /// Build metadata-only population/brain records suitable for memory preflight.
 #[allow(clippy::too_many_arguments)]
 fn boundary_shell(
@@ -1766,50 +1491,6 @@ fn initialize_population_numeric(
     }
     candidate.rng.evolution = continuation;
     Ok(())
-}
-
-/// Production graph ceilings covering current editor graphs without unbounded allocation.
-pub(crate) fn stage6a_p0_graph_limits() -> GraphLimits {
-    GraphLimits {
-        max_nodes: 64,
-        max_edges: 128,
-        max_graph_outputs: 8,
-        max_identifier_bytes: 64,
-        max_total_referenced_identifier_bytes: 16 * 1024,
-        max_tensor_width: crate::contracts::MAX_BRAIN_TENSOR_WIDTH,
-        max_mlp_hidden_layers: 8,
-        max_split_output_ports: 16,
-        max_parameter_floats: crate::contracts::MAX_BRAIN_PARAMETERS,
-        max_recurrent_state_floats: crate::contracts::MAX_BRAIN_STATE_FLOATS,
-        max_canonical_layout_bytes: 128 * 1024,
-        max_architecture_key_bytes: 256 * 1024,
-    }
-}
-
-/// Managed-checkpoint ceilings for the current population and admitted custom graphs.
-/// The 512 MiB envelope admits P3's roughly 461 MiB raw weights and bounds decoded
-/// allocation and codec work. Raising it requires remeasuring memory and aligning
-/// Node's candidate/final-file disk reserves; the retention budget is independent.
-pub(crate) fn production_checkpoint_limits() -> CheckpointLimits {
-    CheckpointLimits {
-        max_archive_bytes: 512 * MIB_U64,
-        max_manifest_bytes: MIB,
-        max_state_bytes: 4 * MIB,
-        max_graph_bytes: MIB,
-        max_population_index_bytes: MIB,
-        max_population_count: MAXIMUM_FRESH_RUN_POPULATION_COUNT,
-        max_setting_count: 128,
-        max_baseline_rng_count: MAXIMUM_FRESH_RUN_BASELINE_COUNT,
-        max_string_bytes: 256 * 1024,
-        max_total_string_bytes: 4 * MIB,
-        max_weight_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT
-            * crate::contracts::MAX_BRAIN_PARAMETERS,
-        max_recurrent_floats: MAXIMUM_FRESH_RUN_POPULATION_COUNT
-            * crate::contracts::MAX_BRAIN_STATE_FLOATS,
-        max_numeric_stored_bytes: 512 * MIB_U64,
-        max_numeric_candidate_bytes: 512 * MIB_U64,
-        max_total_decoded_bytes: 512 * MIB_U64,
-    }
 }
 
 /// Reserve one exact metadata or numeric vector without an unchecked growth path.

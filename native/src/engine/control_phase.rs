@@ -3,8 +3,14 @@
 //! This module joins the already-verified sensor, baseline-controller,
 //! wall-time lease, and heterogeneous neural operations without publishing
 //! authority. Every alive snake receives exactly one exclusive source decision
-//! in stable internal-ID order. External observations remain uncommitted until
-//! the thin bridge reports acceptance for the matching connection boundary.
+//! in stable internal-ID order. Ordinary external delivery markers commit when
+//! the complete ordered batch enters the bounded Rust output stream;
+//! ownership-changing assignments retain their matching receipt boundary.
+//!
+//! `ControlPhaseWorkspace` prepares indexed selection, sensors and neural work;
+//! `ControlCommitWorkspace` validates and stages its complete result. Both keep
+//! their reusable buffers and epoch/proof lifetimes here. `source_selection`
+//! contains borrowed lookup/selection checks, and `diagnostics` only value records.
 
 use super::baseline::{
     validate_strategy_runtime, BaselineLifecycleError, BaselineLifecycleState, BaselineSlotRuntime,
@@ -47,6 +53,14 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::time::Instant;
 
+mod diagnostics;
+#[allow(unused_imports)]
+pub(crate) use diagnostics::ControlPhaseCostMicros;
+#[allow(unused_imports)]
+pub use diagnostics::{ControlCommitDiagnostics, ControlPhaseDiagnostics, FocusedVisualization};
+mod source_selection;
+use source_selection::*;
+
 /// First joined controller-selection algorithm identity.
 pub const CONTROL_PHASE_VERSION: u32 = 1;
 /// Current TypeScript neural boost decision boundary.
@@ -55,16 +69,6 @@ const NEURAL_BOOST_THRESHOLD: f32 = 0.35;
 const MINIMUM_NEURAL_CONTROL_INTERVAL_SECONDS: f64 = 0.008;
 /// Largest admitted interval and versioned pending-first-action sentinel.
 const MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS: f64 = 0.06;
-
-/// Coarse control-selection costs retained without per-step allocations.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ControlPhaseCostMicros {
-    pub work: super::generation_work::StepWork,
-    pub spatial_index: u64,
-    pub neural_batch: u64,
-    pub neural_sensing: u64,
-    pub neural_inference: u64,
-}
 
 /// Complete projected settings and bounds for one control boundary.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -479,94 +483,6 @@ impl PreparedExternalObservation {
     pub const fn diagnostics(self) -> SensorSampleDiagnostics {
         self.diagnostics
     }
-}
-
-/// Work counts and retained capacities for one shared control boundary.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ControlPhaseDiagnostics {
-    /// Shared complete body-ray hierarchy; workers only borrow this storage.
-    pub ray_index: super::sensor_rays::RayIndexCapacity,
-    /// Stable observation-owner/physical-index pairs retained by the coordinator.
-    pub ray_owner_capacity: usize,
-    /// Canonical stable keys used for fair grant assignment.
-    pub ray_key_capacity: usize,
-    /// Owner-order grants retained independently of worker scheduling.
-    pub ray_owner_grant_capacity: usize,
-    /// Physical-array grant map for the immutable source boundary.
-    pub ray_snake_grant_capacity: usize,
-    /// Alive snakes assigned exactly one source.
-    pub controls: usize,
-    /// Internally consumed baseline observations.
-    pub baseline_observations: usize,
-    /// Externally delivered observations awaiting Node acceptance.
-    pub external_observations: usize,
-    /// Complete due neural graph evaluations.
-    pub neural_evaluations: usize,
-    /// Neural outputs held because cadence was not due.
-    pub neural_held: usize,
-    /// Explicit external-to-neural transitions in this batch.
-    pub neural_takeovers: usize,
-    /// Retained complete body-index diagnostics.
-    pub body_index: BodyIndexDiagnostics,
-    /// Retained complete pellet-index diagnostics.
-    pub pellet_index: PelletIndexDiagnostics,
-    /// Shared per-sample sensor scratch capacities.
-    pub sensor_scratch: SensorScratchDiagnostics,
-    /// Coarse neural pipeline capacities.
-    pub neural: NeuralControlCapacityDiagnostics,
-    /// Stable snake-order capacity.
-    pub snake_order_capacity: usize,
-    /// Stable brain-order capacity.
-    pub brain_order_capacity: usize,
-    /// Stable lease-order capacity.
-    pub lease_order_capacity: usize,
-    /// Chosen-control capacity.
-    pub control_capacity: usize,
-    /// Lease-proposal capacity.
-    pub controller_transition_capacity: usize,
-    /// Retained baseline-result record count.
-    pub baseline_result_records: usize,
-    /// Retained absent-Gaussian-spare buffers for baseline results.
-    pub baseline_rng_spare_capacity: usize,
-    /// External-event metadata capacity.
-    pub external_event_capacity: usize,
-    /// Packed external-observation Float32 capacity.
-    pub external_observation_capacity: usize,
-    /// Neural-candidate capacity.
-    pub neural_candidate_capacity: usize,
-    /// Takeover reset-handle capacity.
-    pub reset_brain_capacity: usize,
-}
-
-/// Retained buffers and source work represented by one applied control boundary.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ControlCommitDiagnostics {
-    /// Selection/sensing/inference work that produced the applied boundary.
-    pub selection: ControlPhaseDiagnostics,
-    /// Retained working snake capacity.
-    pub snake_capacity: usize,
-    /// Retained working body-point capacity.
-    pub body_point_capacity: usize,
-    /// Retained working pellet capacity.
-    pub pellet_capacity: usize,
-    /// Retained controller-lease capacity.
-    pub controller_lease_capacity: usize,
-    /// Retained brain-record capacity.
-    pub brain_capacity: usize,
-    /// Immutable non-population weight values copied on this attempt.
-    pub brain_weight_values_copied: usize,
-    /// Recurrent values copied from the source boundary before publication.
-    pub brain_recurrent_values_copied: usize,
-    /// Retained baseline-slot capacity.
-    pub baseline_slot_capacity: usize,
-    /// Retained baseline-RNG capacity.
-    pub baseline_rng_capacity: usize,
-    /// Retained external-event capacity.
-    pub external_event_capacity: usize,
-    /// Retained packed external-observation capacity.
-    pub external_observation_capacity: usize,
-    /// Retained serialized RNG text capacity, including absent Gaussian spares.
-    pub rng_text_capacity: usize,
 }
 
 /// Complete non-authoritative controller boundary.
@@ -3212,142 +3128,6 @@ impl ControlPhaseWorkspace {
     }
 }
 
-/// Borrowed single-brain visualization captured from one control boundary.
-#[derive(Clone, Copy, Debug)]
-pub struct FocusedVisualization<'a> {
-    /// Full physical identity captured before movement, distinct from frame IDs.
-    pub physical_id: u64,
-    /// Browser/frame identity of the selected neural snake.
-    pub frame_v1_id: u32,
-    /// Completed step that becomes authoritative with this capture.
-    pub completed_step: u64,
-    /// Static graph-layer structure.
-    pub layers: &'a [VisualizationLayerPlan],
-    /// Packed finite activation values for layers that carry them.
-    pub values: &'a [f32],
-}
-
-fn prepare_orders(
-    world: &WorldState,
-    brains: &[BrainRuntimeState],
-    snake_order: &mut Vec<usize>,
-    brain_order: &mut Vec<usize>,
-    lease_order: &mut Vec<usize>,
-    config: ControlPhaseConfig,
-) -> Result<(), ControlPhaseError> {
-    reserve_for(snake_order, world.snakes.len(), "control snake order")?;
-    snake_order.extend(0..world.snakes.len());
-    snake_order.sort_unstable_by_key(|index| world.snakes[*index].id);
-    for pair in snake_order.windows(2) {
-        if world.snakes[pair[0]].id == world.snakes[pair[1]].id {
-            return Err(ControlPhaseError::DuplicateSnakeId(
-                world.snakes[pair[0]].id,
-            ));
-        }
-    }
-    if snake_order
-        .first()
-        .is_some_and(|index| world.snakes[*index].id == 0)
-    {
-        return Err(ControlPhaseError::DuplicateSnakeId(0));
-    }
-
-    reserve_for(brain_order, brains.len(), "control brain order")?;
-    brain_order.extend(0..brains.len());
-    brain_order.sort_unstable_by_key(|index| brains[*index].handle);
-    for pair in brain_order.windows(2) {
-        if brains[pair[0]].handle == brains[pair[1]].handle {
-            return Err(ControlPhaseError::DuplicateBrain(brains[pair[0]].handle));
-        }
-    }
-
-    if world.controller_leases.len() > config.maximum_snakes {
-        return Err(ControlPhaseError::CapacityExceeded {
-            buffer: "controller leases",
-            required: world.controller_leases.len(),
-            maximum: config.maximum_snakes,
-        });
-    }
-    reserve_for(
-        lease_order,
-        world.controller_leases.len(),
-        "control lease order",
-    )?;
-    lease_order.extend(0..world.controller_leases.len());
-    lease_order.sort_unstable_by_key(|index| world.controller_leases[*index].snake_id);
-    for pair in lease_order.windows(2) {
-        if world.controller_leases[pair[0]].snake_id == world.controller_leases[pair[1]].snake_id {
-            return Err(ControlPhaseError::DuplicateControllerSnake(
-                world.controller_leases[pair[0]].snake_id,
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn find_lease_index(world: &WorldState, order: &[usize], snake_id: u64) -> Option<usize> {
-    order
-        .binary_search_by_key(&snake_id, |index| world.controller_leases[*index].snake_id)
-        .ok()
-        .map(|position| order[position])
-}
-
-fn find_brain_index(
-    brains: &[BrainRuntimeState],
-    order: &[usize],
-    handle: BrainHandle,
-) -> Option<usize> {
-    order
-        .binary_search_by_key(&handle, |index| brains[*index].handle)
-        .ok()
-        .map(|position| order[position])
-}
-
-fn find_control(
-    controls: &[PreparedControlUpdate],
-    snake_id: u64,
-) -> Result<&PreparedControlUpdate, ControlPhaseError> {
-    controls
-        .binary_search_by_key(&snake_id, |update| update.snake_id)
-        .ok()
-        .and_then(|index| controls.get(index))
-        .ok_or(ControlPhaseError::CommitShapeMismatch {
-            field: "control result lookup",
-        })
-}
-
-fn validate_transition_control(
-    proposal: ControllerBoundaryProposal,
-    update: &PreparedControlUpdate,
-) -> Result<(), ControlPhaseError> {
-    let matches = match proposal.source() {
-        ExternalControlSource::HeldAction { turn, boost } => {
-            update.source == SelectedControlSource::ExternalHeld
-                && update.turn.to_bits() == turn.to_bits()
-                && update.boost == boost
-        }
-        ExternalControlSource::ReservedNeutral => {
-            update.source == SelectedControlSource::ExternalReservedNeutral
-                && update.turn.to_bits() == 0.0_f32.to_bits()
-                && !update.boost
-        }
-        ExternalControlSource::NeuralTakeover if proposal.begins_neural_takeover() => {
-            update.source == SelectedControlSource::NeuralTakeover
-        }
-        ExternalControlSource::NeuralTakeover => matches!(
-            update.source,
-            SelectedControlSource::NeuralEvaluated | SelectedControlSource::NeuralHeld
-        ),
-    };
-    if matches {
-        Ok(())
-    } else {
-        Err(ControlPhaseError::CommitShapeMismatch {
-            field: "controller transition/control result",
-        })
-    }
-}
-
 pub(crate) fn copy_brains_reusing(
     target: &mut Vec<BrainRuntimeState>,
     source: &[BrainRuntimeState],
@@ -3463,40 +3243,6 @@ fn try_f32_box(source: &[f32], buffer: &'static str) -> Result<Box<[f32]>, Contr
         })?;
     values.extend_from_slice(source);
     Ok(values.into_boxed_slice())
-}
-
-fn next_neural_boundary(
-    source_accumulator: f64,
-    fixed_dt: f64,
-    interval: f64,
-    force_due: bool,
-) -> Result<(bool, f64), ControlPhaseError> {
-    if !source_accumulator.is_finite()
-        || !(0.0..=MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS).contains(&source_accumulator)
-    {
-        return Err(ControlPhaseError::InvalidCadenceState(source_accumulator));
-    }
-    let first_action_pending =
-        source_accumulator.to_bits() == MAXIMUM_NEURAL_CONTROL_INTERVAL_SECONDS.to_bits();
-    let base = if force_due || first_action_pending {
-        0.0
-    } else {
-        source_accumulator
-    };
-    let accumulated = base + fixed_dt;
-    if !accumulated.is_finite() {
-        return Err(ControlPhaseError::InvalidCadenceState(accumulated));
-    }
-    let due = force_due || first_action_pending || accumulated >= interval;
-    let next = if due {
-        accumulated % interval
-    } else {
-        accumulated
-    };
-    if !next.is_finite() || next < 0.0 || next >= interval {
-        return Err(ControlPhaseError::InvalidCadenceState(next));
-    }
-    Ok((due, next))
 }
 
 fn reserve_for<T>(
