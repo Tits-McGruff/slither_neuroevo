@@ -61,6 +61,8 @@ pub struct ContractVersions {
 /// Stable experiment identity and source/config provenance.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunIdentity {
+    /// Explicit saved-brain source for this evolving lineage, independent of live membership.
+    pub founder: Option<crate::engine::founder::FounderOrigin>,
     /// Partial source provenance retained independently of this new run's exact continuation.
     pub legacy_conversion: Option<crate::engine::legacy_origin::LegacyPopulationOrigin>,
     /// Evolutionary lineage identity.

@@ -27,7 +27,7 @@ it('admits, saves, lists, exports, imports and reopens the production large brai
     if (saved.action !== 'save') throw new Error('wrong save response');
     const record = saved.record;
     const exported = readFileSync(join(managed, record.artifactRelativeFilename));
-    expect(exported).toEqual(bytes);
+    expect(exported.equals(bytes)).toBe(true);
     expect(BigInt('0x' + record.weights.decodedByteCount)).toBe(6_984_416n);
     const page = await persistence.savedBrainCatalog({action: 'list', after: null, limit: 25});
     if (page.action !== 'list') throw new Error('wrong list response');

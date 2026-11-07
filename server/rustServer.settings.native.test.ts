@@ -471,6 +471,7 @@ describeNetworkSuite('Rust server real sockets', () => {
         createElement() {
           const options: HTMLElement[] = [];
           const element = { dataset: {}, value: '', checked: false, options,
+            addEventListener() {},
             appendChild(child: HTMLElement) { options.push(child); } } as unknown as HTMLInputElement;
           inputs.push(element);
           return element;

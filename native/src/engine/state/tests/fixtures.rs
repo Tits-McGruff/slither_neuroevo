@@ -300,6 +300,7 @@ pub(super) fn candidate(graph: &CompiledGraph, count: usize) -> StateCandidate {
                 "sha256:3333333333333333333333333333333333333333333333333333333333333333".into(),
             math_backend: "rust-scalar-v1".into(),
             legacy_conversion: None,
+            founder: None,
         },
         config,
         phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),

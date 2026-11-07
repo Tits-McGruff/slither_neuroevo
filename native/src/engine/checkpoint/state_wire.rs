@@ -238,7 +238,11 @@ pub(super) fn encode_state(
 ) -> Result<Vec<u8>, CheckpointError> {
     let mut output = BinaryWriter::new(limits.max_state_bytes, limits);
     output.raw(STATE_MAGIC)?;
-    output.u32(STATE_ENCODING_WITH_LEGACY_ORIGIN)?;
+    output.u32(if state.identity.founder.is_some() {
+        STATE_ENCODING_WITH_FOUNDER
+    } else {
+        STATE_ENCODING_WITH_LEGACY_ORIGIN
+    })?;
     let versions = &state.versions;
     for value in [
         versions.state,
@@ -277,6 +281,15 @@ pub(super) fn encode_state(
                 .map_err(|error| CheckpointError::format("LEGACY_ORIGIN", error))?;
             output.string(&encoded)?;
         }
+    }
+    if let Some(origin) = &state.identity.founder {
+        origin
+            .validate()
+            .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error))?;
+        output.string(
+            &serde_json::to_string(origin)
+                .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error.to_string()))?,
+        )?;
     }
     Ok(output.finish())
 }
@@ -538,7 +551,13 @@ pub(super) fn decode_state(
         ));
     }
     let state_encoding = input.u32()?;
-    if state_encoding != CHECKPOINT_VERSION && state_encoding != STATE_ENCODING_WITH_LEGACY_ORIGIN {
+    if ![
+        CHECKPOINT_VERSION,
+        STATE_ENCODING_WITH_LEGACY_ORIGIN,
+        STATE_ENCODING_WITH_FOUNDER,
+    ]
+    .contains(&state_encoding)
+    {
         return Err(CheckpointError::format(
             "STATE_VERSION",
             "unsupported checkpoint state encoding",
@@ -569,7 +588,7 @@ pub(super) fn decode_state(
     let generation = decode_generation(&mut input)?;
     let rng = decode_rng_bundle(&mut input, limits)?;
     let allocators = decode_allocators(&mut input)?;
-    if state_encoding == STATE_ENCODING_WITH_LEGACY_ORIGIN {
+    if state_encoding >= STATE_ENCODING_WITH_LEGACY_ORIGIN {
         identity.legacy_conversion = match input.u8()? {
             0 => None,
             1 => Some(
@@ -585,6 +604,15 @@ pub(super) fn decode_state(
                 ))
             }
         };
+    }
+    if state_encoding == STATE_ENCODING_WITH_FOUNDER {
+        let origin: crate::engine::founder::FounderOrigin =
+            serde_json::from_str(&input.string_bounded(512)?)
+                .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error.to_string()))?;
+        origin
+            .validate()
+            .map_err(|error| CheckpointError::format("FOUNDER_ORIGIN", error))?;
+        identity.founder = Some(origin);
     }
     input.finish()?;
     Ok(DecodedStateParts {
@@ -604,6 +632,7 @@ pub(super) fn decode_identity(
 ) -> Result<RunIdentity, CheckpointError> {
     Ok(RunIdentity {
         legacy_conversion: None,
+        founder: None,
         run_id: input.string()?,
         seed: input.u32()?,
         config_revision: input.u64()?,

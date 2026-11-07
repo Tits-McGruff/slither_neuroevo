@@ -302,34 +302,7 @@ fn prepare_configured_fresh_boundary(
     graph: GraphSpec,
     math: InferenceMathBackend,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
-    if !math.is_available() {
-        return Err(FreshRunError::Settings(format!(
-            "inference backend {} is unavailable on this CPU",
-            math.label()
-        )));
-    }
-    let defaults;
-    let settings = if settings.is_empty() {
-        defaults = numeric_fresh_settings(selected_fresh_default_settings()?);
-        defaults.as_slice()
-    } else {
-        settings
-    };
-    let modern = settings.is_empty()
-        || settings
-            .iter()
-            .any(|setting| setting.path == "evolvedRespawn.contractVersion");
-    let mut prepared = if settings
-        .iter()
-        .any(|setting| setting.path == "sense.layoutVersion" && setting.value == 4.0)
-    {
-        prepare_configured_v4_boundary(request, settings, graph, modern)?
-    } else {
-        prepare_fresh_boundary(request, settings, graph, modern)?
-    };
-    prepared.candidate.identity.math_backend = math.label().into();
-    prepared.admission_policy.expected_math_backend = math.label().into();
-    Ok(prepared)
+    prepare_configured_boundary_with_founder(request, settings, graph, math, None)
 }
 
 /// Explicit v4 Reset/New Run selection. No qualification-only constructor or
@@ -340,6 +313,7 @@ fn prepare_configured_v4_boundary(
     settings: &[FreshRunSettingUpdate],
     graph: GraphSpec,
     modern: bool,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
     if settings.len() > 128 {
         return Err(FreshRunError::Settings(
@@ -446,7 +420,7 @@ fn prepare_configured_v4_boundary(
         })
         .cloned()
         .collect::<Vec<_>>();
-    prepare_fresh_boundary_with_sensor_and_baseline(
+    prepare_boundary_with_founder(
         request,
         &replacements,
         graph,
@@ -457,6 +431,7 @@ fn prepare_configured_v4_boundary(
             ..RunningStepWorkLimits::provisional_defaults()
         },
         baseline,
+        founder,
     )
 }
 
@@ -966,7 +941,7 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
     work_limits: RunningStepWorkLimits,
     baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
-    initialize_fresh_boundary(prepare_fresh_boundary_shell(
+    prepare_boundary_with_founder(
         request,
         replacement_settings,
         graph_spec,
@@ -974,8 +949,8 @@ fn prepare_fresh_boundary_with_sensor_and_baseline(
         sensor_contract,
         work_limits,
         baseline_v2,
-        production_checkpoint_limits(),
-    )?)
+        None,
+    )
 }
 
 /// Metadata-only inputs; numeric boxes are initialized only after complete shape admission.
@@ -1146,68 +1121,11 @@ fn prepare_fresh_boundary_shell(
 }
 
 /// Enforce the existing production preflight before allocating a single numeric box.
+#[cfg(any(test, feature = "engine-test-hooks"))]
 fn initialize_fresh_boundary(
     shell: FreshBoundaryShell,
 ) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
-    let FreshBoundaryShell {
-        mut candidate,
-        graph,
-        admission_policy,
-        checkpoint_limits,
-        graph_limits,
-        work_limits,
-        initialization,
-    } = shell;
-    let population_count = candidate.config.population_count;
-    let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
-        FreshRunError::ArithmeticOverflow {
-            context: "fresh-run population weight count",
-        },
-    )?;
-    let recurrent_floats = population_count.checked_mul(graph.total_state_size).ok_or(
-        FreshRunError::ArithmeticOverflow {
-            context: "fresh-run population recurrent count",
-        },
-    )?;
-    if candidate.population.len() > checkpoint_limits.max_population_count
-        || weight_floats > checkpoint_limits.max_weight_floats
-        || recurrent_floats > checkpoint_limits.max_recurrent_floats
-    {
-        return Err(FreshRunError::ProfileInvariant {
-            reason: "fresh-run numeric shape exceeds its checkpoint limits",
-        });
-    }
-    preflight_generation_boundary_allocation(
-        &candidate,
-        &graph,
-        weight_floats,
-        recurrent_floats,
-        &admission_policy,
-    )?;
-    let decoded_bytes = boundary_decoded_byte_count(
-        &candidate,
-        graph.spec(),
-        graph.compiled(),
-        &checkpoint_limits,
-    )?;
-    if decoded_bytes > checkpoint_limits.max_total_decoded_bytes {
-        return Err(FreshRunError::CheckpointTooLarge {
-            decoded_bytes,
-            limit_bytes: checkpoint_limits.max_total_decoded_bytes,
-            population_count,
-            parameters_per_genome: graph.total_parameters,
-        });
-    }
-    initialize_population_numeric(&mut candidate, graph.compiled(), initialization)?;
-
-    Ok(PreparedStage6aP0Boundary {
-        candidate,
-        graph,
-        admission_policy,
-        checkpoint_limits,
-        graph_limits,
-        work_limits,
-    })
+    initialize_boundary_with_founder(shell, None)
 }
 
 /// Audit or allocate an explicit offline checkpoint candidate through the ordinary constructor.
@@ -1435,6 +1353,7 @@ fn boundary_shell(
             build_contract_sha256: crate::native_addon_build_contract_sha256(),
             math_backend: InferenceMathBackend::Scalar.label().to_owned(),
             legacy_conversion: None,
+            founder: None,
         },
         config,
         phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),
@@ -1480,11 +1399,28 @@ fn initialize_population_numeric(
     candidate: &mut StateCandidate,
     graph: &super::graph::CompiledGraph,
     initialization: GenomeInitializationConfig,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
 ) -> Result<(), FreshRunError> {
     let mut continuation = candidate.rng.evolution.clone();
     for (genome, brain) in candidate.population.iter_mut().zip(&mut candidate.brains) {
-        let initialized = initialize_random_genome(graph, &continuation, initialization)?;
-        let (weights, next_rng) = initialized.into_parts();
+        let (weights, next_rng) = if let Some(founder) = founder {
+            let mut weights = reserve_vec(graph.total_parameters, "founder genome")?;
+            weights.extend_from_slice(&founder.weights);
+            let mut rng = super::rng::StatefulRng::from_state(&continuation)
+                .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+            if genome.slot != 0 {
+                let config = super::step_config::project_evolution_config(
+                    &candidate.config,
+                    graph.total_parameters,
+                )?;
+                super::evolution::mutate(&mut weights, graph, config, &mut rng)
+                    .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+                genome.lineage.parent_a = Some(1);
+            }
+            (weights, rng.export_state())
+        } else {
+            initialize_random_genome(graph, &continuation, initialization)?.into_parts()
+        };
         genome.weights = weights.into_boxed_slice();
         brain.recurrent = zeroed_box(graph.total_state_size, "P0 recurrent state")?;
         continuation = next_rng;
@@ -1652,3 +1588,249 @@ impl From<RunStartTransitionError> for FreshRunError {
 
 #[cfg(test)]
 mod tests;
+
+/// Build a founder lineage from an explicitly leased saved portable artifact.
+/// Source bytes and decoder staging are charged alongside the held live authority.
+pub fn prepare_saved_brain_founder_run(
+    mut request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+    directory: &std::path::Path,
+    brain_id: &str,
+) -> Result<PendingRunStartTransition, FreshRunError> {
+    let identity = super::founder::FounderOrigin {
+        schema_version: 1,
+        mode: super::founder::FounderMode::ExactFounderMutatedDescendantsV1,
+        artifact_sha256: brain_id.into(),
+        weights_sha256: "0".repeat(64),
+    };
+    identity
+        .validate()
+        .map_err(|error| FreshRunError::Settings(error.into()))?;
+    // Full portable bytes, decoded weights, manifest/graph and bounded codec scratch.
+    let staging_bytes = super::brain_artifact::MAX_BRAIN_ARTIFACT_BYTES
+        + crate::contracts::MAX_BRAIN_PARAMETERS * 4
+        + 16 * MIB;
+    let ceiling = request.memory_ceiling_bytes;
+    request.memory_ceiling_bytes = ceiling
+        .checked_sub(staging_bytes)
+        .ok_or_else(|| FreshRunError::Settings("founder source exceeds memory admission".into()))?;
+    let bytes = super::brain_library::read_artifact_file(
+        &directory.join(format!("{brain_id}.slither-brain")),
+    )
+    .map_err(FreshRunError::Settings)?;
+    let artifact =
+        super::brain_artifact::validate_brain_artifact(&bytes).map_err(FreshRunError::Settings)?;
+    if artifact.artifact_sha256 != brain_id {
+        return Err(FreshRunError::Settings(
+            "founder artifact identity mismatch".into(),
+        ));
+    }
+    let mut prepared =
+        prepare_configured_boundary_with_founder(request, settings, graph, math, Some(&artifact))?;
+    drop(artifact);
+    drop(bytes);
+    prepared.admission_policy.memory_ceiling_bytes = ceiling;
+    PendingRunStartTransition::admit(
+        prepared.candidate,
+        prepared.graph,
+        prepared.admission_policy,
+        prepared.checkpoint_limits,
+        prepared.graph_limits,
+        prepared.work_limits,
+    )
+    .map_err(FreshRunError::from)
+}
+
+fn validate_founder_contract(
+    candidate: &StateCandidate,
+    graph: &GraphBundle,
+    founder: &super::brain_artifact::ValidatedBrainArtifact,
+) -> Result<(), FreshRunError> {
+    if graph.architecture_key != founder.graph.architecture_key {
+        return Err(FreshRunError::Settings(
+            "founder graph does not match the selected graph".into(),
+        ));
+    }
+    let sensor =
+        super::sensor_contract::SensorContractIdentity::from_settings(&candidate.config.settings)
+            .and_then(|sensor| sensor.sha256_hex())
+            .map_err(|error| FreshRunError::Settings(error.to_string()))?;
+    if sensor != founder.canonical_manifest.sensor_sha256 {
+        return Err(FreshRunError::Settings(
+            "founder structural sensors do not match".into(),
+        ));
+    }
+    let cadence = candidate
+        .config
+        .settings
+        .iter()
+        .find(|setting| setting.path == "brain.controlDt");
+    if !matches!(cadence.map(|entry| &entry.value), Some(NormalizedSettingValue::Float(value))
+        if value.to_bits() == founder.deployment.control_interval_seconds.to_bits())
+    {
+        return Err(FreshRunError::Settings(
+            "founder neural cadence does not match".into(),
+        ));
+    }
+    let preserve = candidate.config.settings.iter().any(|setting| {
+        setting.path == "evolvedRespawn.recurrentState"
+            && setting.value == NormalizedSettingValue::Integer(1)
+    });
+    if preserve
+        != (founder.deployment.life_state_rule
+            == super::training_graph::TrainingLifeStateRule::Preserve)
+    {
+        return Err(FreshRunError::Settings(
+            "founder memory across lives rule does not match".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn prepare_configured_boundary_with_founder(
+    request: Stage6aP0FreshRunRequest,
+    settings: &[FreshRunSettingUpdate],
+    graph: GraphSpec,
+    math: InferenceMathBackend,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    if !math.is_available() {
+        return Err(FreshRunError::Settings(format!(
+            "inference backend {} is unavailable on this CPU",
+            math.label()
+        )));
+    }
+    let defaults;
+    let settings = if settings.is_empty() {
+        defaults = numeric_fresh_settings(selected_fresh_default_settings()?);
+        defaults.as_slice()
+    } else {
+        settings
+    };
+    let modern = settings.is_empty()
+        || settings
+            .iter()
+            .any(|setting| setting.path == "evolvedRespawn.contractVersion");
+    let mut prepared = if settings
+        .iter()
+        .any(|setting| setting.path == "sense.layoutVersion" && setting.value == 4.0)
+    {
+        prepare_configured_v4_boundary(request, settings, graph, modern, founder)?
+    } else {
+        prepare_boundary_with_founder(
+            request,
+            settings,
+            graph,
+            modern,
+            None,
+            RunningStepWorkLimits::provisional_defaults(),
+            None,
+            founder,
+        )?
+    };
+    prepared.candidate.identity.math_backend = math.label().into();
+    prepared.admission_policy.expected_math_backend = math.label().into();
+    Ok(prepared)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_boundary_with_founder(
+    request: Stage6aP0FreshRunRequest,
+    replacement_settings: &[FreshRunSettingUpdate],
+    graph_spec: GraphSpec,
+    modern: bool,
+    sensor_contract: Option<super::sensor_contract::SensorContractIdentity>,
+    work_limits: RunningStepWorkLimits,
+    baseline_v2: Option<super::baseline_v2::BaselineV2Settings>,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    initialize_boundary_with_founder(
+        prepare_fresh_boundary_shell(
+            request,
+            replacement_settings,
+            graph_spec,
+            modern,
+            sensor_contract,
+            work_limits,
+            baseline_v2,
+            production_checkpoint_limits(),
+        )?,
+        founder,
+    )
+}
+
+fn initialize_boundary_with_founder(
+    shell: FreshBoundaryShell,
+    founder: Option<&super::brain_artifact::ValidatedBrainArtifact>,
+) -> Result<PreparedStage6aP0Boundary, FreshRunError> {
+    let FreshBoundaryShell {
+        mut candidate,
+        graph,
+        admission_policy,
+        checkpoint_limits,
+        graph_limits,
+        work_limits,
+        initialization,
+    } = shell;
+    if let Some(founder) = founder {
+        validate_founder_contract(&candidate, &graph, founder)?;
+        candidate.identity.founder = Some(super::founder::FounderOrigin {
+            schema_version: 1,
+            mode: super::founder::FounderMode::ExactFounderMutatedDescendantsV1,
+            artifact_sha256: founder.artifact_sha256.clone(),
+            weights_sha256: founder.weights_sha256.clone(),
+        });
+    }
+    let population_count = candidate.config.population_count;
+    let weight_floats = population_count.checked_mul(graph.total_parameters).ok_or(
+        FreshRunError::ArithmeticOverflow {
+            context: "fresh-run population weight count",
+        },
+    )?;
+    let recurrent_floats = population_count.checked_mul(graph.total_state_size).ok_or(
+        FreshRunError::ArithmeticOverflow {
+            context: "fresh-run population recurrent count",
+        },
+    )?;
+    if candidate.population.len() > checkpoint_limits.max_population_count
+        || weight_floats > checkpoint_limits.max_weight_floats
+        || recurrent_floats > checkpoint_limits.max_recurrent_floats
+    {
+        return Err(FreshRunError::ProfileInvariant {
+            reason: "fresh-run numeric shape exceeds its checkpoint limits",
+        });
+    }
+    preflight_generation_boundary_allocation(
+        &candidate,
+        &graph,
+        weight_floats,
+        recurrent_floats,
+        &admission_policy,
+    )?;
+    let decoded_bytes = boundary_decoded_byte_count(
+        &candidate,
+        graph.spec(),
+        graph.compiled(),
+        &checkpoint_limits,
+    )?;
+    if decoded_bytes > checkpoint_limits.max_total_decoded_bytes {
+        return Err(FreshRunError::CheckpointTooLarge {
+            decoded_bytes,
+            limit_bytes: checkpoint_limits.max_total_decoded_bytes,
+            population_count,
+            parameters_per_genome: graph.total_parameters,
+        });
+    }
+    initialize_population_numeric(&mut candidate, graph.compiled(), initialization, founder)?;
+
+    Ok(PreparedStage6aP0Boundary {
+        candidate,
+        graph,
+        admission_policy,
+        checkpoint_limits,
+        graph_limits,
+        work_limits,
+    })
+}

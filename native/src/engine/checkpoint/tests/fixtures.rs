@@ -239,6 +239,7 @@ pub(super) fn admitted_state(
         build_contract_sha256: format!("sha256:{}", "2".repeat(64)),
         math_backend: "scalar-test".into(),
         legacy_conversion: None,
+        founder: None,
     };
     // Keep the assignment explicit if config construction changes in a future fixture.
     config.graph_architecture_key = graph.architecture_key.clone();

@@ -1046,6 +1046,7 @@ fn build_fixture(
             build_contract_sha256: build_contract_sha256.clone(),
             math_backend: math_backend.label().to_owned(),
             legacy_conversion: None,
+            founder: None,
         },
         config,
         phase: AuthorityPhase::Running,

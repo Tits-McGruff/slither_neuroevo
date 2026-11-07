@@ -78,15 +78,18 @@ export async function until(peer: Peer, predicate: () => boolean): Promise<void>
 /** Read small fixture payloads over real HTTP on any OS-assigned port.
  * Node fetch applies browser unsafe-port blocking even to disposable local servers.
  */
-export async function manualFixtureHttp(url: string, body?: Uint8Array): Promise<{ status: number; bytes: Buffer }> {
+export async function manualFixtureHttp(url: string, body?: Uint8Array, contentType = 'application/octet-stream'): Promise<{ status: number; bytes: Buffer }> {
   return new Promise((done, reject) => {
-    const request = httpRequest(url, { method: body ? 'POST' : 'GET' }, response => {
+    // Cold native work can outlive the server's idle keep-alive timeout. Each
+    // fixture transfer owns a fresh socket instead of racing reuse of a closed one.
+    const request = httpRequest(url, { method: body ? 'POST' : 'GET', agent: false,
+      headers: body ? {'Content-Type': contentType, 'Content-Length': body.byteLength} : {} }, response => {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => chunks.push(chunk));
       response.once('error', reject);
       response.once('end', () => done({ status: response.statusCode ?? 0, bytes: Buffer.concat(chunks) }));
     });
-    request.once('error', reject);
+    request.once('error', error => reject(new Error(`fixture HTTP request failed: ${url}`, {cause: error})));
     request.end(body);
   });
 }

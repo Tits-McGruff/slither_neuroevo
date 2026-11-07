@@ -31,7 +31,8 @@ it('accepts the production ceiling and rejects one parameter above it', async ()
   }
 });
 
-it('reuses the exact request after an uncertain response and verifies the receipt scope', async () => {
+it('spawns over LAN HTTP without randomUUID and reuses the exact request after an uncertain response', async () => {
+  vi.stubGlobal('crypto', {getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto)});
   const bodies: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
     if (!init?.body) return response(PAGE);
@@ -45,6 +46,7 @@ it('reuses the exact request after an uncertain response and verifies the receip
   await expect(client.spawn(ID)).rejects.toThrow(/pending/);
   const receipt = await client.retrySpawn();
   expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
+  expect(JSON.parse(bodies[0]!).requestId).toMatch(/^[0-9a-f]{32}$/u);
   expect(client.hasPendingSpawn()).toBe(false);
   expect(await client.isCurrent(receipt)).toBe(true);
   expect(await client.isCurrent({...receipt, expectedWorldEpoch: '000000000000000a'})).toBe(false);

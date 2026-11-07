@@ -80,8 +80,17 @@ class FakeElement {
   querySelectorAll(): FakeElement[] {
     return this.children.flatMap(child => [...(child.dataset['path'] ? [child] : []), ...child.querySelectorAll()]);
   }
-  /** No-op event listener registration for the stub. */
-  addEventListener(): void {}
+  /** Retain ordinary input and preset events so their shared draft flow is exercised. */
+  private listeners = new Map<string, Array<() => void>>();
+  /** Register one ordinary settings/preset listener. */
+  addEventListener(name: string, listener: () => void): void {
+    this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener]);
+  }
+  /** Deliver a synthetic DOM event through the same listeners as user input. */
+  dispatchEvent(event: Event): boolean {
+    for (const listener of this.listeners.get(event.type) ?? []) listener();
+    return true;
+  }
 }
 
 describe('settings.ts', () => {
@@ -105,6 +114,62 @@ describe('settings.ts', () => {
     const container = new FakeElement('div');
     buildSettingsUI(container as unknown as HTMLElement);
     expect(container.children.length).toBeGreaterThan(0);
+  });
+
+  it('preserves recorded cadence and uses an explicit exact 60 Hz preset through live/reset drafts', () => {
+    const original = structuredClone(CFG);
+    try {
+      CFG.brain.controlDt = 0.017; CFG.baselineBots.controlDt = 0.023;
+      CFG.sense.layoutVersion = 'v4'; CFG.baselineBots.algorithm = 2;
+      const panel = new FakeElement('div'); const root = panel as unknown as HTMLElement;
+      buildSettingsUI(root); applyValuesToSlidersFromCFG(root);
+      const input = (path: string) => panel.querySelectorAll().find(control => control.dataset['path'] === path)!;
+      const descendants = (node: FakeElement): FakeElement[] => node.children.flatMap(child => [child, ...descendants(child)]);
+      const preset = (path: string) => descendants(panel).find(control => control.dataset['settingPreset'] === path)!;
+      const brain = input('brain.controlDt'); const teacher = input('baselineBots.controlDt');
+      expect(brain.type).toBe('number');
+      expect((brain as unknown as HTMLInputElement).step).toBe('any');
+      expect((teacher as unknown as HTMLInputElement).step).toBe('any');
+      expect(brain.value).toBe('0.017'); expect(teacher.value).toBe('0.023');
+      const live = vi.fn(); hookSliderEvents(root, live);
+      preset('brain.controlDt').dispatchEvent(new Event('click'));
+      expect(brain.value).toBe(String(1 / 60));
+      expect(live).toHaveBeenCalledExactlyOnceWith(brain);
+      const update = collectSettingsUpdates(root).find(value => value.path === 'brain.controlDt')!;
+      expect(JSON.parse(JSON.stringify(update))).toEqual({path: 'brain.controlDt', value: 1 / 60});
+      preset('baselineBots.controlDt').dispatchEvent(new Event('click'));
+      expect(teacher.value).toBe(String(1 / 60)); expect(live).toHaveBeenCalledTimes(1);
+      updateCFGFromUI(root);
+      expect(CFG.brain.controlDt).toBe(1 / 60); expect(CFG.baselineBots.controlDt).toBe(1 / 60);
+      applyValuesToSlidersFromCFG(root);
+      expect(brain.value).toBe(String(1 / 60)); expect(teacher.value).toBe(String(1 / 60));
+      brain.disabled = true;
+      brain.value = '0.017'; preset('brain.controlDt').dispatchEvent(new Event('click'));
+      expect(brain.value).toBe('0.017'); expect(live).toHaveBeenCalledTimes(1);
+    } finally { Object.assign(CFG, original); }
+  });
+
+  it('displays exact cadence and rejects empty, nonfinite and out-of-bounds live/reset drafts', () => {
+    const original = structuredClone(CFG);
+    try {
+      const brain = createSettingControl({group: 'Brain', path: 'brain.controlDt', label: 'Cadence',
+        type: 'number', step: 'any', min: 0.008, max: 0.06, requiresReset: false}) as unknown as FakeElement;
+      const root = {querySelectorAll: () => [brain]} as unknown as HTMLElement;
+      const output = {textContent: ''} as HTMLElement;
+      globalAny.document.getElementById = () => output;
+      CFG.brain.controlDt = 1 / 60; applyValuesToSlidersFromCFG(root);
+      expect(output.textContent).toBe(String(1 / 60));
+      const live = vi.fn(); hookSliderEvents(root, live);
+      for (const value of ['', 'NaN', 'Infinity', '0.0079', '0.0601', '0.16']) {
+        brain.value = value; brain.dispatchEvent(new Event('input'));
+        expect(live).not.toHaveBeenCalled(); expect(brain.validationMessage).not.toBe('');
+        expect(validateSettingDrafts(root)).toBe(false);
+        updateCFGFromUI(root); expect(CFG.brain.controlDt).toBe(1 / 60);
+      }
+      brain.value = '0.017'; brain.dispatchEvent(new Event('input'));
+      expect(validateSettingDrafts(root)).toBe(true);
+      expect(collectSettingsUpdates(root)).toContainEqual({path: 'brain.controlDt', value: 0.017});
+    } finally { Object.assign(CFG, original); }
   });
 
   /**

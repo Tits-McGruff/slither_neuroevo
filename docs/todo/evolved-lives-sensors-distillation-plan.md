@@ -227,7 +227,7 @@ Confirmed product choices remain:
 - Normal/None/Subtract replacement-mass corpse rules;
 - Fail/Discard-new-excess pellet overflow, with explicit respawn preset selecting Discard;
 - separate PyRL/PyTorch CUDA trainer using the canonical graph;
-- founders, DAgger and exact mid-generation recovery remain future projects.
+- DAgger and exact mid-generation recovery remain future projects.
 
 ## 3. Stage A - duration parsing and manual completion
 
@@ -423,6 +423,14 @@ Managed retained neural objects remain shared beneath HoF/saved-brain consumers,
 
 Saved records retain graph/key/weights, structural sensor/cadence and relevant provenance/metrics. Distilled brains are saved-brain artifacts, not HoF winners. Candidates do not automatically populate the library.
 
+Saved-brain founders use an explicit library New Run action: one exact founder in
+slot zero and ordinary configured mutations of that source in the remaining slots.
+They are population genomes and participate in the existing life/fitness/evolution
+rules. Reset repeats this initialization with the recorded seed while the saved source
+remains available. Source artifact/weight identities and the versioned mode persist
+through generation checkpoints and archives. No foreign mid-generation insertion is
+introduced. Alternative founder modes remain separate future work.
+
 Portable `.slither-brain` remains a bounded versioned artifact containing the graph/spec/digest, sensor/deployment contract, canonical Float32 weights/counts/encoding/digests and compact provenance. Rust independently recompiles/validates finite values, graph layout, width/count and digest. Browser/Node route bytes rather than interpreting trained models.
 
 The structural brain-artifact format, identity/version fields and canonical hashing belong in the shared contracts layer where practical. Runtime spawn semantics, world identity, safe placement and catalog behavior remain Slither-specific.
@@ -466,7 +474,7 @@ Compatibility code should preserve old runtime data formats that users actually 
 | H | shadows/training/jobs | Manifest parity and bounded datasets |
 | I | library/artifacts/spawn | Qualified candidates and managed retained objects |
 | J | inspector/integrated capacity | Incremental diagnostics; manual/release integrated capacity/performance/soak |
-| Future | founders/DAgger/exact recovery | Separate explicit projects |
+| Future | DAgger/exact recovery | Separate explicit projects |
 
 Required behavioral coverage remains focused on:
 
@@ -555,8 +563,6 @@ Inactive/incompatible controls explain constraints rather than silently coercing
 Graph/sensor/teacher/cadence/life rule remain immutable job identities. Start/stop/activate/save/import/export/finish remain explicit commands rather than hidden setting mutation.
 
 ## 19. Separate future stages
-
-Founders remain a separate Reset/New Run feature using compatible saved brains and ordinary mutation/evolution RNG. No foreign mid-generation insertion is introduced by this plan.
 
 DAgger remains a future student-controlled/advisory-teacher mode using the same committed sample contract without a second simulator.
 

@@ -1,4 +1,7 @@
 import Database from 'better-sqlite3';
+import { largeBrainFixture } from './test/largeBrainFixture.ts';
+import { manualFixtureHttp, replacementUntil } from './rustServerFixture.ts';
+import { fixtureArchiveDownload } from './test/archiveDownload.ts';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdtemp,readdir,readFile,rm,stat,writeFile } from 'node:fs/promises';
@@ -1061,4 +1064,105 @@ describeNetworkSuite('Rust server real sockets', () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);
+  it('starts a production-sized saved-brain founder population through durable New Run and preserves it across evolution and archive restore', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slither-rust-founders-'));
+    const dbPath = join(root, 'founders.sqlite');
+    let server: Awaited<ReturnType<typeof startRustServer>> | undefined;
+    const peers: Peer[] = [];
+    try {
+      server = await startRustServer({...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 42, rustCalculationWorkers: 1, dbPath});
+      const viewer = await connect(server.port, 'ui'); peers.push(viewer);
+      await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'welcome'));
+      viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator'}));
+      const graphSpec = JSON.parse(await readFile(resolve('native/fixtures/production-large-graph.json'), 'utf8'));
+      viewer.socket.send(JSON.stringify({type: 'reset', graphSpec, settings: {snakeCount: 3, simSpeed: 0.1}, updates: [
+        {path: 'baselineBots.count', value: 0}, {path: 'brain.controlDt', value: 1 / 60},
+        {path: 'evolvedRespawn.recurrentState', value: 0}, {path: 'evolvedRespawn.enabled', value: 1},
+        {path: 'evolvedRespawn.delaySeconds', value: 0}, {path: 'evolvedRespawn.maxLives', value: 2}]}));
+      const initial = await replacementUntil(viewer, server.port, 'reset');
+      viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken}));
+      const bytes = largeBrainFixture(); const brainId = createHash('sha256').update(bytes).digest('hex');
+      const base = `http://127.0.0.1:${server.port}`;
+      const uploaded = await manualFixtureHttp(`${base}/api/distillation/v1/candidates/${brainId}`, bytes);
+      expect(uploaded.status, uploaded.bytes.toString()).toBe(201);
+      const saved = await manualFixtureHttp(`${base}/api/distillation/v1/library/${brainId}/save`, Buffer.from(JSON.stringify({name: 'evolving founder'})), 'application/json');
+      expect(saved.status, saved.bytes.toString()).toBe(201);
+      const savedRecord = JSON.parse(saved.bytes.toString());
+      const selection = async () => {
+        const status = JSON.parse((await manualFixtureHttp(`${base}/api/distillation/v1/library`)).bytes.toString());
+        return {brainId, expectedProcessEpoch: status.processEpoch, ...status.scope};
+      };
+      viewer.socket.send(JSON.stringify({type: 'newRun', requestId: 'stale-founder', founder: {...await selection(), expectedRunId: 'stale'}}));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'stale-founder'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'stale-founder')).toMatchObject({applied: false, reason: expect.stringContaining('scope')});
+      const unchanged = JSON.parse((await manualFixtureHttp(`${base}/api/health`)).bytes.toString());
+      expect(unchanged).toMatchObject({ok: true, runId: initial.runId, loopState: 'ready'});
+      const failedCommit = vi.spyOn(CheckpointPersistenceClient.prototype, 'commit')
+        .mockRejectedValueOnce(new Error('founder commit injection'));
+      try {
+        viewer.socket.send(JSON.stringify({type: 'newRun', requestId: 'reject-founder-commit', founder: await selection()}));
+        await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'reject-founder-commit'));
+        expect(viewer.packets.findLast(packet => packet['requestId'] === 'reject-founder-commit')).toMatchObject({applied: false, reason: 'founder commit injection'});
+      } finally { failedCommit.mockRestore(); }
+      expect(JSON.parse((await manualFixtureHttp(`${base}/api/health`)).bytes.toString()))
+        .toMatchObject({ok: true, runId: initial.runId, loopState: 'ready'});
+      const preserved = await manualFixtureHttp(`${base}/api/distillation/v1/library/${brainId}/export`);
+      expect(preserved.status).toBe(200); expect(preserved.bytes.equals(bytes)).toBe(true);
+      viewer.packets.length = 0;
+      const chosen = await selection();
+      viewer.socket.send(JSON.stringify({type: 'newRun', requestId: 'start-founders', founder: chosen}));
+      const founded = await replacementUntil(viewer, server.port, 'newRun');
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'start-founders'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'start-founders')).toMatchObject({applied: true});
+      expect(founded.runId).not.toBe(initial.runId);
+      const origin = {schemaVersion: 1, mode: 'exact-founder-mutated-descendants-v1', artifactSha256: brainId, weightsSha256: savedRecord.artifact.weightsSha256};
+      expect(founded.founder).toEqual(origin);
+      expect(founded.settings.core.snakeCount).toBe(3);
+      viewer.socket.send(JSON.stringify({type: 'join', mode: 'spectator', rejoinToken: viewer.rejoinToken}));
+      const selected = await selectPhysical(viewer, 'select-founder-population', {populationSlot: 0});
+      expect(selected.populationSlot).toBe(0);
+      expect(selected.retainedOrigin ?? null).toBeNull();
+      viewer.socket.send(JSON.stringify({type: 'godMode', action: 'kill', requestId: 'kill-founder-life', snakeId: selected.snakeId, selectionToken: selected.token}));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'kill-founder-life'));
+      let attempt = 0;
+      await vi.waitFor(async () => {
+        const life = await selectPhysical(viewer, 'respawn-founder-' + ++attempt, {populationSlot: 0});
+        expect(life.snakeId).not.toBe(selected.snakeId);
+        expect(life.lifeOrdinal).toBe('0000000000000002');
+      }, {timeout: 5000, interval: 100});
+      // Repeating a scoped start after publication cannot seed a second new run.
+      viewer.socket.send(JSON.stringify({type: 'newRun', requestId: 'duplicate-founder', founder: chosen}));
+      await until(viewer, () => viewer.packets.some(packet => packet['requestId'] === 'duplicate-founder'));
+      expect(viewer.packets.findLast(packet => packet['requestId'] === 'duplicate-founder')).toMatchObject({applied: false});
+      viewer.socket.send(JSON.stringify({type: 'finishGeneration', requestId: 'evolve-founders', expectedRunId: founded.runId, expectedGeneration: 1}));
+      const evolved = await healthUntil(server.port, health => health['generation'] === '0000000000000002' && health['loopState'] === 'ready');
+      expect(evolved['founder']).toEqual(origin);
+      const exported = await fixtureArchiveDownload(server.port, 'founder evolution');
+      expect(exported.status).toBe(200);
+      const archive = new Uint8Array(await exported.arrayBuffer());
+      for (const peer of peers) peer.socket.terminate(); peers.length = 0;
+      await server.close();
+      server = await startRustServer({...DEFAULT_CONFIG, port: 0, resume: 'latest', rustCalculationWorkers: 1, dbPath});
+      expect(server.startupFault).toBeUndefined();
+      const restarted = JSON.parse((await manualFixtureHttp(`http://127.0.0.1:${server.port}/api/health`)).bytes.toString());
+      expect(restarted).toMatchObject({ok: true, runId: founded.runId, generation: '0000000000000002', founder: origin});
+      const resetPeer = await connect(server.port, 'ui'); peers.push(resetPeer);
+      await until(resetPeer, () => resetPeer.packets.some(packet => packet['type'] === 'welcome'));
+      resetPeer.socket.send(JSON.stringify({type: 'join', mode: 'spectator'}));
+      resetPeer.socket.send(JSON.stringify({type: 'reset'}));
+      const repeated = await replacementUntil(resetPeer, server.port, 'reset');
+      expect(repeated.founder).toEqual(origin);
+      expect(repeated.worldSeed).toBe(founded.worldSeed);
+      expect(JSON.parse((await manualFixtureHttp(`http://127.0.0.1:${server.port}/api/distillation/v1/library/${brainId}`)).bytes.toString()).brainId).toBe(brainId);
+      for (const peer of peers) peer.socket.terminate(); peers.length = 0;
+      await server.close();
+      server = await startRustServer({...DEFAULT_CONFIG, port: 0, resume: 'fresh', seed: 99, rustCalculationWorkers: 1, dbPath: join(root, 'imported.sqlite')});
+      const imported = await manualFixtureHttp(`http://127.0.0.1:${server.port}/api/import/archive`, archive);
+      expect(imported.status, imported.bytes.toString()).toBe(200);
+      expect(JSON.parse((await manualFixtureHttp(`http://127.0.0.1:${server.port}/api/health`)).bytes.toString())).toMatchObject({ok: true, founder: origin, generation: '0000000000000002'});
+    } finally {
+      for (const peer of peers) peer.socket.terminate();
+      await server?.close(); await rm(root, {recursive: true, force: true});
+    }
+  }, 60_000);
 });

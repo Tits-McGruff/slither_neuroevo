@@ -190,6 +190,14 @@ export interface NewRunMsg {
   type: 'newRun';
   /** Client-generated correlation id. */
   requestId: string;
+  /** Explicit saved source and applied scope; omitted for ordinary random initialization. */
+  founder?: SavedBrainFounderSelectionV1;
+}
+
+/** Selected saved-brain membership and exact authority observed by the user. */
+export interface SavedBrainFounderSelectionV1 extends SavedBrainDeploymentScopeV1 {
+  brainId: string;
+  expectedProcessEpoch: string;
 }
 
 /** Union of all client-to-server message shapes. */
@@ -242,6 +250,8 @@ export interface WelcomeMsg {
   importBranch?: RustImportBranchNotice;
   /** Honest population-only provenance when startup converted an old SQLite checkpoint. */
   legacyConversion?: RustLegacyConversionNotice;
+  /** Saved-brain source of this evolving lineage. */
+  founder?: import('../src/protocol/rustBackground.ts').RustStartupMetadata['founder'];
   /** Monotonic accepted configuration revision. */
   configRevision: number;
   /** Versioned canonical configuration content hash. */
@@ -272,6 +282,8 @@ export interface WelcomeMsg {
     savedBrainLibrary?: boolean;
     /** Explicit saved-brain selection in checkpoint archive version 4. */
     savedBrainArchive?: boolean;
+    /** Explicit saved-brain founder initialization through durable New Run. */
+    savedBrainFounders?: boolean;
     /** On-demand native selected-observation snapshots. */
     decisionInspector?: boolean;
     /** Whether direct archive download is available. */
@@ -789,10 +801,23 @@ export function isFinishGeneration(msg: unknown): msg is FinishGenerationMsg {
 export function isNewRun(msg: unknown): msg is NewRunMsg {
   return (
     isRecord(msg) &&
-    hasKeys(msg, ['type', 'requestId'], ['type', 'requestId']) &&
+    hasKeys(msg, ['type', 'requestId', 'founder'], ['type', 'requestId']) &&
     msg['type'] === 'newRun' &&
-    isRequestId(msg['requestId'])
+    isRequestId(msg['requestId']) &&
+    (msg['founder'] === undefined || isFounderSelection(msg['founder']))
   );
+}
+
+/** Founder selection is scoped and never accepts paths or portable model buffers. */
+function isFounderSelection(value: unknown): value is SavedBrainFounderSelectionV1 {
+  return isRecord(value) && hasKeys(value,
+    ['brainId', 'expectedProcessEpoch', 'expectedRunId', 'expectedConfigRevision', 'expectedWorldEpoch'],
+    ['brainId', 'expectedProcessEpoch', 'expectedRunId', 'expectedConfigRevision', 'expectedWorldEpoch']) &&
+    typeof value['brainId'] === 'string' && /^[0-9a-f]{64}$/u.test(value['brainId']) &&
+    typeof value['expectedProcessEpoch'] === 'string' && /^[0-9a-f]{32}$/u.test(value['expectedProcessEpoch']) &&
+    typeof value['expectedRunId'] === 'string' && value['expectedRunId'].length > 0 && value['expectedRunId'].length <= 256 &&
+    typeof value['expectedConfigRevision'] === 'string' && /^[0-9a-f]{16}$/u.test(value['expectedConfigRevision']) &&
+    typeof value['expectedWorldEpoch'] === 'string' && /^[0-9a-f]{16}$/u.test(value['expectedWorldEpoch']);
 }
 
 /**

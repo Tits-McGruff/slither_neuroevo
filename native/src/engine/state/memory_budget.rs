@@ -466,6 +466,10 @@ pub(super) fn add_candidate_text(
     add_text(estimate, &candidate.identity.rustc_version)?;
     add_text(estimate, &candidate.identity.build_contract_sha256)?;
     add_text(estimate, &candidate.identity.math_backend)?;
+    if let Some(origin) = &candidate.identity.founder {
+        add_text(estimate, &origin.artifact_sha256)?;
+        add_text(estimate, &origin.weights_sha256)?;
+    }
     if let Some(origin) = &candidate.identity.legacy_conversion {
         for text in [
             &origin.source_run_id,

@@ -932,7 +932,10 @@ end settings apply through the server.
 - **GRU hidden size**: Memory width; bigger = more capacity, more parameters.
 - **LSTM hidden size**: LSTM memory width.
 - **RRU hidden size**: RRU memory width.
-- **Brain control dt**: How often the brain updates relative to physics.
+- **Brain control dt**: Seconds between neural decisions. This live number input
+  preserves full precision. **60 Hz (1/60 s)** selects the exact interval required
+  by a brain trained at 60 Hz; typing `0.016` or `0.017` selects a different interval.
+  **V2 decision interval** has the same exact preset and applies on reset.
 - **Recurrent mutation rate (GRU/LSTM/RRU)**: Mutation rate applied to recurrent weights.
 - **Recurrent mutation std (GRU/LSTM/RRU)**: Mutation strength for recurrent weights.
 - **Recurrent crossover mode (0 block, 1 unit)**: 0 = block, 1 = unit-wise crossover.
@@ -1137,6 +1140,14 @@ It stores explicit saved models separately from Hall of Fame champions.
 - **Spawn** asks Rust to deploy a compatible brain and follows it after confirmation.
   The active graph, structural sensors and neural cadence must match. Each spawn
   starts with zero recurrent state; the UI does not change settings to make a model fit.
+- **Start evolution from this brain** starts a new evolving population after explicit
+  confirmation. Slot 0 receives the exact saved Float32 weights. Each remaining slot
+  receives a separate copy mutated with the current feedforward/recurrent mutation
+  rates and standard deviations. Zero mutation settings can leave identical copies.
+  All slots use ordinary population lives, fitness, selection, crossover and mutation;
+  the original founder has no permanent protection from selection. The saved library
+  model remains unchanged. This is the control to bootstrap neuroevolution from a
+  distilled policy; **Spawn** remains a separate fixed-policy evaluation.
 - **Export** downloads the original self-contained file. **Delete** removes library
   membership; snakes already running keep their owned weights and provenance.
 - Select a live snake and open **Stats** to see its native origin: a Hall of Fame
@@ -1147,6 +1158,21 @@ A timeout or lost reply exposes **Retry spawn**, which checks the original reque
 instead of creating another snake. A confirmed rejection clears that pending request.
 Dismissing an uncertain request does not cancel any spawn already admitted by Rust.
 The initial library quota is 100 records and 2 GiB of unique stored model objects.
+
+Founder initialization requires the selected graph, structural sensors, exact neural
+cadence and Reset/Preserve memory rule to match the saved brain. It keeps the current
+population count and other world settings, selects a new run seed, zeros recurrent
+state/fitness/life counters and commits a complete generation-one checkpoint before
+replacing the world. A rejected start leaves the existing run current. Prior runs,
+checkpoints, captures and saved brains remain stored under the normal retention policy.
+Run provenance records the original artifact and weight digests and the founder mode;
+the evolved population remains self-contained through checkpoint/archive restore.
+**Reset** on a founder lineage repeats founder initialization with its recorded seed
+and the current mutation settings, so keep that saved library entry if you want to
+reset it. If its source is missing or incompatible, Reset rejects without replacing
+the world. The ordinary **New Run** button initializes a random population; use the
+library founder action to start another seeded lineage.
+
 Production graphs and portable brains support up to 2,000,000 Float32 parameters
 (8,000,000 raw weight bytes), tensor widths of 4096 and 16,384 recurrent-state
 floats. Population, library, transient-candidate and native-memory budgets still

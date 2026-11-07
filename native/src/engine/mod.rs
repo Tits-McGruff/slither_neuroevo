@@ -79,6 +79,7 @@ pub mod external_reward;
 pub mod fixed_step;
 /// Deterministic contested-food claims and post-food body finalization.
 pub mod food;
+pub mod founder;
 /// Direct browser-compatible binary display-frame v1 packing.
 pub mod frame_v1;
 /// Bounded current-default generation-one population and durability staging.

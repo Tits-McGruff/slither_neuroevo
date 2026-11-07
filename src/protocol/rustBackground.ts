@@ -114,6 +114,13 @@ export interface RustQueueDiagnostics {
 
 /** Immutable Rust-owned facts used to construct the initial server welcome. */
 export interface RustStartupMetadata {
+  /** Immutable founder origin survives evolution, checkpoint restore and archive roundtrips. */
+  founder?: {
+    schemaVersion: 1;
+    mode: 'exact-founder-mutated-descendants-v1';
+    artifactSha256: string;
+    weightsSha256: string;
+  };
   /** Native canonical sensor manifest; mandatory for v4 and optional for historical v3. */
   sensorContract?: import('./sensors.ts').SensorContractEnvelope;
   /** Immutable population-only source facts when this lineage came from legacy data. */

@@ -301,3 +301,262 @@ fn rust_allocates_dense_population_identity_and_returns_only_a_pending_boundary(
     assert!(!pending.persistence_acknowledged());
     assert!(!pending.authority_published());
 }
+
+fn founder_settings() -> Vec<FreshRunSettingUpdate> {
+    let mut settings = numeric_fresh_settings(selected_fresh_default_settings().unwrap());
+    for (path, value) in [
+        ("snakeCount", 3.0),
+        ("baselineBots.count", 0.0),
+        ("brain.controlDt", 1.0 / 60.0),
+        ("evolvedRespawn.recurrentState", 0.0),
+    ] {
+        settings
+            .iter_mut()
+            .find(|setting| setting.path == path)
+            .unwrap()
+            .value = value;
+    }
+    settings
+}
+
+#[test]
+fn founder_population_uses_exact_weights_and_ordinary_mutation_at_production_sizes() {
+    for upper in [false, true] {
+        let bytes = crate::engine::brain_artifact::tests::large_artifact(upper);
+        let artifact = crate::engine::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+        let prepared = prepare_configured_boundary_with_founder(
+            request(42),
+            &founder_settings(),
+            artifact.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            Some(&artifact),
+        )
+        .unwrap();
+        let state = &prepared.candidate;
+        assert_eq!(&*state.population[0].weights, &artifact.weights);
+        assert_eq!(state.population[0].lineage.parent_a, None);
+        let config = crate::engine::step_config::project_evolution_config(
+            &state.config,
+            artifact.weights.len(),
+        )
+        .unwrap();
+        let mut rng = labelled_stream(42.0, "evolution");
+        for genome in &state.population[1..] {
+            let mut expected = artifact.weights.clone();
+            crate::engine::evolution::mutate(
+                &mut expected,
+                artifact.graph.compiled(),
+                config,
+                &mut rng,
+            )
+            .unwrap();
+            assert_eq!(&*genome.weights, &expected);
+            assert_ne!(&*genome.weights, &artifact.weights);
+            assert_eq!(
+                genome.lineage.parent_a,
+                Some(state.population[0].lineage.genome_id)
+            );
+        }
+        assert_eq!(state.rng.evolution, rng.export_state());
+        assert_eq!(
+            state.rng.world,
+            labelled_stream(42.0, "world").export_state()
+        );
+        assert!(state
+            .brains
+            .iter()
+            .all(|brain| brain.recurrent.iter().all(|value| value.to_bits() == 0)));
+        assert_eq!(
+            state.identity.founder.as_ref().unwrap().artifact_sha256,
+            artifact.artifact_sha256
+        );
+        let repeated = prepare_configured_boundary_with_founder(
+            request(42),
+            &founder_settings(),
+            artifact.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            Some(&artifact),
+        )
+        .unwrap();
+        assert_eq!(state.population, repeated.candidate.population);
+        assert_eq!(state.rng, repeated.candidate.rng);
+    }
+}
+
+#[test]
+fn founder_source_is_verified_and_checkpoint_restore_does_not_need_the_library() {
+    let directory = TestDirectory::create("founder-checkpoint");
+    let bytes = crate::engine::brain_artifact::tests::large_artifact(false);
+    let artifact = crate::engine::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+    let path = directory
+        .path()
+        .join(format!("{}.slither-brain", artifact.artifact_sha256));
+    std::fs::write(&path, &bytes).unwrap();
+    let make = |input, id: &str| {
+        prepare_saved_brain_founder_run(
+            input,
+            &founder_settings(),
+            artifact.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            directory.path(),
+            id,
+        )
+    };
+    let mut input = request(42);
+    // A running generation transition owns both complete source and successor.
+    input.memory_ceiling_bytes = 4 * 1024 * MIB;
+    let mut fresh = make(input.clone(), &artifact.artifact_sha256).unwrap();
+    assert!(fresh.publish_running_authority().is_err());
+    let descriptor = fresh
+        .publish_checkpoint(
+            directory.path(),
+            CheckpointOperationId::parse("12345678123456781234567812345678").unwrap(),
+        )
+        .unwrap();
+    let metadata = fresh.startup_metadata_json().unwrap();
+    let mut insufficient = request(42);
+    insufficient.memory_ceiling_bytes = 1;
+    assert!(make(insufficient, &artifact.artifact_sha256).is_err());
+    assert!(make(request(42), "../source").is_err());
+    std::fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
+    assert!(make(request(42), &artifact.artifact_sha256).is_err());
+    let mut corrupt = bytes.clone();
+    *corrupt.last_mut().unwrap() ^= 1;
+    std::fs::write(&path, corrupt).unwrap();
+    assert!(make(request(42), &artifact.artifact_sha256).is_err());
+    std::fs::remove_file(&path).unwrap();
+    let restored = prepare_stage6a_p0_checkpoint_restore(
+        directory.path(),
+        &descriptor,
+        input.memory_ceiling_bytes,
+    )
+    .unwrap();
+    assert_eq!(restored.startup_metadata_json().unwrap(), metadata);
+    let source = restored.into_population_for_new_run().unwrap();
+    assert_eq!(&*source.state().population[0].weights, &artifact.weights);
+    assert_eq!(
+        source
+            .state()
+            .identity
+            .founder
+            .as_ref()
+            .unwrap()
+            .weights_sha256,
+        artifact.weights_sha256
+    );
+    fresh.acknowledge_persistence(&descriptor).unwrap();
+    fresh.publish_running_authority().unwrap();
+    assert_eq!(fresh.snake_count(), 3);
+    let mut running = fresh
+        .into_running_loop(FixedStepSchedulerPolicy::provisional_defaults(), 0)
+        .unwrap();
+    running
+        .request_finish_generation("finish-founder".into(), descriptor.run_id.clone(), 1)
+        .unwrap();
+    running
+        .service_after_command_drain(17, SchedulerServiceMode::Background, None)
+        .unwrap();
+    assert!(running.pending_generation_transition().is_some());
+}
+
+#[test]
+fn founder_rejects_incompatible_graph_sensors_cadence_and_life_rule() {
+    let bytes = crate::engine::brain_artifact::tests::large_artifact(false);
+    let artifact = crate::engine::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+    for (path, value, reason) in [
+        ("brain.controlDt", 0.017, "cadence"),
+        ("evolvedRespawn.recurrentState", 1.0, "memory"),
+    ] {
+        let mut settings = founder_settings();
+        settings
+            .iter_mut()
+            .find(|setting| setting.path == path)
+            .unwrap()
+            .value = value;
+        let error = prepare_configured_boundary_with_founder(
+            request(42),
+            &settings,
+            artifact.graph.spec().clone(),
+            InferenceMathBackend::Scalar,
+            Some(&artifact),
+        )
+        .err()
+        .unwrap();
+        assert!(error.to_string().contains(reason), "{error}");
+    }
+    let mut wrong = crate::engine::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+    wrong.canonical_manifest.sensor_sha256 = "00".repeat(32);
+    assert!(prepare_configured_boundary_with_founder(
+        request(42),
+        &founder_settings(),
+        artifact.graph.spec().clone(),
+        InferenceMathBackend::Scalar,
+        Some(&wrong)
+    )
+    .is_err());
+    let other = crate::engine::brain_artifact::validate_brain_artifact(
+        &crate::engine::brain_artifact::tests::large_artifact(true),
+    )
+    .unwrap();
+    assert!(prepare_configured_boundary_with_founder(
+        request(42),
+        &founder_settings(),
+        other.graph.spec().clone(),
+        InferenceMathBackend::Scalar,
+        Some(&artifact)
+    )
+    .is_err());
+}
+
+#[test]
+fn small_founder_respects_zero_mutation_settings_without_changing_the_saved_weights() {
+    let bytes = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/portable-dense-basic8-v1.slither-brain"),
+    )
+    .unwrap();
+    let artifact = crate::engine::brain_artifact::validate_brain_artifact(&bytes).unwrap();
+    let mut settings = founder_settings();
+    for (path, value) in [
+        ("sense.profile", 0.0),
+        ("sense.bubbleBins", 8.0),
+        (
+            "brain.controlDt",
+            artifact.deployment.control_interval_seconds,
+        ),
+        (
+            "evolvedRespawn.recurrentState",
+            f64::from(
+                artifact.deployment.life_state_rule
+                    == crate::engine::training_graph::TrainingLifeStateRule::Preserve,
+            ),
+        ),
+        ("mutationRate", 0.0),
+        ("brain.gruMutationRate", 0.0),
+    ] {
+        settings
+            .iter_mut()
+            .find(|entry| entry.path == path)
+            .unwrap()
+            .value = value;
+    }
+    let prepared = prepare_configured_boundary_with_founder(
+        request(42),
+        &settings,
+        artifact.graph.spec().clone(),
+        InferenceMathBackend::Scalar,
+        Some(&artifact),
+    )
+    .unwrap();
+    assert!(prepared
+        .candidate
+        .population
+        .iter()
+        .all(|genome| &*genome.weights == artifact.weights.as_slice()));
+    assert_eq!(
+        crate::engine::brain_artifact::validate_brain_artifact(&bytes)
+            .unwrap()
+            .weights,
+        artifact.weights
+    );
+}

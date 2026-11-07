@@ -560,6 +560,7 @@ pub(super) fn fixture_run_start(
             build_contract_sha256: build_contract_sha256.clone(),
             math_backend: InferenceMathBackend::Scalar.label().to_owned(),
             legacy_conversion: None,
+            founder: None,
         },
         config,
         phase: AuthorityPhase::GenerationBoundary(GenerationBoundaryKind::RunStart),

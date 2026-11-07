@@ -182,6 +182,14 @@ pub(super) fn validate_identity(
     identity: &RunIdentity,
     policy: &StateAdmissionPolicy,
 ) -> Result<(), StateError> {
+    if let Some(origin) = &identity.founder {
+        origin
+            .validate()
+            .map_err(|reason| StateError::InvalidField {
+                field: "identity.founder",
+                reason: reason.into(),
+            })?;
+    }
     if let Some(origin) = &identity.legacy_conversion {
         origin
             .validate()

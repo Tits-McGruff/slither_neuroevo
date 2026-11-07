@@ -426,3 +426,37 @@ fn small_feed_forward_checkpoint_round_trips_bit_exactly() {
         .expect("small feed-forward checkpoint must restore");
     assert_eq!(restored.state.state(), state.state());
 }
+
+#[test]
+fn founder_origin_state_encoding_is_bounded_versioned_and_preserves_existing_states() {
+    let (authority, _graph, _policy) = admitted_state(2, false);
+    let limits = checkpoint_limits();
+    let mut candidate = authority.state().clone();
+    let original = encode_state(&candidate, &limits).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(original[8..12].try_into().unwrap()),
+        STATE_ENCODING_WITH_LEGACY_ORIGIN
+    );
+    candidate.identity.founder = Some(crate::engine::founder::FounderOrigin {
+        schema_version: 1,
+        mode: crate::engine::founder::FounderMode::ExactFounderMutatedDescendantsV1,
+        artifact_sha256: "ab".repeat(32),
+        weights_sha256: "cd".repeat(32),
+    });
+    let encoded = encode_state(&candidate, &limits).unwrap();
+    assert_eq!(
+        u32::from_le_bytes(encoded[8..12].try_into().unwrap()),
+        STATE_ENCODING_WITH_FOUNDER
+    );
+    assert_eq!(
+        decode_state(&encoded, &limits).unwrap().identity,
+        candidate.identity
+    );
+    assert!(decode_state(&encoded[..encoded.len() - 1], &limits).is_err());
+    let mut invalid = encoded.clone();
+    invalid[8..12].copy_from_slice(&6_u32.to_le_bytes());
+    assert!(decode_state(&invalid, &limits).is_err());
+    candidate.identity.founder.as_mut().unwrap().artifact_sha256 = "x".repeat(64);
+    assert!(encode_state(&candidate, &limits).is_err());
+    assert_eq!(encode_state(authority.state(), &limits).unwrap(), original);
+}

@@ -1,4 +1,5 @@
 import { mkdtemp,rm } from 'node:fs/promises';
+import type { WelcomeMsg } from './protocol.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect,it,vi } from 'vitest';
@@ -98,12 +99,13 @@ describeNetworkSuite('Rust server real sockets', () => {
       viewer.socket.send(JSON.stringify({ type: 'join', mode: 'spectator',
         rejoinToken: viewer.rejoinToken }));
       viewer.socket.send(JSON.stringify({ type: 'settings', requestId: 'session-live-settings',
-        updates: [{ path: 'simSpeed', value: 0.1 }] }));
+        updates: [{ path: 'simSpeed', value: 0.1 }, { path: 'brain.controlDt', value: 1 / 60 }] }));
       await until(viewer, () => viewer.packets.some(packet => packet['type'] === 'settingsApplied' && packet['applied'] === true));
       const reconnected = await connect(server.port, 'ui'); peers.push(reconnected);
       await until(reconnected, () => reconnected.packets.some(packet => packet['type'] === 'welcome'));
       expect(reconnected.packets.find(packet => packet['type'] === 'welcome')).toMatchObject({
-        sessionId, runId: initial['runId'], configRevision: 2, settings: { core: { simSpeed: 0.1 } }
+        sessionId, runId: initial['runId'], configRevision: 2, settings: { core: { simSpeed: 0.1 },
+          updates: expect.arrayContaining([{ path: 'brain.controlDt', value: 1 / 60 }]) }
       });
       const beforeReset = await healthUntil(server.port, health => Number(BigInt(`0x${health['completedStep'] as string}`)) >= 5);
       const stepsBeforeReset = (beforeReset['telemetry'] as { authoritativeSteps: number }).authoritativeSteps;
@@ -111,6 +113,7 @@ describeNetworkSuite('Rust server real sockets', () => {
       const reset = await replacementUntil(viewer, server.port, 'reset');
       expect(reset.sessionId).toBe(sessionId);
       expect(reset.runId).not.toBe(initial['runId']);
+      expect(reset.settings.updates).toContainEqual({ path: 'brain.controlDt', value: 1 / 60 });
       const afterReset = await (await fetch(`http://127.0.0.1:${server.port}/api/health`)).json() as {
         telemetry: { authoritativeSteps: number };
       };
@@ -134,6 +137,8 @@ describeNetworkSuite('Rust server real sockets', () => {
       const resumedWelcome = restarted.packets.find(packet => packet['type'] === 'welcome')!;
       expect(resumedWelcome['sessionId']).not.toBe(sessionId);
       expect(resumedWelcome['runId']).toBe(newRun.runId);
+      expect((resumedWelcome as unknown as WelcomeMsg).settings.updates)
+        .toContainEqual({ path: 'brain.controlDt', value: 1 / 60 });
     } finally {
       for (const peer of peers) peer.socket.terminate();
       await server?.close();

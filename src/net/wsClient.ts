@@ -1,4 +1,5 @@
 import type { InspectEntityMsg, InspectorResultMsg, InspectorMsg } from '../protocol/inspector.ts';
+import type { SavedBrainFounderSelectionV1 } from '../../server/protocol.ts';
 import type { EvolvedLifecycleTelemetry } from '../protocol/evolvedLives.ts';
 import type { SelectEntityMsg, EntitySelectedMsg } from '../protocol/entitySelection.ts';
 import type { FinishGenerationResultMsg } from '../protocol/generation.ts';
@@ -47,6 +48,8 @@ export interface WelcomeMsg {
   importBranch?: RustImportBranchNotice;
   /** Honest population-only provenance when startup converted an old SQLite checkpoint. */
   legacyConversion?: RustLegacyConversionNotice;
+  /** Saved-brain source of the evolving lineage, not a retained entity assignment. */
+  founder?: import('../protocol/rustBackground.ts').RustStartupMetadata['founder'];
   configRevision: number;
   configHash: string;
   settings: {
@@ -73,6 +76,8 @@ export interface WelcomeMsg {
     savedBrainLibrary?: boolean;
     /** Explicit saved-brain selection in checkpoint archive version 4. */
     savedBrainArchive?: boolean;
+    /** Durable population initialization from an explicitly selected saved brain. */
+    savedBrainFounders?: boolean;
     /** Selected native decision snapshots are available on demand. */
     decisionInspector?: boolean;
     /** Whether direct archive download is available. */
@@ -268,7 +273,7 @@ export interface WsClient {
   sendInspector: (request: InspectEntityMsg) => void;
   sendGodModeKill: (requestId: string, snakeId: number, token: string) => void;
   sendGodModeMove: (requestId: string, snakeId: number, x: number, y: number, token: string) => void;
-  sendNewRun: (requestId: string) => void;
+  sendNewRun: (requestId: string, founder?: SavedBrainFounderSelectionV1) => void;
   /** Finish the exact generation observed by the UI. */
   sendFinishGeneration: (requestId: string, expectedRunId: string, expectedGeneration: number) => void;
   isConnected: () => boolean;
@@ -584,9 +589,9 @@ export function createWsClient(callbacks: WsClientCallbacks): WsClient {
   };
 
   /** Send a Protocol 2 New Run request. */
-  const sendNewRun = (requestId: string): void => {
+  const sendNewRun = (requestId: string, founder?: SavedBrainFounderSelectionV1): void => {
     if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
-    socket.send(JSON.stringify({ type: 'newRun', requestId }));
+    socket.send(JSON.stringify({ type: 'newRun', requestId, ...(founder ? {founder} : {}) }));
   };
 
   const isConnected = (): boolean => connected;

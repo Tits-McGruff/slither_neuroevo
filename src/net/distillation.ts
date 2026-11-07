@@ -1,6 +1,7 @@
 import { distillationHex, distillationInteger, type DistillationDataset, type DistillationDatasetSummary, type DistillationDatasetPage } from '../protocol/distillation.ts';
 import { parseShadowMetrics, parseShadowReceipt } from '../protocol/shadowMetadata.ts';
 import type { ShadowPublication, ShadowReceipt } from '../protocol/shadows.ts';
+import { createRequestId } from './requestId.ts';
 
 /** Applied authority scope; editable settings and graph drafts never supply identities. */
 export interface DistillationScope {
@@ -142,7 +143,7 @@ export class DistillationClient {
     distillationInteger(slot, 0, 3, 'shadow slot'); distillationInteger(teacher, 0, 119, 'teacher slot');
     distillationHex(artifact, 64, 'candidate digest'); distillationHex(epoch, 32, 'capture epoch', true);
     return this.command(async () => {
-      const scope = this.current(); const requestId = crypto.randomUUID().replaceAll('-', '');
+      const scope = this.current(); const requestId = createRequestId();
       const previousActivationSequence = status.slots[slot]?.activationSequence ?? '0'.repeat(16);
       this.pending = { scope, path: '/shadows/' + slot + '/activate',
         body: { requestId, expectedProcessEpoch: status.processEpoch, expectedActivationSequence: previousActivationSequence,
@@ -159,7 +160,7 @@ export class DistillationClient {
     const active = status.slots[slot];
     if (!active?.enabled) throw new Error('Refresh and select an active shadow.');
     return this.command(async () => {
-      const scope = this.current(); const requestId = crypto.randomUUID().replaceAll('-', '');
+      const scope = this.current(); const requestId = createRequestId();
       this.pending = { scope, path: '/shadows/' + slot + '/stop',
         body: { requestId, captureEpoch: active.captureEpoch, activationSequence: active.activationSequence },
         expected: { requestId, processEpoch: status.processEpoch, runId: scope.runId, captureEpoch: active.captureEpoch,

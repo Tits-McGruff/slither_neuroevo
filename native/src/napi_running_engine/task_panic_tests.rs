@@ -235,6 +235,7 @@ fn fresh_run_task_panic_removes_written_checkpoint_and_keeps_candidate_private()
     let runtime = running_test_runtime();
     let prepared = PreparedImportSlot::new();
     let mut task = PrepareFreshRunTask {
+        founder_brain_id: None,
         population_work: task_population_lease(&runtime, &prepared),
         runtime: Arc::clone(&runtime),
         managed_directory: files.0.clone(),

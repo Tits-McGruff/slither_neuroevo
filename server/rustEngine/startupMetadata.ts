@@ -82,6 +82,7 @@ export function parseRustStartupMetadata(encoded: unknown): RustStartupMetadata 
         setting('sense.contractSha256') !== digest)) throw new TypeError('native recorded v4 identity mismatch');
   } else if (sensorVersion === 4) throw new TypeError('v4 requires native sensor contract metadata');
   return {
+    ...(record['founder'] == null ? {} : {founder: parseFounderOrigin(record['founder'])}),
     ...(sensorContract ? {sensorContract} : {}),
     ...(record['legacyConversion'] == null ? {} : { legacyConversion: parseRustLegacyOrigin(record['legacyConversion']) }),
     runId: text('runId', 256), seed: integer('seed', 0, 0xffff_ffff), configRevision,
@@ -90,6 +91,16 @@ export function parseRustStartupMetadata(encoded: unknown): RustStartupMetadata 
     parameterCount: integer('parameterCount', 1), mathBackend: text('mathBackend', 128),
     serializerVersion: integer('serializerVersion', 1, 1), sensorVersion, settings
   };
+}
+
+/** Validate compact run provenance independently of model decoding. */
+function parseFounderOrigin(value: unknown): NonNullable<RustStartupMetadata['founder']> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('invalid founder origin');
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).length !== 4 || row['schemaVersion'] !== 1 || row['mode'] !== 'exact-founder-mutated-descendants-v1' ||
+      typeof row['artifactSha256'] !== 'string' || !/^[0-9a-f]{64}$/u.test(row['artifactSha256']) ||
+      typeof row['weightsSha256'] !== 'string' || !/^[0-9a-f]{64}$/u.test(row['weightsSha256'])) throw new TypeError('invalid founder origin');
+  return row as unknown as NonNullable<RustStartupMetadata['founder']>;
 }
 
 /** Validate only bounded immutable origin metadata; this never decodes a population. */

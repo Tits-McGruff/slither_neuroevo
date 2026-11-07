@@ -1456,3 +1456,6 @@ pub(super) use strict_ustar::{
 
 #[cfg(test)]
 mod tests;
+
+/// Founder provenance extends the state role; non-founder checkpoints retain v4 bytes.
+const STATE_ENCODING_WITH_FOUNDER: u32 = 5;
