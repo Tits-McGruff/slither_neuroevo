@@ -1,18 +1,39 @@
-import { parseGenerationWorkJson } from './generationWork.ts';
-import { parseSavedBrainOperation } from './savedBrainProtocol.ts';
-import type { SavedBrainCatalogResult } from '../protocol.ts';
-import { SavedBrainCatalog } from './savedBrainCatalog.ts';
-import { createSavedBrainNativeCodec } from './savedBrainNativeCodec.ts';
-import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
-import { parseRecoveryScanCursor, type RecoveryScanCursor, type RecoveryScanResult, parseRecoveryBranchCommit, parseRecoveryBranchResult, type RecoveryBranchCommit, type RecoveryBranchResult } from './recoveryProtocol.ts';
-import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, type Dirent } from 'node:fs';
-import { decodeExperimentSummary, validateExperimentBytes, encodeExperimentRecord } from './experimentRecords.ts';
-import { createHash } from 'node:crypto';
-import { dirname, resolve, sep } from 'node:path';
-import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
-import { validateGraph } from '../../src/brains/graph/validate.ts';
-import type { GraphSpec } from '../../src/brains/graph/schema.ts';
+import { createHash } from 'node:crypto';
+import { closeSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, type Dirent } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { parentPort, workerData } from 'node:worker_threads';
+import type { SavedBrainCatalogResult } from '../protocol.ts';
+import { validateCheckpointDatabaseSchema } from './checkpointDatabaseSchema.ts';
+import {
+  managedCheckpointContentsEqual,
+  parseManagedCheckpointDescriptor,
+  parseManagedCheckpointDescriptorLimits,
+  parseManagedGenerationCommit,
+  parseManagedHallOfFameWeightsDescriptor,
+  parseManagedImportBranchResult,
+  parseManagedImportInventoryDescriptor,
+  parseManagedLegacyConversion,
+  parseManagedLegacySnapshotSelection,
+  parseSavedBrainArchiveEntries,
+  type CheckpointOperationId,
+  type CheckpointPersistenceWorkerResponse,
+  type ManagedCheckpointDescriptor,
+  type ManagedCheckpointDescriptorLimits,
+  type ManagedCheckpointSelection,
+  type ManagedExportInventoryDescriptor,
+  type ManagedGenerationCommit,
+  type ManagedGenerationSummary,
+  type ManagedHallOfFameReference,
+  type ManagedHallOfFameSelection,
+  type ManagedHallOfFameWeightsDescriptor,
+  type ManagedImportBranchResult,
+  type ManagedImportInventoryDescriptor,
+  type ManagedLegacyConversion,
+  type ManagedLegacySnapshotSelection,
+  type ManagedStorageDiagnostics,
+  type U64Hex
+} from './checkpointPersistenceProtocol.ts';
 import {
   automaticCapWithPhysicalReserve,
   buildCheckpointRetentionInventory,
@@ -22,39 +43,15 @@ import {
   type CheckpointRetentionDecision,
   type CheckpointRetentionInventory
 } from './checkpointRetention.ts';
-import {
-  managedCheckpointContentsEqual,
-  parseManagedCheckpointDescriptor,
-  parseManagedCheckpointDescriptorLimits,
-  parseManagedHallOfFameWeightsDescriptor,
-  parseManagedGenerationCommit,
-  parseManagedImportBranchResult,
-  parseManagedImportInventoryDescriptor,
-  parseSavedBrainArchiveEntries,
-  parseManagedLegacyConversion,
-  parseManagedLegacySnapshotSelection,
-  type CheckpointOperationId,
-  type CheckpointPersistenceWorkerResponse,
-  type ManagedCheckpointDescriptor,
-  type ManagedCheckpointSelection,
-  type ManagedCheckpointDescriptorLimits,
-  type ManagedGenerationCommit,
-  type ManagedGenerationSummary,
-  type ManagedBrowserHistoryEntry,
-  type ManagedBrowserHallOfFameEntry,
-  type ManagedHallOfFameSelection,
-  type ManagedExportInventoryDescriptor,
-  type ManagedHallOfFameWeightsDescriptor,
-  type ManagedHallOfFameReference,
-  type ManagedImportBranchResult,
-  type ManagedImportInventoryDescriptor,
-  type ManagedLegacyConversion,
-  type ManagedLegacySnapshotSelection,
-  type ManagedStorageDiagnostics,
-  type ManagedGraphPreset,
-  type ManagedGraphPresetMeta,
-  type U64Hex
-} from './checkpointPersistenceProtocol.ts';
+import { encodeExperimentRecord, validateExperimentBytes } from './experimentRecords.ts';
+import { boundaryHallOfFameSelection, exportLineageFilter, readImportBranch, readLineageBranch, readRecoveryBranch, recoveryLineage, recoveryLineageFilter } from './lineage_reads.ts';
+import { assertDescriptorBounds, f64HexToNumber, recheckManagedFile, resolveManagedRoot, serializeDescriptor, u64HexToBigInt, verifyHallOfFameWeightsFile, verifyManagedDirectFile, verifyManagedFile, type VerifiedManagedFile } from './managed_files.ts';
+import { listGraphPresets, loadGraphPreset, readBrowserHallOfFame, readBrowserHistory, saveGraphPreset } from './read_models.ts';
+import { parseRecoveryBranchCommit, parseRecoveryBranchResult, parseRecoveryScanCursor, type RecoveryBranchCommit, type RecoveryBranchResult, type RecoveryScanCursor, type RecoveryScanResult } from './recoveryProtocol.ts';
+import { SavedBrainCatalog } from './savedBrainCatalog.ts';
+import { createSavedBrainNativeCodec } from './savedBrainNativeCodec.ts';
+import { parseSavedBrainOperation } from './savedBrainProtocol.ts';
+import { initializeGraphPresetSchema, initializeHallOfFameWeightsSchema, initializeImportableHistorySchema, initializeLegacyConversionSchema, initializeRecoverySchema, initializeRetentionSchema, initializeSchema } from './schema.ts';
 
 /** Maximum text length returned to the client for any worker rejection. */
 const MAX_REJECTION_REASON_BYTES = 1024;
@@ -66,10 +63,6 @@ const EXPORT_INVENTORY_HALL_OF_FAME_BYTES = 120;
 const MAX_EXPORT_GENERATIONS = 1_000_000n;
 /** Owner-selected number of best unique unpinned Hall-of-Fame genomes. */
 const MAX_HALL_OF_FAME_UNIQUE_GENOMES = 50;
-/** Largest serialized graph preset admitted by the existing browser contract. */
-const MAX_GRAPH_PRESET_BYTES = 256 * 1024;
-/** Largest UTF-8 preset name retained in SQLite. */
-const MAX_GRAPH_PRESET_NAME_BYTES = 256;
 
 /** Worker bootstrap data owned by the client and structured-cloned at spawn time. */
 interface CheckpointPersistenceWorkerData {
@@ -163,14 +156,6 @@ interface ExistingHallOfFameWeightsRow {
   weight_count_hex: string;
 }
 
-/** Minimal final-file facts rechecked after SQLite has begun the short transaction. */
-interface VerifiedManagedFile {
-  /** Fully resolved direct child of the controlled managed root. */
-  path: string;
-  /** Expected final file size from the strict descriptor. */
-  expectedBytes: bigint;
-}
-
 /** Parent port required by the worker-thread-only module. */
 if (!parentPort) throw new Error('checkpointPersistenceWorker requires parentPort');
 /** Non-null parent port after the worker-context assertion. */
@@ -211,7 +196,7 @@ if (String(journalMode).toLowerCase() !== 'wal' || Number(synchronous) !== 2) {
 db.pragma('foreign_keys = ON');
 if (!bootstrap.existingOnly || existingDatabaseKind === 'legacy') initializeSchema(db);
 initializeGraphPresetSchema(db);
-initializeHallOfFameWeightsSchema(db);
+initializeHallOfFameWeightsSchema(db, rebuildHallOfFameRetention);
 /** Explicit library shares the metadata connection and immutable HoF weight store. */
 const savedBrainCatalog = new SavedBrainCatalog(db, managedRootPath, createSavedBrainNativeCodec());
 initializeImportableHistorySchema(db);
@@ -304,20 +289,6 @@ function parseWorkerData(value: unknown): CheckpointPersistenceWorkerData {
   };
 }
 
-/**
- * Resolve one existing non-symlink managed root.
- * @param candidate - Caller-supplied root path.
- * @returns Canonical managed root path.
- */
-function resolveManagedRoot(candidate: string): string {
-  const absolute = resolve(candidate);
-  const stats = lstatSync(absolute);
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new TypeError('checkpoint persistence managed root must be one real directory');
-  }
-  return realpathSync(absolute);
-}
-
 /** One bounded metadata row used only for scalar retention planning. */
 interface RetentionMetadataRow {
   /** Physical immutable checkpoint identity. */
@@ -338,144 +309,14 @@ interface RetentionPointerRow {
   checkpoint_id: string;
 }
 
-/** Add owner pin classification and backfill every Stage 3/6A file as automatic. */
-function initializeRetentionSchema(database: ReturnType<typeof Database>): void {
-  database.transaction(() => {
-    const existing = database.prepare(`SELECT sql FROM sqlite_schema
-      WHERE type = 'table' AND name = 'rust_checkpoint_retention_v1'`).get() as { sql: string | null } | undefined;
-    if (existing && (!existing.sql?.includes("'pruning'") || !existing.sql.includes("'pruned'"))) {
-      database.exec(`
-        ALTER TABLE rust_checkpoint_retention_v1 RENAME TO rust_checkpoint_retention_v1_old;
-        CREATE TABLE rust_checkpoint_retention_v1 (
-          checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-          retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned', 'pruning', 'pruned')),
-          classified_at_ms INTEGER NOT NULL
-        );
-        INSERT INTO rust_checkpoint_retention_v1 SELECT * FROM rust_checkpoint_retention_v1_old;
-        DROP TABLE rust_checkpoint_retention_v1_old;
-      `);
-    }
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS rust_checkpoint_retention_v1 (
-        checkpoint_id TEXT PRIMARY KEY NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-        retention_kind TEXT NOT NULL CHECK(retention_kind IN ('automatic', 'pinned', 'pruning', 'pruned')),
-        classified_at_ms INTEGER NOT NULL
-      );
-    `);
-    database.prepare(`INSERT OR IGNORE INTO rust_checkpoint_retention_v1 (
-      checkpoint_id, retention_kind, classified_at_ms
-    ) SELECT checkpoint_id, 'automatic', created_at_ms FROM rust_checkpoint_v3_metadata
-    `).run();
-  }).immediate();
-}
-
-/** Add bounded recovery provenance without rewriting any existing checkpoint/history rows. */
-function initializeRecoverySchema(database: ReturnType<typeof Database>): void {
-  database.transaction(() => database.exec(`
-    CREATE TABLE IF NOT EXISTS rust_recovery_branches_v1 (
-      branch_run_id TEXT PRIMARY KEY NOT NULL,
-      operation_id TEXT UNIQUE NOT NULL,
-      source_run_id TEXT NOT NULL,
-      recovered_checkpoint_id TEXT NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-      history_through_generation_hex TEXT NOT NULL,
-      provenance_json TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS rust_import_branches_v1 (
-      branch_run_id TEXT PRIMARY KEY NOT NULL,
-      operation_id TEXT UNIQUE NOT NULL,
-      source_run_id TEXT NOT NULL,
-      recovered_checkpoint_id TEXT NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-      history_through_generation_hex TEXT NOT NULL,
-      provenance_json TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS rust_active_run_v1 (
-      singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-      run_id TEXT NOT NULL REFERENCES rust_checkpoint_v3_current(run_id)
-    );
-  `)).immediate();
-}
-
-/** Read one strictly bounded branch record used to authorize an aliased source checkpoint. */
-function readRecoveryBranch(runId: string): RecoveryBranchResult | undefined {
-  const row = db.prepare(`SELECT CASE WHEN length(CAST(provenance_json AS BLOB)) <= 32768
-    THEN provenance_json END AS provenance_json FROM rust_recovery_branches_v1 WHERE branch_run_id = ?`)
-    .get(runId) as { provenance_json: string | null } | undefined;
-  if (!row) return undefined;
-  if (row.provenance_json === null) throw new Error('recovery provenance exceeds bounded metadata limits');
-  const result = parseRecoveryBranchResult(JSON.parse(row.provenance_json));
-  const historyThrough = (BigInt(`0x${result.recoveredDescriptor.generation}`) - 1n).toString(16).padStart(16, '0');
-  const matching = db.prepare(`SELECT 1 FROM rust_recovery_branches_v1 WHERE branch_run_id = ?
-    AND operation_id = ? AND source_run_id = ? AND recovered_checkpoint_id = ? AND history_through_generation_hex = ?`)
-    .get(runId, result.operationId, result.sourceRunId, result.recoveredDescriptor.logicalRootSha256, historyThrough);
-  if (result.branchRunId !== runId || !matching) throw new Error('recovery branch identity mismatch');
-  return result;
-}
-
-/** Read one durable owner-selected import branch without treating it as crash recovery. */
-function readImportBranch(runId: string): ManagedImportBranchResult | undefined {
-  const row = db.prepare(`SELECT CASE WHEN length(CAST(provenance_json AS BLOB)) <= 32768
-    THEN provenance_json END AS provenance_json FROM rust_import_branches_v1 WHERE branch_run_id = ?`)
-    .get(runId) as { provenance_json: string | null } | undefined;
-  if (!row) return undefined;
-  if (row.provenance_json === null) throw new Error('import branch provenance exceeds bounded metadata limits');
-  const result = parseManagedImportBranchResult(JSON.parse(row.provenance_json));
-  const historyThrough = (BigInt(`0x${result.sourceGeneration}`) - 1n).toString(16).padStart(16, '0');
-  const matching = db.prepare(`SELECT 1 FROM rust_import_branches_v1 WHERE branch_run_id = ?
-    AND operation_id = ? AND source_run_id = ? AND recovered_checkpoint_id = ? AND history_through_generation_hex = ?`)
-    .get(runId, result.operationId, result.sourceRunId, result.sourceCheckpointId, historyThrough);
-  if (result.branchRunId !== runId || !matching) throw new Error('import branch identity mismatch');
-  return result;
-}
-
-/** Resolve either durable branch kind while rejecting an impossible double identity. */
-function readLineageBranch(runId: string): RecoveryBranchResult | ManagedImportBranchResult | undefined {
-  const recovery = readRecoveryBranch(runId);
-  const imported = readImportBranch(runId);
-  if (recovery && imported) throw new Error('run identity belongs to multiple branch kinds');
-  return recovery ?? imported;
-}
-
-/** One bounded ancestor and the inherited checkpoint prefix still eligible for recovery. */
-interface RecoveryLineage {
-  /** Run that physically owns immutable descriptor rows. */
-  runId: string;
-  /** Inclusive inherited boundary; null only for the failed active lineage. */
-  maximumGeneration: U64Hex | null;
-}
-
-/** Resolve inherited history with decreasing cutoffs and reject corrupt cycles. */
-function recoveryLineage(sourceRunId: string): RecoveryLineage[] {
-  const lineage: RecoveryLineage[] = [];
-  const seen = new Set<string>();
-  let runId = sourceRunId;
-  let maximumGeneration: U64Hex | null = null;
-  for (;;) {
-    if (seen.has(runId) || lineage.length === 64) throw new Error('recovery ancestry is cyclic or exceeds 64 retained branches');
-    seen.add(runId);
-    lineage.push({ runId, maximumGeneration });
-    const branch = readLineageBranch(runId);
-    if (!branch) return lineage;
-    const boundary = branch.recoveredDescriptor.generation;
-    const previous = lineage[lineage.length - 1]!.maximumGeneration;
-    maximumGeneration = previous === null || boundary < previous ? boundary : previous;
-    runId = branch.sourceRunId;
-  }
-}
-
-/** Build a parameterized bounded prefix filter; run names never become SQL text. */
-function recoveryLineageFilter(lineage: RecoveryLineage[]): { sql: string; parameters: Array<string | null> } {
-  return { sql: lineage.map(() => '(run_id = ? AND (? IS NULL OR generation_hex <= ?))').join(' OR '),
-    parameters: lineage.flatMap(item => [item.runId, item.maximumGeneration, item.maximumGeneration]) };
-}
-
 /** Commit lineage, source-history prefix reference, and active pointer in one FULL transaction. */
 function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult {
   const commit = parseRecoveryBranchCommit(value);
   const selected = commit.recoveredDescriptor;
-  assertDescriptorBounds(selected);
-  const file = verifyManagedFile(selected);
+  assertDescriptorBounds(descriptorLimits, selected);
+  const file = verifyManagedFile(managedRootPath, selected);
   return db.transaction(() => {
-    const replay = readRecoveryBranch(commit.branchRunId);
+    const replay = readRecoveryBranch(db, commit.branchRunId);
     if (replay) {
       const { abandonedThroughGeneration: _suffix, ...original } = replay;
       const current = readCurrentPointer(commit.branchRunId);
@@ -512,7 +353,7 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
       const active = db.prepare('SELECT 1 FROM rust_active_run_v1 WHERE singleton = 1 AND run_id != ?').get(commit.sourceRunId);
       if (active) throw new Error('recovery source is no longer active');
     }
-    const lineage = recoveryLineage(commit.sourceRunId);
+    const lineage = recoveryLineage(db, commit.sourceRunId);
     if (!lineage.some(item => item.runId === selected.runId &&
         (item.maximumGeneration === null || selected.generation <= item.maximumGeneration))) {
       throw new Error('recovered checkpoint is outside the inherited lineage prefix');
@@ -529,7 +370,7 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
     if (invalidChronology) throw new Error('failed lineage has invalid retained chronology');
     const newest = db.prepare('SELECT max(generation_hex) AS generation FROM rust_checkpoint_v3_metadata WHERE run_id = ?')
       .get(commit.sourceRunId) as { generation: string | null };
-    const inherited = readLineageBranch(commit.sourceRunId)?.recoveredDescriptor.generation ?? null;
+    const inherited = readLineageBranch(db, commit.sourceRunId)?.recoveredDescriptor.generation ?? null;
     const abandonedThroughGeneration = newest.generation === null ? inherited :
       inherited !== null && inherited > newest.generation ? inherited : newest.generation;
     const result = parseRecoveryBranchResult({ ...commit, abandonedThroughGeneration });
@@ -544,390 +385,6 @@ function commitRecoveryBranch(value: RecoveryBranchCommit): RecoveryBranchResult
       ON CONFLICT(singleton) DO UPDATE SET run_id = excluded.run_id`).run(commit.branchRunId);
     return result;
   }).immediate();
-}
-
-/**
- * Create the minimal checkpoint metadata, compact history, and per-run pointer tables.
- * @param database - Worker-owned synchronous SQLite connection.
- */
-function initializeSchema(database: ReturnType<typeof Database>): void {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS rust_checkpoint_v3_metadata (
-      checkpoint_id TEXT PRIMARY KEY NOT NULL,
-      operation_id TEXT NOT NULL UNIQUE,
-      run_id TEXT NOT NULL,
-      transition_epoch TEXT NOT NULL,
-      generation_hex TEXT NOT NULL,
-      completed_step_hex TEXT NOT NULL,
-      boundary_kind TEXT NOT NULL,
-      checkpoint_format_version_hex TEXT NOT NULL,
-      state_version_hex TEXT NOT NULL,
-      graph_layout_version_hex TEXT NOT NULL,
-      managed_root TEXT NOT NULL,
-      relative_filename TEXT NOT NULL UNIQUE,
-      logical_root_sha256 TEXT NOT NULL UNIQUE,
-      stored_byte_count_hex TEXT NOT NULL,
-      decoded_byte_count_hex TEXT NOT NULL,
-      role_count_hex TEXT NOT NULL,
-      population_count_hex TEXT NOT NULL,
-      weight_count_hex TEXT NOT NULL,
-      recurrent_state_count_hex TEXT NOT NULL,
-      weights_encoding TEXT NOT NULL,
-      recurrent_state_encoding TEXT NOT NULL,
-      graph_layout_sha256 TEXT NOT NULL,
-      write_validation_policy TEXT NOT NULL,
-      descriptor_json TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS rust_checkpoint_v3_current (
-      run_id TEXT PRIMARY KEY NOT NULL,
-      checkpoint_id TEXT NOT NULL REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-      transition_epoch TEXT NOT NULL,
-      operation_id TEXT NOT NULL UNIQUE
-    );
-    CREATE TABLE IF NOT EXISTS rust_generation_history_v1 (
-      run_id TEXT NOT NULL,
-      generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-      record_version INTEGER NOT NULL,
-      record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
-      created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (run_id, generation_hex)
-    );
-    CREATE TABLE IF NOT EXISTS rust_generation_completion_v1 (
-      run_id TEXT NOT NULL,
-      generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
-      record_blob BLOB NOT NULL CHECK(length(record_blob) = 32),
-      PRIMARY KEY (run_id, generation_hex)
-    );
-    CREATE TABLE IF NOT EXISTS rust_generation_work_v1 (
-      run_id TEXT NOT NULL,
-      generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
-      record_json TEXT NOT NULL CHECK(length(record_json) <= 8192),
-      PRIMARY KEY (run_id, generation_hex)
-    );
-    CREATE TABLE IF NOT EXISTS rust_generation_experiment_v1 (
-      run_id TEXT NOT NULL,
-      generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id) ON DELETE SET NULL,
-      record_blob BLOB NOT NULL CHECK(length(record_blob) = 768),
-      PRIMARY KEY (run_id, generation_hex)
-    );
-    CREATE TABLE IF NOT EXISTS rust_hall_of_fame_weights_v1 (
-      logical_sha256 TEXT PRIMARY KEY NOT NULL,
-      relative_filename TEXT NOT NULL UNIQUE,
-      encoding TEXT NOT NULL,
-      stored_byte_count_hex TEXT NOT NULL,
-      decoded_byte_count_hex TEXT NOT NULL,
-      weight_count_hex TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS rust_hall_of_fame_v1 (
-      run_id TEXT NOT NULL,
-      generation_hex TEXT NOT NULL,
-      checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-      record_version INTEGER NOT NULL,
-      record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
-      weights_sha256 TEXT REFERENCES rust_hall_of_fame_weights_v1(logical_sha256),
-      genome_sha256 TEXT,
-      fitness_value REAL NOT NULL,
-      pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0, 1)),
-      weight_state TEXT NOT NULL CHECK(weight_state IN ('selected', 'unselected', 'legacy')),
-      created_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (run_id, generation_hex)
-    );
-  `);
-}
-
-/** Add the content-addressed winner-weight store without rewriting older Hall-of-Fame rows. */
-function initializeHallOfFameWeightsSchema(database: ReturnType<typeof Database>): void {
-  database.transaction(() => {
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS rust_hall_of_fame_weights_v1 (
-        logical_sha256 TEXT PRIMARY KEY NOT NULL,
-        relative_filename TEXT NOT NULL UNIQUE,
-        encoding TEXT NOT NULL,
-        stored_byte_count_hex TEXT NOT NULL,
-        decoded_byte_count_hex TEXT NOT NULL,
-        weight_count_hex TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL
-      )
-    `);
-    let columns = database.prepare('PRAGMA table_info(rust_hall_of_fame_v1)').all() as Array<{ name: string }>;
-    if (!columns.some(column => column.name === 'weights_sha256')) {
-      database.exec(`ALTER TABLE rust_hall_of_fame_v1 ADD COLUMN weights_sha256 TEXT
-        REFERENCES rust_hall_of_fame_weights_v1(logical_sha256)`);
-    }
-    if (!columns.some(column => column.name === 'fitness_value')) {
-      database.exec('ALTER TABLE rust_hall_of_fame_v1 ADD COLUMN fitness_value REAL');
-    }
-    if (!columns.some(column => column.name === 'genome_sha256')) {
-      database.exec('ALTER TABLE rust_hall_of_fame_v1 ADD COLUMN genome_sha256 TEXT');
-    }
-    if (!columns.some(column => column.name === 'pinned')) {
-      database.exec(`ALTER TABLE rust_hall_of_fame_v1 ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0
-        CHECK(pinned IN (0, 1))`);
-    }
-    if (!columns.some(column => column.name === 'weight_state')) {
-      database.exec(`ALTER TABLE rust_hall_of_fame_v1 ADD COLUMN weight_state TEXT
-        CHECK(weight_state IN ('selected', 'unselected', 'legacy'))`);
-    }
-    columns = database.prepare('PRAGMA table_info(rust_hall_of_fame_v1)').all() as Array<{ name: string }>;
-    if (!['weights_sha256', 'genome_sha256', 'fitness_value', 'pinned', 'weight_state']
-      .every(name => columns.some(column => column.name === name))) {
-      throw new Error('Hall-of-Fame schema migration did not create every retention field');
-    }
-    type MigrationRow = {
-      run_id: string; generation_hex: string; record_blob: Buffer; weights_sha256: string | null;
-      genome_sha256: string | null; fitness_value: number | null; weight_state: string | null;
-    };
-    const firstPage = database.prepare(`SELECT run_id, generation_hex, record_blob, weights_sha256,
-      genome_sha256, fitness_value, weight_state FROM rust_hall_of_fame_v1
-      ORDER BY run_id, generation_hex LIMIT 256`);
-    const nextPage = database.prepare(`SELECT run_id, generation_hex, record_blob, weights_sha256,
-      genome_sha256, fitness_value, weight_state FROM rust_hall_of_fame_v1
-      WHERE run_id > ? OR (run_id = ? AND generation_hex > ?)
-      ORDER BY run_id, generation_hex LIMIT 256`);
-    const update = database.prepare(`UPDATE rust_hall_of_fame_v1
-      SET genome_sha256 = ?, fitness_value = ?, weight_state = ?
-      WHERE run_id = ? AND generation_hex = ?`);
-    let rows = firstPage.all() as MigrationRow[];
-    while (rows.length > 0) {
-      for (const row of rows) {
-        if (!Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56) {
-          throw new Error('Hall-of-Fame migration found a malformed compact record');
-        }
-        const fitness = row.record_blob.readDoubleLE(32);
-        if (!Number.isFinite(fitness)) throw new Error('Hall-of-Fame migration found non-finite fitness');
-        const weightState = row.weight_state ?? (row.weights_sha256 === null ? 'legacy' : 'selected');
-        if (!['selected', 'unselected', 'legacy'].includes(weightState)) {
-          throw new Error('Hall-of-Fame migration found an invalid weight state');
-        }
-        const genomeSha256 = row.genome_sha256 ?? row.weights_sha256;
-        if (weightState !== 'legacy' && genomeSha256 === null) {
-          throw new Error('Hall-of-Fame migration found a retained row without genome identity');
-        }
-        if (row.genome_sha256 !== genomeSha256 || row.fitness_value !== fitness ||
-            row.weight_state !== weightState) {
-          update.run(genomeSha256, fitness, weightState, row.run_id, row.generation_hex);
-        }
-      }
-      const last = rows[rows.length - 1]!;
-      rows = nextPage.all(last.run_id, last.run_id, last.generation_hex) as MigrationRow[];
-    }
-    ensureHallOfFameIndexes(database);
-    const runs = database.prepare('SELECT DISTINCT run_id FROM rust_hall_of_fame_v1')
-      .all() as Array<{ run_id: string }>;
-    for (const run of runs) rebuildHallOfFameRetention(run.run_id);
-  }).immediate();
-}
-
-/** Restore selection and reference indexes after either Hall-of-Fame schema path. */
-function ensureHallOfFameIndexes(database: ReturnType<typeof Database>): void {
-  database.exec(`
-    CREATE INDEX IF NOT EXISTS rust_hof_genome_rank_v1
-      ON rust_hall_of_fame_v1(run_id, genome_sha256, pinned, fitness_value DESC, generation_hex);
-    CREATE INDEX IF NOT EXISTS rust_hof_selected_v1
-      ON rust_hall_of_fame_v1(run_id, weight_state, pinned, generation_hex);
-    CREATE INDEX IF NOT EXISTS rust_hof_checkpoint_state_v1
-      ON rust_hall_of_fame_v1(checkpoint_id, weight_state);
-    CREATE INDEX IF NOT EXISTS rust_hof_weights_reference_v1
-      ON rust_hall_of_fame_v1(weights_sha256);
-  `);
-}
-
-/** Permit imported history to retain its exact keys without inventing one
- * managed checkpoint reference per historical generation. */
-function initializeImportableHistorySchema(database: ReturnType<typeof Database>): void {
-  database.transaction(() => {
-    const history = database.prepare(`SELECT sql FROM sqlite_schema
-      WHERE type = 'table' AND name = 'rust_generation_history_v1'`).get() as { sql: string };
-    if (/checkpoint_id\s+TEXT\s+NOT NULL\s+UNIQUE/iu.test(history.sql)) {
-      database.exec(`
-        ALTER TABLE rust_generation_history_v1 RENAME TO rust_generation_history_v1_old;
-        CREATE TABLE rust_generation_history_v1 (
-          run_id TEXT NOT NULL,
-          generation_hex TEXT NOT NULL,
-          checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-          record_version INTEGER NOT NULL,
-          record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
-          created_at_ms INTEGER NOT NULL,
-          PRIMARY KEY (run_id, generation_hex)
-        );
-        INSERT INTO rust_generation_history_v1
-          (run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms)
-        SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob, created_at_ms
-          FROM rust_generation_history_v1_old;
-        DROP TABLE rust_generation_history_v1_old;
-      `);
-    }
-    const hall = database.prepare(`SELECT sql FROM sqlite_schema
-      WHERE type = 'table' AND name = 'rust_hall_of_fame_v1'`).get() as { sql: string };
-    if (/checkpoint_id\s+TEXT\s+NOT NULL\s+UNIQUE/iu.test(hall.sql)) {
-      database.exec(`
-        ALTER TABLE rust_hall_of_fame_v1 RENAME TO rust_hall_of_fame_v1_old;
-        CREATE TABLE rust_hall_of_fame_v1 (
-          run_id TEXT NOT NULL,
-          generation_hex TEXT NOT NULL,
-          checkpoint_id TEXT REFERENCES rust_checkpoint_v3_metadata(checkpoint_id),
-          record_version INTEGER NOT NULL,
-          record_blob BLOB NOT NULL CHECK(length(record_blob) = 56),
-          weights_sha256 TEXT REFERENCES rust_hall_of_fame_weights_v1(logical_sha256),
-          genome_sha256 TEXT,
-          fitness_value REAL NOT NULL,
-          pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0, 1)),
-          weight_state TEXT NOT NULL CHECK(weight_state IN ('selected', 'unselected', 'legacy')),
-          created_at_ms INTEGER NOT NULL,
-          PRIMARY KEY (run_id, generation_hex)
-        );
-        INSERT INTO rust_hall_of_fame_v1
-          (run_id, generation_hex, checkpoint_id, record_version, record_blob,
-           weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms)
-        SELECT run_id, generation_hex, checkpoint_id, record_version, record_blob,
-          weights_sha256, genome_sha256, fitness_value, pinned, weight_state, created_at_ms
-          FROM rust_hall_of_fame_v1_old;
-        DROP TABLE rust_hall_of_fame_v1_old;
-      `);
-    }
-    ensureHallOfFameIndexes(database);
-  }).immediate();
-}
-
-/**
- * Convert one exact hexadecimal descriptor value to bigint for non-lexicographic comparisons.
- * @param value - Canonical fixed-width unsigned-64-bit hexadecimal value.
- * @returns Exact bigint value.
- */
-function u64HexToBigInt(value: U64Hex): bigint {
-  return BigInt(`0x${value}`);
-}
-
-/** Decode one validated network-order Float64 bit string for SQLite ranking. */
-function f64HexToNumber(value: string): number {
-  const bytes = Buffer.from(value, 'hex');
-  if (bytes.length !== 8) throw new TypeError('invalid Float64 bit string');
-  const decoded = bytes.readDoubleBE(0);
-  if (!Number.isFinite(decoded)) throw new RangeError('Hall-of-Fame fitness must be finite');
-  return decoded;
-}
-
-/**
- * Enforce bounded descriptor facts before the short SQLite transaction starts.
- * @param descriptor - Strict descriptor supplied by the Rust/Node bridge.
- */
-function assertDescriptorBounds(descriptor: ManagedCheckpointDescriptor): void {
-  const storedBytes = u64HexToBigInt(descriptor.storedByteCount);
-  const decodedBytes = u64HexToBigInt(descriptor.decodedByteCount);
-  const maxStoredBytes = u64HexToBigInt(descriptorLimits.maxStoredByteCount);
-  const maxDecodedBytes = u64HexToBigInt(descriptorLimits.maxDecodedByteCount);
-  if (storedBytes <= 0n || storedBytes > maxStoredBytes) {
-    throw new RangeError('storedByteCount is outside the managed checkpoint limit');
-  }
-  if (decodedBytes <= 0n || decodedBytes > maxDecodedBytes) {
-    throw new RangeError('decodedByteCount is outside the managed checkpoint limit');
-  }
-  const populationCount = u64HexToBigInt(descriptor.populationCount);
-  const roleCount = u64HexToBigInt(descriptor.roleCount);
-  const weightCount = u64HexToBigInt(descriptor.weightCount);
-  const recurrentStateCount = u64HexToBigInt(descriptor.recurrentStateCount);
-  const maxPopulationCount = u64HexToBigInt(descriptorLimits.maxPopulationCount);
-  const maxWeightsPerGenome = u64HexToBigInt(descriptorLimits.maxWeightsPerGenome);
-  const maxRecurrentStateCount = u64HexToBigInt(descriptorLimits.maxRecurrentStateCount);
-  const maxRoleCount = u64HexToBigInt(descriptorLimits.maxRoleCount);
-  if (roleCount === 0n || roleCount > maxRoleCount) {
-    throw new RangeError('roleCount is outside the managed checkpoint limit');
-  }
-  if (populationCount <= 0n || populationCount > maxPopulationCount) {
-    throw new RangeError('populationCount is outside the managed checkpoint limit');
-  }
-  if (weightCount > populationCount * maxWeightsPerGenome) {
-    throw new RangeError('weightCount is outside the managed checkpoint limit');
-  }
-  if (recurrentStateCount > maxRecurrentStateCount) {
-    throw new RangeError('recurrentStateCount is outside the managed checkpoint limit');
-  }
-  for (const [label, value] of [
-    ['transitionEpoch', descriptor.transitionEpoch],
-    ['checkpointFormatVersion', descriptor.checkpointFormatVersion],
-    ['stateVersion', descriptor.stateVersion],
-    ['graphLayoutVersion', descriptor.graphLayoutVersion]
-  ] as const) {
-    if (u64HexToBigInt(value) === 0n) throw new RangeError(`${label} must be nonzero`);
-  }
-}
-
-/**
- * Validate the exact final immutable file without reading or cloning its population bytes.
- *
- * Rust's single-pass publisher owns byte-to-logical-root validation, and Rust validates the
- * logical root again on restore/startup. This metadata worker intentionally checks only the
- * controlled path, final regular-file type, and exact stored length.
- * @param relativeFilename - Strict direct-child basename selected by Rust.
- * @param expectedBytes - Exact final stored file length.
- */
-function verifyManagedDirectFile(relativeFilename: string, expectedBytes: bigint): VerifiedManagedFile {
-  const candidate = resolve(managedRootPath, relativeFilename);
-  const rootPrefix = managedRootPath.endsWith(sep) ? managedRootPath : `${managedRootPath}${sep}`;
-  if (!candidate.startsWith(rootPrefix) || dirname(candidate) !== managedRootPath) {
-    throw new TypeError('managed checkpoint filename escapes the controlled root');
-  }
-  const rootStats = lstatSync(managedRootPath);
-  if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
-    throw new TypeError('managed checkpoint root changed or became a symlink');
-  }
-  const fileStats = lstatSync(candidate);
-  if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
-    throw new TypeError('managed checkpoint must be one final regular file, never a symlink');
-  }
-  const realCandidate = realpathSync(candidate);
-  if (dirname(realCandidate) !== managedRootPath) {
-    throw new TypeError('managed checkpoint resolves outside the controlled root');
-  }
-  if (statSync(candidate, { bigint: true }).size !== expectedBytes) {
-    throw new RangeError('managed file size does not match storedByteCount');
-  }
-  return { path: candidate, expectedBytes };
-}
-
-/** Validate one immutable checkpoint file against its strict descriptor. */
-function verifyManagedFile(descriptor: ManagedCheckpointDescriptor): VerifiedManagedFile {
-  return verifyManagedDirectFile(
-    descriptor.relativeFilename,
-    u64HexToBigInt(descriptor.storedByteCount)
-  );
-}
-
-/** Validate one immutable Hall-of-Fame weight file against its strict descriptor. */
-function verifyHallOfFameWeightsFile(
-  descriptor: ManagedHallOfFameWeightsDescriptor
-): VerifiedManagedFile {
-  return verifyManagedDirectFile(
-    descriptor.relativeFilename,
-    u64HexToBigInt(descriptor.storedByteCount)
-  );
-}
-
-/**
- * Recheck only final-file type and size after the SQLite transaction begins.
- * @param file - Previously resolved controlled managed file.
- */
-function recheckManagedFile(file: VerifiedManagedFile): void {
-  const stats = lstatSync(file.path, { bigint: true });
-  if (stats.isSymbolicLink() || !stats.isFile() ||
-    statSync(file.path, { bigint: true }).size !== file.expectedBytes) {
-    throw new TypeError('managed checkpoint final file changed before metadata commit');
-  }
-}
-
-/**
- * Stable descriptor serialization for exact duplicate detection in SQLite.
- * @param descriptor - Strict descriptor containing only scalar data.
- * @returns Deterministic JSON record.
- */
-function serializeDescriptor(descriptor: ManagedCheckpointDescriptor): string {
-  return JSON.stringify(descriptor);
 }
 
 /** Require SQLite's immutable content-object metadata to match one strict Rust descriptor. */
@@ -987,7 +444,7 @@ function cleanupUnreferencedHallOfFameWeights(): { files: number; storedBytes: b
         throw new Error('unreferenced Hall-of-Fame object has inconsistent counts');
       }
       try {
-        const file = verifyManagedDirectFile(row.relative_filename, storedBytes);
+        const file = verifyManagedDirectFile(managedRootPath, row.relative_filename, storedBytes);
         unlinkSync(file.path);
         result.files++;
         result.storedBytes += storedBytes;
@@ -1043,12 +500,12 @@ function scavengeUnreferencedManagedFiles(): {
         throw new Error('managed orphan scan found invalid checkpoint metadata');
       }
       const descriptor = parseManagedCheckpointDescriptor(JSON.parse(row.descriptor_json));
-      assertDescriptorBounds(descriptor);
+      assertDescriptorBounds(descriptorLimits, descriptor);
       referenced.add(descriptor.relativeFilename);
       if (row.retention_kind === 'automatic' || row.retention_kind === 'pinned') {
-        verifyManagedFile(descriptor);
+        verifyManagedFile(managedRootPath, descriptor);
       } else if (row.retention_kind === 'pruning') {
-        try { verifyManagedFile(descriptor); }
+        try { verifyManagedFile(managedRootPath, descriptor); }
         catch (error) {
           if (!(error && typeof error === 'object' &&
               (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
@@ -1093,7 +550,7 @@ function scavengeUnreferencedManagedFiles(): {
           (row.encoding === 'raw-f32le-v1' && storedBytes !== decodedBytes)) {
         throw new Error('managed orphan scan found inconsistent Hall-of-Fame counts');
       }
-      verifyManagedDirectFile(row.relative_filename, storedBytes);
+      verifyManagedDirectFile(managedRootPath, row.relative_filename, storedBytes);
       referenced.add(row.relative_filename);
       verifiedWeights++;
       if (verifiedWeights % 256 === 0) advancePersistenceProgress();
@@ -1346,7 +803,7 @@ function validateCurrentPointerIdentity(
   } catch {
     throw new Error('current checkpoint pointer references invalid immutable descriptor metadata');
   }
-  const branch = current.metadata_run_id !== expectedRunId ? readLineageBranch(expectedRunId) : undefined;
+  const branch = current.metadata_run_id !== expectedRunId ? readLineageBranch(db, expectedRunId) : undefined;
   const aliased = branch !== undefined && branch.recoveredDescriptor.runId === current.metadata_run_id &&
     branch.recoveredDescriptor.logicalRootSha256 === current.pointer_checkpoint_id &&
     branch.operationId === current.pointer_operation_id &&
@@ -1416,9 +873,9 @@ function selectManagedCheckpoint(runId: string | null): ManagedCheckpointSelecti
       descriptor: null, runId: null, recovery: null, importBranch: null, legacyConversion: null
     };
     const descriptor = validateCurrentPointerIdentity(selectedRun, current);
-    assertDescriptorBounds(descriptor);
-    return { descriptor, runId: selectedRun, recovery: readRecoveryBranch(selectedRun) ?? null,
-      importBranch: readImportBranch(selectedRun) ?? null,
+    assertDescriptorBounds(descriptorLimits, descriptor);
+    return { descriptor, runId: selectedRun, recovery: readRecoveryBranch(db, selectedRun) ?? null,
+      importBranch: readImportBranch(db, selectedRun) ?? null,
       legacyConversion: readLegacyConversion(selectedRun) ?? null };
   }).deferred();
 }
@@ -1431,7 +888,7 @@ function currentCheckpointRetentionDecision(automaticByteCap = retentionSettings
 } {
     const activeRunId = resolveSelectedRun(null);
     if (activeRunId === null) throw new Error('retention inventory requires one active managed run');
-    const lineage = recoveryLineage(activeRunId);
+    const lineage = recoveryLineage(db, activeRunId);
     const pointers = db.prepare(`SELECT
       CASE WHEN length(CAST(run_id AS BLOB)) <= 256 THEN run_id END AS run_id,
       CASE WHEN length(checkpoint_id) = 64 THEN checkpoint_id END AS checkpoint_id
@@ -1615,216 +1072,6 @@ function pinCurrentCheckpoint(): { checkpointId: string; generation: U64Hex } {
   }).immediate();
 }
 
-/** Build the inherited completed-generation filter for one exact checkpoint boundary. */
-function exportLineageFilter(
-  runId: string,
-  checkpointGeneration: U64Hex,
-  tableAlias: string
-): { sql: string; parameters: string[]; completedGenerationCount: bigint } {
-  const completedGenerationCount = u64HexToBigInt(checkpointGeneration) - 1n;
-  const lineage = recoveryLineage(runId).map(item => {
-    const boundary = item.maximumGeneration === null
-      ? completedGenerationCount
-      : u64HexToBigInt(item.maximumGeneration) - 1n;
-    return { runId: item.runId, maximumCompletedGeneration: boundary };
-  });
-  return {
-    sql: lineage.map(() => `(${tableAlias}.run_id = ? AND ${tableAlias}.generation_hex <= ?)`)
-      .join(' OR '),
-    parameters: lineage.flatMap(item => [
-      item.runId,
-      item.maximumCompletedGeneration.toString(16).padStart(16, '0')
-    ]),
-    completedGenerationCount
-  };
-}
-
-/**
- * Project retained genomes onto this boundary's completed history. A later, better
- * assessment can supersede an earlier row for the same genome without removing
- * its packed object. Recovery must use the best assessment inside its prefix,
- * rather than losing that genome because its currently selected row is later.
- * Only representatives outside the prefix need projection; selected entries
- * inside it, including pins, keep their existing retention semantics. This does
- * not resurrect pruned objects or rewrite source records.
- */
-function boundaryHallOfFameSelection(runId: string, checkpointGeneration: U64Hex): {
-  sql: string; parameters: string[];
-} {
-  const filter = exportLineageFilter(runId, checkpointGeneration, 'candidate');
-  const retainedFilter = exportLineageFilter(runId, checkpointGeneration, 'retained');
-  return {
-    sql: `WITH eligible_hall AS (
-      SELECT candidate.*
-      FROM rust_hall_of_fame_v1 AS candidate
-      WHERE candidate.weight_state = 'selected' AND (${filter.sql})
-      UNION ALL
-      SELECT DISTINCT candidate.*
-      FROM rust_hall_of_fame_v1 AS retained
-      JOIN rust_hall_of_fame_v1 AS candidate
-        ON candidate.run_id = retained.run_id AND candidate.genome_sha256 = retained.genome_sha256
-      WHERE retained.weight_state = 'selected' AND NOT (${retainedFilter.sql})
-        AND candidate.weight_state = 'unselected' AND (${filter.sql})
-    ), ranked_hall AS (
-      SELECT eligible_hall.*, row_number() OVER (
-        PARTITION BY run_id, genome_sha256 ORDER BY fitness_value DESC, generation_hex ASC
-      ) AS genome_rank FROM eligible_hall
-    ), boundary_hall AS (
-      SELECT run_id, generation_hex, record_version, record_blob, fitness_value, pinned,
-        CASE WHEN weight_state = 'unselected' THEN genome_sha256 ELSE weights_sha256 END AS weights_sha256
-      FROM ranked_hall WHERE genome_rank = 1 OR pinned = 1
-    )`,
-    parameters: [...filter.parameters, ...retainedFilter.parameters, ...filter.parameters]
-  };
-}
-
-/** Decode the newest bounded compact history window for the current browser charts. */
-function readBrowserHistory(runId: string, limit: number): ManagedBrowserHistoryEntry[] {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 120) {
-    throw new RangeError('browser history limit must be an integer from 1 to 120');
-  }
-  return db.transaction(() => {
-    const current = readCurrentPointer(runId);
-    if (!current) throw new Error('browser history requires a current managed run');
-    const descriptor = validateCurrentPointerIdentity(runId, current);
-    const filter = exportLineageFilter(runId, descriptor.generation, 'history');
-    const rows = db.prepare(`SELECT history.generation_hex, history.record_version, history.record_blob, experiment.record_blob AS experiment_blob, work.record_json AS work_json
-      FROM rust_generation_history_v1 AS history LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex) LEFT JOIN rust_generation_work_v1 AS work USING(run_id, generation_hex) WHERE ${filter.sql}
-      ORDER BY history.generation_hex DESC LIMIT ?`).all(...filter.parameters, limit) as Array<{
-        generation_hex: string;
-        record_version: number;
-        record_blob: Buffer;
-      }>;
-    const decoded = rows.map(row => {
-      if (row.record_version !== 1 || !/^[0-9a-f]{16}$/u.test(row.generation_hex) ||
-          !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56 ||
-          row.record_blob.readBigUInt64LE(0) !== u64HexToBigInt(row.generation_hex)) {
-        throw new Error('browser history contains malformed compact metadata');
-      }
-      const generation = u64HexToBigInt(row.generation_hex);
-      if (generation > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new RangeError('browser history generation exceeds Protocol 2');
-      }
-      const experimentRow = row as typeof row & { experiment_blob: Buffer | null };
-      if (experimentRow.experiment_blob !== null && (!Buffer.isBuffer(experimentRow.experiment_blob) || experimentRow.experiment_blob.length !== 768 || experimentRow.experiment_blob.readBigUInt64LE(16) !== generation)) {
-        throw new Error('browser history experiment generation mismatch');
-      }
-      const workRow = row as typeof row & { work_json: string | null };
-      const entry: ManagedBrowserHistoryEntry = {
-        ...(workRow.work_json === null ? {} : { workload: parseGenerationWorkJson(workRow.work_json, row.generation_hex) }),
-        ...(experimentRow.experiment_blob === null ? {} : { experiment: decodeExperimentSummary(experimentRow.experiment_blob) }),
-        gen: Number(generation),
-        best: row.record_blob.readDoubleLE(8),
-        avg: row.record_blob.readDoubleLE(16),
-        min: row.record_blob.readDoubleLE(24),
-        speciesCount: row.record_blob.readUInt32LE(32),
-        topSpeciesSize: row.record_blob.readUInt32LE(36),
-        avgWeight: row.record_blob.readDoubleLE(40),
-        weightVariance: row.record_blob.readDoubleLE(48)
-      };
-      if (![entry.best, entry.avg, entry.min, entry.avgWeight, entry.weightVariance]
-        .every(Number.isFinite)) {
-        throw new Error('browser history contains non-finite compact metadata');
-      }
-      return entry;
-    });
-    decoded.reverse();
-    for (let index = 1; index < decoded.length; index++) {
-      if (decoded[index - 1]!.gen >= decoded[index]!.gen) {
-        throw new Error('browser history contains duplicate or unordered generations');
-      }
-    }
-    return decoded;
-  }).deferred();
-}
-
-/** Decode one bounded best-first Hall-of-Fame window without reading packed weights. */
-function readBrowserHallOfFame(runId: string, limit: number): ManagedBrowserHallOfFameEntry[] {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-    throw new RangeError('browser Hall-of-Fame limit must be an integer from 1 to 100');
-  }
-  return db.transaction(() => {
-    const current = readCurrentPointer(runId);
-    if (!current) throw new Error('browser Hall of Fame requires a current managed run');
-    const descriptor = validateCurrentPointerIdentity(runId, current);
-    const selection = boundaryHallOfFameSelection(runId, descriptor.generation);
-    const rows = db.prepare(`${selection.sql} SELECT hall.generation_hex, hall.record_version,
-      hall.record_blob, hall.fitness_value, hall.pinned, experiment.record_blob AS experiment_blob
-      FROM boundary_hall AS hall LEFT JOIN rust_generation_experiment_v1 AS experiment USING(run_id, generation_hex)
-      ORDER BY hall.fitness_value DESC, hall.generation_hex ASC LIMIT ?`)
-      .all(...selection.parameters, limit) as Array<{
-        generation_hex: string;
-        record_version: number;
-        record_blob: Buffer;
-        fitness_value: number;
-        pinned: number;
-      }>;
-    return rows.map(row => {
-      if (row.record_version !== 1 || !/^[0-9a-f]{16}$/u.test(row.generation_hex) ||
-          !Buffer.isBuffer(row.record_blob) || row.record_blob.length !== 56 ||
-          row.record_blob.readBigUInt64LE(0) !== u64HexToBigInt(row.generation_hex) ||
-          !Number.isFinite(row.fitness_value) || ![0, 1].includes(row.pinned)) {
-        throw new Error('browser Hall of Fame contains malformed compact metadata');
-      }
-      const generation = u64HexToBigInt(row.generation_hex);
-      const length = row.record_blob.readBigUInt64LE(48);
-      if (generation > BigInt(Number.MAX_SAFE_INTEGER) || length > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new RangeError('browser Hall of Fame exceeds Protocol 2');
-      }
-      const fitness = row.record_blob.readDoubleLE(32);
-      const points = row.record_blob.readDoubleLE(40);
-      if (!Number.isFinite(fitness) || !Number.isFinite(points) || fitness !== row.fitness_value) {
-        throw new Error('browser Hall of Fame contains inconsistent numeric metadata');
-      }
-      const experimentRow = row as typeof row & { experiment_blob: Buffer | null };
-      const assessment = experimentRow.experiment_blob === null ? undefined : decodeExperimentSummary(experimentRow.experiment_blob).winner;
-      const experiment = experimentRow.experiment_blob;
-      if (experiment !== null && (experiment.readBigUInt64LE(16) !== generation || experiment.readBigUInt64LE(528) !== BigInt(row.record_blob.readUInt32LE(8)) || experiment.readBigUInt64LE(536) !== row.record_blob.readBigUInt64LE(16) || experiment.readBigUInt64LE(672) !== row.record_blob.readBigUInt64LE(40) || experiment.readBigUInt64LE(704) !== row.record_blob.readBigUInt64LE(48))) {
-        throw new Error('browser HoF experiment source mismatch');
-      }
-      return {
-        ...(assessment ? { assessment } : {}),
-        entryId: row.generation_hex as U64Hex,
-        gen: Number(generation),
-        fitness,
-        points: assessment?.assessment ?? points,
-        length: assessment?.displayLength ?? Number(length),
-        pinned: row.pinned === 1
-      };
-    });
-  }).deferred();
-}
-
-/** Preserve conversion provenance independently of expiring prior-run resume pointers. */
-function initializeLegacyConversionSchema(database: ReturnType<typeof Database>): void {
-  const createTable = `
-    CREATE TABLE IF NOT EXISTS rust_legacy_conversions_v1 (
-      run_id TEXT PRIMARY KEY NOT NULL,
-      source_snapshot_id INTEGER NOT NULL CHECK(source_snapshot_id > 0),
-      source_format TEXT NOT NULL CHECK(source_format IN ('typescript-v2', 'legacy-gzip', 'legacy-json')),
-      completeness TEXT NOT NULL CHECK(completeness = 'population-only'),
-      created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
-    );
-  `;
-  database.transaction(() => {
-    const foreignKeys = database.prepare('PRAGMA foreign_key_list(rust_legacy_conversions_v1)').all() as
-      Array<{ table: string; from: string; to: string }>;
-    if (foreignKeys.some(key => key.table === 'rust_checkpoint_v3_current' && key.from === 'run_id' && key.to === 'run_id')) {
-      // Conversion history has the same lifetime as compact checkpoint metadata,
-      // while retention intentionally detaches obsolete current pointers.
-      database.exec('ALTER TABLE rust_legacy_conversions_v1 RENAME TO rust_legacy_conversions_v1_old');
-      database.exec(createTable);
-      database.exec(`INSERT INTO rust_legacy_conversions_v1 (
-        run_id, source_snapshot_id, source_format, completeness, created_at_ms
-      ) SELECT run_id, source_snapshot_id, source_format, completeness, created_at_ms
-        FROM rust_legacy_conversions_v1_old;
-        DROP TABLE rust_legacy_conversions_v1_old;`);
-    } else {
-      database.exec(createTable);
-    }
-  }).immediate();
-}
-
 /** Read and strictly validate one run's legacy-conversion provenance. */
 function readLegacyConversion(runId: string): ManagedLegacyConversion | undefined {
   const row = db.prepare(`SELECT source_snapshot_id AS snapshotId, source_format AS sourceFormat,
@@ -1877,84 +1124,6 @@ function selectLegacySnapshot(): ManagedLegacySnapshotSelection | null {
   return parseManagedLegacySnapshotSelection({ snapshotId: row.id, sourceFormat });
 }
 
-/** Add the small legacy-compatible graph-preset table to dedicated Rust databases. */
-function initializeGraphPresetSchema(database: ReturnType<typeof Database>): void {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS graph_presets (
-      id INTEGER PRIMARY KEY,
-      created_at INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      spec_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_graph_presets_name ON graph_presets(name);
-  `);
-  database.prepare('SELECT id, created_at, name, spec_json FROM graph_presets LIMIT 0').all();
-}
-
-/** Parse and independently compile one bounded preset document. */
-function parseGraphPresetSpec(specJson: string): GraphSpec {
-  if (!specJson || Buffer.byteLength(specJson) > MAX_GRAPH_PRESET_BYTES) {
-    throw new RangeError('graph preset exceeds 256 KiB');
-  }
-  const spec: unknown = JSON.parse(specJson);
-  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) {
-    throw new TypeError('graph preset spec must be an object');
-  }
-  const result = validateGraph(spec as GraphSpec);
-  if (!result.ok) throw new Error(`invalid graph preset: ${result.reason}`);
-  return spec as GraphSpec;
-}
-
-/** Insert one bounded validated graph preset. */
-function saveGraphPreset(name: string, specJson: string): number {
-  const trimmed = name.trim();
-  if (!trimmed || trimmed.includes('\0') || Buffer.byteLength(trimmed) > MAX_GRAPH_PRESET_NAME_BYTES) {
-    throw new TypeError('graph preset name must contain 1 to 256 UTF-8 bytes');
-  }
-  parseGraphPresetSpec(specJson);
-  const result = db.prepare(`INSERT INTO graph_presets (created_at, name, spec_json)
-    VALUES (?, ?, ?)`).run(Date.now(), trimmed, specJson);
-  const id = Number(result.lastInsertRowid);
-  if (!Number.isSafeInteger(id) || id < 1) throw new Error('graph preset row identity is invalid');
-  return id;
-}
-
-/** List only small preset metadata in newest-first order. */
-function listGraphPresets(limit: number): ManagedGraphPresetMeta[] {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
-    throw new RangeError('graph preset limit must be an integer from 1 to 200');
-  }
-  const rows = db.prepare(`SELECT id, created_at, name FROM graph_presets
-    ORDER BY created_at DESC, id DESC LIMIT ?`).all(limit) as Array<{
-      id: number; created_at: number; name: string;
-    }>;
-  return listStoredGraphPresetMetadata(rows);
-}
-
-/** Load and revalidate one complete preset without touching authoritative state. */
-function loadGraphPreset(presetId: number): ManagedGraphPreset | null {
-  if (!Number.isSafeInteger(presetId) || presetId < 1) throw new TypeError('graph preset id is invalid');
-  const row = db.prepare(`SELECT id, created_at, name, spec_json FROM graph_presets WHERE id = ?`)
-    .get(presetId) as { id: number; created_at: number; name: string; spec_json: string } | undefined;
-  if (!row) return null;
-  const [metadata] = listStoredGraphPresetMetadata([row]);
-  return { ...metadata!, spec: parseGraphPresetSpec(row.spec_json) };
-}
-
-/** Validate metadata shared by complete preset loads. */
-function listStoredGraphPresetMetadata(
-  rows: Array<{ id: number; created_at: number; name: string }>
-): ManagedGraphPresetMeta[] {
-  return rows.map(row => {
-    if (!Number.isSafeInteger(row.id) || row.id < 1 || !Number.isSafeInteger(row.created_at) ||
-        row.created_at < 0 || typeof row.name !== 'string' || !row.name || row.name.includes('\0') ||
-        Buffer.byteLength(row.name) > MAX_GRAPH_PRESET_NAME_BYTES) {
-      throw new Error('stored graph preset metadata is invalid');
-    }
-    return { id: row.id, name: row.name, createdAt: row.created_at };
-  });
-}
-
 /** Select and verify one retained packed winner without decoding its weights in Node. */
 function selectHallOfFameEntry(runId: string, entryId: U64Hex,
   operationId: CheckpointOperationId): ManagedHallOfFameSelection {
@@ -1963,7 +1132,7 @@ function selectHallOfFameEntry(runId: string, entryId: U64Hex,
     const current = readCurrentPointer(runId);
     if (!current) throw new Error('Hall-of-Fame selection requires a current managed run');
     const checkpoint = validateCurrentPointerIdentity(runId, current);
-    const selection = boundaryHallOfFameSelection(runId, checkpoint.generation);
+    const selection = boundaryHallOfFameSelection(db, runId, checkpoint.generation);
     const row = db.prepare(`${selection.sql} SELECT hall.record_version, hall.record_blob,
       weights.logical_sha256, weights.relative_filename, weights.encoding,
       weights.stored_byte_count_hex, weights.decoded_byte_count_hex, weights.weight_count_hex
@@ -2013,7 +1182,7 @@ function selectHallOfFameEntry(runId: string, entryId: U64Hex,
       decodedByteCount: row.decoded_byte_count_hex,
       weightCount: row.weight_count_hex
     }, checkpoint);
-    verifyHallOfFameWeightsFile(weights);
+    verifyHallOfFameWeightsFile(managedRootPath, weights);
     activeHallOfFameLease = { operationId, logicalSha256: weights.logicalSha256 };
     return { operationId, runId, entryId, checkpoint, reference, weights };
   }).deferred();
@@ -2039,8 +1208,8 @@ function publishExportInventory(
   runId: string,
   checkpoint: ManagedCheckpointDescriptor
 ): { descriptor: ManagedExportInventoryDescriptor; path: string } {
-  const historyFilter = exportLineageFilter(runId, checkpoint.generation, 'history');
-  const hallSelection = boundaryHallOfFameSelection(runId, checkpoint.generation);
+  const historyFilter = exportLineageFilter(db, runId, checkpoint.generation, 'history');
+  const hallSelection = boundaryHallOfFameSelection(db, runId, checkpoint.generation);
   const expectedCount = historyFilter.completedGenerationCount;
   if (expectedCount < 0n || expectedCount > MAX_EXPORT_GENERATIONS) {
     throw new RangeError('export generation count exceeds the bounded inventory limit');
@@ -2131,7 +1300,7 @@ function publishExportInventory(
         decodedByteCount: row.decoded_byte_count_hex,
         weightCount: row.weight_count_hex
       }, checkpoint);
-      verifyHallOfFameWeightsFile(weights);
+      verifyHallOfFameWeightsFile(managedRootPath, weights);
       const record = Buffer.alloc(EXPORT_INVENTORY_HALL_OF_FAME_BYTES);
       row.record_blob.copy(record, 0);
       Buffer.from(weights.logicalSha256, 'hex').copy(record, 56);
@@ -2183,7 +1352,7 @@ function publishExportInventory(
     ownsPartial = false;
     const storedByteCount = BigInt(EXPORT_INVENTORY_HEADER_BYTES) + historyCount * 56n +
       hallOfFameCount * BigInt(EXPORT_INVENTORY_HALL_OF_FAME_BYTES) + (inventoryVersion >= 2 ? historyCount * 40n : 0n) + (inventoryVersion === 3 ? historyCount * 776n : 0n);
-    verifyManagedDirectFile(relativeFilename, storedByteCount);
+    verifyManagedDirectFile(managedRootPath, relativeFilename, storedByteCount);
     return {
       descriptor: {
         version: inventoryVersion,
@@ -2226,7 +1395,7 @@ function acquireCurrentExportLease(operationId: CheckpointOperationId): {
     if (!retained || (retained.retention_kind !== 'automatic' && retained.retention_kind !== 'pinned')) {
       throw new Error('current checkpoint is not available for export');
     }
-    verifyManagedFile(descriptor);
+    verifyManagedFile(managedRootPath, descriptor);
     return { runId, descriptor };
   }).deferred();
   const inventory = publishExportInventory(operationId, selected.runId, selected.descriptor);
@@ -2335,7 +1504,7 @@ function applyCheckpointRetention(physicalReserveBytes: bigint | null = null): {
   let deletedStoredBytes = 0n;
   for (const descriptor of descriptors) {
     try {
-      const file = verifyManagedFile(descriptor);
+      const file = verifyManagedFile(managedRootPath, descriptor);
       unlinkSync(file.path);
     } catch (error) {
       if (!(error && typeof error === 'object' && (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
@@ -2402,7 +1571,7 @@ function selectRetainedCheckpoint(checkpointId: string): RecoveryScanResult {
         descriptor.transitionEpoch !== row.transition_epoch || descriptor.completedStep !== row.completed_step_hex) {
       throw new Error('requested exact checkpoint metadata identity mismatch');
     }
-    assertDescriptorBounds(descriptor);
+    assertDescriptorBounds(descriptorLimits, descriptor);
     return { cursor, descriptor, issue: null, exhausted: false };
   }).deferred();
 }
@@ -2420,7 +1589,7 @@ function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanRe
     if (cursor.sourceRunId !== activeRun || cursor.failedCheckpointId !== source.pointer_checkpoint_id) {
       throw new Error('failed source pointer changed during recovery scan');
     }
-    const filter = recoveryLineageFilter(recoveryLineage(activeRun));
+    const filter = recoveryLineageFilter(recoveryLineage(db, activeRun));
     const row = db.prepare(`SELECT run_id, generation_hex, checkpoint_id,
       CASE WHEN length(CAST(descriptor_json AS BLOB)) <= 16384 THEN descriptor_json END AS descriptor_json,
       CASE WHEN length(CAST(operation_id AS BLOB)) <= 32 THEN operation_id END AS operation_id,
@@ -2447,7 +1616,7 @@ function scanRecoveryCandidate(value: RecoveryScanCursor | null): RecoveryScanRe
           descriptor.transitionEpoch !== row.transition_epoch || descriptor.completedStep !== row.completed_step_hex) {
         throw new Error('retained metadata identity mismatch');
       }
-      assertDescriptorBounds(descriptor);
+      assertDescriptorBounds(descriptorLimits, descriptor);
       return { cursor: next, descriptor, issue: null, exhausted: false };
     } catch {
       return { cursor: next, descriptor: null, issue: 'retained checkpoint metadata is invalid', exhausted: false };
@@ -2528,7 +1697,7 @@ function readExactAt(file: number, target: Buffer, position: number): void {
 /** Verify the Rust-written import inventory before opening the SQLite transaction. */
 function verifyImportInventory(inventory: ManagedImportInventoryDescriptor): VerifiedManagedFile {
   const expectedBytes = u64HexToBigInt(inventory.storedByteCount);
-  const verified = verifyManagedDirectFile(inventory.relativeFilename, expectedBytes);
+  const verified = verifyManagedDirectFile(managedRootPath, inventory.relativeFilename, expectedBytes);
   const file = openSync(verified.path, 'r');
   try {
     const hasher = createHash('sha256');
@@ -2572,8 +1741,8 @@ function commitManagedImport(
   descriptor: ManagedCheckpointDescriptor;
   importBranch: ManagedImportBranchResult | null;
 } {
-  assertDescriptorBounds(descriptor);
-  const managedFile = verifyManagedFile(descriptor);
+  assertDescriptorBounds(descriptorLimits, descriptor);
+  const managedFile = verifyManagedFile(managedRootPath, descriptor);
   const inventoryFile = verifyImportInventory(inventory);
   const historyCount = u64HexToBigInt(inventory.historyCount);
   const hallOfFameCount = u64HexToBigInt(inventory.hallOfFameCount);
@@ -2718,7 +1887,7 @@ function commitManagedImport(
             !Number.isFinite(hallRecord.readDoubleLE(40))) {
           throw new Error('import Hall-of-Fame record is malformed');
         }
-        const weightsFile = verifyHallOfFameWeightsFile(weights);
+        const weightsFile = verifyHallOfFameWeightsFile(managedRootPath, weights);
         recheckManagedFile(weightsFile);
         db.prepare(`INSERT OR IGNORE INTO rust_hall_of_fame_weights_v1 (
           logical_sha256, relative_filename, encoding, stored_byte_count_hex,
@@ -2873,7 +2042,7 @@ function commitManagedCheckpoint(
   checkpointId: string;
   descriptor: ManagedCheckpointDescriptor;
 } {
-  assertDescriptorBounds(descriptor);
+  assertDescriptorBounds(descriptorLimits, descriptor);
   const descriptorJson = serializeDescriptor(descriptor);
   const summaryRecord = generationCommit === null
     ? null
@@ -2892,10 +2061,10 @@ function commitManagedCheckpoint(
     completionRecord.writeBigUInt64LE(BigInt('0x' + completion.configuredDurationF64Hex), 16);
     completionRecord.writeBigUInt64LE(BigInt('0x' + completion.completedStep), 24);
   }
-  const managedFile = verifyManagedFile(descriptor);
+  const managedFile = verifyManagedFile(managedRootPath, descriptor);
   const hallOfFameWeightsFile = generationCommit === null
     ? null
-    : verifyHallOfFameWeightsFile(generationCommit.hallOfFameWeights);
+    : verifyHallOfFameWeightsFile(managedRootPath, generationCommit.hallOfFameWeights);
   if (legacyConversion !== null &&
       (descriptor.boundaryKind !== 'run-start' || generationCommit !== null)) {
     throw new Error('legacy conversion provenance is valid only for a run-start checkpoint');
@@ -3216,7 +2385,7 @@ port.on('message', (message: unknown) => {
           typeof specJson !== 'string') {
         throw new TypeError('invalid graph preset save request');
       }
-      post({ type: 'graphPresetSaved', operationId, presetId: saveGraphPreset(name, specJson) });
+      post({ type: 'graphPresetSaved', operationId, presetId: saveGraphPreset(db, name, specJson) });
       return;
     }
     if (request['type'] === 'listGraphPresets') {
@@ -3224,7 +2393,7 @@ port.on('message', (message: unknown) => {
       if (!operationId || Object.keys(request).length !== 3 || typeof limit !== 'number') {
         throw new TypeError('invalid graph preset list request');
       }
-      post({ type: 'graphPresetsListed', operationId, presets: listGraphPresets(limit) });
+      post({ type: 'graphPresetsListed', operationId, presets: listGraphPresets(db, limit) });
       return;
     }
     if (request['type'] === 'loadGraphPreset') {
@@ -3232,7 +2401,7 @@ port.on('message', (message: unknown) => {
       if (!operationId || Object.keys(request).length !== 3 || typeof presetId !== 'number') {
         throw new TypeError('invalid graph preset load request');
       }
-      post({ type: 'graphPresetLoaded', operationId, preset: loadGraphPreset(presetId) });
+      post({ type: 'graphPresetLoaded', operationId, preset: loadGraphPreset(db, presetId) });
       return;
     }
     if (request['type'] === 'readBrowserHistory') {
@@ -3245,7 +2414,7 @@ port.on('message', (message: unknown) => {
       }
       post({
         type: 'browserHistoryRead', operationId, runId,
-        history: readBrowserHistory(runId, limit)
+        history: readBrowserHistory(db, readCurrentBoundary, runId, limit)
       });
       return;
     }
@@ -3259,7 +2428,7 @@ port.on('message', (message: unknown) => {
       }
       post({
         type: 'browserHallOfFameRead', operationId, runId,
-        entries: readBrowserHallOfFame(runId, limit)
+        entries: readBrowserHallOfFame(db, readCurrentBoundary, runId, limit)
       });
       return;
     }
@@ -3371,3 +2540,9 @@ port.on('message', (message: unknown) => {
     activeRequestCompletedUnits = 0n;
   }
 });
+
+/** Read and validate the current boundary inside the caller's existing read transaction. */
+function readCurrentBoundary(runId: string): ManagedCheckpointDescriptor | undefined {
+  const current = readCurrentPointer(runId);
+  return current ? validateCurrentPointerIdentity(runId, current) : undefined;
+}
