@@ -179,3 +179,58 @@ Fourteen physical children separate coordinator health atomics, control/running-
 All 393 production function/type/impl/constant payloads match after engine-path, visibility and rustfmt normalization, including optional trailing function/call argument commas. The retained owner impls are included in that comparison. Existing public/crate paths are re-exported; private child support is parent-visible. All 873 release hook-enabled Rust tests pass on the final source, with exactly the P5 test names (exit 0). Both Clippy configurations pass. The first production-only check identified an ungated re-export of two hook-only timing types; the final facade imports preserve their original feature gate. No hook-only type is added to production. Format passes. Both final addons build/load with unchanged ABI and matching source SHA; production declarations and all three restore probes pass. The complete JavaScript/native run passes 1,089 tests with 18 skips, zero failures and exit 0.
 
 The control/running module introductions now describe their subphases and retained owners. Two stale introductory descriptions of ordinary observations waiting on Node receipts were corrected to describe the existing complete bounded-output admission behavior. The ownership-changing assignment receipt boundary is unchanged. These are comment corrections, not a runtime change.
+
+## P9 measured source shape and residual decision
+
+[Per-file measurements](modularization-file-metrics.tsv) cover 197 changed Slither source files plus two related unchanged review files. Before is the original `14264e4` checkout; after is the current source. Counts include blank lines/comments. Test lines are physical test/fixture files plus top-level Rust test-module spans; small out-of-line declarations count as test lines in their owners. This classification differs slightly from the supplied analyzer's treatment of nested cfg blocks, so it is defined here rather than silently mixing its counts with ours. Production fixture implementations compiled outside test modules remain production source. The table below gives physical facade size; the linked data separates production and tests.
+
+| Source | Before lines | Current lines | Static import prefixes before → after |
+|---|---:|---:|---:|
+| `engine/state.rs` | 13,461 | 1,812 | 54 → 49 |
+| `engine/checkpoint.rs` | 7,934 | 1,458 | 28 → 36 |
+| `engine/fresh_run.rs` | 5,992 | 1,654 | 40 → 20 |
+| `engine/coordinator.rs` | 3,296 | 1,184 | 23 → 17 |
+| `napi_engine.rs` | 6,464 | 1,078 | 32 → 40 |
+| `napi_running_engine.rs` | 2,982 | 1,759 | 26 → 25 |
+| `src/main.ts` | 4,764 | 2,916 | 30 → 39 |
+| `checkpointPersistenceClient.ts` | 1,634 | 1,185 | 11 → 9 |
+| `checkpointPersistenceWorker.ts` | 3,373 | 2,548 | 17 → 18 |
+| `engine/export_archive.rs` | 4,014 | 2,202 | 21 → 31 |
+| `engine/external_replacement.rs` | 3,965 | 2,374 | 16 → 16 |
+| `engine/control_phase.rs` | 6,198 | 3,468 | 35 → 22 |
+| `engine/running_step.rs` | 3,457 | 3,388 | 18 → 20 |
+| `engine/running_loop.rs` | 2,250 | 2,081 | 17 → 19 |
+| `engine/inference.rs` | 3,726 | 2,225 | 16 → 12 |
+
+Static import prefixes mean distinct TypeScript import/re-export specifiers, or Rust textual `use` prefixes plus directly declared child modules. They include type imports and test imports. They are a reproducible navigation indicator, not a compile-backed call graph or runtime dependency count. In particular, a Rust child's `use super::*` counts once while depending on its parent's named contracts; it does not prove the child has only one semantic dependency. Increased facade fanout is the explicit cost of composing the specialist files. TypeScript helper dependencies point toward contracts and other specialist helpers, with no import back into the browser entry point or persistence worker. No new connection, SQLite, scheduler or mutable graph owner is introduced.
+
+The largest new specialized production file is 949 lines; all new specialized production files are below 1,000 lines. Extracted Rust test files top out at 1,149 lines. The existing main integration suite is 1,205 lines after its additional regression case. The reviewed unchanged native persistence suite is 1,683 lines; it retains its existing scenario/fixture lifetime and is not represented as a new oversized extraction. Rust production children add one physical/lexical module level (engine facade depth 2, children 3); topical test children reach depth 4. The N-API children have depth 2. Browser and Node helper directory depth is unchanged. PyRL remains one package level, with learner 747 lines, rollout processing 148 and reward reporting 40.
+
+Every remaining production file above 2,000 lines has been reviewed:
+
+| Retained source and production lines | Ownership/navigation reason for the exception |
+|---|---|
+| `control_phase.rs` — 3,466 | The prepare workspace owns borrowed body/pellet/ray indexes, candidate ordering, sensor scratch and the neural batch key; the commit workspace validates/stages the corresponding complete result. Indexed selection, cadence, recurrent reset and proof validation share that lifecycle. Diagnostics and independent source checks are now separate. Dividing the remaining workspace methods would require readers to follow the same mutable scratch/epoch invariants across several impl files; no independent owner or broader context is justified. |
+| `running_step.rs` — 3,388 | `advance_nonterminal`, staged world/control publication, pending observations/assignments, generation checkpoint acknowledgement and generation-start rebind operate on the same staged transaction and retained buffers. Timing/allocation records are separate. Keeping admission, rollback and final swap methods together makes the sequence visible; splitting the held operation is deferred. |
+| `src/main.ts` — 2,916 | DOM acquisition/registration, WebSocket welcome/reconnect callbacks, request settlement, graph staging, player reclaim and camera state still share one browser session. Rendering, templates, presets, settings forms, camera math and file transfer are separate. Further callback extraction would need a broad live session port or move ownership/timers; the current role-specific ports avoid that navigation/ownership cost. Gesture registration and server-graph reconciliation still require the root, deliberately. |
+| `checkpointPersistenceWorker.ts` — 2,548 | Durable import/checkpoint/recovery commits, current-pointer identity, lease acquisition/release, retention/pruning, progress correlation and shutdown share the single synchronous database and mutable lease state. Stateless/schema/read projections are separate. Moving these mutations would either spread each FULL transaction across modules or introduce a broad worker context; that transaction-focused follow-up is explicitly deferred by the plan. |
+| `external_replacement.rs` — 2,372 | One replacement workspace owns source proofs, staged bodies/brains/RNG/allocators, per-assignment receipt resolution and final buffer publication. Immutable digests and lease/token checks are separate. Fresh-join construction uses the same placement/genome rules. Splitting the remaining workspace would distribute validation/rollback/publication of those same buffers without removing a state dependency. |
+| `inference.rs` — 2,221 | The execution plan, tensor ranges, heterogeneous batch/recurrent commit checks and private scalar/recurrent kernels share checked layouts and backend/cache contracts. Quantized caches and low-level SIMD already have their own modules. A further private-kernel file is technically possible, but common numerical reviews would then cross another file in addition to plan, cache and SIMD implementations. The modest residual is retained as a navigation tradeoff, not claimed to be irreducible or used to justify an inference redesign. |
+| `export_archive.rs` — 2,088 | Scanners, manifest/inventory validation, legacy wire/SQLite readers and archive primitives are separate. The remainder retains import preparation, scratch Drop cleanup, collision-safe publication, role extraction and the leased export-writing sequence. These methods share candidate/file lifetimes and cleanup order. The 114 remaining inline test lines are small, preserved legacy-reader regression cases. Further transaction splitting is deferred. |
+| `running_loop.rs` — 2,081 | The retained scheduler ticket, archive reservation, staged import, observation/assignment holds, teacher/inspector boundaries and generation acknowledgement/start methods coordinate the same authority. Progress/value reports are separate. A scheduler or import-method split would make the held-state transitions harder to read together; no second loop or reservation owner is introduced. |
+
+`rustServer.ts` remains 1,769 lines. `startRustServer` is the single server composition and replacement/cancellation owner; storage health, replacement settings, recovery/import notices and upload rejection helpers are already explicit functions. Its staged import → durable metadata commit → publication path is retained. PyRL's `distillation_checkpoint.py` is 714 lines: save and load share the bounded ZIP role limits, exact source/environment validation, replay index, optimizer/RNG state and private job witness. Load validates a new private owner before returning it. That serializer is cohesive and has no size or ownership reason for another split; its source-identity list and formats remain untouched. Actor/policy-fence ownership remains as in P8. No S2 redesign is part of this implementation.
+
+### Repeatable navigation review
+
+This is a static source-reading exercise, not a measured model-token or performance benchmark. The figures are whole implementation-file context envelopes for the named task, including inline tests present in those files but excluding separate test files and unchanged shared contracts. Tight symbol/window retrieval would already read less in the old layout; no claim of proportional model-token savings is made.
+
+| Representative task | Original implementation envelope | Current implementation envelope | Implementation files opened |
+|---|---:|---:|---:|
+| Locate/change a graph example builder | `main.ts`, 4,764 lines | `graph_templates.ts`, 176 | 1 → 1 |
+| Review manifest-role validation | `checkpoint.rs`, 7,934 | `manifest_validation.rs`, 624 | 1 → 1; publication behavior additionally reads the facade |
+| Review a normalized config admission check | `state.rs`, 13,461 | `config_validation.rs` + `contracts.rs`, 1,353 | 1 → 2 |
+| Adjust camera follow math and frame lookup | `main.ts`, 4,764 | `camera.ts` + `player_input_and_frames.ts`, 349 | 1 → 2; event/session changes still read main |
+| Review GAE/policy segmentation | `learner.py`, 914 | `rollout_processing.py`, 148 | 1 → 1; actor data contract is unchanged |
+
+These examples show the intended tradeoff: more files when a responsibility crosses a contract, substantially less unrelated source in the common leaf review, and the original sequential owners retained for transaction review. Final native compatibility/integration gates pass as recorded above. P9 completes the residual decision and measurement work; further ownership or scheduling restructuring requires its own design and authorization.
