@@ -66,7 +66,7 @@ function fixture(environment: Partial<LibraryEnvironment> = {}) {
   const get = (id: string): Element => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id)!; };
   const client = {hasPendingSpawn: vi.fn(() => false), dismissPendingSpawn: vi.fn(),
     list: vi.fn(async () => ({page: {entries: [RECORD], next: null}})), read: vi.fn(async () => RECORD),
-    spawn: vi.fn(async () => ({snakeId: 41})), isCurrent: vi.fn(async () => true), exportUrl: vi.fn(() => 'http://server/export'), archiveUrl: vi.fn(() => 'http://server/archive')};
+    spawn: vi.fn(async () => ({snakeId: 41})), delete: vi.fn(async () => {}), isCurrent: vi.fn(async () => true), exportUrl: vi.fn(() => 'http://server/export'), archiveUrl: vi.fn(() => 'http://server/archive')};
   const followed = vi.fn();
   const founded = vi.fn(async () => {});
   const body = new Element();
@@ -85,6 +85,16 @@ function fixture(environment: Partial<LibraryEnvironment> = {}) {
 
 /** Restore the inert browser after each presentation boundary test. */
 afterEach(() => vi.unstubAllGlobals());
+
+it('does not delete or create a spawn when the user cancels saved brain deletion', async () => {
+  const f = fixture(); vi.stubGlobal('window', {confirm: vi.fn(() => false)});
+  f.view.refresh();
+  await vi.waitFor(() => expect(f.get('brainLibraryList').children).toHaveLength(1));
+  const actions = f.get('brainLibraryList').children[0]!.children[2]!;
+  actions.children.find(button => button.textContent === 'Delete')!.click();
+  await vi.waitFor(() => expect(f.get('brainLibraryStatus').textContent).toContain('cancelled'));
+  expect(f.client.delete).not.toHaveBeenCalled(); expect(f.client.spawn).not.toHaveBeenCalled();
+});
 
 it('starts founders only with capability, explicit confirmation and fresh applied scope', async () => {
   const f = fixture();

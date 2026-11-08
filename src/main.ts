@@ -3,7 +3,7 @@ import { exportServerSnapshot as exportArchive,importServerArchive,resolveServer
 import { finishCameraPan as finishCameraPanCamera,fitArenaView as fitArenaViewCamera,moveCameraPan as moveCameraPanCamera,publishClientCamera as publishClientCameraCamera,resetManualCamera as resetManualCameraCamera,screenToWorld as screenToWorldCamera,updateClientCamera as updateClientCameraCamera,type CameraPort } from './camera.ts';
 import { DecisionInspectorView } from './decisionInspectorView.ts';
 import { DistillationView } from './distillationView.ts';
-import { DIAGRAM_NODE_HEIGHT,DIAGRAM_NODE_WIDTH,renderGraphDiagramView } from './graph_diagram.ts';
+import { DIAGRAM_NODE_HEIGHT,DIAGRAM_NODE_WIDTH,renderGraphDiagramView,screenToSvg } from './graph_diagram.ts';
 import { renderGraphInspectorView } from './graph_inspector.ts';
 import { refreshSavedPresets as refreshGraphPresets,saveGraphPreset,type GraphPresetPort } from './graph_presets.ts';
 import { applySimpleOutputSelection as applySimpleOutputSelectionSettings,renderGraphEditor as renderGraphEditorSettings,type GraphSettingsPort } from './graph_settings.ts';
@@ -23,9 +23,12 @@ import type { GraphEdge,GraphSpec } from './brains/graph/schema.ts';
 import { validateGraph } from './brains/graph/validate.ts';
 import { buildStackGraphSpec } from './brains/stackBuilder.ts';
 import { BrainViz } from './BrainViz.ts';
-import { AdvancedCharts } from './chartUtils.ts';
+import { fitCanvasToDisplay } from './canvas_surface.ts';
+import { StatsView } from './stats_view.ts';
+import { wirePanelNavigation,containModalTab } from './panel_navigation.ts';
+import { showResetDraft } from './settings_ui.ts';
 import { CFG,CFG_DEFAULT,applyAuthoritativeSensorSpec,resetCFGToDefaults,syncBrainInputSize } from './config.ts';
-import { hof } from './hallOfFame.ts';
+import { hof,renderHallOfFame } from './hallOfFame.ts';
 import { createAuthoritativeControls } from './net/authoritativeControls.ts';
 import { BrainLibraryClient } from './net/brainLibrary.ts';
 import { createEntitySelectionClient,describeSelectedEntity } from './net/entitySelection.ts';
@@ -46,7 +49,7 @@ type WelcomeInferenceMode
 } from './net/wsClient.ts';
 import { formatDurationTimer } from './protocol/duration.ts';
 import { parseEvolvedLifecycleTelemetry } from './protocol/evolvedLives.ts';
-import type { FrameStats,HallOfFameEntry,VizData } from './protocol/messages.ts';
+import type { FrameStats,VizData } from './protocol/messages.ts';
 import type {
 RustImportBranchNotice,
 RustLegacyConversionNotice,
@@ -159,6 +162,8 @@ let serverImportBranch: RustImportBranchNotice | null = null;
 let serverLegacyConversion: RustLegacyConversionNotice | null = null;
 /** Correlation id of the currently pending New Run request. */
 let pendingNewRunRequestId: string | null = null;
+/** One reset may be in flight; disconnect leaves its outcome explicitly uncertain. */
+let pendingReset = false;
 /** One explicit founder request awaits the ordinary durable New Run result. */
 let pendingFounderStart: {requestId: string; resolve(): void; reject(error: Error): void} | null = null;
 /** Backoff delay for reconnection attempts in ms. */
@@ -209,6 +214,8 @@ let graphSelectedEdgeIndex: number | null = null;
 let graphSelectedOutputIndex: number | null = null;
 /** Drag state for graph node positioning. */
 let graphDragState: { id: string; offsetX: number; offsetY: number } | null = null;
+/** Pointer capture retargets the following click to the SVG after a drag. */
+let graphSuppressClick = false;
 /** Pointer position within the graph diagram. */
 let graphPointerPos: { x: number; y: number } | null = null;
 /** Active drag-to-connect state for the graph diagram. */
@@ -238,12 +245,10 @@ let cssW = 0,
  */
 function resize(): void {
   dpr = window.devicePixelRatio || 1;
-  cssW = Math.floor(window.innerWidth);
-  cssH = Math.floor(window.innerHeight);
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
-  canvas.width = Math.floor(cssW * dpr);
-  canvas.height = Math.floor(cssH * dpr);
+  cssW = canvas.clientWidth || Math.floor(window.innerWidth);
+  cssH = canvas.clientHeight || Math.floor(window.innerHeight);
+  if (canvas.width !== Math.round(cssW * dpr)) canvas.width = Math.round(cssW * dpr);
+  if (canvas.height !== Math.round(cssH * dpr)) canvas.height = Math.round(cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 window.addEventListener('resize', resize);
@@ -396,12 +401,8 @@ const tabBtns = document.querySelectorAll<HTMLButtonElement>('.tab-btn');
 const tabContents = document.querySelectorAll<HTMLElement>('.tab-content');
 /** Canvas element for brain visualizer rendering. */
 const vizCanvas = document.getElementById('vizCanvas') as HTMLCanvasElement;
-/** Canvas element for stats chart rendering. */
-const statsCanvas = document.getElementById('statsCanvas') as HTMLCanvasElement;
 /** 2D context for the visualizer canvas. */
 const ctxViz = vizCanvas.getContext('2d')!;
-/** 2D context for the stats canvas. */
-const ctxStats = statsCanvas.getContext('2d')!;
 
 /**
  * Load a previously used player nickname from localStorage.
@@ -428,6 +429,11 @@ function loadSavedPlayerName(): void {
 
 /** Brain visualizer instance for the Viz tab. */
 const brainViz = new BrainViz(0, 0, vizCanvas.width, vizCanvas.height);
+/** The visualization stream, not display frames, determines activation redraws. */
+let renderedViz: VizData | null | undefined;
+let renderedVizWidth = 0, renderedVizHeight = 0;
+/** History, logs and canvas drawing are updated only for the visible Stats panel. */
+const statsViewPanel = new StatsView();
 /** Currently active tab id. */
 let activeTab = 'tab-settings';
 /** Applied library compatibility facts never read editable graph/settings drafts. */
@@ -472,6 +478,8 @@ tabBtns.forEach(btn => {
     const tabEl = document.getElementById(tabId);
     if (tabEl) tabEl.classList.add('active');
     activeTab = tabId;
+    if (tabId !== 'tab-settings') setGraphDiagramFullscreen(false);
+    if (tabId === 'tab-hof') void updateHoFTable();
     if (tabId === 'tab-library') brainLibrary.refresh();
     if (tabId === 'tab-distillation') distillation.refresh();
     if (wsClient && wsClient.isConnected()) {
@@ -479,6 +487,8 @@ tabBtns.forEach(btn => {
     }
   });
 });
+
+wirePanelNavigation(tabBtns, resize, () => setGraphDiagramFullscreen(false));
 
 /** Buttons for switching between stats views. */
 const statsViewBtns = document.querySelectorAll<HTMLButtonElement>('.stats-view-btn');
@@ -490,15 +500,15 @@ const statsSubtitle = document.getElementById('statsSubtitle') as HTMLElement | 
 const statsViewMeta: Record<string, { title: string; subtitle: string }> = {
   fitness: {
     title: 'Fitness History',
-    subtitle: 'Population fitness over generations.'
+    subtitle: 'Fitness score by generation: minimum, mean and maximum.'
   },
   diversity: {
     title: 'Species Diversity',
-    subtitle: 'Genome clustering by weight distance.'
+    subtitle: 'Species count and individuals in the largest species, clustered by weight distance.'
   },
   complexity: {
     title: 'Network Complexity',
-    subtitle: 'Average absolute weight and variance.'
+    subtitle: 'Mean absolute weight and weight variance (dimensionless).'
   }
 };
 
@@ -510,6 +520,7 @@ function setStatsView(view: string): void {
   statsView = view;
   statsViewBtns.forEach(btn => {
     btn.classList.toggle('active', btn.dataset['stats'] === view);
+    btn.setAttribute('aria-pressed', String(btn.dataset['stats'] === view));
   });
   const meta = statsViewMeta[view];
   if (statsTitle && meta) statsTitle.textContent = meta.title;
@@ -620,11 +631,8 @@ function applyBaselineSeed(seed: number): void {
   updateBaselineSeedLabel(seed);
   setBaselineSeedHintVisible(false);
   persistBaselineBotSettings();
-  if (wsClient && wsClient.isConnected()) {
-    const settings = readSettingsFromCoreUI();
-    const updates = collectSettingsUpdatesFromUI();
-    wsClient.sendReset(settings, updates, customGraphSpec ?? null);
-  }
+  markResetDraft();
+  baselineBotSeedInput?.closest?.('details')?.classList.add('has-draft');
 }
 
 /**
@@ -733,7 +741,7 @@ graphTemplateButtons.forEach(btn => {
           : template === 'split'
             ? buildSplitTemplate(CFG.brain)
             : buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain);
-    setGraphDraft(spec, 'Template loaded. Apply graph to use it.');
+    setGraphDraft(spec, 'Template loaded. Stage graph to use it.');
   });
 });
 
@@ -743,13 +751,28 @@ graphTemplateButtons.forEach(btn => {
  */
 function setGraphDiagramFullscreen(isFullscreen: boolean): void {
   if (!graphDiagramWrap) return;
+  const wasExpanded = graphDiagramWrap.classList.contains('fullscreen');
   graphDiagramWrap.classList.toggle('fullscreen', isFullscreen);
   graphDiagramBackdrop?.classList.toggle('active', isFullscreen);
   document.body.classList.toggle('graph-diagram-open', isFullscreen);
+  graphDiagramWrap.setAttribute('role', isFullscreen ? 'dialog' : 'group');
+  graphDiagramWrap.setAttribute('aria-label', 'Brain graph editor');
+  graphDiagramWrap.setAttribute('aria-modal', String(isFullscreen));
   if (graphDiagramToggle) {
-    graphDiagramToggle.textContent = isFullscreen ? 'Close' : 'Full screen';
+    graphDiagramToggle.textContent = isFullscreen ? 'Close editor (Esc)' : 'Expand editor';
+    graphDiagramToggle.setAttribute('aria-expanded', String(isFullscreen));
   }
+  if (!isFullscreen && wasExpanded && activeTab === 'tab-settings') graphDiagramToggle?.focus();
 }
+window.addEventListener('keydown', event => {
+  if (joinOverlay && !joinOverlay.classList.contains('hidden')) containModalTab(event, joinOverlay);
+  if (graphDiagramWrap?.classList.contains('fullscreen')) containModalTab(event, graphDiagramWrap);
+  if (event.key === 'Escape' && graphDiagramWrap?.classList.contains('fullscreen')) {
+    event.preventDefault();
+    graphDragState = null; clearGraphConnectDrag();
+    setGraphDiagramFullscreen(false);
+  }
+});
 
 if (graphDiagramToggle) {
   graphDiagramToggle.addEventListener('click', () => {
@@ -776,7 +799,7 @@ if (graphDiagramAddNode) {
     }
     renderGraphEditor();
     setGraphSelection({ nodeId: id });
-    setGraphSpecStatus('Node added. Apply graph to use it.');
+    setGraphSpecStatus('Node added. Stage graph to use it.');
   });
 }
 
@@ -794,7 +817,7 @@ if (graphDiagramAddOutput) {
     draft.outputs.push({ nodeId: targetId });
     renderGraphEditor();
     setGraphSelection({ outputIndex: draft.outputs.length - 1 });
-    setGraphSpecStatus('Output added. Apply graph to use it.');
+    setGraphSpecStatus('Output added. Stage graph to use it.');
   });
 }
 
@@ -823,21 +846,21 @@ if (graphDiagramDelete) {
       graphLayoutOverrides.delete(removedId);
       setGraphSelection({});
       renderGraphEditor();
-      setGraphSpecStatus('Node removed. Apply graph to use it.');
+      setGraphSpecStatus('Node removed. Stage graph to use it.');
       return;
     }
     if (graphSelectedEdgeIndex != null) {
       draft.edges.splice(graphSelectedEdgeIndex, 1);
       setGraphSelection({});
       renderGraphEditor();
-      setGraphSpecStatus('Edge removed. Apply graph to use it.');
+      setGraphSpecStatus('Edge removed. Stage graph to use it.');
       return;
     }
     if (graphSelectedOutputIndex != null) {
       draft.outputs.splice(graphSelectedOutputIndex, 1);
       setGraphSelection({});
       renderGraphEditor();
-      setGraphSpecStatus('Output removed. Apply graph to use it.');
+      setGraphSpecStatus('Output removed. Stage graph to use it.');
     }
   });
 }
@@ -859,19 +882,25 @@ if (graphDiagram) {
     }
   });
   graphDiagram.addEventListener('pointerup', (event) => {
+    graphSuppressClick = !!graphDragState || !!graphConnectDrag;
     const point = getSvgPoint(event);
     if (graphConnectDrag) {
       finishGraphConnectDrag(point);
     }
+    if (graphDragState) setGraphSelection({nodeId: graphDragState.id});
     graphDragState = null;
+    if (graphDiagram.hasPointerCapture?.(event.pointerId)) graphDiagram.releasePointerCapture(event.pointerId);
   });
-  graphDiagram.addEventListener('pointerleave', () => {
+  const cancelGraphPointer = () => {
     graphDragState = null;
-    if (graphConnectDrag) {
-      clearGraphConnectDrag();
-    }
-  });
+    clearGraphConnectDrag();
+  };
+  graphDiagram.addEventListener('pointercancel', cancelGraphPointer);
+  graphDiagram.addEventListener('lostpointercapture', cancelGraphPointer);
+  window.addEventListener('blur', cancelGraphPointer);
   graphDiagram.addEventListener('click', (event) => {
+    // Captured node drags retarget their click to the SVG. Selection was set at pointerdown.
+    if (graphSuppressClick) { graphSuppressClick = false; return; }
     const target = event.target as Element | null;
     if (target && target !== graphDiagram) return;
     if (graphConnectDrag) {
@@ -886,7 +915,7 @@ if (graphNodeAdd) {
     const draft = ensureGraphDraft();
     draft.nodes.push(buildDefaultNode('Dense', buildUniqueNodeId(draft, 'node'), CFG.brain, readSettingsFromCoreUI()));
     renderGraphEditor();
-    setGraphSpecStatus('Node added. Apply graph to use it.');
+    setGraphSpecStatus('Node added. Stage graph to use it.');
   });
 }
 
@@ -900,7 +929,7 @@ if (graphEdgeAdd) {
     }
     draft.edges.push({ from: ids[0]!, to: ids[1]! });
     renderGraphEditor();
-    setGraphSpecStatus('Edge added. Apply graph to use it.');
+    setGraphSpecStatus('Edge added. Stage graph to use it.');
   });
 }
 
@@ -914,7 +943,7 @@ if (graphOutputAdd) {
     }
     draft.outputs.push({ nodeId: ids[ids.length - 1]! });
     renderGraphEditor();
-    setGraphSpecStatus('Output added. Apply graph to use it.');
+    setGraphSpecStatus('Output added. Stage graph to use it.');
   });
 }
 
@@ -933,8 +962,8 @@ if (graphOutputSimpleSplit) {
 if (graphApply) {
   graphApply.addEventListener('click', () => {
     const draft = ensureGraphDraft();
-    if (!applyGraphSpec(draft, 'Graph applied.')) return;
-    applyResetToSimulation();
+    if (!applyGraphSpec(draft, 'Graph staged. Apply and reset starts the population with this graph.')) return;
+    markResetDraft();
   });
 }
 
@@ -960,6 +989,7 @@ function stageStackGraph(note: string): void {
   refreshCoreUIState();
   renderGraphEditor();
   setGraphSpecStatus(note);
+  markResetDraft();
 }
 
 if (graphPresetSave) {
@@ -999,7 +1029,7 @@ if (graphSpecApply && graphSpecInput) {
       setGraphSpecStatus(`Output size mismatch (expected ${CFG.brain.outSize}).`, true);
       return;
     }
-    setGraphDraft(parsed, 'Loaded JSON into editor. Apply graph to use it.');
+    setGraphDraft(parsed, 'Loaded JSON into editor. Stage graph to use it.');
   });
 }
 
@@ -1205,6 +1235,12 @@ function setConnectionStatus(mode: ConnectionMode): void {
 function setJoinOverlayVisible(visible: boolean): void {
   if (!joinOverlay) return;
   joinOverlay.classList.toggle('hidden', !visible);
+  joinOverlay.inert = !visible;
+  joinOverlay.setAttribute('aria-hidden', String(!visible));
+  document.getElementById('panel')!.inert = visible;
+  document.getElementById('panelToggle')!.inert = visible;
+  if (!visible && joinOverlay.contains?.(document.activeElement)) document.getElementById('panelToggle')?.focus();
+  if (visible && !joinOverlay.contains?.(document.activeElement)) joinName?.focus?.();
 }
 
 /**
@@ -1342,6 +1378,7 @@ function ensureGraphDraft(): GraphSpec {
  * @param isError - Whether the message indicates an error.
  */
 function setGraphSpecStatus(text: string, isError = false): void {
+  if (text.includes('Stage graph to use')) markResetDraft();
   if (!graphSpecStatus) return;
   graphSpecStatus.textContent = text;
   graphSpecStatus.style.color = isError ? '#ff9b9b' : '';
@@ -1388,7 +1425,11 @@ function applySimpleOutputSelection(): void {
  * @param note - Optional status note to display.
  */
 function setGraphDraft(spec: GraphSpec, note = ''): void {
+  graphLayoutOverrides.clear();
+  graphDragState = null; clearGraphConnectDrag();
+  graphSelectedNodeId = graphSelectedEdgeIndex = graphSelectedOutputIndex = null;
   graphDraft = cloneGraphSpec(spec);
+  if (graphSpecInput) graphSpecInput.value = JSON.stringify(graphDraft, null, 2);
   renderGraphEditor();
   if (note) setGraphSpecStatus(note);
 }
@@ -1437,10 +1478,10 @@ function applyGraphSpec(spec: GraphSpec, note = 'Graph applied.'): boolean {
  */
 function resetGraphDraft(): void {
   if (customGraphSpec) {
-    setGraphDraft(customGraphSpec, 'Editor reset to applied graph.');
+    setGraphDraft(customGraphSpec, 'Editor restored to the staged graph.');
     return;
   }
-  setGraphDraft(buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain), 'Editor reset to default graph.');
+  setGraphDraft(buildLinearMlpTemplate(readSettingsFromCoreUI(), CFG.brain), 'Editor restored to the default stack graph.');
 }
 
 /** Refresh presets through the existing browser session and graph draft owner. */
@@ -1532,13 +1573,7 @@ function syncGraphSelection(spec: GraphSpec): void {
  * @returns SVG coordinates or null when unavailable.
  */
 function getSvgPoint(evt: PointerEvent | MouseEvent): { x: number; y: number } | null {
-  if (!graphDiagram) return null;
-  const rect = graphDiagram.getBoundingClientRect();
-  const viewBox = graphDiagram.viewBox?.baseVal;
-  if (!viewBox) return null;
-  const x = ((evt.clientX - rect.left) / rect.width) * viewBox.width + viewBox.x;
-  const y = ((evt.clientY - rect.top) / rect.height) * viewBox.height + viewBox.y;
-  return { x, y };
+  return screenToSvg(graphDiagram, evt);
 }
 
 /**
@@ -1660,7 +1695,7 @@ function finishGraphConnectDrag(point: { x: number; y: number } | null): void {
   const created = addGraphEdge(fromId, targetId, spec);
   if (created != null) {
     setGraphSelection({ edgeIndex: created });
-    setGraphSpecStatus('Edge added. Apply graph to use it.');
+    setGraphSpecStatus('Edge added. Stage graph to use it.');
   }
 }
 
@@ -1769,7 +1804,19 @@ function renderGraphEditor(): void {
 function applySettingsLock(): void {
   projectSettingsLock({ settingsTab, settingsControls, toggleSettingsLock, settingsLockHint,
     get settingsLocked() { return settingsLocked; }, resolveSettingsRoot, refreshCoreUIState });
+  btnApply.disabled = settingsLocked || pendingReset;
 }
+
+/** Track presentation drafts only; Rust still decides when a configuration becomes current. */
+function markResetDraft(): void { showResetDraft(true); }
+function clearResetDraft(): void { showResetDraft(false); }
+settingsControls?.addEventListener('input', event => {
+  const input = event.target as HTMLInputElement;
+  if (input.dataset['requiresReset'] === '1' || ['snakes', 'layers', 'n1', 'n2', 'n3', 'n4', 'n5'].includes(input.id) || input.closest?.('.graph-panel')) {
+    markResetDraft();
+    input.closest?.('details')?.classList.add('has-draft');
+  }
+});
 
 /**
  * Check whether player control is currently active.
@@ -1843,6 +1890,7 @@ function updateClientCamera(): void {
 
 /** Ask the Rust server to resurrect one retained winner by its opaque compact identity. */
 async function resurrectHallOfFameOnServer(entryId: string): Promise<number | null> {
+  if (!wsClient?.isConnected() || connectionMode !== 'server') return null;
   const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
   if (!base) return null;
   const response = await fetch(`${base}/api/resurrect`, {
@@ -1877,6 +1925,7 @@ function resolveGraphSpecForReset(settings: CoreSettings): GraphSpec | null {
  * Apply a full reset through the authoritative server.
  */
 function applyResetToSimulation(): void {
+  if (pendingReset) return;
   if (!validateSettingDrafts(resolveSettingsRoot())) {
     setResetStatus('Correct the invalid settings before Apply and reset.', true);
     return;
@@ -1890,6 +1939,8 @@ function applyResetToSimulation(): void {
     const graphSpec = resolveGraphSpecForReset(settings);
     if (!graphSpec) return;
     authoritativeControls.dispose();
+    pendingReset = true;
+    btnApply.disabled = true;
     setResetStatus('Checking settings and preparing reset...');
     wsClient.sendReset(settings, updates, graphSpec);
     return;
@@ -1900,6 +1951,7 @@ function applyResetToSimulation(): void {
 
 /** Show server-confirmed reset feedback beside its action button without applying local authority. */
 function setResetStatus(message: string, failed = false): void {
+  if (failed && message.startsWith('Reset failed:')) { pendingReset = false; btnApply.disabled = settingsLocked; }
   if (!resetStatus) return;
   resetStatus.textContent = message;
   resetStatus.hidden = message.length === 0;
@@ -2000,7 +2052,7 @@ function applyAuthoritativeLivePatch(updates: readonly LiveSettingsUpdate[]): vo
     baselineSettingsChanged ||= update.path.startsWith('baselineBots.');
   }
   syncBrainInputSize();
-  applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
+  applyValuesToSlidersFromCFG(resolveSettingsRoot(), new Set(updates.map(update => update.path)), settingsLocked);
   refreshCoreUIState();
   if (baselineSettingsChanged) persistBaselineBotSettings();
 }
@@ -2012,14 +2064,15 @@ function refreshServerHallOfFame(clearExisting = true): void {
   if (clearExisting) {
     serverHallOfFameGeneration = 0;
     const table = document.getElementById('hofTable');
-    if (table) table.innerHTML = '';
+    if (table) { table.replaceChildren(); delete table.dataset['empty']; }
   }
-  void hof.loadFromServer(base, clearExisting).then(() => updateHoFTable(proxyWorld))
+  void hof.loadFromServer(base, clearExisting).then(() => updateHoFTable())
     .catch(err => console.warn('HoF load failed', err));
 }
 
 wsClient = createWsClient({
   onConnected: (info) => {
+    pendingReset = false; btnApply.disabled = settingsLocked;
     decisionInspector.context({sessionId: info.sessionId, runId: info.runId, supported: info.capabilities?.decisionInspector === true});
     decisionInspectorView.supported(info.capabilities?.decisionInspector === true);
     entitySelection.reset();
@@ -2065,6 +2118,7 @@ wsClient = createWsClient({
     teacherCaptureReady = info.capabilities?.teacherCapture === true;
     distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
     applyAuthoritativeGraphSpec(info.graphSpec, info.settings.core);
+    clearResetDraft();
     spectatorFollowSnakeId = null;
     currentStats = {
       gen: 1,
@@ -2097,6 +2151,8 @@ wsClient = createWsClient({
     refreshServerHallOfFame();
   },
   onDisconnected: () => {
+    if (pendingReset) setResetStatus('Reset outcome uncertain after disconnect. Reconnect and inspect the run before resetting again.');
+    for (const button of document.querySelectorAll<HTMLButtonElement>('#hofTable button')) button.disabled = true;
     pendingFounderStart?.reject(new Error('Connection lost during founder start. Reconnect and inspect the current run before starting another.'));
     decisionInspector.dispose();
     decisionInspectorView.supported(false);
@@ -2200,6 +2256,7 @@ wsClient = createWsClient({
     } else { currentVizData = null; }
     if (msg.hofEntry) {
       void hof.add(msg.hofEntry).then(() => {
+        void updateHoFTable();
         if (connectionMode === 'server') {
           const base = resolveServerHttpBase(serverUrl || resolveServerUrl());
           if (base) void hof.syncToServer(base);
@@ -2260,9 +2317,12 @@ wsClient = createWsClient({
       distillation.contextChanged(distillationAvailable, teacherCaptureReady, serverRunId);
       return;
     }
-    applyValuesToSlidersFromCFG(resolveSettingsRoot(), undefined, settingsLocked);
+    // Rejections carry no patch. Restore only live controls, preserving all reset drafts.
+    const livePaths = new Set(Array.from(SETTING_DEFINITION_BY_PATH.values()).filter(definition => definition.requiresReset === false).map(definition => definition.path!));
+    applyValuesToSlidersFromCFG(resolveSettingsRoot(), livePaths, settingsLocked);
     elSimSpeed.value = String(serverSimSpeed);
     refreshCoreUIState();
+    setResetStatus(`Live update rejected: ${msg.reason ?? 'request rejected'}. Reset drafts were kept.`, true);
     console.warn(`[settings] ${msg.reason ?? 'request rejected'}`);
   },
   onEntitySelected: msg => entitySelection.receive(msg),
@@ -2318,6 +2378,8 @@ wsClient = createWsClient({
     console.info(`[new-run] started seed ${msg.worldSeed ?? 'unknown'}`);
   },
   onStateReplaced: (msg) => {
+    pendingReset = false; btnApply.disabled = settingsLocked;
+    clearResetDraft();
     setResetStatus(msg.reason === 'reset' ? 'Reset applied.' : '');
     const info = msg.welcome;
     decisionInspector.context({sessionId: info.sessionId, runId: info.runId, supported: info.capabilities?.decisionInspector === true});
@@ -2466,7 +2528,8 @@ btnDefaults.addEventListener('click', () => {
   refreshCoreUIState();
   applySettingsLock();
   persistBaselineBotSettings();
-  applyResetToSimulation();
+  markResetDraft();
+  setResetStatus('Defaults staged. Review settings, then Apply and reset to replace the population.');
 });
 // Confirm the observed generation and request its next complete terminal step.
 btnFinishGeneration?.addEventListener('click', () => {
@@ -2494,6 +2557,7 @@ btnFitArena.addEventListener('click', fitArenaView);
 window.addEventListener('keydown', e => {
   const target = e.target as HTMLElement | null;
   if (target?.closest?.('input, textarea, select, [contenteditable]')) return;
+  if (joinOverlay && !joinOverlay.classList.contains('hidden') || graphDiagramWrap?.classList.contains('fullscreen') || target?.closest?.('[role="tablist"]')) return;
   if (e.code === 'KeyV') {
     proxyWorld.toggleViewMode();
   } else if (e.code === 'Home') {
@@ -2712,10 +2776,11 @@ if (btnImport && fileInput) {
   fileInput.addEventListener('change', e => importServerArchive(e, btnImport, getArchiveTransportPort()));
 }
 
-/**
- * Main animation frame loop for rendering and UI updates.
- */
+/** Last bounded sidebar refresh; world rendering continues at display cadence. */
+let lastSidebarUpdate = -Infinity;
+/** Main animation loop for packed world rendering and visible diagnostics. */
 function frame(): void {
+  if ((window.devicePixelRatio || 1) !== dpr) resize();
   // console.log("Frame loop running"); // Spammy
   if (connectionMode === 'server' && currentFrameBuffer) {
     updateClientCamera();
@@ -2724,85 +2789,29 @@ function frame(): void {
 
   // Render active tab content
   if (activeTab === 'tab-viz') {
-    ctxViz.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
-    if (currentVizData) {
-      brainViz.render(ctxViz, currentVizData);
-    } else {
-      ctxViz.fillStyle = '#fff';
-      ctxViz.fillText("Waiting for visualization data...", 20, 20);
+    const size = fitCanvasToDisplay(vizCanvas, ctxViz);
+    if (size.changed || renderedViz !== currentVizData || renderedVizWidth !== size.width || renderedVizHeight !== size.height) {
+      renderedViz = currentVizData; renderedVizWidth = size.width; renderedVizHeight = size.height;
+      brainViz.resize(size.width, size.height);
+      ctxViz.clearRect(0, 0, size.width, size.height);
+      if (currentVizData) brainViz.render(ctxViz, currentVizData);
+      else {
+        ctxViz.fillStyle = '#b6c3d7'; ctxViz.font = '13px system-ui';
+        ctxViz.fillText('Select a snake; waiting for neural data…', 14, 24, size.width - 28);
+      }
     }
   } else if (activeTab === 'tab-fitness') {
     // Fitness chart history is retained in the server stats stream.
   }
 
-  // Updates UI overlay
-  // ...
-  if (genTimer) {
-    const elapsed = currentStats.generationTime;
-    const duration = Number.isFinite(currentStats.generationSeconds)
-      ? currentStats.generationSeconds
-      : CFG.generationSeconds;
-    genTimer.textContent = formatGenTimer(elapsed, duration);
-  }
-
-  const aliveTotal = Number.isFinite(currentStats.aliveTotal)
-    ? currentStats.aliveTotal
-    : currentStats.alive;
-  const baselineBotsAlive = Number.isFinite(currentStats.baselineBotsAlive)
-    ? currentStats.baselineBotsAlive
-    : 0;
-  const baselineBotsTotal = Number.isFinite(currentStats.baselineBotsTotal)
-    ? currentStats.baselineBotsTotal
-    : 0;
-  const stepInfo = `Gen: ${currentStats.gen}  Alive: ${currentStats.alive}  Total: ${aliveTotal}  Baseline: ${baselineBotsAlive}/${baselineBotsTotal}  FPS: ${Math.round(currentStats.fps)}`;
-  const life = currentStats.evolved;
-  const lifeInfoHtml = life ?
-    `<div class="stat-box"><span class="label">Waiting / pending</span><span class="val">${life.waiting} / ${life.pendingPlacement}</span></div>` +
-    `<div class="stat-box"><span class="label">Exhausted individuals</span><span class="val">${life.exhausted}</span></div>` +
-    `<div class="stat-box"><span class="label">Deaths / respawns</span><span class="val">${BigInt('0x' + life.deaths)} / ${BigInt('0x' + life.respawns)}</span></div>` +
-    `<div class="stat-box"><span class="label">Individual waiting total</span><span class="val">${life.pendingSeconds.toFixed(1)} sim s</span></div>` +
-    `<div class="stat-box"><span class="label">Failed placements</span><span class="val">${BigInt('0x' + life.failedPlacements)}</span></div>` +
-    `<div class="note">Placement step ${BigInt('0x' + life.placement.step)}: ${life.placement.attempted} attempted, ${life.placement.deferred} deferred; ${life.placement.candidates}/2048 candidates, ${life.placement.geometryChecks}/250000 geometry checks.</div>` : '';
-  const statsInfoHtml =
-    `<div class="stat-box"><span class="label">Generation</span><span class="val">${currentStats.gen}</span></div>` +
-    `<div class="stat-box"><span class="label">Alive (Pop)</span><span class="val">${currentStats.alive}</span></div>` +
-    `<div class="stat-box"><span class="label">Alive (Total)</span><span class="val">${aliveTotal}</span></div>` +
-    `<div class="stat-box"><span class="label">Baseline Bots</span><span class="val">${baselineBotsAlive}/${baselineBotsTotal}</span></div>` +
-    `<div class="stat-box"><span class="label">Sim Speed</span><span class="val">${Math.round(currentStats.fps)} FPS</span></div>` +
-    lifeInfoHtml +
-    `<div class="note" style="margin-top: 10px; font-size: 11px;">${stepInfo}</div>`;
-
-  const statsEl = document.getElementById('statsInfo');
-  if (statsEl && activeTab === 'tab-stats') {
-    statsEl.innerHTML = statsInfoHtml;
-
-    // Render Advanced Charts
-    if (statsCanvas) {
-      statsCanvas.width = statsCanvas.clientWidth;
-      statsCanvas.height = Math.max(statsCanvas.clientHeight, 300);
-      ctxStats.clearRect(0, 0, statsCanvas.width, statsCanvas.height);
-      if (statsView === 'diversity') {
-        AdvancedCharts.renderSpeciesDiversity(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
-      } else if (statsView === 'complexity') {
-        AdvancedCharts.renderNetworkComplexity(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
-      } else {
-        AdvancedCharts.renderAverageFitness(ctxStats, fitnessHistory, statsCanvas.width, statsCanvas.height);
-      }
-    }
-
-    // Display God Mode Log
-    const godModeLogEl = document.getElementById('godModeLog');
-    if (godModeLogEl) {
-      const logHtml = godModeLog.slice(-10).reverse().map(entry => {
-        const time = new Date(entry.time).toLocaleTimeString();
-        return `<div class="log-entry">[${time}] ${entry.action.toUpperCase()} snake #${entry.snakeId} - ${entry.result}</div>`;
-      }).join('');
-      godModeLogEl.innerHTML = logHtml || '<div class="log-entry">No God Mode interactions yet</div>';
-    }
-  }
-
-  if (activeTab === 'tab-hof') {
-    updateHoFTable(proxyWorld);
+  // Sidebar cadence is independent of world rendering; cold panels do no chart/DOM work.
+  const now = performance.now();
+  if (now - lastSidebarUpdate >= 250) {
+    lastSidebarUpdate = now;
+    if (genTimer) genTimer.textContent = `Gen ${currentStats.gen} · ${formatGenTimer(currentStats.generationTime, currentStats.generationSeconds ?? CFG.generationSeconds)} sim s · ${currentStats.alive} alive`;
+    const runtime = document.getElementById('runSummary');
+    if (runtime) runtime.textContent = `Run ${serverRunId.slice(0, 8) || '—'} · ${serverInferenceMode?.activeBackend ?? 'connecting'} · ${serverSimSpeed.toFixed(2)}×`;
+    if (activeTab === 'tab-stats') statsViewPanel.update(currentStats, fitnessHistory, godModeLog, statsView);
   }
 
   requestAnimationFrame(frame);
@@ -2812,30 +2821,20 @@ function frame(): void {
  * Update the Hall of Fame table UI.
  * @param world - Proxy world providing current generation state.
  */
-async function updateHoFTable(world: ProxyWorld): Promise<void> {
+let hofViewRevision = 0;
+async function updateHoFTable(): Promise<void> {
+  const revision = ++hofViewRevision;
+  const runId = serverRunId;
+  const list = await hof.getAll();
+  if (revision !== hofViewRevision || runId !== serverRunId) return;
   const container = document.getElementById('hofTable');
-  if (!container) return;
-
-  // Throttle updates?
-  if (world.generation % 1 !== 0 && Math.random() > 0.1) return;
-
-  const list = await hof.getAll() as HallOfFameEntry[];
-  if (!list.length) {
-    container.innerHTML = '<div style="padding:10px; color:#aaa">No records yet.</div>';
-    return;
-  }
-
-  let html = '';
-  list.forEach((entry: HallOfFameEntry, idx: number) => {
-    const pointLabel = entry.assessment?.pointMethod === 'reset' ? 'Reset' : entry.assessment?.pointMethod === 'cumulative-net' ? 'Cumulative net' : entry.assessment?.pointMethod === 'cumulative-gross' ? 'Cumulative gross' : entry.assessment?.pointMethod === 'best-life' ? 'Best Life' : 'Legacy physical score';
-    const lengthLabel = entry.assessment?.displayLengthKind === 'generation-peak' ? 'generation peak length' : entry.assessment?.displayLengthKind === 'selected-life-peak' ? 'selected life peak length' : entry.assessment ? 'latest life length' : 'legacy physical length';
-    html += `
-      <div class="hof-item">
-        <span>#${idx + 1} Gen ${entry.gen} (Fit ${entry.fitness.toFixed(1)})<br><small>${pointLabel}: ${entry.points.toFixed(1)} · ${lengthLabel}: ${entry.length}</small></span>
-        <button onclick="window.spawnHoF(${idx})"${entry.entryId ? '' : ' disabled'}>Spawn</button>
-      </div>`;
+  if (container) renderHallOfFame(container, list, async entryId => {
+    const run = serverRunId;
+    const id = await resurrectHallOfFameOnServer(entryId);
+    if (run !== serverRunId || id === null) return;
+    spectatorFollowSnakeId = id; resetManualCamera(); proxyWorld.viewMode = 'follow';
+    (document.querySelector('[data-tab="tab-viz"]') as HTMLButtonElement)?.click();
   });
-  container.innerHTML = html;
 }
 
 /** Expose global helper for HoF spawn buttons. */

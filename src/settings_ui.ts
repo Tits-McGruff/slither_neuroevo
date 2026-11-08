@@ -191,8 +191,8 @@ export function applySettingsLock(ports: SettingsLockPort): void {
   toggleSettingsLock.textContent = ports.settingsLocked ? 'Unlock' : 'Lock';
   if (settingsLockHint) {
     settingsLockHint.textContent = ports.settingsLocked
-      ? 'Locked to keep little hands off the sliders.'
-      : 'Unlocked. Changes apply immediately.';
+      ? 'Configuration protected. Viewing, camera controls and export remain available.'
+      : 'Live controls apply immediately. Reset controls are drafts until Apply and reset.';
   }
   const controls = settingsControls.querySelectorAll('input, button, select, textarea');
   controls.forEach(control => {
@@ -200,4 +200,14 @@ export function applySettingsLock(ports: SettingsLockPort): void {
   });
   refreshSensorSettings(ports.resolveSettingsRoot(), ports.settingsLocked);
   if (!ports.settingsLocked) ports.refreshCoreUIState();
+}
+
+/** Surface pending reset drafts even while their configuration groups are collapsed. */
+export function showResetDraft(pending: boolean): void {
+  const notice = document.getElementById('pendingConfiguration');
+  if (notice) {
+    notice.hidden = !pending;
+    notice.textContent = pending ? 'Pending configuration changes. Stage graph edits, then Apply and reset to replace the population using the same seed.' : '';
+  }
+  if (!pending) for (const group of document.querySelectorAll('details.has-draft')) group.classList.remove('has-draft');
 }

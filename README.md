@@ -731,12 +731,18 @@ bias representation or its matrix scale.
 God Mode resolves selection with the server before applying an action. Old
 selections cannot act on a replacement life, even when a display ID is reused.
 
-- **Settings lock**: Hides all sliders and controls inside the Settings tab; unlock to edit.
+- **Settings lock**: Protects experiment configuration, reset, import, checkpoint protection and generation controls. Camera fitting, view switching and checkpoint export remain available while locked. Unlock to edit configuration.
 - **Apply and reset**: Rebuild the world using reset-only settings. Reset keeps
   the active seed, creates a new run ID, and durably records generation one.
-- **Defaults**: Restore default slider values and perform the same-seed reset.
+- **Stage defaults**: Fill the configuration draft with defaults. Review it, then use **Apply and reset** once. Staging does not reset the world.
 - **New Run (new seed)**: Start generation one with a different seed after its
   run-start checkpoint commits. Older checkpoints are retained.
+
+Use **Hide controls / Show controls** to collapse the panel. Wider screens reserve space beside the world for controls; phone screens open the panel over the world and start with it collapsed. Fit arena and pointer selection use the actual canvas size. Phone support covers spectating, browsing, and configuration; playing still requires mouse steering and boost.
+
+Tabs support Left/Right arrows and Home/End, with one tab in the keyboard Tab sequence. Tab enters the selected panel. The expanded graph editor closes with **Escape** or **Close editor** and returns focus to its opener. Gameplay shortcuts are suspended in form fields, tab navigation, the join overlay and the expanded editor.
+
+Controls marked **live** submit immediately and settle from the server's response. Controls marked **reset** remain drafts until **Apply and reset**; a pending notice stays visible above the protected settings, and edited collapsed groups show a pending marker. Live responses preserve unrelated reset drafts. An authoritative run replacement or reconnect reloads the server's configuration; save a graph preset or export its JSON before discarding a session with edits.
 
 ## Join and spectate
 
@@ -945,24 +951,23 @@ end settings apply through the server.
 
 ## Brain graph editor
 
-The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM/RRU/Dense/Split/Concat, including splits and skip connections. Changes require **Apply graph** and then **Apply and reset**. When a custom graph is active, the stack sliders (hidden layers + neurons) are disabled and ignored.
+The Brain graph panel lets you build any ordering or combination of MLP/GRU/LSTM/RRU/Dense/Split/Concat, including splits and skip connections. Edit a template, the node/edge/output forms, or JSON; then choose **Stage graph for reset** to validate and stage it. This does not change the running population. Review other pending settings and choose **Apply and reset** once to start a new same-seed run with the staged graph. Stack sliders are disabled and ignored when a custom graph is staged. **Use stack controls** stages the ordinary stack instead.
 
 - **Templates**: Quick starting points (Linear MLP, MLP → GRU → MLP, Skip + concat, Split + parallel heads).
 - **Nodes**: Each node has an id and a type. Input is fixed to the sensor size. Dense/MLP/GRU/LSTM/RRU input sizes are inferred from wiring and shown read-only. Split uses a comma list of output sizes (must sum to its input size).
 - **Edges**: Connect nodes. `fromPort` picks an output on a multi-output node (Split). `toPort` sets input order for multi-input nodes (Concat). Ports are 0-based; leave blank for default ordering.
 - **Outputs (simple)**: Pick an output node and optionally **Split into 2 outputs**. A single node with size 2 drives turn + boost. A split uses port 0 → turn and port 1 → boost.
 - **Outputs (advanced)**: Expand **Advanced outputs** to map multiple output refs manually. The summed output size must equal 2 (turn + boost).
-- **Diagram**: Visualizes the current editor graph left → right. Use **Full screen** to bring it forward while editing.
-- **Diagram overlay**: Full screen dims the arena while keeping the right-side control panel visible.
+- **Diagram**: Visualizes the current editor graph left → right. Use **Expand editor** for a full-viewport workspace. The inspector sits beside the diagram on wide screens and below it on phones. **Escape** closes the workspace.
 - **Diagram editing**:
-  - **Select**: Click a node/edge/output to edit it in the inspector.
+  - **Select**: Click a node/edge/output to edit it in the inspector. Keyboard users can Tab to a diagram node/output and press Enter or Space, or use the ordinary node, edge and output forms for all structural editing.
   - **Connect**: Drag from the small handle on a node to another node (Split/Concat ports auto-assign).
   - **Move**: Drag nodes to reposition the diagram (visual layout only).
-  - **Toolbar**: **Add node**, **Add output**, **Delete**, **Auto layout** (clears manual positions), **Full screen**.
+  - **Toolbar**: **Add node**, **Add output**, **Delete**, **Auto layout** (clears manual positions), **Expand editor**.
 - **Saved presets**: Enter a name and **Save preset** to store it in the server database.
-- **Preset loading**: Click a saved preset entry to load it into the editor (you still need Apply graph).
+- **Preset loading**: Click a saved preset entry to load it into the editor, then stage it and use **Apply and reset** when ready.
 - **Layout persistence**: Diagram positions are UI-only and reset after refresh or Auto layout.
-- **Graph storage**: The applied graph spec is saved in browser localStorage; **Reset graph** reloads the applied spec or the default template.
+- **Graph storage**: The staged custom graph is saved in browser localStorage; **Discard graph edits** reloads the last staged graph or the default template. The server's admitted graph is restored on connection and authoritative replacement.
 - **Advanced JSON**: Use **Load JSON into editor** to import, **Copy current graph** to populate the JSON editor, and **Export JSON** to download a file.
 
 ## Import and export

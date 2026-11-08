@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** Generic element surface sufficient for the application startup boundary. */
 interface SmokeElement {
+  /** Structural DOM retained by bounded views. */
+  children: SmokeElement[];
+  firstElementChild: SmokeElement | null;
+  insertBefore: (child: SmokeElement, reference: SmokeElement | null) => void;
   /** Element identifier. */
   id: string;
   /** Form value. */
@@ -55,6 +59,7 @@ interface SmokeElement {
   remove: () => void;
   /** Set one attribute. */
   setAttribute: (name: string, value: string) => void;
+  removeAttribute: (name: string) => void;
   /** Record browser input validation. */
   setCustomValidity: (message: string) => void;
   /** Surface browser validation without a real browser. */
@@ -132,6 +137,12 @@ function makeElement(id: string): SmokeElement {
     width: 800,
     height: 600,
     options: [],
+    children: [],
+    get firstElementChild() { return this.children[0] ?? null; },
+    insertBefore(child, reference) {
+      this.children = this.children.filter(element => element !== child);
+      this.children.splice(reference ? this.children.indexOf(reference) : this.children.length, 0, child);
+    },
     addEventListener(type, listener) {
       const registered = listeners.get(type) ?? [];
       registered.push(listener);
@@ -141,10 +152,11 @@ function makeElement(id: string): SmokeElement {
       for (const listener of listeners.get(type) ?? []) listener(event);
     },
     appendChild(child) { this.options.push(child); },
-    append() { },
-    replaceChildren(...children) { this.options = [...children]; this.textContent = ''; },
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.options = [...children]; this.children = [...children]; this.textContent = ''; },
     remove() { },
     setAttribute(name, value) { attributes.set(name, value); },
+    removeAttribute(name) { attributes.delete(name); },
     setCustomValidity(message) { attributes.set('validationMessage', message); },
     reportValidity() { return !attributes.get('validationMessage'); },
     getAttribute(name) { return attributes.get(name) ?? null; },
@@ -201,6 +213,9 @@ function makeStorage(): Storage {
     key: index => Array.from(values.keys())[index] ?? null
   };
 }
+
+/** Read text-owned keyed rows as well as HTML-owned statistical summaries. */
+function elementText(element: SmokeElement): string { return element.textContent + element.children.map(elementText).join(' '); }
 
 describe('main.ts startup smoke', () => {
   /** URL passed to the WebSocket constructor during startup. */
@@ -312,6 +327,7 @@ describe('main.ts startup smoke', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -346,6 +362,7 @@ describe('main.ts startup smoke', () => {
   /** Advance an actual rendering frame to catch automatic camera snap-back. */
   function renderCameraFrame(): void {
     if (!animationFrame) throw new Error('missing animation callback');
+    vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 300);
     animationFrame(performance.now());
   }
 
@@ -370,6 +387,8 @@ describe('main.ts startup smoke', () => {
     expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset')).toHaveLength(before);
     elements.get('graphApply')!.click();
     expect(CFG.brain.graphSpec?.nodes.some(node => node.type === 'Split')).toBe(true);
+    expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset')).toHaveLength(before);
+    elements.get('apply')!.click();
     const stagedReset = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
     expect(stagedReset.graphSpec.nodes.some((node: { type: string }) => node.type === 'Split')).toBe(true);
 
@@ -413,7 +432,8 @@ describe('main.ts startup smoke', () => {
     expect(info.innerHTML).toContain('Deaths / respawns');
     expect(info.innerHTML).toContain('4 / 0');
     expect(info.innerHTML).toContain('10.0 sim s');
-    expect(info.innerHTML).toContain('Placement step 10: 3 attempted, 2 deferred');
+    expect(info.innerHTML).toContain('Placement step');
+    expect(info.innerHTML).toContain('3 / 2');
     socket.onmessage?.({ data: JSON.stringify({ ...stats, evolved: { ...evolved, version: 2 } }) }); renderCameraFrame();
     expect(info.innerHTML).not.toContain('Waiting / pending');
     socket.onmessage?.({ data: JSON.stringify({ ...stats, evolved }) }); renderCameraFrame();
@@ -618,6 +638,25 @@ describe('main.ts startup smoke', () => {
     expect(connectedUrl).toBe('ws://localhost:5174');
   });
 
+  it('preserves reset drafts on accepted and rejected live replies, and stages baseline seed changes', async () => {
+    const inputs = (): SmokeElement[] => createdElements.filter(element => element.dataset['path']);
+    for (const id of ['settingsContainer', 'settingsControls']) (document.getElementById(id) as unknown as SmokeElement).querySelectorAll = inputs;
+    const {socket} = await openCameraSession();
+    const radius = inputs().find(input => input.dataset['path'] === 'worldRadius')!;
+    const reward = inputs().find(input => input.dataset['path'] === 'reward.fitnessFood')!;
+    radius.value = '4200';
+    socket.onmessage?.({data: JSON.stringify({type:'settingsApplied',requestId:'accepted',applied:true,configRevision:2,configHash:'cfg-live',updates:[{path:'reward.fitnessFood',value:70}]})});
+    expect(radius.value).toBe('4200'); expect(reward.value).toBe('70');
+    reward.value = '777';
+    socket.onmessage?.({data: JSON.stringify({type:'settingsApplied',requestId:'rejected',applied:false,configRevision:2,configHash:'cfg-live',updates:[],reason:'test rejection'})});
+    expect(radius.value).toBe('4200'); expect(reward.value).toBe('70');
+    expect(elements.get('resetStatus')!.textContent).toContain('Reset drafts were kept');
+    const seed = elements.get('baselineBotSeed')!; seed.value = '123'; seed.dispatch('blur',new Event('blur'));
+    elements.get('baselineBotSeedRandomize')!.click();
+    expect(socket.sent.map(payload=>JSON.parse(payload)).filter(packet=>packet.type==='reset')).toHaveLength(0);
+    expect(elements.get('pendingConfiguration')!.hidden).toBe(false);
+  });
+
   it('keeps camera sliders local and submits the full authoritative panel through Apply and reset', async () => {
     vi.useFakeTimers();
     /** Expose the generated panel inputs to its event wiring and reset collector. */
@@ -666,6 +705,7 @@ describe('main.ts startup smoke', () => {
     expect(reset.updates.filter((update: { path: string }) => update.path.startsWith('observer.'))).toHaveLength(2);
     expect(reset.updates.some((update: { path: string }) => update.path.startsWith('evolvedRespawn.'))).toBe(false);
     const enabled = panelInputs().find(element => element.dataset['path'] === 'evolvedRespawn.enabled')!;
+    socket.onmessage?.({data: JSON.stringify({type: 'error', message: 'reset failed: test rejection releases pending guard'})});
     enabled.checked = true; enabled.dispatch('input', new Event('input'));
     elements.get('apply')!.click();
     const experiment = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
@@ -851,12 +891,11 @@ describe('main.ts startup smoke', () => {
     };
     socket.onopen?.();
     socket.onmessage?.({ data: JSON.stringify(welcome) });
-    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('Gen 1'));
+    await vi.waitFor(() => expect(elementText(elements.get('hofTable')!)).toContain('Gen 1'));
     records = reason === 'import' ? [newEntry] : [];
     socket.onmessage?.({ data: JSON.stringify({ type: 'stateReplaced', reason, checkpointId: 'c'.repeat(64),
       welcome: { ...welcome, runId: 'new-run', worldSeed: 51 } }) });
-    expect(elements.get('hofTable')?.innerHTML).toBe('');
-    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain(reason === 'import' ? 'Gen 7' : 'No records yet'));
+    await vi.waitFor(() => expect(elementText(elements.get('hofTable')!)).toContain(reason === 'import' ? 'Gen 7' : 'No champions yet'));
     const { hof } = await import('./hallOfFame.ts');
     expect(await hof.getAll()).toEqual(records);
   });
@@ -880,14 +919,14 @@ describe('main.ts startup smoke', () => {
       sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' }, serializerVersion: 1, frameByteLength: 28,
       capabilities: { archiveExport: true }
     }) });
-    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('No records yet'));
+    await vi.waitFor(() => expect(elementText(elements.get('hofTable')!)).toContain('No champions yet'));
     records = [entry];
     const stats = { type: 'stats', tick: 480, gen: 2, generationTime: 0, generationSeconds: 8,
       alive: 12, fps: 60 };
     socket.onmessage?.({ data: JSON.stringify(stats) });
-    await vi.waitFor(() => expect(elements.get('hofTable')?.innerHTML).toContain('Gen 1'));
-    expect(elements.get('hofTable')?.innerHTML).toContain('Legacy physical score: 2.0');
-    expect(elements.get('hofTable')?.innerHTML).toContain('legacy physical length: 4');
+    await vi.waitFor(() => expect(elementText(elements.get('hofTable')!)).toContain('Gen 1'));
+    expect(elementText(elements.get('hofTable')!)).toContain('legacy physical: 2.0');
+    expect(elementText(elements.get('hofTable')!)).toContain('legacy physical length: 4');
     const loads = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes('/api/hof')).length;
     socket.onmessage?.({ data: JSON.stringify({ ...stats, tick: 481 }) });
     await Promise.resolve();

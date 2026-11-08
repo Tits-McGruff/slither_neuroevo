@@ -155,3 +155,44 @@ export class HallOfFame {
 
 /** Singleton Hall of Fame registry used by the UI. */
 export const hof = new HallOfFame();
+
+/** Render only changed records. Stable rows retain their buttons and keyboard focus. */
+export function renderHallOfFame(container: HTMLElement, entries: readonly HallOfFameEntry[], spawn: (entryId: string) => Promise<void>): void {
+  if (!entries.length) {
+    if (container.dataset['empty'] !== 'true') {
+      container.replaceChildren();
+      container.textContent = 'No champions yet. Complete a generation to retain its best snakes.';
+      container.dataset['empty'] = 'true';
+    }
+    return;
+  }
+  if (container.dataset['empty'] === 'true') container.textContent = '';
+  container.dataset['empty'] = 'false';
+  const retained = new Set<HTMLElement>();
+  entries.forEach((entry, index) => {
+    const key = entry.entryId ?? `legacy-${index}`;
+    let row = Array.from(container.children).find(child => (child as HTMLElement).dataset['entryId'] === key) as HTMLElement | undefined;
+    if (!row) {
+      row = document.createElement('div'); row.className = 'hof-item'; row.dataset['entryId'] = key;
+      const label = document.createElement('span');
+      const button = document.createElement('button'); button.textContent = 'Spawn'; button.disabled = !entry.entryId;
+      button.setAttribute('aria-label', `Spawn champion from generation ${entry.gen}`);
+      button.addEventListener('click', async () => {
+        if (button.disabled || !entry.entryId) return;
+        button.disabled = true;
+        try { await spawn(entry.entryId); }
+        catch { label.textContent = 'Spawn outcome uncertain. Check the world before trying again.'; }
+        finally { button.disabled = false; }
+      });
+      row.append(label, button);
+    }
+    retained.add(row);
+    const point = entry.assessment?.pointMethod === 'best-life' ? 'Best life' : entry.assessment?.pointMethod === 'cumulative-net' ? 'Cumulative net' : entry.assessment?.pointMethod === 'cumulative-gross' ? 'Cumulative gross' : entry.assessment ? 'Reset score' : 'legacy physical';
+    const length = entry.assessment?.displayLengthKind === 'generation-peak' ? 'generation peak' : entry.assessment?.displayLengthKind === 'selected-life-peak' ? 'selected life peak' : entry.assessment ? 'latest life' : 'legacy physical';
+    const text = `#${index + 1} · Gen ${entry.gen} · Fitness ${entry.fitness.toFixed(1)}\n${point}: ${entry.points.toFixed(1)} · ${length} length: ${entry.length}`;
+    const label = row.firstElementChild!;
+    if (label.textContent !== text) label.textContent = text;
+    if (container.children[index] !== row) container.insertBefore(row, container.children[index] ?? null);
+  });
+  for (const child of Array.from(container.children)) if (!retained.has(child as HTMLElement)) child.remove();
+}

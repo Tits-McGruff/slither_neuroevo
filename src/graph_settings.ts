@@ -131,7 +131,7 @@ export function applySimpleOutputSelection(ports: GraphSettingsPort): void {
     draft.outputs = [{ nodeId }];
   }
   renderGraphEditor(ports);
-  ports.setGraphSpecStatus('Outputs updated. Apply graph to use it.');
+  ports.setGraphSpecStatus('Outputs updated. Stage graph to use it.');
 }
 
 
@@ -157,6 +157,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
     field.className = 'graph-field';
     const label = document.createElement('label');
     label.textContent = labelText;
+    input.setAttribute('aria-label', labelText);
     field.appendChild(label);
     field.appendChild(input);
     return field;
@@ -229,7 +230,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
       }
       if (ports.graphSelectedNodeId === oldId) ports.graphSelectedNodeId = nextId;
       renderGraphEditor(ports);
-      ports.setGraphSpecStatus('Node id updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Node id updated. Stage graph to use it.');
     });
     row.appendChild(makeField('Id', idInput));
 
@@ -249,7 +250,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
       const nextType = typeSelect.value as GraphNodeType;
       spec.nodes[index] = ports.createNode(nextType, node.id);
       renderGraphEditor(ports);
-      ports.setGraphSpecStatus('Node type updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Node type updated. Stage graph to use it.');
     });
     row.appendChild(makeField('Type', typeSelect));
 
@@ -267,7 +268,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
         const next = Number(output.value);
         if (!Number.isFinite(next)) return;
         node.outputSize = next;
-        ports.setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated node sizes. Stage graph to use it.');
       });
       row.appendChild(makeField('Output', output));
     }
@@ -278,7 +279,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
       hidden.placeholder = '16, 16';
       hidden.addEventListener('change', () => {
         node.hiddenSizes = parseNumberList(hidden.value);
-        ports.setGraphSpecStatus('Updated hidden sizes. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated hidden sizes. Stage graph to use it.');
       });
       row.appendChild(makeField('Hidden', hidden));
     }
@@ -291,7 +292,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
         const next = Number(hidden.value);
         if (!Number.isFinite(next)) return;
         node.hiddenSize = next;
-        ports.setGraphSpecStatus('Updated hidden size. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated hidden size. Stage graph to use it.');
       });
       row.appendChild(makeField('Hidden', hidden));
     }
@@ -304,7 +305,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
         const next = parseNumberList(sizes.value);
         if (!next.length) return;
         node.outputSizes = next;
-        ports.setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated split sizes. Stage graph to use it.');
       });
       row.appendChild(makeField('Outputs', sizes));
     }
@@ -325,7 +326,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
         ports.graphLayoutOverrides.delete(removedId);
         if (ports.graphSelectedNodeId === removedId) ports.graphSelectedNodeId = null;
         renderGraphEditor(ports);
-        ports.setGraphSpecStatus('Node removed. Apply graph to use it.');
+        ports.setGraphSpecStatus('Node removed. Stage graph to use it.');
       });
       row.appendChild(remove);
     }
@@ -348,7 +349,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
     fromSelect.value = edge.from;
     fromSelect.addEventListener('change', () => {
       edge.from = fromSelect.value;
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     row.appendChild(makeField('From', fromSelect));
 
@@ -361,7 +362,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
       } else {
         edge.fromPort = Number(value);
       }
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     row.appendChild(makeField('From port', fromPort));
 
@@ -375,7 +376,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
     toSelect.value = edge.to;
     toSelect.addEventListener('change', () => {
       edge.to = toSelect.value;
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     row.appendChild(makeField('To', toSelect));
 
@@ -388,7 +389,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
       } else {
         edge.toPort = Number(value);
       }
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     row.appendChild(makeField('To port', toPort));
 
@@ -398,7 +399,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
     remove.addEventListener('click', () => {
       spec.edges.splice(index, 1);
       renderGraphEditor(ports);
-      ports.setGraphSpecStatus('Edge removed. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge removed. Stage graph to use it.');
     });
     row.appendChild(remove);
 
@@ -421,7 +422,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
     nodeSelect.value = output.nodeId;
     nodeSelect.addEventListener('change', () => {
       output.nodeId = nodeSelect.value;
-      ports.setGraphSpecStatus('Output updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Output updated. Stage graph to use it.');
     });
     row.appendChild(makeField('Node', nodeSelect));
 
@@ -434,7 +435,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
       } else {
         output.port = Number(value);
       }
-      ports.setGraphSpecStatus('Output updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Output updated. Stage graph to use it.');
     });
     row.appendChild(makeField('Port', portInput));
 
@@ -444,7 +445,7 @@ export function renderGraphEditor(ports: GraphSettingsPort): void {
     remove.addEventListener('click', () => {
       spec.outputs.splice(index, 1);
       renderGraphEditor(ports);
-      ports.setGraphSpecStatus('Output removed. Apply graph to use it.');
+      ports.setGraphSpecStatus('Output removed. Stage graph to use it.');
     });
     row.appendChild(remove);
 

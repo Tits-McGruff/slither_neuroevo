@@ -124,6 +124,9 @@ export class BrainLibraryView {
       const title = document.createElement('strong'); title.textContent = entry.name;
       const meta = document.createElement('div'); meta.className = 'meta';
       meta.textContent = `${entry.artifact.sourceKind} · ${entry.artifact.inputSize} inputs · ${entry.artifact.parameterCount.toLocaleString()} parameters · ${entry.artifact.controlIntervalSeconds.toFixed(4)} s`;
+      const environment = this.environment();
+      const sensorMismatch = environment.sensorSha256 !== null && environment.sensorSha256 !== entry.artifact.sensorSha256;
+      meta.textContent += sensorMismatch ? ' · Different sensors — inspect before spawning' : ' · Rust checks compatibility at spawn';
       const actions = document.createElement('div'); actions.className = 'brain-library-actions';
       actions.append(this.rowButton('Details', () => this.action(async token => {
         const record = await this.client.read(entry.brainId);
@@ -132,6 +135,7 @@ export class BrainLibraryView {
       })), this.rowButton('Spawn', () => this.action(async token => this.confirm(await this.client.spawn(entry.brainId), token))),
       this.rowButton('Export', () => this.download(entry.brainId)),
       this.rowButton('Delete', () => this.action(async token => {
+        if (!window.confirm(`Permanently delete saved brain “${entry.name}” (${entry.brainId.slice(0, 12)})? Export a copy first if you need it. Running snakes keep their brains.`)) return 'Deletion cancelled.';
         await this.client.delete(entry.brainId); this.archiveSelection.delete(entry.brainId); this.previous = []; await this.load(null, token);
         if (token === this.revision && this.selected?.brainId === entry.brainId) { this.selected = undefined; this.element('brainLibraryDetails').textContent = ''; }
         return `Deleted ${entry.name} from the library. Running snakes keep their brains.`;

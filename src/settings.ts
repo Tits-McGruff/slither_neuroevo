@@ -151,7 +151,7 @@ export function createSettingControl(spec: SettingDefinition): SettingInputEleme
   if (spec.lifeContract) input.dataset['lifeContract'] = '1';
   if (spec.decimals != null) input.dataset['decimals'] = String(spec.decimals);
   if (spec.requiresReset != null) input.dataset['requiresReset'] = spec.requiresReset ? '1' : '0';
-  if (spec.id) input.id = spec.id;
+  input.id = spec.id ?? `setting_${spec.path?.replaceAll('.', '_')}`;
   return input;
 }
 
@@ -193,7 +193,7 @@ export function buildSettingsUI(container: HTMLElement): void {
       wrap.className = "setting";
       const topline = document.createElement("div");
       topline.className = "topline";
-      const name = document.createElement("div");
+      const name = document.createElement("label");
       name.className = "name";
       name.textContent = spec.label;
       topline.appendChild(name);
@@ -216,6 +216,7 @@ export function buildSettingsUI(container: HTMLElement): void {
         wrap.appendChild(button);
       } else {
         const input = createSettingControl(spec);
+        name.setAttribute('for', input.id);
         wrap.appendChild(input);
         for (const preset of spec.presets ?? []) {
           const button = document.createElement('button');
@@ -231,10 +232,18 @@ export function buildSettingsUI(container: HTMLElement): void {
         if (spec.requiresReset != null) {
           const foot = document.createElement("div");
           foot.className = "foot";
+          foot.id = `${input.id}_description`;
+          input.setAttribute('aria-describedby', foot.id);
           foot.innerHTML = spec.requiresReset
             ? `<span class="pill">reset</span> Applies on reset.`
             : `<span class="pill">live</span> Applies immediately and also on reset.`;
           wrap.appendChild(foot);
+        }
+        if (spec.path === 'sense.profile' || spec.path?.startsWith('sense.ray') || spec.path === 'baselineBots.behaviorMode' || spec.path === 'baselineBots.controlDt') {
+          const availability = document.createElement('div');
+          availability.id = `${input.id}_availability`; availability.className = 'meta'; availability.hidden = true;
+          input.setAttribute('aria-describedby', `${input.id}_description ${availability.id}`);
+          wrap.appendChild(availability);
         }
       }
 
@@ -242,7 +251,9 @@ export function buildSettingsUI(container: HTMLElement): void {
         const hint = document.createElement("div");
         hint.className = "meta";
         hint.textContent = spec.hint;
-        if (spec.hintId) hint.id = spec.hintId;
+        hint.id = spec.hintId ?? `${spec.id ?? spec.path?.replaceAll('.', '_')}_hint`;
+        const control = wrap.querySelector?.('input, select');
+        if (control) control.setAttribute('aria-describedby', `${control.getAttribute('aria-describedby') ?? ''} ${hint.id}`.trim());
         wrap.appendChild(hint);
       }
       groupDiv.appendChild(wrap);
@@ -303,6 +314,8 @@ export function refreshSensorSettings(root: HTMLElement, locked = false): void {
     const inactive = inactiveSensorSetting(path, version, algorithm);
     input.disabled = locked || inactive;
     input.title = inactive ? (path.startsWith('sense.') ? 'Select v4 sensors to use this setting.' : 'Select v4 sensors and baseline v2 to use this setting.') : '';
+    const explanation = document.getElementById(`${input.id}_availability`);
+    if (explanation) { explanation.textContent = input.title; explanation.hidden = !inactive; }
     for (const button of root.querySelectorAll<HTMLButtonElement>('button[data-setting-preset]')) {
       if (button.dataset['settingPreset'] === path) button.disabled = input.disabled;
     }
@@ -380,6 +393,14 @@ export function hookSliderEvents(
   document.getElementById(EVOLVED_RESPAWN_PRESET_ID)?.addEventListener?.('click', () => stageEvolvedRespawnPreset(root));
 }
 
+/** Reveal invalid drafts before requesting browser focus/validation, including closed groups. */
+function reportInvalidSetting(input: SettingInputElement): void {
+  for (let parent = input.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName === 'DETAILS') (parent as HTMLDetailsElement).open = true;
+  }
+  input.reportValidity();
+}
+
 /**
  * Persist the current slider values from the UI back into CFG.
  * This should be called whenever the user clicks "Apply" to commit changes.
@@ -430,7 +451,7 @@ export function validateSettingDrafts(root: HTMLElement): boolean {
     }
     if (contractError) {
       input.setCustomValidity(contractError); input.setAttribute('aria-invalid', 'true');
-      if (valid) input.reportValidity(); valid = false; return;
+      if (valid) reportInvalidSetting(input); valid = false; return;
     }
     if (path.startsWith('sense.ray') || path === 'baselineBots.controlDt' || path === 'baselineBots.algorithm' || input.dataset['fullPrecision'] === '1') {
       input.setCustomValidity(''); input.setAttribute('aria-invalid', 'false');
@@ -439,21 +460,21 @@ export function validateSettingDrafts(root: HTMLElement): boolean {
       const accepted = readLifeSettingInput(input) != null;
       input.setCustomValidity(accepted ? '' : 'Enter a valid value or choose a listed option.');
       input.setAttribute('aria-invalid', String(!accepted));
-      if (!accepted && valid) input.reportValidity();
+      if (!accepted && valid) reportInvalidSetting(input);
       valid = valid && accepted; return;
     }
     if (input.dataset['controlType'] === 'select') {
       const accepted = readSettingChoice(input as HTMLSelectElement) != null;
       input.setCustomValidity(accepted ? '' : 'Choose one of the listed options.');
       input.setAttribute('aria-invalid', String(!accepted));
-      if (!accepted && valid) input.reportValidity();
+      if (!accepted && valid) reportInvalidSetting(input);
       valid = valid && accepted; return;
     }
     if (input.dataset['controlType'] !== 'duration') return;
     const accepted = parseDurationDraft(input.value, input.dataset['recordedDuration']) != null;
     input.setCustomValidity(accepted ? '' : 'Enter a duration from 8 seconds to 7 days.');
     input.setAttribute('aria-invalid', String(!accepted));
-    if (!accepted && valid) input.reportValidity();
+    if (!accepted && valid) reportInvalidSetting(input);
     valid = valid && accepted;
   });
   return valid;
