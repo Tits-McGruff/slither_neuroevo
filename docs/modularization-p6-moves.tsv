@@ -1,0 +1,44 @@
+old_file	symbol	new_file	explicit_dependencies
+server/rustEngine/checkpointPersistenceClient.ts	normalizeGraphPreset	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	parseGraphPresetMeta	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	parseGraphPreset	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	parseWorkerResponse	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	requireExactKeys	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	isOperationId	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	isU64Hex	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceClient.ts	isFiniteF64Hex	server/rustEngine/response_decode.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeRetentionSchema	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeRecoverySchema	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeSchema	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeHallOfFameWeightsSchema	server/rustEngine/schema.ts	existing rebuildHallOfFameRetention callback
+server/rustEngine/checkpointPersistenceWorker.ts	ensureHallOfFameIndexes	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeImportableHistorySchema	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeLegacyConversionSchema	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	initializeGraphPresetSchema	server/rustEngine/schema.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	VerifiedManagedFile	server/rustEngine/managed_files.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	resolveManagedRoot	server/rustEngine/managed_files.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	u64HexToBigInt	server/rustEngine/managed_files.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	f64HexToNumber	server/rustEngine/managed_files.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	assertDescriptorBounds	server/rustEngine/managed_files.ts	descriptorLimits: ManagedCheckpointDescriptorLimits
+server/rustEngine/checkpointPersistenceWorker.ts	verifyManagedDirectFile	server/rustEngine/managed_files.ts	managedRootPath: string
+server/rustEngine/checkpointPersistenceWorker.ts	verifyManagedFile	server/rustEngine/managed_files.ts	managedRootPath: string
+server/rustEngine/checkpointPersistenceWorker.ts	verifyHallOfFameWeightsFile	server/rustEngine/managed_files.ts	managedRootPath: string
+server/rustEngine/checkpointPersistenceWorker.ts	recheckManagedFile	server/rustEngine/managed_files.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	serializeDescriptor	server/rustEngine/managed_files.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	RecoveryLineage	server/rustEngine/lineage_reads.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	readRecoveryBranch	server/rustEngine/lineage_reads.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	readImportBranch	server/rustEngine/lineage_reads.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	readLineageBranch	server/rustEngine/lineage_reads.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	recoveryLineage	server/rustEngine/lineage_reads.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	recoveryLineageFilter	server/rustEngine/lineage_reads.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	exportLineageFilter	server/rustEngine/lineage_reads.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	boundaryHallOfFameSelection	server/rustEngine/lineage_reads.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	MAX_GRAPH_PRESET_BYTES	server/rustEngine/read_models.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	MAX_GRAPH_PRESET_NAME_BYTES	server/rustEngine/read_models.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	parseGraphPresetSpec	server/rustEngine/read_models.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	saveGraphPreset	server/rustEngine/read_models.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	listGraphPresets	server/rustEngine/read_models.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	loadGraphPreset	server/rustEngine/read_models.ts	db: ReturnType<typeof Database>
+server/rustEngine/checkpointPersistenceWorker.ts	listStoredGraphPresetMetadata	server/rustEngine/read_models.ts	
+server/rustEngine/checkpointPersistenceWorker.ts	readBrowserHistory	server/rustEngine/read_models.ts	db: ReturnType<typeof Database>; readCurrentBoundary: (runId: string) => ManagedCheckpointDescriptor | undefined
+server/rustEngine/checkpointPersistenceWorker.ts	readBrowserHallOfFame	server/rustEngine/read_models.ts	db: ReturnType<typeof Database>; readCurrentBoundary: (runId: string) => ManagedCheckpointDescriptor | undefined

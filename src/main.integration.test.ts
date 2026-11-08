@@ -354,6 +354,49 @@ describe('main.ts startup smoke', () => {
     return { clientX, clientY, button, shiftKey, preventDefault() {} } as unknown as Event;
   }
 
+  it('keeps a graph template draft separate and reconciles an authoritative graph replacement', async () => {
+    const template = makeElement('split-template');
+    template.dataset['template'] = 'split';
+    document.querySelectorAll = ((selector: string) =>
+      selector === '[data-template]' ? [template] : []) as unknown as typeof document.querySelectorAll;
+    const { socket } = await openCameraSession();
+    const { CFG } = await import('./config.ts');
+    const before = socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset').length;
+    const appliedBefore = structuredClone(CFG.brain.graphSpec);
+
+    template.click();
+    expect(elements.get('graphSpecStatus')!.textContent).toContain('Template loaded');
+    expect(CFG.brain.graphSpec).toEqual(appliedBefore);
+    expect(socket.sent.map(payload => JSON.parse(payload)).filter(packet => packet.type === 'reset')).toHaveLength(before);
+    elements.get('graphApply')!.click();
+    expect(CFG.brain.graphSpec?.nodes.some(node => node.type === 'Split')).toBe(true);
+    const stagedReset = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
+    expect(stagedReset.graphSpec.nodes.some((node: { type: string }) => node.type === 'Split')).toBe(true);
+
+    const authoritative = {
+      type: 'graph', outputSize: 2,
+      nodes: [
+        { id: 'server-input', type: 'Input', outputSize: 83 },
+        { id: 'server-head', type: 'Dense', inputSize: 83, outputSize: 2 }
+      ],
+      edges: [{ from: 'server-input', to: 'server-head' }],
+      outputs: [{ nodeId: 'server-head' }]
+    };
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'welcome', protocolVersion: 2, sessionId: 'camera-session', tickRate: 60,
+      worldSeed: 42, runId: 'server-graph-run', configRevision: 2, configHash: 'server-graph-config',
+      settings: { core: { simSpeed: 1 }, updates: [] }, graphSpec: authoritative,
+      inferenceMode: { requestedBackend: 'native', activeBackend: 'native', requestedMt: false, activeWorkerCount: 0 },
+      sensorSpec: { sensorCount: 83, order: [], layoutVersion: 'v3' },
+      serializerVersion: 1, frameByteLength: 80
+    }) });
+    expect(JSON.parse(elements.get('graphSpecInput')!.value)).toEqual(authoritative);
+    expect(CFG.brain.graphSpec).toEqual(authoritative);
+    elements.get('apply')!.click();
+    const reset = socket.sent.map(payload => JSON.parse(payload)).findLast(packet => packet.type === 'reset');
+    expect(reset.graphSpec).toEqual(authoritative);
+  });
+
   it('shows committed lifecycle work and clears unsupported or absent telemetry', async () => {
     const statsTab = makeElement('statsTab'); statsTab.dataset['tab'] = 'tab-stats';
     /** Expose one stats-tab button through the startup selector. */

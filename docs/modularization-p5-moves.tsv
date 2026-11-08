@@ -1,0 +1,205 @@
+old_file	symbol_kind	symbol	old_visibility	new_file
+native/src/napi_engine.rs	struct	Stage3CheckpointFixtureOptions	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ManagedCheckpointDescriptor	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ManagedHallOfFameWeightsDescriptor	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ManagedCheckpointPublicationOptions	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationSummaryRecord	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6HallOfFameRecord	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationCompletionRecord	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationExperimentRecord	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationCommitRecord	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationCheckpointPublication	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationHandoffSnapshot	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationAssignment	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationAssignmentResult	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6GenerationStartPublication	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundStepKey	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationTransition	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationAssignment	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationReassignments	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationReceiptResolution	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundUnavailableController	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationStart	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundControllerDisconnect	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundControllerReclaimAssignment	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundControllerReclaimResolution	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundControllerMessage	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundControllerReceiptResolution	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundRetainedOrigin	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	impl	From < crate :: engine :: retained_origin :: RetainedNeuralOrigin > for BackgroundRetainedOrigin	private	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundEntitySelection	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundGodModeMove	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundGodModeKill	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundHallOfFameResurrection	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	BackgroundShadowChange	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationEvent	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationDrain	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationHealth	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6RunStartHandoffSnapshot	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	Stage6RunStartPublication	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ExperimentalFreshRunFrameV1	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	FreshRunFrameV1Output	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ExperimentalFreshRunSnapshot	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	FreshRunScalarSnapshot	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	QualifiedFreshRunInitialization	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ExperimentalEngineOptions	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ExperimentalEngineEvent	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ExperimentalEngineDrain	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	ExperimentalEngineHealth	pub	native/src/napi_engine/wire_shapes.rs
+native/src/napi_engine.rs	struct	InitializeQualifiedFreshRunTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for InitializeQualifiedFreshRunTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	CreateExperimentalBackgroundTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for CreateExperimentalBackgroundTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	AdoptRecoveryBranchTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for AdoptRecoveryBranchTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	QualifiedCheckpointInitialization	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	enum	FreshRunInitialization	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	InitializeExperimentalFreshRunTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for InitializeExperimentalFreshRunTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	PublishExperimentalFreshRunCheckpointTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for PublishExperimentalFreshRunCheckpointTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	ActivateExperimentalFreshRunTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for ActivateExperimentalFreshRunTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	PublishExperimentalFreshRunInitialFrameTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for PublishExperimentalFreshRunInitialFrameTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	struct	PublishExperimentalFreshRunFirstScheduledFrameTask	pub	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	impl	Task for PublishExperimentalFreshRunFirstScheduledFrameTask	private	native/src/napi_engine/fresh_run_tasks.rs
+native/src/napi_engine.rs	fn	publish_stage3_checkpoint_fixture	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	PublishStage3CheckpointFixtureTask	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Task for PublishStage3CheckpointFixtureTask	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	Stage6RunStartHandoffFixtureSession	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Stage6RunStartHandoffFixtureSession	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	PublishStage6PendingRunStartTask	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Task for PublishStage6PendingRunStartTask	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	PublishStage6RunningRunStartTask	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Task for PublishStage6RunningRunStartTask	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	Stage6GenerationHandoffFixtureSession	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Stage6GenerationHandoffFixtureSession	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	Stage6BackgroundGenerationHandoffFixtureSession	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Stage6BackgroundGenerationHandoffFixtureSession	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Stage6BackgroundGenerationHandoffFixtureSession	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Drop for Stage6BackgroundGenerationHandoffFixtureSession	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	PublishBackgroundGenerationRunStartTask	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Task for PublishBackgroundGenerationRunStartTask	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	PublishStage6RunStartTask	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Task for PublishStage6RunStartTask	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	struct	PublishStage6GenerationTask	pub	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	impl	Task for PublishStage6GenerationTask	private	native/src/napi_engine/test_hook_sessions.rs
+native/src/napi_engine.rs	fn	parse_requested_math_backend	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	try_lock_fresh_inner	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	reject_faulted_fresh_inner	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	reject_faulted_fresh_mutex	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	fault_experimental_fresh_run	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	retain_experimental_fresh_run_fault	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	bounded_fresh_run_error_detail	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	bounded_fresh_run_panic_detail	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	ensure_fresh_transition_absent	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	ensure_fresh_transition_present	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	fresh_operation_phase	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	busy_fresh_run_snapshot	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	fresh_run_scalar_snapshot	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	fresh_run_snapshot_to_napi	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	fresh_run_frame_v1_output	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	frame_usize_to_u64	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	fresh_run_frame_v1_to_napi	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	run_start_publication_to_napi	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	parse_test_hook_epoch	private	native/src/napi_engine/fresh_run_helpers.rs
+native/src/napi_engine.rs	fn	parse_managed_path	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	parse_checkpoint_operation_id	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	parse_managed_checkpoint_publication_options	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	bounded_js_string	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	parse_u32_hex	private	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	parse_u64_hex	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	checkpoint_descriptor_to_napi	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	hall_of_fame_weights_descriptor_to_napi	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	checkpoint_descriptor_from_napi_object	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	require_exact_checkpoint_descriptor_keys	private	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	bounded_object_string	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	checkpoint_descriptor_from_napi	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	parse_numeric_encoding	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	hall_of_fame_weights_descriptor_from_napi	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	u64_hex	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	parse_background_sequence	pub (crate)	native/src/napi_engine/checkpoint_wire.rs
+native/src/napi_engine.rs	fn	generation_commit_to_napi	pub (crate)	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	background_generation_event_to_napi	pub (crate)	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	running_authority_event_to_napi	pub (super)	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	empty_background_generation_event	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	background_step_key_to_napi	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	background_generation_health_to_napi	pub (crate)	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	usize_hex	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	sha256_hex	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	generation_transition_reason_name	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	controller_kind_name	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	unavailable_controller_reason_name	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	running_loop_state_name	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	generation_assignment_to_napi	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	generation_snapshot_to_napi	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	fn	run_start_snapshot_to_napi	private	native/src/napi_engine/event_wire.rs
+native/src/napi_engine.rs	struct	ExperimentalRustEngine	pub	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	ExperimentalRustEngine	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	ExperimentalRustEngine	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	Drop for ExperimentalRustEngine	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	struct	JoinEngineTask	pub	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	JoinEngineTask	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	Task for JoinEngineTask	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	struct	NapiWakeSink	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	NapiWakeSink	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	WakeSink for NapiWakeSink	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	apply_wake_status	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	wake_status_to_result	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	struct	DrainConsumerGuard	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	DrainConsumerGuard < 'a >	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	impl	Drop for DrainConsumerGuard < '_ >	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	options_to_init	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	validate_bridge_safety_limits	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	validate_batch_reservation	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	command_metadata_bytes	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	validate_payload_before_copy	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	validate_probe_payload_len	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	copy_probe_payload	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	positive_u32	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	positive_usize	pub (crate)	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	bounded_error_detail	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	exact_u64	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	require_lossless_u64	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	required_property	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	event_to_napi	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	health_to_napi	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	usize_bigint	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	lifecycle_name	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	error_code_name	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	engine_error_to_napi	pub (crate)	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	napi_error_to_engine	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	panic_detail	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_engine.rs	fn	lock_recover	private	native/src/napi_engine/coarse_probe_bridge.rs
+native/src/napi_running_engine.rs	struct	BackgroundEvolvedPlacement	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	BackgroundEvolvedLifeStatus	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	BackgroundDisplayStatus	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	fn	display_status_to_napi	pub (crate)	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	fn	evolved_status_to_napi	private	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	BackgroundFrameCopy	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	BackgroundVisualizationLayer	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	fn	checked_entity_index	private	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	BackgroundVisualization	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	fn	visualization_to_napi	private	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	PreparedExportArchive	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	ArchiveWorkProgress	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	ArchivePhaseDiagnostics	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	ArchivePhaseTiming	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	ValidatedImportArchiveResult	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	ImportDiskEstimateResult	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	PreparedImportArchiveResult	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	PreparedImportInventoryResult	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	fn	import_inventory_to_napi	pub (crate)	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	struct	PreparedFreshRunResult	pub	native/src/napi_running_engine/wire_shapes.rs
+native/src/napi_running_engine.rs	fn	parse_export_inventory_descriptor	private	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	optional_reclaim_identity	private	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_live_settings	private	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_fresh_run_settings	private	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_fresh_run_graph	private	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_controller_join	pub (crate)	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_controller_reclaim	pub (crate)	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_reclaim_receipt	pub (crate)	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_controller_disconnect	pub (crate)	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_controller_action	pub (crate)	native/src/napi_running_engine/request_decode.rs
+native/src/napi_running_engine.rs	fn	parse_controller_receipt	pub (crate)	native/src/napi_running_engine/request_decode.rs
