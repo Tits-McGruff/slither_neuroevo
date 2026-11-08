@@ -30,7 +30,8 @@ module.exports = [
       'markdown-rules/**',
       '.vscode/**',
       'docs/api/**',
-      'native/**'
+      'native/**',
+      '.cache/webui-review/**'
     ]
   },
   {
@@ -45,6 +46,10 @@ module.exports = [
     rules: {
       ...js.configs.recommended.rules
     }
+  },
+  {
+    files: ['scripts/webui.browser.mjs'],
+    languageOptions: { globals: { ...globals.browser } }
   },
   {
     files: ['src/**/*.{ts,tsx}'],
