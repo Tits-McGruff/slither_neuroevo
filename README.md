@@ -413,7 +413,7 @@ The owner has deferred laptop performance and the remaining laptop workload
 checks until after this migration. These results do not establish the same
 display performance on every device. The measured scope, remaining limitations
 and links to raw reports are in the
-[factual implementation log](docs/todo/rust-authoritative-runtime-implementation-log.md).
+[factual implementation log](docs/archive/rust-authoritative-migration/rust-authoritative-runtime-implementation-log.md).
 
 ## Debian service, updates, and backups
 

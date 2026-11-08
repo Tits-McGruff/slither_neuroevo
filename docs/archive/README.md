@@ -5,6 +5,7 @@ These documents preserve completed or superseded implementation work. Current so
 - [Rust-authoritative migration](rust-authoritative-migration/): approved migration plan, implementation history and retained evidence.
 - [November 2026 modularization](modularization-2026-11/): implementation reports, independent review, file metrics and move maps. Slither PR #18 and PyRL PR #13 were merged.
 - [November 2026 Web UI improvements](webui-2026-11/): review and implementation evidence for merged PR #19.
+- [Evolved lives, sensors and canonical distillation](../todo/archive/evolved-lives-sensors-distillation-plan.md): completed feature implementation plan; remaining performance and learning questions are recorded separately.
 - [Earlier archived plans](../todo/archive/): superseded recovery and implementation plans.
 
 Historical evidence files were moved without changing their contents. Original paths recorded inside historical reports should be interpreted as paths at the time of the experiment.

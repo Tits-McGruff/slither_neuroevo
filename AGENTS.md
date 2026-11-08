@@ -1,6 +1,6 @@
 # Agent instructions for slither_neuroevo
 
-Status: active developer instructions. Revised 2026-10-25 to align with the current evolved-lives/sensors/distillation plan and to remove temporary migration/qualification machinery from the permanent development model.
+Status: active developer instructions. Updated 2026-11-08 to reflect completed feature implementation and archived planning records.
 
 ## Architecture and scope
 
@@ -12,7 +12,7 @@ The TypeScript simulator and Node inference pool are retired. The archived combi
 
 `package.json` and its lockfile define the Node toolchain. TypeScript, ESLint and Vite use their root configs. `data/slither.db` and `server/config.toml` are owner state and stay untracked. `server/config.ts` creates default TOML only when absent.
 
-Durable architectural decisions belong under `docs/decisions/`. Plans under `docs/todo/` describe active or historical project work and are subordinate to current code plus accepted decisions. The active `docs/todo/evolved-lives-sensors-distillation-plan.md` defines the feature behavior and current project/process direction. Historical implementation logs, benchmark receipts and qualification reports are historical records rather than standing development requirements.
+Durable architectural decisions belong under `docs/decisions/`. Current source, tests, versioned contracts, this file, `docs/API-instructions.md` and accepted decisions govern present behavior. `docs/todo/` tracks separately scoped research, qualification and future work. The completed evolved-lives/sensors/distillation implementation plan is archived at `docs/todo/archive/evolved-lives-sensors-distillation-plan.md`; it is historical context, not an active development mandate. Historical implementation logs, benchmark receipts and qualification reports are records rather than standing development requirements.
 
 ## Development model
 
@@ -58,7 +58,7 @@ A physical evolved life may be replaced while population slot, genome and popula
 
 Preserve Protocol 2 compatibility unless a deliberate protocol revision is made. God Mode kill follows ordinary death semantics; God Mode move translates the complete body within bounds.
 
-V3 sensors remain the frozen compatibility layout. V4 Basic/Motion structural identities, profile/bin widths and ray-work settings are governed by the active feature plan and Rust canonical sensor metadata. Fresh defaults are Motion/B16 with baseline v2 stochastic at 1/60 s and SSE2, selected by Windows/Oxygen P0 real-time and query-quality qualification. P99 is reported, not a separate per-step deadline gate. Do not silently change recorded/imported settings.
+V3 sensors remain the frozen compatibility layout. V4 Basic/Motion structural identities, profile/bin widths and ray-work settings are governed by Rust canonical sensor metadata, generated shared contracts and the current API documentation. Fresh defaults are Motion/B16 with baseline v2 stochastic at 1/60 s and SSE2, selected by Windows/Oxygen P0 real-time and query-quality qualification. P99 is reported, not a separate per-step deadline gate. Do not silently change recorded/imported settings.
 
 Pure graph schema/compiler/editor, stack builder and parameter-count presentation may remain TypeScript. Graph execution belongs only to Rust. Ports are zero-based; Split sizes sum to inputs; Concat ordering is explicit; outputs total two; graph keys and parameter/state layouts are persistence/interoperability boundaries.
 
@@ -199,7 +199,7 @@ Temporary workspaces are disposable. Keep required durable artifacts in their in
 
 ## Branches and history
 
-The active feature branch may use short-lived experiment branches. After an experiment is integrated or rejected, remove obsolete branch-specific CI and metadata.
+New feature work may use short-lived experiment branches. After an experiment is integrated or rejected, remove obsolete branch-specific CI and metadata.
 
 Before deleting or rewriting published feature history, preserve genuinely unique work and any required rollback backup. Do not rewrite `main`, unrelated historical branches or release tags casually. Never keep old payload-heavy history reachable through hidden recovery refs merely to satisfy an obsolete provenance mechanism.
 
@@ -214,15 +214,15 @@ When history has deliberately been rewritten, update operational cross-repositor
 - Keep README controls/settings aligned with the actual setting definitions. Remove documentation for retired controls.
 - Use ordinary CommonMark with blank lines around lists and fenced blocks.
 - Keep migration documentation compact. Git history, focused regression tests and current design docs are normally enough.
-- Do not append ordinary CI/test counts or implementation diary entries to the active behavioral plan or `AGENTS.md`.
+- Do not append ordinary CI/test counts or implementation diary entries to active documentation or `AGENTS.md`.
 - Create standalone benchmark/compatibility documents only when the information remains useful and cannot be represented more simply by source, tests, an artifact and a short summary.
 - Never commit `data/slither.db`, generated native binaries, PID/log files, `server/config.toml`, large generated qualification payloads or copied source archives.
 - Preserve Rust generation-best-score initialization before the first sensor pass.
 - Treat all runtime identities listed above as distinct.
 - Avoid adding a new package, framework, registry or durable metadata layer when ordinary code plus an established library solves the problem.
 
-## Handoff rule
+## Documentation authority
 
-When this revised `AGENTS.md` is supplied together with the revised evolved-lives/sensors/distillation plan, treat both as owner-authored replacements for their older feature-branch versions. Integrate them into the cleaned active feature history and any surviving related branch that genuinely needs the developer instructions. Do not preserve conflicting older copies merely for branch parity.
+Current code, tests, versioned contracts and accepted decisions govern the running implementation. Keep public interface specifications under `docs/`, performance measurements under `docs/performance/`, and separately scoped future work or optional empirical qualification under `docs/todo/`. Historical plans and implementation logs under `docs/archive/` and `docs/todo/archive/` must not be treated as unfinished implementation checklists or as instructions to restore retired feature branches.
 
-If an older implementation log, historical plan paragraph, benchmark README or migration test conflicts only on development process, evidence retention, CI cadence, experiment-branch handling, source provenance or test organization, these revised instructions and the revised plan take precedence. Product/runtime behavior and compatibility contracts remain governed by current source, accepted decisions and the revised behavioral plan.
+A failed, deferred or unverified performance or learning gate describes evidence for the tested conditions, not proof that a feature was never implemented. Report those limits accurately, and reopen implementation only for a concrete defect or a newly requested product change.
