@@ -47,3 +47,6 @@ contracts/build/
 
 # Local benchmark outputs; publish selected results through CI artifacts.
 data/benchmarks/
+
+# Disposable browser verification instance, screenshots and reports.
+.cache/webui-review/

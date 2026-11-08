@@ -107,8 +107,8 @@ function uploadServerArchive(
     request.upload.onprogress = event => {
       if (event.lengthComputable) onProgress?.(event.loaded, event.total);
     };
-    request.onerror = () => reject(new Error('archive upload connection failed'));
-    request.onabort = () => reject(new Error('archive upload was cancelled'));
+    request.onerror = () => reject(new Error('Archive connection lost. Import outcome is uncertain; reconnect and inspect the current run before importing again.'));
+    request.onabort = () => reject(new Error('Upload interrupted. An admitted import may still complete; reconnect and inspect the current run before importing again.'));
     request.onload = () => {
       let result: (Partial<ServerArchiveImportResult> & { code?: string }) | undefined;
       try { result = JSON.parse(request.responseText) as Partial<ServerArchiveImportResult> & { code?: string }; }

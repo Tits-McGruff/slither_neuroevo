@@ -38,6 +38,19 @@ function makeCtx() {
 }
 
 describe('chartUtils.ts', () => {
+  it('explains empty history and labels actual generation identities in narrow charts', () => {
+    const ctx = makeCtx(); const context = ctx as unknown as CanvasRenderingContext2D;
+    AdvancedCharts.renderAverageFitness(context, [], 280, 300);
+    expect(ctx.calls.some(call => call[0] === 'fillText' && String(call[1]).includes('No completed generations'))).toBe(true);
+    ctx.calls.length = 0;
+    AdvancedCharts.renderAverageFitness(context, [{gen:42,avgFitness:50000,maxFitness:100000,minFitness:0}, {gen:55,avgFitness:60000,maxFitness:120000,minFitness:0}], 280, 300);
+    const texts = ctx.calls.filter(call => call[0] === 'fillText');
+    expect(texts.some(call => call[1] === '42')).toBe(true);
+    expect(texts.some(call => call[1] === '55')).toBe(true);
+    expect(texts.some(call => call[1] === 'Generation')).toBe(true);
+    expect(texts.some(call => call[1] === '120.0k')).toBe(true);
+    for (const call of texts) expect(Number(call[2])).toBeLessThan(280);
+  });
   it('renders average fitness without throwing', () => {
     const ctx = makeCtx();
     const chartCtx = ctx as unknown as CanvasRenderingContext2D;

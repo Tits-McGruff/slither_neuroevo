@@ -36,6 +36,14 @@ function makeCtx() {
 }
 
 describe('BrainViz.ts', () => {
+  it('resizes in CSS coordinates and keeps edge neurons inside the viewport', () => {
+    const viz = new BrainViz(0, 0, 360, 400);
+    viz.resize(280, 260);
+    expect([viz.x, viz.y, viz.w, viz.h]).toEqual([14, 12, 252, 236]);
+    viz.resize(420, 360);
+    expect(viz.x + viz.w).toBeLessThan(420);
+    expect(viz.y + viz.h).toBeLessThan(360);
+  });
   it('renders expected number of neurons for MLP', () => {
     const ctx = makeCtx();
     const vizCtx = ctx as unknown as CanvasRenderingContext2D;

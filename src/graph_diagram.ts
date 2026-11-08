@@ -8,6 +8,18 @@ export const DIAGRAM_NODE_WIDTH = 140;
 /** Diagram node height in pixels. */
 export const DIAGRAM_NODE_HEIGHT = 44;
 
+/** Invert the browser's complete SVG transform, including viewBox letterboxing. */
+export function screenToSvg(svg: SVGSVGElement | null, event: Pick<MouseEvent, 'clientX' | 'clientY'>): {x: number; y: number} | null {
+  const matrix = svg?.getScreenCTM();
+  if (!svg || !matrix) return null;
+  try {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX; point.y = event.clientY;
+    const local = point.matrixTransform(matrix.inverse());
+    return Number.isFinite(local.x) && Number.isFinite(local.y) ? {x: local.x, y: local.y} : null;
+  } catch { return null; } // A hidden/detached SVG can have a singular transform.
+}
+
 /** Diagram node derived from graph spec for SVG rendering. */
 type DiagramNode = {
   id: string;
@@ -244,6 +256,17 @@ export function renderGraphDiagramView(spec: GraphSpec, ports: GraphDiagramPort)
       group.setAttribute('data-output-index', String(node.outputIndex));
     }
     group.setAttribute('cursor', 'pointer');
+    group.setAttribute('tabindex', '0');
+    group.setAttribute('role', 'button');
+    group.setAttribute('aria-label', `${node.label}, ${node.type}. Select to edit in the inspector.`);
+    group.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      if (node.outputIndex != null) ports.setGraphSelection({ outputIndex: node.outputIndex });
+      else ports.setGraphSelection({ nodeId: node.id });
+      const replacement = Array.from(graphDiagram.querySelectorAll<SVGGElement>('[data-node-id]')).find(element => element.dataset['nodeId'] === node.id);
+      replacement?.focus();
+    });
 
     const isSelected =
       node.outputIndex != null
@@ -311,12 +334,15 @@ export function renderGraphDiagramView(spec: GraphSpec, ports: GraphDiagramPort)
       if (!point) return;
       const current = positions.get(node.id);
       if (!current) return;
+      ports.setGraphSelection({ nodeId: node.id });
       ports.graphDragState = {
         id: node.id,
         offsetX: point.x - current.x,
         offsetY: point.y - current.y
       };
-      group.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      // Capture on the stable SVG: diagram children are replaced while dragging.
+      graphDiagram.setPointerCapture?.(event.pointerId);
     });
 
     group.addEventListener('click', (event) => {

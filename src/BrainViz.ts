@@ -28,6 +28,12 @@ export class BrainViz {
     this.h = h;
   }
 
+  /** Adapt the drawing rectangle to CSS pixels, leaving room for edge neurons. */
+  resize(width: number, height: number): void {
+    this.x = 14; this.y = 12;
+    this.w = Math.max(1, width - 28); this.h = Math.max(1, height - 24);
+  }
+
   /**
    * Render the brain visualization if data is available.
    * @param ctx - Canvas 2D context to draw into.

@@ -33,6 +33,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
     row.className = 'graph-inspector-row';
     const label = document.createElement('label');
     label.textContent = labelText;
+    input.setAttribute('aria-label', labelText);
     row.appendChild(label);
     row.appendChild(input);
     return row;
@@ -125,7 +126,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
       }
       if (ports.graphSelectedNodeId === oldId) ports.graphSelectedNodeId = nextId;
       ports.renderGraphEditor();
-      ports.setGraphSpecStatus('Node id updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Node id updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('Id', idInput));
 
@@ -145,7 +146,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
       const nextType = typeSelect.value as GraphNodeType;
       spec.nodes[nodeIndex] = ports.createNode(nextType, node.id);
       ports.renderGraphEditor();
-      ports.setGraphSpecStatus('Node type updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Node type updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('Type', typeSelect));
 
@@ -161,7 +162,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
         const next = Number(output.value);
         if (!Number.isFinite(next)) return;
         node.outputSize = next;
-        ports.setGraphSpecStatus('Updated node sizes. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated node sizes. Stage graph to use it.');
       });
       graphDiagramInspector.appendChild(makeRow('Output', output));
     }
@@ -171,7 +172,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
       hidden.value = (node.hiddenSizes ?? []).join(', ');
       hidden.addEventListener('change', () => {
         node.hiddenSizes = parseNumberList(hidden.value);
-        ports.setGraphSpecStatus('Updated hidden sizes. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated hidden sizes. Stage graph to use it.');
       });
       graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
     }
@@ -184,7 +185,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
         const next = Number(hidden.value);
         if (!Number.isFinite(next)) return;
         node.hiddenSize = next;
-        ports.setGraphSpecStatus('Updated hidden size. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated hidden size. Stage graph to use it.');
       });
       graphDiagramInspector.appendChild(makeRow('Hidden', hidden));
     }
@@ -196,7 +197,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
         const next = parseNumberList(sizes.value);
         if (!next.length) return;
         node.outputSizes = next;
-        ports.setGraphSpecStatus('Updated split sizes. Apply graph to use it.');
+        ports.setGraphSpecStatus('Updated split sizes. Stage graph to use it.');
       });
       graphDiagramInspector.appendChild(makeRow('Outputs', sizes));
     }
@@ -220,7 +221,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
           ports.graphLayoutOverrides.delete(removedId);
           ports.setGraphSelection({});
           ports.renderGraphEditor();
-          ports.setGraphSpecStatus('Node removed. Apply graph to use it.');
+          ports.setGraphSpecStatus('Node removed. Stage graph to use it.');
         }
       }
     ]);
@@ -246,7 +247,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
     fromSelect.addEventListener('change', () => {
       edge.from = fromSelect.value;
       ports.renderGraphEditor();
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('From', fromSelect));
 
@@ -259,7 +260,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
       } else {
         edge.fromPort = Number(value);
       }
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('From port', fromPort));
 
@@ -274,7 +275,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
     toSelect.addEventListener('change', () => {
       edge.to = toSelect.value;
       ports.renderGraphEditor();
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('To', toSelect));
 
@@ -287,7 +288,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
       } else {
         edge.toPort = Number(value);
       }
-      ports.setGraphSpecStatus('Edge updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Edge updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('To port', toPort));
 
@@ -300,7 +301,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
           spec.edges.splice(edgeIndex, 1);
           ports.setGraphSelection({});
           ports.renderGraphEditor();
-          ports.setGraphSpecStatus('Edge removed. Apply graph to use it.');
+          ports.setGraphSpecStatus('Edge removed. Stage graph to use it.');
         }
       }
     ]);
@@ -326,7 +327,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
     nodeSelect.addEventListener('change', () => {
       output.nodeId = nodeSelect.value;
       ports.renderGraphEditor();
-      ports.setGraphSpecStatus('Output updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Output updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('Node', nodeSelect));
 
@@ -339,7 +340,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
       } else {
         output.port = Number(value);
       }
-      ports.setGraphSpecStatus('Output updated. Apply graph to use it.');
+      ports.setGraphSpecStatus('Output updated. Stage graph to use it.');
     });
     graphDiagramInspector.appendChild(makeRow('Port', portInput));
 
@@ -352,7 +353,7 @@ export function renderGraphInspectorView(spec: GraphSpec, ports: GraphInspectorP
           spec.outputs.splice(outputIndex, 1);
           ports.setGraphSelection({});
           ports.renderGraphEditor();
-          ports.setGraphSpecStatus('Output removed. Apply graph to use it.');
+          ports.setGraphSpecStatus('Output removed. Stage graph to use it.');
         }
       }
     ]);

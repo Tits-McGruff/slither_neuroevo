@@ -4,26 +4,29 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Neuroevolution Slither Sim</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0e14'/%3E%3Cpath d='M7 23V12a5 5 0 0 1 10 0v8a4 4 0 0 0 8 0V9' fill='none' stroke='%2363e6b6' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
   <!-- External stylesheet containing all styles for the simulation UI -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <!-- Main drawing surface for the simulation -->
-  <canvas id="c"></canvas>
+  <canvas id="c" tabindex="0" aria-label="Live simulation world. Use the control panel for run statistics and camera controls."></canvas>
   <div id="genTimer" class="gen-timer">0.00/0.00</div>
-  <div id="joinOverlay" class="join-overlay">
+  <button id="panelToggle" class="panel-toggle" aria-expanded="true" aria-controls="panel">Hide controls</button>
+  <div id="joinOverlay" class="join-overlay" role="dialog" aria-modal="true" aria-label="Join simulation">
     <div class="join-card">
       <div class="join-title">
         <span class="join-title-main">neuro</span><span class="join-title-accent">evo</span>
       </div>
       <div class="join-subtitle">Enter a nickname to play</div>
       <div class="join-hint">Mouse to steer. Hold click to boost.</div>
-      <input id="joinName" class="join-input" type="text" maxlength="24" placeholder="Nickname" autocomplete="off" />
+      <input id="joinName" class="join-input" type="text" maxlength="24" placeholder="Nickname" aria-label="Nickname" autocomplete="off" aria-describedby="joinHelp" />
+      <div id="joinHelp" class="meta">Play uses a mouse. On touch screens, choose Spectate to watch and explore.</div>
       <div class="join-actions">
         <button id="joinPlay" class="join-play" disabled>Play</button>
         <button id="joinSpectate" class="join-spectate">Spectate</button>
       </div>
-      <div id="joinStatus" class="join-status">Connecting...</div>
+      <div id="joinStatus" class="join-status" role="status">Connecting...</div>
     </div>
   </div>
   <!-- Control panel for adjusting simulation settings -->
@@ -32,9 +35,10 @@
       Sim controls
       <span id="connectionStatus" class="connection-status connecting">Connecting</span>
     </div>
+    <div id="runSummary" class="meta run-summary"></div>
     
     <!-- Tab Headers -->
-    <div class="tab-header">
+    <div class="tab-header" role="tablist" aria-label="Simulation tools">
       <button class="tab-btn active" data-tab="tab-settings">Settings</button>
       <button class="tab-btn" data-tab="tab-viz">Visualizer</button>
       <button class="tab-btn" data-tab="tab-stats">Stats</button>
@@ -50,8 +54,15 @@
           <span class="lock-label">Settings lock</span>
           <button id="toggleSettingsLock" class="lock-btn">Unlock</button>
         </div>
-        <div id="settingsLockHint" class="meta">Locked to keep little hands off the sliders.</div>
+        <div id="settingsLockHint" class="meta">Configuration protected.</div>
       </div>
+      <div class="btnrow observation-controls">
+        <button id="toggle">Switch view (V)</button>
+        <button id="fitArena">Fit arena (Home)</button>
+        <button id="btnExport" class="btn">Export checkpoint</button>
+      </div>
+      <p class="meta">View and export do not change the experiment. Export downloads the latest published population checkpoint.</p>
+      <p id="pendingConfiguration" class="pending-configuration" role="status" hidden></p>
 
       <div id="settingsControls">
         <div class="row">
@@ -122,7 +133,7 @@
                 <button id="graphDiagramAddOutput" class="btn small" type="button">Add output</button>
                 <button id="graphDiagramAuto" class="btn small" type="button">Auto layout</button>
                 <button id="graphDiagramDelete" class="btn small" type="button">Delete</button>
-                <button id="graphDiagramToggle" class="btn small" type="button">Full screen</button>
+                <button id="graphDiagramToggle" class="btn small" type="button" aria-expanded="false" aria-controls="graphDiagramWrap">Expand editor</button>
               </div>
             </div>
             <svg id="graphDiagram" class="graph-diagram-svg" viewBox="0 0 800 360" role="img" aria-label="Brain graph diagram"></svg>
@@ -167,8 +178,8 @@
           </div>
 
           <div class="graph-actions">
-            <button id="graphApply" class="btn">Apply graph</button>
-            <button id="graphReset" class="btn">Reset graph</button>
+            <button id="graphApply" class="btn">Stage graph for reset</button>
+            <button id="graphReset" class="btn">Discard graph edits</button>
             <button id="graphUseStack" class="btn">Use stack controls</button>
             <div id="graphSpecStatus" class="meta">Graph not applied yet.</div>
           </div>
@@ -200,14 +211,13 @@
         </details>
 
         <details open>
-          <summary>All other settings</summary>
+          <summary>Advanced simulation settings</summary>
           <div class="group" id="settingsContainer"></div>
           <div class="control-group">
             <label>Persistence</label>
             <div class="row" style="gap: 8px;">
-              <button id="btnPinCheckpoint" class="btn" hidden>Pin checkpoint</button>
-              <button id="btnExport" class="btn">Export</button>
-              <button id="btnImport" class="btn">Import</button>
+              <button id="btnPinCheckpoint" class="btn" hidden>Protect latest checkpoint</button>
+              <button id="btnImport" class="btn">Import and replace world…</button>
               <input type="file" id="fileInput" style="display: none;" accept=".slither-save,.json">
             </div>
           </div>
@@ -218,7 +228,7 @@
 
         <div class="btnrow">
           <button id="apply">Apply and reset</button>
-          <button id="defaults">Defaults</button>
+          <button id="defaults">Stage defaults</button>
         </div>
         <div id="finishGenerationStatus" class="meta" role="status" hidden></div>
         <div id="resetStatus" class="meta reset-status" role="status" hidden></div>
@@ -227,12 +237,7 @@
           <button id="newRun">New Run (new seed)</button>
           <button id="finishGeneration" hidden>Finish generation now</button>
         </div>
-        <div class="meta">Starts and checkpoints a new seed without deleting earlier saves.</div>
-
-        <div class="btnrow">
-          <button id="toggle">Toggle view (V)</button>
-          <button id="fitArena">Fit arena (Home)</button>
-        </div>
+        <div class="meta">Apply and reset starts a new run boundary with the same seed and staged configuration. New Run uses the currently running configuration with a new seed. Earlier saves remain stored.</div>
 
         <div class="note">
           Scroll to zoom around the pointer. Drag to pan while spectating; middle-drag also pans while playing. Home fits the arena, and V returns to automatic overview/follow. Shift + drag moves a selected snake in God Mode.
@@ -246,7 +251,9 @@
         <h3>Brain Visualizer</h3>
         <p class="meta">Visualizing the neural network of the focused snake.</p>
       </div>
-      <canvas id="vizCanvas" width="360" height="400"></canvas>
+      <canvas id="vizCanvas" width="360" height="400" role="img" aria-label="Live neural activations of the focused snake"></canvas>
+      <p class="meta">Mint: positive · coral: negative · cyan: recurrent memory. Select a snake in the world to focus it.</p>
+      <button class="btn" data-open-tab="tab-stats">Inspect decisions and statistics →</button>
       <div id="vizInfo" class="info-block"></div>
     </div>
 
@@ -256,14 +263,16 @@
         <h3 id="statsTitle">Fitness History</h3>
         <p id="statsSubtitle" class="meta">Population fitness over generations.</p>
       </div>
-      <div class="row stats-selector">
+      <div class="row stats-selector" role="group" aria-label="Statistics chart">
         <button class="stats-view-btn active" data-stats="fitness">Fitness</button>
         <button class="stats-view-btn" data-stats="diversity">Diversity</button>
         <button class="stats-view-btn" data-stats="complexity">Complexity</button>
       </div>
-      <canvas id="statsCanvas" width="360" height="300"></canvas>
+      <canvas id="statsCanvas" width="360" height="300" role="img" aria-label="Evolution history chart" aria-describedby="chartSummary"></canvas>
+      <p id="chartSummary" class="meta"></p>
+      <button class="btn" data-open-tab="tab-viz">View selected brain →</button>
       <div id="statsInfo" class="info-block"></div>
-      <p id="selectedEntityInfo" class="meta selected-entity-info" aria-live="polite">Select a snake to inspect its live origin.</p>
+      <p id="selectedEntityInfo" class="meta selected-entity-info">Select a snake to inspect its live origin.</p>
       <section id="decisionInspector" class="decision-inspector" hidden>
         <label><input id="decisionInspectorEnabled" type="checkbox"> Decision inspector</label>
         <div class="row inspector-owner"><label for="decisionInspectorSlot">Population slot (0-based)</label><input id="decisionInspectorSlot" type="number" min="0" max="299" step="1" value="0"><button id="decisionInspectorSelect" class="btn">Select individual</button></div>

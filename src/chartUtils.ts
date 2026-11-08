@@ -12,6 +12,26 @@ interface FitnessHistoryEntry {
   weightVariance?: number;
 }
 
+/** Compact tick labels keep large scientific values inside a narrow sidebar. */
+function axisValue(value: number): string {
+  const magnitude = Math.abs(value);
+  return magnitude >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : magnitude >= 1e3 ? `${(value / 1e3).toFixed(1)}k` : value.toFixed(magnitude < 1 ? 2 : 1);
+}
+
+/** Generation labels refer to actual history identities rather than array indexes. */
+function generationAxis(ctx: CanvasRenderingContext2D, history: FitnessHistoryEntry[], w: number, h: number, padding: number): void {
+  ctx.fillStyle = '#aebed3'; ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText(String(history[0]?.gen ?? ''), padding, h - padding + 16);
+  ctx.textAlign = 'right'; ctx.fillText(String(history.at(-1)?.gen ?? ''), w - padding, h - padding + 16);
+  ctx.textAlign = 'center'; ctx.fillText('Generation', w / 2, h - 10);
+}
+
+/** Cold empty state explains when authoritative history will become available. */
+function emptyChart(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  ctx.clearRect(0, 0, w, h); ctx.fillStyle = '#aebed3'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('No completed generations yet', w / 2, h / 2, w - 24);
+}
+
 /** Chart renderer for advanced stats graphs. */
 export class AdvancedCharts {
   /**
@@ -27,11 +47,11 @@ export class AdvancedCharts {
     w: number,
     h: number
   ): void {
-    if (!history || history.length === 0) return;
+    if (!history || history.length === 0) { emptyChart(ctx, w, h); return; }
     
     ctx.clearRect(0, 0, w, h);
     
-    const padding = 40;
+    const padding = 52;
     const graphW = w - padding * 2;
     const graphH = h - padding * 2;
     
@@ -40,7 +60,7 @@ export class AdvancedCharts {
     let minFit = Infinity;
     history.forEach(h => {
       maxFit = Math.max(maxFit, h.maxFitness || 0, h.avgFitness || 0);
-      minFit = Math.min(minFit, h.minFitness || Infinity, h.avgFitness || 0);
+      minFit = Math.min(minFit, h.minFitness ?? Infinity, h.avgFitness ?? 0);
     });
     
     if (minFit === Infinity) minFit = 0;
@@ -70,7 +90,7 @@ export class AdvancedCharts {
       ctx.fillStyle = '#aaa';
       ctx.font = '10px monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(val.toFixed(1), padding - 5, y + 3);
+      ctx.fillText(axisValue(val), padding - 5, y + 3);
     }
     
     // Draw data lines
@@ -114,19 +134,20 @@ export class AdvancedCharts {
       ctx.stroke();
     }
     
+    generationAxis(ctx, history, w, h, padding);
     // Title and legend
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('Average Fitness Over Time', padding, 20);
+    ctx.fillText('Average Fitness Over Time', padding, 20, w - padding - 8);
     
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#0f0';
-    ctx.fillText('■ Max', padding + 200, 20);
+    ctx.fillText('■ Max', padding, 40);
     ctx.fillStyle = '#ff0';
-    ctx.fillText('■ Avg', padding + 250, 20);
+    ctx.fillText('■ Avg', padding + 65, 40);
     ctx.fillStyle = '#f00';
-    ctx.fillText('■ Min', padding + 300, 20);
+    ctx.fillText('■ Min', padding + 130, 40);
   }
   
   /**
@@ -142,11 +163,11 @@ export class AdvancedCharts {
     w: number,
     h: number
   ): void {
-    if (!history || history.length === 0) return;
+    if (!history || history.length === 0) { emptyChart(ctx, w, h); return; }
     
     ctx.clearRect(0, 0, w, h);
     
-    const padding = 40;
+    const padding = 52;
     const graphW = w - padding * 2;
     const graphH = h - padding * 2;
 
@@ -210,6 +231,7 @@ export class AdvancedCharts {
       ctx.stroke();
     }
 
+    generationAxis(ctx, history, w, h, padding);
     // Title + legend
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px sans-serif';
@@ -217,9 +239,9 @@ export class AdvancedCharts {
     ctx.fillText('Species Diversity', padding, 20);
     ctx.font = '11px sans-serif';
     ctx.fillStyle = 'rgba(90,170,255,0.9)';
-    ctx.fillText('■ Species count', padding + 180, 20);
+    ctx.fillText('■ Species', padding, 40);
     ctx.fillStyle = '#ffb347';
-    ctx.fillText('— Top species size', padding + 300, 20);
+    ctx.fillText('— Largest species', padding + 95, 40);
   }
   
   /**
@@ -235,11 +257,11 @@ export class AdvancedCharts {
     w: number,
     h: number
   ): void {
-    if (!history || history.length === 0) return;
+    if (!history || history.length === 0) { emptyChart(ctx, w, h); return; }
     
     ctx.clearRect(0, 0, w, h);
     
-    const padding = 40;
+    const padding = 52;
     const graphW = w - padding * 2;
     const graphH = h - padding * 2;
 
@@ -276,7 +298,7 @@ export class AdvancedCharts {
       ctx.fillStyle = '#aaa';
       ctx.font = '10px monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(val.toFixed(2), padding - 5, y + 3);
+      ctx.fillText(axisValue(val), padding - 5, y + 3);
     }
 
     if (history.length > 1) {
@@ -307,6 +329,7 @@ export class AdvancedCharts {
       ctx.stroke();
     }
 
+    generationAxis(ctx, history, w, h, padding);
     // Title + legend
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px sans-serif';
@@ -314,8 +337,8 @@ export class AdvancedCharts {
     ctx.fillText('Network Complexity', padding, 20);
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#5ee1ff';
-    ctx.fillText('— Avg |w|', padding + 200, 20);
+    ctx.fillText('— Avg |w|', padding, 40);
     ctx.fillStyle = '#d58bff';
-    ctx.fillText('— Var(|w|)', padding + 280, 20);
+    ctx.fillText('— Var(|w|)', padding + 100, 40);
   }
 }

@@ -66,7 +66,7 @@ async function loadPresetById(presetId: number, ports: GraphPresetPort): Promise
       ports.setGraphSpecStatus(`Preset graph invalid: ${result.reason}`, true);
       return;
     }
-    ports.setGraphDraft(data.preset.spec, `Loaded preset "${data.preset.name}". Apply graph to use it.`);
+    ports.setGraphDraft(data.preset.spec, `Loaded preset "${data.preset.name}". Stage graph to use it.`);
   } catch (err) {
     console.warn('[graph-presets] load failed', err);
     ports.setGraphSpecStatus('Failed to load preset.', true);
