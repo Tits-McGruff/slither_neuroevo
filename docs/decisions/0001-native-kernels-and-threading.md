@@ -10,7 +10,7 @@
 This ADR was written as though the repository owner had approved kernel-only
 Rust and rejected a Rust-owned game. The owner has explicitly stated that this
 attribution was false and approved the opposite forward architecture in
-`docs/todo/rust-authoritative-runtime-plan.md`.
+`docs/archive/rust-authoritative-migration/rust-authoritative-runtime-plan.md`.
 
 This file remains to show what the repository previously implemented and why
 later code has its current shape. It is not an accepted constraint, must not

@@ -313,7 +313,7 @@ fn first_random_candidate_matches_the_typescript_three_draw_formula() {
     let config = SpawnConfig::typescript_geometry_defaults();
     // Captured by scripts/stage5/generate-spawn-fixtures.ts and retained in
     // Generator archived at archive/ts-reference-and-rust-2026-10-10.
-    // docs/todo/evidence/stage5/typescript-spawn-fixtures.json. Keep these
+    // docs/archive/rust-authoritative-migration/evidence/stage5/typescript-spawn-fixtures.json. Keep these
     // literal values independent of Rust's candidate/body helpers.
     let expected_direction = 3.799_256_610_584_831_8;
     let expected_body = [

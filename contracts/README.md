@@ -34,7 +34,7 @@ commit with complete native output admission. A rebuilt server advertises reward
 v1 and binary envelope v2, and Node routes closures before successor assignments.
 Legacy peers retain their original format unless hello requests the extension.
 See `docs/API-instructions.md` for negotiation and wire semantics. The behavioral plan is
-[`docs/todo/ppo-reward-action-policy-repair-plan.md`](../docs/todo/ppo-reward-action-policy-repair-plan.md).
+[`docs/todo/ppo-reward-action-policy-repair-plan.md`](../docs/todo/archive/ppo-reward-action-policy-repair-plan.md).
 
 Regenerate after changing a native contract:
 
